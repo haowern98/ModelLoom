@@ -1,0 +1,121 @@
+# ModelLoom technical specification
+
+**Status:** Draft for technical review; architecture proposals are not implementation authorization  
+**Updated:** 2026-10-01  
+**Product source:** [PRODUCT-SPEC.md](PRODUCT-SPEC.md)
+
+## 1. Purpose and decision status
+
+The later [ADR-0003](decisions/0003-lm-studio-behavior-reference.md) extends LM Studio's reference role to applicable non-networking architecture and behavior, including concurrency and runtime compatibility. Use documented/observed behavior first, preserve approved ModelLoom requirements, and record evidence-backed deviations. Networking remains under D02-D03; proprietary internals and signing mechanisms cannot be assumed.
+
+Translate P1-P9 into component responsibilities and non-functional requirements. Product behavior remains authoritative in the product specification. Contracts belong in [INTEGRATION-SPEC.md](INTEGRATION-SPEC.md), security in [SECURITY-SPEC.md](SECURITY-SPEC.md), and presentation in [UI-SPEC.md](UI-SPEC.md). Execution steps belong in [PLAN.md](../plans/PLAN.md).
+
+Electron, existing dense llama.cpp-compatible GGUFs, the three connection modes, independent runtime releases, and the product/UI baseline are established requirements. [ADR-0002](decisions/0002-lm-studio-runtime-direction.md) adds the accepted LM Studio hosting direction, grouped llama-server naming, crash isolation, shared headless core/runtime machinery, and owned shutdown. The language/tooling and source layout below remain recommendations for review. D01 must complete the [LM Studio runtime audit](../plans/LM-STUDIO-RUNTIME-AUDIT.md) before exact hosting/protocol/package decisions. No product dependencies, code, build configuration, or native runtime have been created here.
+
+## 2. Proposed languages and tooling
+
+| Layer | Recommendation | Constraint |
+| --- | --- | --- |
+| Desktop and control logic | TypeScript with strict checking | Validate external values at runtime as well as compile time. |
+| UI | React with TypeScript, HTML, and CSS | React remains a recommendation under D10. Match the supplied screens; framework choice does not permit redesign. |
+| Native runtime | Versioned platform/backend llama.cpp packages built from a pinned C/C++/ggml source revision | Reuse supported CUDA/Metal/CPU backends. Custom native adapters are added only if the completed audit and distributed requirements justify them; do not invent a wrapper solely to rename llama-server. |
+| Networking component | Go only if selected integration needs it | `tsnet` is a Go library; D02 must settle the integration before adding a language or helper. |
+| Build and verification | One JS workspace manager, CMake/native platform toolchains, automated formatting/linting and tests | D10 selects supported versions, compiler standard, package manager, and test tools. Do not publish speculative setup commands as working instructions. |
+
+TypeScript strict mode strengthens checking; it is not a network or IPC validation mechanism. [TypeScript documentation](https://www.typescriptlang.org/tsconfig/strict). `tsnet` can embed a Tailscale node in a Go program; this does not establish our cross-platform packaging or Headscale integration. [Tailscale documentation](https://tailscale.com/docs/features/tsnet).
+
+## 3. Proposed component boundaries
+
+Required functional shape, following LM Studio's current llama.cpp direction:
+
+```text
+ModelLoom Electron GUI
+        | app/core protocol
+ModelLoom Core (desktop or independent headless deployment)
+        | engine protocol
+Versioned llama.cpp runtime
+        | supported native backends
+CUDA / Metal / CPU
+```
+
+This establishes responsibilities and reuse, not a finalized process tree, port, IPC mechanism, or library ABI. D01 records those details from current installations and source evidence before ModelLoom-specific hosting is chosen.
+
+| Component | Responsibility | Must not own |
+| --- | --- | --- |
+| Desktop renderer | Five screens, accessible interactions, presentation of subscribed state | Direct filesystem/process access, unrestricted IPC, worker authorization decisions, update trust decisions. |
+| Desktop main and narrow preload bridge | Application lifecycle, approved privileged actions, validated communication with renderer | Arbitrary commands or file paths supplied by untrusted content. |
+| ModelLoom Core | GUI-independent model/session/device control, request coordination, owned runtime supervision, storage/diagnostics, desktop/headless reuse | DOM rendering, Electron-only lifecycle dependencies, or a duplicate headless runtime manager. |
+| Headless entry point and worker role | Independently operate the same core/runtime machinery, with worker/service lifecycle, local device participation, control and logs without a desktop | A requirement to run Electron or keep a user logged into a graphical desktop. |
+| Versioned inference runtime | GGUF loading, backend execution, supported placement, generation and native capability reporting under core control | Product UI or independent authority to accept peers/download unverified updates. |
+| Contracts | Logical messages, validation schemas, version rules, stable errors | Secret defaults, hidden fallback behavior, or an unreviewed wire protocol. |
+| Networking integration | LAN reachability/discovery and the selected private-network component behind reviewed access restrictions | Public raw RPC exposure or automatic API authorization. |
+
+These are ownership boundaries. D01 is the LM Studio architecture replication audit, and D02-D03 determine transport and pairing. Isolate native inference outside the GUI/main process; a library loaded into the GUI itself cannot satisfy ordinary native-crash isolation. The audit determines whether the reference uses an executable, library-loaded worker, or other layers per runtime/platform and how to reproduce it. Windows app grouping, names, runtime/core survival, and absence of visible console windows need actual packaged-build verification. The accepted llama-server name does not finalize all helper/RPC names or establish macOS/Linux grouping.
+
+## 4. Proposed source layout
+
+| Path | Purpose |
+| --- | --- |
+| `apps/desktop/` | Electron main/preload/renderer; renderer features Models, Cluster, Chat, API, Settings. |
+| `apps/worker/` | Provisional headless worker-role entry point into the same core/runtime machinery; any standalone core entry-point location is settled after D01. |
+| `packages/contracts/` | Validated app, worker, engine, and API-facing contracts. |
+| `packages/control-core/` | Shared device, networking, model/request, runtime, storage, and diagnostic logic. |
+| `engine/` | Only native integration/adapters and tests justified by the reviewed audit/distributed requirements; the versioned llama-server package does not require a new custom engine host by default. |
+| `third_party/llama.cpp/` | Pinned upstream dependency if the selected fetch/submodule arrangement uses a checkout here. |
+| `tests/integration/`, `tests/acceptance/`, `tests/fixtures/` | Cross-component tests, J1-J15 journeys, and small synthetic inputs. |
+| `packaging/desktop/`, `packaging/runtime/` | Separate app and native-runtime packaging. |
+| `scripts/`, `.github/workflows/` | Necessary development utilities and automated verification. |
+
+Unit tests live beside the component they test. Create directories when needed. This draft does not authorize creating the source layout or select the upstream acquisition method.
+
+## 5. Lifecycle and request requirements
+
+- T01 (P3-P4, P8): Maintain one active model identity with its runtime, context/sampling settings, selected devices, and applied placement. A library selection, pending placement, or installed runtime update cannot silently change it.
+- T02 (P8): Route Chat and API through one bounded coordination policy using LM Studio's configurable concurrent predictions/continuous batching as the reference under [ADR-0003](decisions/0003-lm-studio-behavior-reference.md). One active model can serve multiple isolated requests. D09 verifies concurrency, queue ownership/capacity, wait bounds, fairness, overload, cancellation, and restart semantics; do not invent a serial-only default or duplicate engine scheduling without evidence. Validate cluster memory/context and unchanged-quality behavior before selecting actual limits. Pending requests must not be silently served by a newly switched model.
+- T03 (P4, P6): Distinguish stopped, preparation/loading, ready, generating, stopping, interrupted, and failed states. The exact event names belong to the reviewed contract. A partially generated answer cannot become completed after worker failure.
+- T04 (P8): Keep saved placement and applied placement separate. Apply pending changes through a user-requested restart after preflight; stop/cancel or otherwise resolve active and queued requests according to the approved policy.
+- T05 (P1, P6): Bound retries and process restart attempts. Report exhausted recovery with a useful action. A restart must not duplicate a request, replay an interrupted generation secretly, create orphan workers, or race a shutdown/runtime switch.
+- T06 (P1, P4): Reconcile state after lost event connections and process restarts. A stale running badge is not proof of a live model, API, or worker.
+
+## 6. Models, placement, and storage
+
+- T07 (P3): Read actual GGUF identity, architecture, quantization, file size, supported context metadata, and runtime capabilities. Unsupported combinations fail preflight with a reason; do not guess compatibility from a model display name.
+- T08 (P3): Estimate weights, context/KV-related memory, and runtime/backend overhead for selected placement. Label estimates and report actual measurements separately. Do not sum Apple unified memory and discrete VRAM as interchangeable capacity.
+- T09 (P3, P8): Automatically transfer/cache only required model data within approved device and storage boundaries. D04 establishes whether data is tensors, files, or another supported form, integrity checks, quota enforcement, interrupted-transfer recovery, and eviction rules.
+- T10 (P3-P4): Store conversations, settings, placements, model metadata, and runtime inventory locally. D04 selects persistence format, migration, crash recovery, locking, and deletion behavior. No database technology is assumed yet.
+- T11 (P3, P6): Clearing caches must preserve original user model files, active required data, unrelated files, and the retained rollback package unless the UI explicitly requests and safely handles the corresponding removal.
+
+## 7. Networking and platform requirements
+
+The [2026-10-01 source investigation](../docs/research/NETWORKING-AND-RUNTIME-UPDATES.md) supports tsnet as a candidate bundled Go network component. Its address is userspace-local to the embedded stack, so native runtime sockets need a reviewed forwarding path; it does not supply an automatic OS route. Custom control-server configuration supports investigating Headscale, with exact version/platform behavior still untested. Source feasibility does not accept D02 or bypass D01 hosting review.
+
+- T12 (P2): LAN works for colocated devices without private-network enrollment. Discovery is a convenience, not authentication. Manual private-address entry remains available.
+- T13 (P2): Offer Tailscale and existing Headscale enrollment/control in the app using embedded or managed components. Report actual direct/relayed/unknown path and reachability. A failed path cannot silently fall back to an unapproved public route.
+- T14 (P1-P2): Linux worker operation needs no desktop session. Service installation, permissions, startup/recovery, OS credential access, and shutdown must be reviewed and tested under the selected packaging design.
+- T15 (P1, P7): Support Windows/Linux NVIDIA CUDA and Apple Silicon macOS Metal. D10 specifies OS/architecture floors and CPU fallback behavior. List supported combinations from actual runtime metadata; no compatibility promise based solely on the UI mockups.
+- T16 (P2, P6): Connectivity and performance are distinct. Show measured path information with units and freshness, and report unknown when unavailable. Tailscale/Headscale connectivity does not guarantee throughput or RTT.
+
+## 8. Runtime lifecycle and correctness
+
+- T17 (P5): App and runtime package versions are independent. Installed/selected/active runtime identities are separate; provide supported in-app/headless-core install/select/update/rollback operations without Electron rebuild/reinstall or end-user compilation. Activate only between sessions after signature, integrity, platform/backend, and cluster compatibility checks.
+- T18 (P5-P6): Keep the last working package until the candidate starts and loads the previously working model successfully. A failed activation preserves user state and offers rollback. Coordinate cluster transitions so a partially updated cluster cannot serve as if compatible.
+- T19 (P5): Runtime metadata includes source revision, build identity, platform/backend, and compatibility. D11 defines manifest schema and trust policy. D01 establishes LM Studio package layout/version selection and process presentation from actual evidence. Upstream shared-library support is a feasibility input, not an instruction to load llama.cpp into Electron. [llama.cpp build configuration](https://github.com/ggml-org/llama.cpp/blob/master/CMakeLists.txt).
+- T20 (P3, P8): Preserve weights, quantization, context semantics, and configured sampling. Do not accept a performance feature without the approved single-GPU quality/reference contract under D12. Only draft-free speculative methods may be considered, and they must have no quality loss.
+- T21 (P5-P6): Contain ordinary runtime termination/native crashes. Keep the GUI and unaffected core usable, invalidate the affected session, mark partial output interrupted/failed, resolve affected queued work, and offer bounded controlled restart/reload. Native-crash and simple process-termination tests are separate; neither proves protection from OS/GPU-driver failure.
+- T22 (P5): In normal Windows desktop operation, verify managed llama-server within ModelLoom's app group; the raw name and separate Details PID are allowed. Do not promise invisibility, infer grouping from parenthood alone, or require Windows presentation on macOS/Linux. Observe helper/RPC names and independently launched headless visibility under D01.
+- T23 (P5-P6): Track ownership of desktop core/runtime/helpers. Full Quit stops admission, cancels/resolves work, requests graceful shutdown, escalates on a bounded deadline, and confirms all owned exits. Review abnormal-exit cleanup, hanging processes, startup/update/restart races, and process-handle/PID reuse under D01. Never terminate by name or kill unrelated independent headless/remote deployments. Release distributed assignments through a reviewed teardown policy.
+- T24 (P1, P5): Desktop and independent headless deployments use essentially the same core/runtime mechanisms for launch, version management, compatibility, recovery, and shutdown. Record deployment ownership explicitly; headless reuse is not merely duplicating a sidecar launcher. D01 must be complete and reviewed before choosing exact core/engine protocols or hosting.
+
+## 9. Non-functional acceptance
+
+| Area | Required evidence |
+| --- | --- |
+| Reliability | Cancellation, worker loss, model-load failure, stale state, quota exhaustion, restart, failed-update recovery, native engine crash and owned exit tests; J7-J11, J13-J15. |
+| Security/privacy | Trust boundaries, forbidden peers/clients, malicious content, tampered packages, path escape, secret-free diagnostics, and owned-process/engine-endpoint checks; S01-S17. |
+| Usability/accessibility | Reference comparison for all five screens, keyboard/focus/scaling/reduced-motion checks, readable error recovery; J12. |
+| Portability | Clean-install evidence, Windows app grouping, observed macOS/Linux names/tree, mixed-device multi-node journeys, CUDA/Metal reporting, headless reuse and OS-specific cleanup; J1-J4, J8, J13-J15. |
+| Maintainability | Strict checking, consistent formatting, focused boundaries, documented contracts, pinned dependencies, tests linked to requirement IDs, and independent review where warranted. |
+| Offline behavior | With app/runtime/GGUF present, local and LAN inference works offline and failed update checks do not block it; J1, J2. |
+| Performance/resource use | Bounded queues/retries/cache limits and documented metric definitions. Numeric responsiveness, memory, and speed acceptance limits require reviewed evidence; none are invented here. |
+
+An automated build is not platform GUI evidence, mock worker tests are not mixed-device acceptance, and product acceptance is not a speed benchmark. Record exact versions/configuration, results, and limitations in the plan's evidence log.

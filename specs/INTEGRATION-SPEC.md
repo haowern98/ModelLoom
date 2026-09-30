@@ -1,0 +1,109 @@
+# ModelLoom integration specification
+
+**Status:** Draft logical contracts for review; no wire protocol or API implementation is finalized  
+**Updated:** 2026-10-01  
+**Sources:** [product](PRODUCT-SPEC.md), [technical](TECHNICAL-SPEC.md), [security](SECURITY-SPEC.md)
+
+## 1. Scope and contract status
+
+Define what components exchange and the externally visible outcomes. GUI -> ModelLoom Core -> independently versioned runtime is the accepted functional direction under [ADR-0002](decisions/0002-lm-studio-runtime-direction.md). These logical contracts constrain later schemas without assuming IPC channel names, binary encoding, local ports, library, database, or engine ABI. The D01 LM Studio architecture replication audit must be complete and reviewed before core/engine hosting and communication are selected. D02-D04, D06-D07, and D09-D11 settle other details before implementation.
+
+The contracts cover renderer-to-control communication, control-to-engine operations, approved worker participation, Chat/API requests, storage, and runtime distribution. Inference tensor/RPC messages remain owned by the pinned native runtime; do not invent a second tensor protocol from this draft.
+
+## 2. Common rules
+
+- I01: Validate message schema, caller identity/permission, lengths, ranges, enumerations, and referenced object IDs at every trust boundary. TypeScript types do not validate received bytes.
+- I02: Correlate operations using opaque operation/request IDs. State updates carry a source/session identity and revision so clients can reject stale events and resynchronize after reconnect.
+- I03: Return structured success or failure. Errors include a stable category, non-sensitive explanation, affected operation/object, and a recovery action when available. Do not return credentials, prompts, full private paths, or raw stack dumps to remote clients.
+- I04: Timeouts, maximum payloads, queue bounds, transfer limits, and retry budgets must be explicit in the reviewed schemas. No unbounded allocation, waiting, retry, or background command may be inferred from a missing value.
+- I05: Separate requested, saved, selected, applied, and observed state. An accepted command is not proof of completed loading, transfer, activation, or generation.
+- I06: Retry only operations with defined idempotency semantics. Do not retry generation transparently after an uncertain execution result or resume a broken distributed session without a correctness contract.
+- I07: Tokens, generated text, names, metadata, links, and downloaded manifests are untrusted input. Rendering and validation do not execute supplied instructions.
+
+## 3. Logical data model
+
+| Entity | Required information | Invariants |
+| --- | --- | --- |
+| Device | Stable peer/device identity; label; OS/architecture; role; approval state; health; runtime identity; available compute devices | An address or discovered name is not a trusted identity. Removal revokes the authorized participation path. |
+| Compute device | Device owner; backend/type; reported capabilities; capacity kind; available/used memory; freshness; readiness | Discrete VRAM and unified memory remain distinct. Unknown measurements are explicitly unknown. |
+| Connection | Peer identity; selected LAN/Tailscale/Headscale mode; observed path; reachability; direct/relay/unknown; RTT measurement and freshness | API permissions are not inherited from this connection. No silent public fallback. |
+| Model asset | Stable asset identity; local file/reference; observed GGUF metadata; size; integrity identity; source/license metadata when available | Display name alone does not select a file or imply compatibility. No model/quantization substitution. |
+| Placement | Model/config identity; participating compute devices; supported assignments; estimated memory; saved revision; applied revision | Pending changes cannot alter an active session. Assignments come from actual model/runtime capabilities. |
+| Runtime package | Package/source/build identities; OS/architecture/backend; compatibility metadata; verified manifest/package identity; installed/selected/active state | Selection does not activate an unverified package or bypass cluster compatibility. |
+| Core deployment/runtime process | Deployment mode/ownership, trusted owned process/session references, runtime package/session identity, readiness/exit/error state | Desktop-owned and independently launched headless deployments are distinct. Display name alone is not identity or permission to terminate a process. |
+| Model session | Session/model/runtime/placement identities; context and sampling config; participating peers; lifecycle/error state | Exactly one active model under P8; session identity changes on a reviewed switch/restart. |
+| Generation request | Request/session IDs; source Chat/API; caller; input/settings; queued/running/terminal state; cancellation association | A request is served by its intended model/session or receives an explicit failure; never an unnoticed model swap. |
+| Conversation/message | Local identity; timestamps; selected session/model information; role/text; generation request link; completion/interruption state | Partial output and failure state persist together. Format/migration governed by D04. |
+| Diagnostic/metric | Source, value/unit, scope, timestamp/window, availability, and redacted error category | Samples, estimates, and measurements are distinct; unavailable is not zero or healthy. |
+
+Field names, exact types, optionality, serializations, and version numbers require reviewed schemas. This table is not permission to pass unrestricted local paths or capabilities to the renderer.
+
+## 4. Desktop bridge
+
+| Operation family | Validated input | Observable result |
+| --- | --- | --- |
+| State inspection/subscription | Allowed subscription scope and current revision | Snapshot plus ordered scoped events; reconnect can request a fresh snapshot. |
+| Model import/download | Explicit local selection through privileged file selection, or approved catalogue asset identity | Metadata/compatibility and progress, then verified availability or actionable failure. |
+| Device discovery/pairing/removal | Selected network, candidate identity, user approval/action | Discovered is separate from approved; removed/revoked peers lose access. |
+| Placement save/apply | Intended model/config, compute-device IDs, supported assignments, revision, explicit restart action | Saved pending revision; preflight; applied revision only after restart succeeds. |
+| Model lifecycle | Intended model/runtime/config/placement identities and explicit action | Preparation/loading/ready/stopping/failed state. Switching reports affected work before execution. |
+| Chat generation/cancellation | Conversation/session identity, validated settings/input, caller-owned request ID | Queue state, progress, text events, and exactly one terminal result. |
+| API management | Explicit endpoint scope/settings, credential action, start/stop action | Actual bound address/state, masked credential status, and non-sensitive metrics. |
+| Runtime lifecycle | Verified package identity, selected version, explicit activation/rollback action | Download/verification/compatibility/activation result with retained rollback inventory; independently accessible through the shared headless core machinery. |
+| Full desktop Quit | Local user action and owned deployment/session scope | Admission closed, requests resolved/cancelled, owned shutdown progress and verified exits; unrelated headless deployments remain untouched. |
+| Storage/diagnostics | Owned storage resource IDs, explicit removal/export selections | Quota/usage report or scoped cleanup/export result with redaction. |
+
+Expose dedicated methods for approved actions; no generic send-any-channel, execute-command, read-any-path, or unrestricted native-object bridge. Validate the requesting renderer/frame as well as payloads. UI key reveal/copy is a narrow explicit local action under the reviewed credential design, not a general secret-reading API.
+
+## 5. Control-to-engine and worker contracts
+
+The engine reports runtime/build/backend capabilities and actual devices before model preflight. The GUI communicates with a GUI-independent core; that core owns runtime lifecycle. Both desktop and independent headless entry points use essentially the same core/engine contract. A versioned llama-server process is acceptable; the D01 audit determines the exact observed reference process/library arrangement and communication protocol before ModelLoom-specific selection. Define startup handshake, trusted identity, readiness bounds, cancellation, shutdown, exit/crash events, compatibility, and any actual library ABI after that audit.
+
+Worker control reports approved identity, reachable path, compute capabilities, runtime compatibility, assigned work, and errors. Pairing/authentication must finish before a peer can reach native worker operations. Transport security and native-RPC encapsulation are specified under D03. The app's approved-peer label must correspond to an enforced access boundary.
+
+Required disconnect behavior (P4.3, J7): mark the affected session/request interrupted or failed, stop serving that session, preserve partial output as partial, cancel or explicitly fail dependent queued work under D09, and show recovery. Do not acknowledge completion based only on an open TCP connection or stale worker health.
+
+Generation emits text/progress until one terminal outcome: completed, cancelled, interrupted, or failed. Event reconnection cannot duplicate tokens or turn an interrupted request into completed. Backpressure and buffer limits are defined before streaming implementation.
+
+### Runtime crash and owned shutdown
+
+An ordinary llama-server termination/native crash emits a correlated runtime-exit/failure outcome with non-sensitive cause/package/session context. The core stops admission to the affected session, resolves affected queue work under D09, preserves partial output as interrupted/failed, and keeps the GUI/unaffected core alive. Restart/reload is bounded and cannot silently replay an uncertain generation or resume admission during shutdown. Windows grouping is a presentation check, not a message or permission boundary.
+
+Full desktop Quit must have explicit ordered lifecycle semantics: close admission, cancel/resolve queued and active work, request graceful owned-runtime teardown, escalate if the bounded deadline expires, wait for verified engine/helper exit, then complete the desktop-owned core/GUI shutdown. The reviewed protocol defines acknowledgement versus actual exit, cancellation races, stream terminal behavior, and handling of a hung/unreachable core. Do not assume that terminating a parent automatically terminates all descendants.
+
+D01 must establish an abnormal-exit cleanup strategy and authoritative ownership references, including processes created during loading/updating/restarting and PID/handle reuse. Never select victims by executable name. Independently launched headless deployments have their own lifecycle and are not terminated by another desktop's Quit; remote worker services receive reviewed assignment teardown rather than an indiscriminate service shutdown. Window X performs full Quit under ADR-0003; minimize is distinct.
+
+## 6. Chat/API coordination
+
+P8 requires one active model with bounded request admission shared by Chat and API. [ADR-0003](decisions/0003-lm-studio-behavior-reference.md) makes LM Studio's configurable parallel predictions/continuous batching the reference, rather than one-response-at-a-time generation. The scheduler validates the intended active model and settings, reports admission or overload, provides queue/busy state, and correlates cancellation with caller ownership. Establish core versus engine queue ownership before adding scheduling layers.
+
+D09 must establish LM Studio's versioned concurrent-prediction/load-parameter behavior and investigate pending queue capacity, ordering/fairness, wait timeout, per-client controls, cancellation races, and switching behavior. Its officially documented concurrency default of four does not specify pending capacity or guarantee distributed support. Tests must cover simultaneous Chat/API generation, request-state isolation, saturation, queued cancellation, cancellation of one request while another continues, disconnected clients, and model/placement/runtime restart. Record justified parity gaps and do not hard-code queue limits from screenshot request counts.
+
+## 7. OpenAI-compatible API scope
+
+Product requirement P4 establishes an OpenAI-compatible local API. The following is a **proposed initial compatibility surface for D07 review**, not a promise that every OpenAI endpoint/SDK feature is supported:
+
+| Candidate operation | Intended behavior | Review requirement |
+| --- | --- | --- |
+| Model listing (`GET /v1/models`) | Report identifiers usable by this server and active model availability | Define whether imported but inactive models are listed and how availability is represented. |
+| Chat completions (`POST /v1/chat/completions`) | Validate requested active model, supported messages/settings, non-streaming and streaming generation | Pin accepted fields, response shapes, usage reporting, termination and error semantics. |
+
+Do not advertise embeddings, vision, audio, tool execution, Responses API, model routing, or arbitrary OpenAI compatibility without a specification and actual runtime support. D08 decides attachment scope. Generated examples use the active model's API identifier and actual endpoint; Python examples do not make Python an app implementation dependency.
+
+API default access is localhost with an API key required by default. LAN/private exposure is explicit and requires an API key. D06 records the accepted loopback default; D07 defines transport, interface binding, browser origin/host rules, credential lifecycle, and how access changes affect existing connections. 'Network' cannot silently mean every host interface or public exposure.
+
+The reviewed API must specify HTTP and streaming behavior for invalid input, missing/invalid credentials, inactive/unsupported model, full queue, no compatible worker, cancelled request, partial stream failure, timeout, and server shutdown. If a stream already started, an error must not be encoded as a successful finished answer. Do not use the screenshot's example SDK comments as a credential contract.
+
+## 8. Model distribution and runtime packages
+
+Model-data movement: identify required asset/data and destination approval, reserve/check quota, transfer with integrity and cancellation, commit availability only when complete, and report partial/failure/cleanup state. D04 selects the actual mechanisms and semantics. No partial asset is reported as ready; no cleanup reaches outside managed locations.
+
+Runtime movement: resolve a reviewed manifest/package identity, verify authenticity/integrity and platform/backend, install separately from the active runtime, check compatibility across the selected cluster, and activate only between sessions. Retain the working package and user state until the candidate passes the required startup/model checks. Provide this through supported GUI/headless-core operations without reinstalling Electron or compiling/replacing executables manually. Do not replace a running executable/package in place. D01 records audited reference layout/selection behavior, while D11 defines manifests, signature canonicalization, version rules, and failure recovery; no signature algorithm or trust key is invented here.
+
+Independent app/runtime releases need explicit supported contract ranges, not assumptions that matching human-readable version strings prove compatibility. An unsupported handshake or incompatible peer produces a clear preflight failure and a coordinated update/rollback option.
+
+## 9. Acceptance and schema readiness
+
+Before contract implementation, each affected D decision must be accepted, messages must have concrete schemas with bounds and versioning, and error/cancellation semantics must have observable acceptance tests. Validate malformed, oversized, replayed/stale, unauthorized, interrupted, and incompatible inputs as well as normal behavior.
+
+Trace resulting checks to P1-P6/P8, T01-T24, S01-S17, J1-J11 and J13-J15. Include graceful exit, hung-engine escalation, native crash, abnormal desktop exit, concurrent runtime transition/Quit, independent headless ownership, and no hidden replay. UI tests cover presentation but cannot establish actual worker security, transport compatibility, native execution, process cleanup, or API interoperability. Record tested client/runtime/platform versions and unsupported fields rather than claiming blanket SDK compatibility.
