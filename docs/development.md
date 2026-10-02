@@ -61,7 +61,7 @@ Run these from `E:\ModelLoom-Project`. The verified host is Windows x64, Node 24
 | `pnpm lint` | Type-aware TypeScript linting and conventional Node configuration checks. |
 | `pnpm format:check` | Verify owned code and configuration formatting. `pnpm format` applies it. |
 | `pnpm test` | Ten state/component behavior tests. |
-| `pnpm test:e2e` | Four browser checks: reference-size composition, keyboard modal behavior, smaller-window/grid/search interaction, and metadata containment across seven widths. Install Chromium with `pnpm --filter @modelloom/desktop exec playwright install chromium` on a clean host. |
+| `pnpm test:e2e` | Five browser checks: reference-size composition, keyboard modal behavior, smaller-window/grid/search interaction, and metadata containment across seven widths with both system and Arial fallback fonts. Install Chromium with `pnpm --filter @modelloom/desktop exec playwright install chromium` on a clean host. |
 | `pnpm build` | Renderer production build with demo fixture initialization disabled. |
 | `pnpm package:demo` | Explicit unsigned Windows demo package under `apps/desktop/out/ModelLoom-win32-x64/`; no installer or updater is produced. |
 | `pnpm test:desktop` | Launch the packaged demo, check renderer Node isolation/sandbox, navigate, capture the Models view, and confirm the owned app exits. Requires `pnpm package:demo` first. |
