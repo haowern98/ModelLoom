@@ -52,31 +52,38 @@ test('search, grid and a smaller window remain usable', async ({ page }) => {
   await page.screenshot({ path: 'test-results/models-small-grid.png' });
 });
 
-test('metadata stays inside its tiles across desktop widths and views', async ({ page }) => {
-  await page.goto('/');
-  for (const width of [1280, 1279, 1240, 1200, 1180, 1100, 1000]) {
-    await page.setViewportSize({ width, height: 720 });
-    for (const view of ['list', 'grid']) {
-      if (view === 'grid') await page.getByRole('button', { name: 'Show grid view' }).click();
-      const overflow = await page
-        .locator('article > div:nth-child(2) > div')
-        .evaluateAll((tiles) => {
-          const clipped: string[] = [];
-          for (const tile of tiles) {
-            const bounds = tile.getBoundingClientRect();
-            for (const text of tile.querySelectorAll('span, strong')) {
-              const range = document.createRange();
-              range.selectNodeContents(text);
-              const content = range.getBoundingClientRect();
-              if (content.left < bounds.left + 1 || content.right > bounds.right - 1) {
-                clipped.push(text.textContent ?? '');
+for (const font of ['system', 'Arial fallback']) {
+  test(`metadata stays inside its tiles across desktop widths and views (${font})`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    if (font === 'Arial fallback') {
+      await page.addStyleTag({ content: ':root { font-family: Arial, sans-serif; }' });
+    }
+    for (const width of [1280, 1279, 1240, 1200, 1180, 1100, 1000]) {
+      await page.setViewportSize({ width, height: 720 });
+      for (const view of ['list', 'grid']) {
+        if (view === 'grid') await page.getByRole('button', { name: 'Show grid view' }).click();
+        const overflow = await page
+          .locator('article > div:nth-child(2) > div')
+          .evaluateAll((tiles) => {
+            const clipped: string[] = [];
+            for (const tile of tiles) {
+              const bounds = tile.getBoundingClientRect();
+              for (const text of tile.querySelectorAll('span, strong')) {
+                const range = document.createRange();
+                range.selectNodeContents(text);
+                const content = range.getBoundingClientRect();
+                if (content.left < bounds.left + 1 || content.right > bounds.right - 1) {
+                  clipped.push(text.textContent ?? '');
+                }
               }
             }
-          }
-          return clipped;
-        });
-      expect(overflow, `${view} view at ${width}px`).toEqual([]);
+            return clipped;
+          });
+        expect(overflow, `${view} view at ${width}px`).toEqual([]);
+      }
+      await page.getByRole('button', { name: 'Show list view' }).click();
     }
-    await page.getByRole('button', { name: 'Show list view' }).click();
-  }
-});
+  });
+}
