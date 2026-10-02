@@ -1,6 +1,6 @@
 # ModelLoom technical specification
 
-**Status:** Draft for technical review; architecture proposals are not implementation authorization  
+**Status:** Desktop foundation approved and implemented; remaining architecture proposals need review
 **Updated:** 2026-10-01  
 **Product source:** [PRODUCT-SPEC.md](PRODUCT-SPEC.md)
 
@@ -10,14 +10,16 @@ The later [ADR-0003](decisions/0003-lm-studio-behavior-reference.md) extends LM 
 
 Translate P1-P9 into component responsibilities and non-functional requirements. Product behavior remains authoritative in the product specification. Contracts belong in [INTEGRATION-SPEC.md](INTEGRATION-SPEC.md), security in [SECURITY-SPEC.md](SECURITY-SPEC.md), and presentation in [UI-SPEC.md](UI-SPEC.md). Execution steps belong in [PLAN.md](../plans/PLAN.md).
 
-Electron, existing dense llama.cpp-compatible GGUFs, the three connection modes, independent runtime releases, and the product/UI baseline are established requirements. [ADR-0002](decisions/0002-lm-studio-runtime-direction.md) adds the accepted LM Studio hosting direction, grouped llama-server naming, crash isolation, shared headless core/runtime machinery, and owned shutdown. The language/tooling and source layout below remain recommendations for review. D01 must complete the [LM Studio runtime audit](../plans/LM-STUDIO-RUNTIME-AUDIT.md) before exact hosting/protocol/package decisions. No product dependencies, code, build configuration, or native runtime have been created here.
+Electron, existing dense llama.cpp-compatible GGUFs, the three connection modes, independent runtime releases, and the product/UI baseline are established requirements. [ADR-0002](decisions/0002-lm-studio-runtime-direction.md) adds the accepted LM Studio hosting direction, grouped llama-server naming, crash isolation, shared headless core/runtime machinery, and owned shutdown. The desktop choices are now approved as recorded below; the remaining language/tooling and component proposals still need review. D01 must complete the [LM Studio runtime audit](../plans/LM-STUDIO-RUNTIME-AUDIT.md) before exact hosting/protocol/package decisions. No native runtime has been implemented.
+
+On 2026-10-01 the user approved implementation of the desktop foundation: Electron, React, strict TypeScript, pnpm, Vite/Electron Forge, CSS Modules/shared tokens, ESLint/Prettier, Vitest/Testing Library and Playwright. `apps/desktop/` now implements the shared shell and Models screen with explicitly marked demo data; other screens are placeholders. This settles D10's desktop choices only. Core language, native/runtime hosting, supported platform floors, networking, signed updates, and distributed correctness remain under their existing review gates. A preload is deferred because this milestone uses native window controls and has no privileged renderer operations.
 
 ## 2. Proposed languages and tooling
 
 | Layer | Recommendation | Constraint |
 | --- | --- | --- |
 | Desktop and control logic | TypeScript with strict checking | Validate external values at runtime as well as compile time. |
-| UI | React with TypeScript, HTML, and CSS | React remains a recommendation under D10. Match the supplied screens; framework choice does not permit redesign. |
+| UI | React with TypeScript, HTML, CSS Modules, and shared CSS variables | Approved for the desktop foundation. Match the supplied screens; framework choice does not permit redesign. |
 | Native runtime | Versioned platform/backend llama.cpp packages built from a pinned C/C++/ggml source revision | Reuse supported CUDA/Metal/CPU backends. Custom native adapters are added only if the completed audit and distributed requirements justify them; do not invent a wrapper solely to rename llama-server. |
 | Networking component | Go only if selected integration needs it | `tsnet` is a Go library; D02 must settle the integration before adding a language or helper. |
 | Build and verification | One JS workspace manager, CMake/native platform toolchains, automated formatting/linting and tests | D10 selects supported versions, compiler standard, package manager, and test tools. Do not publish speculative setup commands as working instructions. |
