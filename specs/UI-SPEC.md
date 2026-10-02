@@ -1,14 +1,14 @@
 # ModelLoom UI specification
 
-**Status:** Agreed visual references with behavior draft for review; no UI implementation yet  
-**Updated:** 2026-10-01  
+**Status:** Agreed visual references; shared shell and Models demo implemented for visual review
+**Updated:** 2026-10-02
 **Related:** [product](PRODUCT-SPEC.md), [integration](INTEGRATION-SPEC.md), [security](SECURITY-SPEC.md)
 
 Runtime behavior follows [ADR-0002](decisions/0002-lm-studio-runtime-direction.md): LM Studio GUI/core/runtime direction, accepted grouped llama-server, independent upgrades, ordinary engine-crash isolation, and desktop-owned shutdown. The [runtime process screenshot](references/runtime/README.md) is lifecycle/presentation evidence, not an additional UI-screen design.
 
 ## 1. Visual source of truth
 
-The user requires the app to match the five supplied ModelLoom screens. The unchanged images are preserved under [references/ui](references/ui/README.md). Match layout, spacing, proportions, typography, colors, icons, cards, controls, and status bars; do not substitute a generic dashboard or redesign the composition.
+The user requires the app to match the five supplied ModelLoom screens, subject to the explicit revisions below. The unchanged images are preserved under [references/ui](references/ui/README.md). Match the approved layout, spacing, proportions, colors, icons, cards, controls, and status bars; do not substitute a generic dashboard or redesign the composition. Font sizes follow the ChatGPT reference by text role, as defined in section 2.1, rather than the original ModelLoom screenshots.
 
 | Screen | Reference | Comparison image size |
 | --- | --- | --- |
@@ -22,16 +22,41 @@ These are image dimensions, not assumed CSS viewport sizes. Capture equivalent f
 
 The user's supplementary [panel-layering.png](references/ui/panel-layering.png) clarifies the aesthetic: where there is a sidebar and right-hand content panel, the right-hand panel is **darker**, reads as a **foreground surface above the sidebar**, and has **rounded exposed corners**, especially the visible top-left boundary. 'Above' describes visual stacking, not moving the panel upward on the page. Keep separation subtle; do not add a heavy border or pronounced shadow absent from the references.
 
+The user's later comparison makes the ChatGPT app the proportion reference for the outer title bar and left icon rail. Use a taller title bar and narrower rail than the initial ModelLoom demo, preserving the supplied ModelLoom screen contents and panel layering. The current visual-review dimensions are a 44px title bar, matching native window-control overlay, a 50px rail, and centered 36px rail buttons. These are CSS dimensions derived approximately from the scaled reference; compare captures at matching OS scaling before claiming an exact visual match.
+
+The user's subsequent header revision removes the separate ModelLoom logo/name row and the Models subtitle. Align the Models heading, search, view toggle, Import GGUF, and Download models controls in one centered row at supported desktop sizes. Keep the demo indicator in the bottom status bar, outside the header. This explicit revision supersedes the branding row and Models subtitle in the original screen references.
+
+The first authorized milestone implements this shell and the Models screen with a visible **Demo data** indicator. Search, view switching, confirmed simulated model switching, stopping, details, and confirmed demo-entry removal operate locally. Import/download controls explain their unavailable integration; no file transfer or inference is simulated as a real operation. Cluster, Chat, API, and Settings remain explicitly labeled next-milestone placeholders. Exact font/logo assets, unfinished screen behavior and visual acceptance still need review; a passing screenshot capture is not a claim of pixel identity.
+
 ## 2. Shared visual and interaction rules
 
 - U01 (P7, P9): Preserve the narrow navigation rail, ModelLoom identity, main content composition, blue primary actions/selected outlines, dark surfaces, restrained borders/glow, and persistent bottom status bar shown in the relevant screen image.
-- U02 (P9): Use shared components/tokens for buttons, search fields, cards, menus, badges, inputs, panels, spacing, typography, and icons. Derive values from the references and reviewed assets; do not invent exact font names, radii, or pixel values and call them approved.
+- U02 (P9): Use shared components/tokens for buttons, search fields, cards, menus, badges, inputs, panels, spacing, typography, and icons. Derive font sizes from the ChatGPT reference for the corresponding text role; use the approved visual references and assets for other properties. Do not invent exact font names, radii, or pixel values and call them approved.
 - U03 (P7): Every actionable element has an accessible name, keyboard operation, visible focus, and a clear disabled/busy/error meaning. Status uses readable text/icon meaning in addition to color. Hover-only controls must also work by keyboard.
 - U04 (P4, P6, P9): Data is real in normal operation. Show unknown/stale/unavailable explicitly; sample metrics, names, model layer ranges, and chat text are fixture content only. A hidden optional status display cannot suppress critical errors.
 - U05 (P7, P9): Define empty, loading, success, interrupted, disconnected, and failed states in the same visual language. Recovery appears near the affected action with a concise reason and next action; detailed logs are secondary.
 - U06 (P7): No mandatory onboarding wizard or tour. Make add-device, choose-model, start, chat, API access, and runtime controls discoverable in context. Technical explanations remain short and useful.
 
 Window controls must remain operable with the correct platform behavior. The target dark references are the visual acceptance baseline. Light/system appearance options shown in Settings require reviewed theme behavior/assets; no light reference has been supplied. Define smaller-window behavior, scaling, minimum sizes, and overflow under D08 before claiming acceptance there. Preserve readability rather than shrink controls into unusable targets.
+
+### 2.1. Font sizes by text role
+
+**Approved scale; applied to the existing desktop views:** Use the concrete CSS sizes below, selected using the user's ChatGPT conversation, Library, and Scheduled references. Shared tokens now cover the Models screen, menus, dialogs, footer, and unfinished-screen placeholders. The chat-message token is defined for the future Chat implementation. The original five ModelLoom screenshots are no longer a font-size requirement. Their composition remains applicable except for the separately approved shell/header revisions.
+
+| ModelLoom text role | CSS font size | Reference role and application |
+| --- | --- | --- |
+| Main page headings | **24px** | Library-style main heading; Models, Cluster, API, Settings, and any full-page Chat heading |
+| Sidebar, section, and dialog headings | **18px** | Scheduled-style sidebar heading and comparable section titles; includes conversation-list and settings-category headings |
+| Model names, device names, and card titles | **16px** | Titles of suggestion cards; use the same role size for active and inactive model names |
+| Chat messages | **16px** | Conversation text |
+| Dialog body and explanatory text | **14px** | Body copy, help text, and supporting card descriptions |
+| Buttons, menu options, and search/input text | **14px** | Action and control text, including placeholders |
+| Metadata labels and values | **12px** | Compact model/device metadata; distinguish label and value through approved weight/color rather than different sizes |
+| Secondary labels, status labels, badges, and timestamps | **12px** | Compact supporting and status text, including the footer and demo indicator |
+
+Define these values in one shared typography scale and reuse the corresponding role across all five screens, menus, dialogs, and states. Select the role by purpose: a heading inside a sidebar uses 18px even when it names a screen; a main page heading uses 24px. Match roles rather than forcing every text element to use the same size. Use this approved table when implementing the typography change; future role exceptions or scale changes require a recorded user-approved revision.
+
+These are approved ModelLoom design values chosen by visual judgment, not claims that ChatGPT's underlying CSS has been inspected. Record OS scaling, device-pixel ratio, app zoom, and any image resizing when comparing captures; rendered image pixels are not CSS pixels. The 19px/14px/12px values visible in the supplied ChatGPT conversation describe the earlier ModelLoom styles, not ChatGPT's own computed font sizes. Review captures at matching scale before claiming exact visual parity. The existing font family is retained. Smaller desktop widths reflow model metadata into a second row before tiles become cramped; grid cards retain their full-width metadata area, and role sizes do not shrink at responsive breakpoints.
 
 ## 3. Navigation and shared status
 
@@ -113,7 +138,7 @@ Windows desktop acceptance checks the engine beneath the ModelLoom app group and
 
 ## 9. Accessibility and visual verification
 
-Acceptance J12 includes all five populated reference compositions plus empty/loading/error/interrupted states. Compare matching captures side by side and by overlay/difference when helpful, controlling fonts, fixture data, scroll position, scaling, and motion. Record discrepancies and get approval for intentional deviations. Do not claim pixel-perfect verification from a screenshot pasted into an otherwise unimplemented shell.
+Acceptance J12 includes all five populated reference compositions plus empty/loading/error/interrupted states, with the approved revisions applied. Compare composition against the ModelLoom references and font sizes by role against the ChatGPT reference under section 2.1. Compare matching captures side by side and by overlay/difference when helpful, controlling fonts, fixture data, scroll position, scaling, and motion. Record discrepancies and get approval for intentional deviations. Do not claim pixel-perfect verification from a screenshot pasted into an otherwise unimplemented shell.
 
 Check keyboard order/activation, focus after modal/menu close, screen-reader names and status updates, readable contrast, text scaling, reduced motion, and status meaning without color. Scrolling must keep actions reachable without hiding the composer or footer behind content. Test window controls and resizing on each supported platform.
 
