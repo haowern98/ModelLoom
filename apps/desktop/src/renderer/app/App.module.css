@@ -1,0 +1,31 @@
+.placeholder h1 {
+  font-size: var(--font-size-page-title);
+  font-weight: 600;
+}
+.placeholder > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+  margin: 50px auto;
+  padding: 50px 30px;
+  max-width: 650px;
+  text-align: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--muted);
+}
+.placeholder h2 {
+  font-size: var(--font-size-heading);
+  font-weight: 550;
+  color: var(--text);
+}
+.placeholder p {
+  font-size: var(--font-size-body);
+  line-height: 1.6;
+}
+.placeholder strong {
+  color: var(--text);
+  font-weight: 500;
+}
