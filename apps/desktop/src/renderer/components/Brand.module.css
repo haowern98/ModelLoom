@@ -1,0 +1,12 @@
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--font-size-card-title);
+  font-weight: 650;
+  letter-spacing: -0.25px;
+}
+.logo {
+  width: 45px;
+  height: 45px;
+}
