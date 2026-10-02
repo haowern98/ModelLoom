@@ -1,0 +1,62 @@
+.dialog {
+  width: min(470px, calc(100vw - 40px));
+  color: var(--text);
+  background: #1b1d23;
+  border: 1px solid #3b414e;
+  border-radius: 16px;
+  padding: 22px;
+  box-shadow: 0 24px 80px #0009;
+}
+.dialog::backdrop {
+  background: #080a10b3;
+}
+.dialog header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+.dialog h2 {
+  font-size: var(--font-size-heading);
+  font-weight: 600;
+}
+.dialog header button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+}
+.body {
+  padding-top: 18px;
+  font-size: var(--font-size-body);
+  color: #b8bdc9;
+  line-height: 1.6;
+}
+.body p + p {
+  margin-top: 12px;
+}
+.body footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+.body dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.body dt {
+  color: var(--muted);
+  font-size: var(--font-size-metadata);
+}
+.body dd {
+  font-size: var(--font-size-metadata);
+  margin: 3px 0 0;
+  color: var(--text);
+}
