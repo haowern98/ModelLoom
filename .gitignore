@@ -1,0 +1,14 @@
+# Local agent instructions, code-quality guidance, and implementation plans
+/AGENTS.md
+/docs/CODE-QUALITY.md
+/plans/
+
+# Dependencies and generated desktop/test artifacts
+node_modules/
+.vite/
+out/
+dist/
+coverage/
+test-results/
+playwright-report/
+*.log
