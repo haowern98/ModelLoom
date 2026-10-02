@@ -1,0 +1,33 @@
+{
+  "name": "modelloom-workspace",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @modelloom/desktop start",
+    "dev:web": "pnpm --filter @modelloom/desktop dev:web",
+    "build": "pnpm --filter @modelloom/desktop build",
+    "build:demo": "pnpm --filter @modelloom/desktop build:demo",
+    "package": "pnpm --filter @modelloom/desktop package",
+    "package:demo": "pnpm --filter @modelloom/desktop package:demo",
+    "make": "pnpm --filter @modelloom/desktop make",
+    "typecheck": "pnpm --filter @modelloom/desktop typecheck",
+    "lint": "eslint apps/desktop",
+    "format": "prettier --write .github apps/desktop package.json pnpm-workspace.yaml eslint.config.mjs .prettierrc.json",
+    "format:check": "prettier --check .github apps/desktop package.json pnpm-workspace.yaml eslint.config.mjs .prettierrc.json",
+    "test": "pnpm --filter @modelloom/desktop test",
+    "test:e2e": "pnpm --filter @modelloom/desktop test:e2e",
+    "test:desktop": "pnpm --filter @modelloom/desktop test:desktop"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.11.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.7",
+    "prettier": "3.9.9",
+    "typescript-eslint": "8.71.0"
+  }
+}
