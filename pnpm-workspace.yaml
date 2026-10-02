@@ -1,0 +1,23 @@
+packages:
+  - apps/*
+nodeLinker: hoisted
+allowBuilds:
+  esbuild: true
+  electron: true
+minimumReleaseAgeExclude:
+  - '@electron-forge/cli@8.0.1'
+  - '@electron-forge/core-utils@8.0.1'
+  - '@electron-forge/core@8.0.1'
+  - '@electron-forge/maker-base@8.0.1'
+  - '@electron-forge/maker-zip@8.0.1'
+  - '@electron-forge/multi-logger@8.0.1'
+  - '@electron-forge/plugin-base@8.0.1'
+  - '@electron-forge/plugin-vite@8.0.1'
+  - '@electron-forge/publisher-base@8.0.1'
+  - '@electron-forge/shared-types@8.0.1'
+  - '@electron-forge/tracer@8.0.1'
+  - '@vitest/mocker@5.0.3'
+  - '@vitest/spy@5.0.3'
+  - electron@44.5.1
+  - lucide-react@1.49.0
+  - vitest@5.0.3
