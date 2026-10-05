@@ -594,59 +594,82 @@ test('Cluster toolbar uses rounded neutral controls and overlays its panel witho
   await page.screenshot({ path: 'test-results/cluster-toolbar-panel.png' });
 });
 
-test('floating canvas controls zoom and fit without moving the toolbar or inspector', async ({
-  page,
-}) => {
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Cluster', exact: true }).click();
-  const canvas = page.getByRole('region', { name: 'Cluster canvas' });
-  const controls = canvas.getByRole('group', { name: 'Canvas controls' });
-  const diagram = canvas.locator(':scope > div').first();
-  const scale = () =>
-    diagram.evaluate((element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).a);
-  await expect(controls).toBeVisible();
-  await expect(controls.getByRole('button', { name: 'Pan', exact: true })).toHaveCount(0);
-  await expect(canvas.getByText(/Drag to pan · Scroll to zoom/)).toHaveCount(0);
-  await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
-  const panel = page.getByRole('complementary', { name: 'Cluster panel' });
-  const panelBounds = await panel.boundingBox();
-  const barBounds = await controls.boundingBox();
-  const before = await scale();
-  await controls.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  expect(await scale()).toBeGreaterThan(before);
-  expect(await controls.boundingBox()).toEqual(barBounds);
-  expect(await panel.boundingBox()).toEqual(panelBounds);
-  const zoomed = await scale();
-  await controls.hover();
-  await page.mouse.wheel(0, 300);
-  expect(await scale()).toBe(zoomed);
-  const percentage = await controls.getByText(/^\d+%$/).boundingBox();
-  if (!percentage) throw new Error('Zoom percentage missing');
-  const beforeBarDrag = await diagram.getAttribute('style');
-  await page.mouse.move(percentage.x + percentage.width / 2, percentage.y + percentage.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(percentage.x + percentage.width / 2 + 40, percentage.y - 20);
-  await page.mouse.up();
-  expect(await diagram.getAttribute('style')).toEqual(beforeBarDrag);
-  await controls.getByRole('button', { name: 'Zoom out', exact: true }).click();
-  expect(await scale()).toBeLessThan(zoomed);
-  await canvas.focus();
-  await expect(canvas).toBeFocused();
-  const transform = await diagram.getAttribute('style');
-  await page.keyboard.press('ArrowRight');
-  expect(await diagram.getAttribute('style')).not.toEqual(transform);
-  await page.getByRole('button', { name: 'Close cluster panel' }).click();
-  for (const width of [1280, 1000]) {
-    await page.setViewportSize({ width, height: width === 1000 ? 620 : 720 });
-    await controls.getByRole('button', { name: 'Fit to view', exact: true }).click();
-    const bar = await controls.boundingBox();
-    const graph = await diagram.boundingBox();
-    const frame = await canvas.boundingBox();
-    if (!bar || !graph || !frame) throw new Error('Canvas geometry missing');
-    expect(bar.x - frame.x).toBeGreaterThanOrEqual(16);
-    expect(frame.y + frame.height - bar.y - bar.height).toBeGreaterThanOrEqual(16);
-    expect(graph.y + graph.height).toBeLessThan(bar.y);
-    expect(bar.x + bar.width).toBeLessThan(frame.x + frame.width);
-    await expect(controls.getByText(/^\d+%$/)).toHaveText(`${Math.round((await scale()) * 100)}%`);
-  }
-});
+for (const font of ['system', 'proportional fallback']) {
+  test(`floating canvas controls zoom and fit without moving the toolbar or inspector (${font})`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Cluster', exact: true }).click();
+    if (font === 'proportional fallback') {
+      // Reproduce fallback fonts whose percentage glyphs have different widths.
+      await page.addStyleTag({
+        content:
+          '[aria-label="Canvas controls"] { font-family: Arial; } [aria-label="Zoom level"] { font-variant-numeric: proportional-nums; }',
+      });
+    }
+    const canvas = page.getByRole('region', { name: 'Cluster canvas' });
+    const controls = canvas.getByRole('group', { name: 'Canvas controls' });
+    const diagram = canvas.locator(':scope > div').first();
+    const scale = () =>
+      diagram.evaluate((element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).a);
+    await expect(controls).toBeVisible();
+    await expect(controls.getByRole('button', { name: 'Pan', exact: true })).toHaveCount(0);
+    await expect(canvas.getByText(/Drag to pan · Scroll to zoom/)).toHaveCount(0);
+    await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
+    const panel = page.getByRole('complementary', { name: 'Cluster panel' });
+    const panelBounds = await panel.boundingBox();
+    const fixedControlsBounds = async () => {
+      const bar = await controls.boundingBox();
+      const label = await controls.getByLabel('Zoom level').boundingBox();
+      if (!bar || !label) throw new Error('Canvas controls geometry missing');
+      // Text width may vary by font; the anchor, height and non-text width must stay fixed.
+      return { x: bar.x, y: bar.y, height: bar.height, nonTextWidth: bar.width - label.width };
+    };
+    const barBounds = await fixedControlsBounds();
+    const before = await scale();
+    await controls.getByRole('button', { name: 'Zoom in', exact: true }).click();
+    expect(await scale()).toBeGreaterThan(before);
+    expect(await fixedControlsBounds()).toEqual(barBounds);
+    expect(await panel.boundingBox()).toEqual(panelBounds);
+    const zoomed = await scale();
+    await controls.hover();
+    await page.mouse.wheel(0, 300);
+    expect(await scale()).toBe(zoomed);
+    const percentage = await controls.getByText(/^\d+%$/).boundingBox();
+    if (!percentage) throw new Error('Zoom percentage missing');
+    const beforeBarDrag = await diagram.getAttribute('style');
+    await page.mouse.move(
+      percentage.x + percentage.width / 2,
+      percentage.y + percentage.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(percentage.x + percentage.width / 2 + 40, percentage.y - 20);
+    await page.mouse.up();
+    expect(await diagram.getAttribute('style')).toEqual(beforeBarDrag);
+    await controls.getByRole('button', { name: 'Zoom out', exact: true }).click();
+    expect(await scale()).toBeLessThan(zoomed);
+    expect(await fixedControlsBounds()).toEqual(barBounds);
+    expect(await panel.boundingBox()).toEqual(panelBounds);
+    await canvas.focus();
+    await expect(canvas).toBeFocused();
+    const transform = await diagram.getAttribute('style');
+    await page.keyboard.press('ArrowRight');
+    expect(await diagram.getAttribute('style')).not.toEqual(transform);
+    await page.getByRole('button', { name: 'Close cluster panel' }).click();
+    for (const width of [1280, 1000]) {
+      await page.setViewportSize({ width, height: width === 1000 ? 620 : 720 });
+      await controls.getByRole('button', { name: 'Fit to view', exact: true }).click();
+      const bar = await controls.boundingBox();
+      const graph = await diagram.boundingBox();
+      const frame = await canvas.boundingBox();
+      if (!bar || !graph || !frame) throw new Error('Canvas geometry missing');
+      expect(bar.x - frame.x).toBeGreaterThanOrEqual(16);
+      expect(frame.y + frame.height - bar.y - bar.height).toBeGreaterThanOrEqual(16);
+      expect(graph.y + graph.height).toBeLessThan(bar.y);
+      expect(bar.x + bar.width).toBeLessThan(frame.x + frame.width);
+      await expect(controls.getByText(/^\d+%$/)).toHaveText(
+        `${Math.round((await scale()) * 100)}%`,
+      );
+    }
+  });
+}
