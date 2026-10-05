@@ -1,0 +1,113 @@
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it } from 'vitest';
+import { App } from './App';
+
+describe('Model configuration demo', () => {
+  it('retains pending text across navigation and keeps defaults independent between models', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));
+    await user.type(
+      screen.getByRole('textbox', { name: 'System Prompt' }),
+      '<script>example</script>',
+    );
+    await user.click(screen.getByRole('button', { name: 'Set in Cluster' }));
+    expect(screen.getByRole('button', { name: 'Stop model' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Models' }));
+    await user.click(screen.getByRole('button', { name: 'Configure Llama 3.1 8B' }));
+    expect(screen.getByRole('textbox', { name: 'System Prompt' })).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: 'Back to Models' }));
+    await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));
+    expect(screen.getByRole('textbox', { name: 'System Prompt' })).toHaveValue(
+      '<script>example</script>',
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Pending changes');
+    expect(document.querySelector('script:not([src])')).toBeNull();
+  });
+
+  it('rejects invalid enabled values and batch combinations, then resets only pending defaults', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));
+    const temperature = screen.getByRole('spinbutton', { name: 'Temperature' });
+    await user.clear(temperature);
+    await user.type(temperature, '0.6');
+    await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+    await user.clear(temperature);
+    await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+    expect(temperature).toHaveAttribute('aria-invalid', 'true');
+    expect(temperature).toHaveFocus();
+    expect(screen.getByRole('alert')).toHaveTextContent('Check the highlighted settings');
+    await user.type(temperature, '0.6');
+    const physical = screen.getByRole('spinbutton', { name: 'Physical Batch Size' });
+    await user.clear(physical);
+    await user.type(physical, '4096');
+    await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+    expect(
+      screen.getByText('Physical Batch Size must not exceed Evaluation Batch Size.'),
+    ).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Reset defaults' }));
+    expect(temperature).toHaveValue(0.8);
+    expect(physical).toHaveValue(512);
+    expect(screen.getByRole('status')).toHaveTextContent('Pending changes');
+    await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+    expect(screen.getByRole('button', { name: 'Save defaults' })).toBeDisabled();
+  });
+
+  it('preserves disabled manual values and synchronizes numeric controls with sliders', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));
+    const automatic = screen.getByRole('switch', { name: 'Automatic Optimize Based on Hardware' });
+    await user.click(automatic);
+    const context = screen.getByRole('spinbutton', { name: 'Context Length' });
+    await user.clear(context);
+    await user.type(context, '4096');
+    await user.click(automatic);
+    expect(screen.getByRole('textbox', { name: 'Context Length' })).toHaveValue('Auto');
+    await user.click(automatic);
+    expect(screen.getByRole('spinbutton', { name: 'Context Length' })).toHaveValue(4096);
+    const topP = screen.getByRole('spinbutton', { name: 'Top P Sampling' });
+    await user.clear(topP);
+    await user.type(topP, '0.7');
+    expect(screen.getByRole('slider', { name: 'Top P Sampling slider' })).toHaveValue('0.7');
+    await user.click(screen.getByRole('checkbox', { name: 'Enable Top P Sampling' }));
+    expect(topP).toBeDisabled();
+    expect(screen.getByRole('slider', { name: 'Top P Sampling slider' })).toBeDisabled();
+    await user.click(screen.getByRole('checkbox', { name: 'Enable Top P Sampling' }));
+    expect(topP).toHaveValue(0.7);
+    await user.click(screen.getByRole('switch', { name: 'Enable Thinking' }));
+    expect(screen.getByRole('spinbutton', { name: 'Reasoning Budget' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Reasoning Budget Message' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Method' })).toBeDisabled();
+    expect(screen.queryByRole('combobox', { name: /draft model/i })).not.toBeInTheDocument();
+  });
+
+  it('adds exact stop strings without submitting and stores template and argument text safely', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));
+    await user.type(screen.getByRole('textbox', { name: 'Stop Strings' }), ' END {Enter}');
+    expect(screen.getByRole('status')).toHaveTextContent('Pending changes');
+    expect(screen.getByRole('button', { name: /Remove stop string.*END/ })).toBeVisible();
+    expect(screen.getByText(' END ', { normalizer: (text) => text })).toBeVisible();
+    await user.click(screen.getByText('Chat Template', { exact: true }));
+    await user.type(
+      screen.getByRole('textbox', { name: 'Chat Template text' }),
+      '<script>template</script>',
+    );
+    await user.click(screen.getByRole('switch', { name: 'llama.cpp Arguments Override' }));
+    await user.type(screen.getByRole('textbox', { name: 'Arguments' }), '--example $(ignored)');
+    await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Defaults saved');
+    await user.click(screen.getByRole('button', { name: 'Back to Models' }));
+    await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));
+    expect(screen.getByRole('textbox', { name: 'Arguments' })).toHaveValue('--example $(ignored)');
+    expect(screen.getByRole('textbox', { name: 'Chat Template text' })).toHaveValue(
+      '<script>template</script>',
+    );
+    await user.click(screen.getByRole('button', { name: /Remove stop string.*END/ }));
+    expect(screen.queryByRole('button', { name: /Remove stop string/ })).not.toBeInTheDocument();
+  });
+});
