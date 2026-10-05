@@ -10,9 +10,9 @@ This is the authoritative product specification, moved from `ModelLoom-Project P
 
 Related specifications: [technical](TECHNICAL-SPEC.md), [integration](INTEGRATION-SPEC.md), [security](SECURITY-SPEC.md), and [UI](UI-SPEC.md). Specifications define behavior and constraints; execution work belongs in [plans](../plans/PLAN.md).
 
-## Current delivery scope, 2026-10-05
+## Current delivery scope, 2026-10-06
 
-The user has fixed the current UI and authorized documentation reconciliation only, with no UI changes. [UI-SPEC's current baseline](UI-SPEC.md#current-ui-baseline-2026-10-05) records the implemented shell, Models/configuration, Cluster, Chat and API presentation. Settings is still a placeholder; Explore/catalogue, Storage and Metrics remain deferred. The proposed two-column Models layout and Downloaded/Imported/Browse tabs are not the current design.
+The 2026-10-05 documentation reconciliation fixed the existing UI without authorizing changes. [UI-SPEC's current baseline](UI-SPEC.md#current-ui-baseline-2026-10-05) records the implemented shell, Models/configuration, Cluster, Chat and API presentation. The separately authorized 2026-10-06 Settings renderer preview adds category navigation/search and Appearance/Runtime presentation with unavailable controls; production settings, Explore/catalogue, Storage and Metrics remain deferred. The proposed two-column Models layout and Downloaded/Imported/Browse tabs are not the current design.
 
 Working interactions are local demo behaviour: library filtering/details/removal, validated session defaults, simulated placement/model lifecycle, joining previews, conversation drafts/feedback and explicit text copying. Chat Send/attachments and real API lifecycle/exposure/key/log controls remain unavailable. No runtime, network enrollment, persistent history or actual API service is implied. P1-P9 and J1-J15 below remain production requirements, not a report that they are implemented. Preserve the UI baseline when planning integrations; future visual changes need separate authorization.
 
