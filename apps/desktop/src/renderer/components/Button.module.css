@@ -2,19 +2,24 @@
   display: inline-flex;
   justify-content: center;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   flex-shrink: 0;
-  min-height: 40px;
-  padding: 0 14px;
+  min-height: var(--control-height);
+  padding: 0 8px;
   border: 1px solid #333640;
-  border-radius: 11px;
+  border-radius: 8px;
   background: #202229;
   font-size: var(--font-size-control);
-  font-weight: 500;
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-control);
   white-space: nowrap;
   transition:
     background 120ms,
     border-color 120ms;
+}
+.button svg {
+  width: var(--control-icon-size);
+  height: var(--control-icon-size);
 }
 .button:hover {
   background: #292c35;
@@ -33,7 +38,8 @@
   background: linear-gradient(135deg, #22252b, #1a1c22);
 }
 .icon {
-  width: 40px;
+  width: var(--control-height-icon);
+  min-height: var(--control-height-icon);
   padding: 0;
 }
 .button:disabled {
