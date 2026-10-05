@@ -1,0 +1,59 @@
+.toast {
+  --toast-surface: #262626;
+  --toast-border: #383838;
+  --toast-text: #f3f3f3;
+  position: absolute;
+  z-index: 20;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px 12px 18px;
+  border: 1px solid var(--toast-border);
+  border-radius: 18px;
+  background: var(--toast-surface);
+  color: var(--toast-text);
+  box-shadow: 0 6px 20px #0004;
+  font-size: var(--font-size-body);
+  line-height: 1.5;
+}
+.toast > svg {
+  flex: none;
+}
+.toast span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.success {
+  --toast-surface: #082312;
+  --toast-border: #245c35;
+  --toast-text: #70d38a;
+}
+.error {
+  --toast-surface: #2b1010;
+  --toast-border: #713333;
+  --toast-text: #ffb4b4;
+}
+.information {
+  --toast-surface: #262626;
+}
+.toast .close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.toast .close:hover {
+  background: #ffffff14;
+}
