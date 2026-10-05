@@ -9,10 +9,6 @@ import {
   Settings,
   Ellipsis,
   Download,
-  Monitor,
-  Radio,
-  Zap,
-  ExternalLink,
   MessagesSquare,
   Server,
 } from 'lucide-react';
@@ -23,25 +19,36 @@ interface AppShellProps {
   destination: Destination;
   onNavigate: (destination: Destination) => void;
   demo: boolean;
-  modelRunning: boolean;
   children: ReactNode;
 }
 
-export function AppShell({ destination, onNavigate, demo, modelRunning, children }: AppShellProps) {
+const navigationIconProps = { size: 20, strokeWidth: 1.75 };
+
+export function AppShell({ destination, onNavigate, demo, children }: AppShellProps) {
   const [moreOpen, setMoreOpen] = useState(false);
   return (
     <div className={styles.shell}>
-      <div className={styles.titlebar} aria-hidden="true" />
+      <div className={styles.titlebar}>
+        {demo && (
+          <span
+            className={styles.demo}
+            title="All model states and metrics are simulated. No inference or API server runs."
+          >
+            Demo data
+          </span>
+        )}
+      </div>
       <aside className={styles.rail} aria-label="Main navigation">
         <div className={styles.railTop}>
           <button
             type="button"
             className={styles.home}
-            disabled
-            aria-label="Home — not available yet"
-            title="Home — navigation is being finalized"
+            aria-label="Chat"
+            aria-current={destination === 'Chat' ? 'page' : undefined}
+            title="Chat"
+            onClick={() => onNavigate('Chat')}
           >
-            <Home size={22} />
+            <Home {...navigationIconProps} />
           </button>
           <button
             type="button"
@@ -50,7 +57,7 @@ export function AppShell({ destination, onNavigate, demo, modelRunning, children
             title="Cluster"
             onClick={() => onNavigate('Cluster')}
           >
-            <Network size={21} />
+            <Network {...navigationIconProps} />
           </button>
           <button
             type="button"
@@ -59,7 +66,16 @@ export function AppShell({ destination, onNavigate, demo, modelRunning, children
             title="Models"
             onClick={() => onNavigate('Models')}
           >
-            <LibraryBig size={22} />
+            <LibraryBig {...navigationIconProps} />
+          </button>
+          <button
+            type="button"
+            aria-label="API"
+            aria-current={destination === 'API' ? 'page' : undefined}
+            title="API"
+            onClick={() => onNavigate('API')}
+          >
+            <Server {...navigationIconProps} />
           </button>
           <button
             type="button"
@@ -67,7 +83,7 @@ export function AppShell({ destination, onNavigate, demo, modelRunning, children
             aria-label="Storage — not available yet"
             title="Storage comes with storage integration"
           >
-            <Database size={20} />
+            <Database {...navigationIconProps} />
           </button>
           <button
             type="button"
@@ -75,7 +91,7 @@ export function AppShell({ destination, onNavigate, demo, modelRunning, children
             aria-label="Metrics — not available yet"
             title="Metrics comes with runtime integration"
           >
-            <ChartNoAxesCombined size={21} />
+            <ChartNoAxesCombined {...navigationIconProps} />
           </button>
           <button
             type="button"
@@ -84,7 +100,7 @@ export function AppShell({ destination, onNavigate, demo, modelRunning, children
             title="Settings"
             onClick={() => onNavigate('Settings')}
           >
-            <Settings size={21} />
+            <Settings {...navigationIconProps} />
           </button>
           <div
             className={styles.overflow}
@@ -102,7 +118,7 @@ export function AppShell({ destination, onNavigate, demo, modelRunning, children
               aria-expanded={moreOpen}
               onClick={() => setMoreOpen(!moreOpen)}
             >
-              <Ellipsis size={23} />
+              <Ellipsis {...navigationIconProps} />
             </button>
             {moreOpen && (
               <div className={styles.moreMenu} aria-label="Additional screens">
@@ -115,16 +131,6 @@ export function AppShell({ destination, onNavigate, demo, modelRunning, children
                 >
                   <MessagesSquare size={16} />
                   Chat
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onNavigate('API');
-                    setMoreOpen(false);
-                  }}
-                >
-                  <Server size={16} />
-                  API
                 </button>
               </div>
             )}
@@ -151,52 +157,13 @@ export function AppShell({ destination, onNavigate, demo, modelRunning, children
           </button>
         </div>
       </aside>
-      <section className={styles.foreground} aria-label="ModelLoom workspace">
-        <main className={styles.main}>{children}</main>
-        <footer
-          className={styles.statusBar}
-          aria-label={demo ? 'Sample cluster status; no live connections' : 'Cluster status'}
-        >
-          <span className={styles.health}>
-            <i />
-            {demo ? 'Cluster healthy' : 'No cluster connected'}
-          </span>
-          <span className={styles.divider} />
-          <span>
-            <Monitor size={14} />
-            {demo ? '4 machines' : '0 machines'}
-          </span>
-          <span>
-            <span className={styles.gpuIcon}>▣</span>
-            {demo ? '4 GPUs (60 GB VRAM)' : 'No GPUs connected'}
-          </span>
-          <span>
-            <Network size={14} />
-            {demo ? 'Direct connections' : 'No connections'}
-          </span>
-          <span>
-            <Zap size={14} />
-            {demo ? '92 ms avg latency' : 'Latency unavailable'}
-          </span>
-          <span className={styles.spacer} />
-          <span className={styles.divider} />
-          <span className={styles.api}>
-            <Radio size={15} />
-            {demo && modelRunning ? 'API server running' : 'API server stopped'}
-          </span>
-          {demo && (
-            <span
-              className={styles.demo}
-              title="All model states and metrics are simulated. No inference or API server runs."
-            >
-              Demo data
-            </span>
-          )}
-          <button type="button" onClick={() => onNavigate('API')}>
-            Open API
-            <ExternalLink size={12} />
-          </button>
-        </footer>
+      <section
+        className={`${styles.foreground} ${destination === 'Cluster' || destination === 'Models' || destination === 'Chat' || destination === 'API' ? styles.neutralForeground : ''} ${destination === 'Chat' ? styles.chatForeground : ''}`}
+        aria-label="ModelLoom workspace"
+      >
+        <main className={`${styles.main} ${destination === 'Chat' ? styles.chatMain : ''}`}>
+          {children}
+        </main>
       </section>
     </div>
   );
