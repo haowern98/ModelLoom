@@ -1,11 +1,7 @@
 :root {
   color-scheme: dark;
-  font-family:
-    'Segoe UI',
-    -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
-  --chrome: #211f27;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --chrome: #212121;
   --surface: #111215;
   --card: #17191e;
   --tile: #1b1d22;
@@ -18,15 +14,39 @@
   --radius-panel: 16px;
   --radius-card: 12px;
   --font-size-page-title: 24px;
-  --font-size-heading: 18px;
-  --font-size-card-title: 16px;
-  --font-size-chat: 16px;
+  --font-size-heading: 16px;
+  --font-size-dialog-title: 18px;
+  --font-size-card-title: 14px;
+  --font-size-chat: 14px;
   --font-size-body: 14px;
-  --font-size-control: 14px;
+  --font-size-description: 13px;
+  --font-size-control: 13px;
   --font-size-metadata: 12px;
   --font-size-status: 12px;
   --font-size-secondary: 12px;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --line-height-page-title: 1.2;
+  --line-height-body: 1.5;
+  --line-height-control: 18px;
+  --line-height-description: 1.625;
+  --control-height: 28px;
+  --control-height-search: 32px;
+  --control-height-icon: 32px;
+  --control-height-dialog: 36px;
+  --control-icon-size: 16px;
+  --neutral-text: #f3f3f3;
+  --neutral-muted: #ababab;
+  --neutral-border: #383838;
+  --settings-group: #222222;
+  --settings-input: #262626;
+  --control-width-switch: 28px;
+  --control-height-switch: 16px;
+  --control-size-switch-thumb: 12px;
+  --control-size-range-thumb: 12px;
   font-size: var(--font-size-body);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-body);
   color: var(--text);
   background: var(--chrome);
   font-synthesis: none;

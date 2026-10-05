@@ -10,10 +10,10 @@ async function createWindow(): Promise<void> {
     minHeight: 620,
     show: false,
     title: 'ModelLoom',
-    backgroundColor: '#211f27',
+    backgroundColor: '#212121',
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#211f27', symbolColor: '#c7c8d1', height: 44 },
+    titleBarOverlay: { color: '#212121', symbolColor: '#c7c8d1', height: 44 },
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
   });
 
