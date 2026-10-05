@@ -1,67 +1,46 @@
 import { useState } from 'react';
-import { Search, LayoutGrid, List, Upload, Download, ChevronDown, Box } from 'lucide-react';
+import { Upload, Compass, Box } from 'lucide-react';
 import { Button } from '../../components/Button';
-import { ModelCard } from './ModelCard';
+import { SearchField } from '../../components/SearchField';
+import { ModelRow } from './ModelRow';
 import type { DemoLibrary, DemoModel } from '../../mocks/modelLibrary';
 import styles from './ModelsPage.module.css';
 
 interface ModelsPageProps {
   library: DemoLibrary;
   demo: boolean;
-  onStart: (model: DemoModel) => void;
-  onStop: (modelId: string) => void;
   onRemove: (model: DemoModel) => void;
   onDetails: (model: DemoModel) => void;
-  onCluster: () => void;
+  onConfigure: (model: DemoModel) => void;
   onInfo: (title: string, text: string) => void;
 }
 
 export function ModelsPage({
   library,
   demo,
-  onStart,
-  onStop,
   onRemove,
   onDetails,
-  onCluster,
+  onConfigure,
   onInfo,
 }: ModelsPageProps) {
   const [query, setQuery] = useState('');
-  const [grid, setGrid] = useState(false);
   const filtered = library.models.filter((model) =>
     `${model.name} ${model.description} ${model.architecture}`
       .toLowerCase()
       .includes(query.trim().toLowerCase()),
   );
-  const models = [...filtered].sort(
-    (a, b) => Number(b.id === library.activeModelId) - Number(a.id === library.activeModelId),
-  );
+  const models = filtered;
   return (
     <section className={styles.page} aria-labelledby="models-heading">
       <header className={styles.header}>
         <h1 id="models-heading">Models</h1>
         <div className={styles.toolbar}>
-          <label className={styles.search}>
-            <Search size={18} />
-            <input
-              type="search"
-              aria-label="Search models"
-              placeholder="Search models..."
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
+          <SearchField label="Find model" value={query} onChange={setQuery} />
           <Button
             variant="icon"
-            aria-label={grid ? 'Show list view' : 'Show grid view'}
-            title={grid ? 'List view' : 'Grid view'}
-            aria-pressed={grid}
-            onClick={() => setGrid(!grid)}
-          >
-            {grid ? <List size={18} /> : <LayoutGrid size={18} />}
-          </Button>
-          <Button
-            className={styles.import}
+            className={`${styles.iconAction} ${styles.importAction}`}
+            aria-label="Import GGUF"
+            title="Import GGUF"
             onClick={() =>
               onInfo(
                 'GGUF import',
@@ -69,11 +48,13 @@ export function ModelsPage({
               )
             }
           >
-            <Upload size={17} />
-            Import GGUF
+            <Upload size={16} aria-hidden="true" />
           </Button>
           <Button
-            variant="primary"
+            variant="icon"
+            className={styles.iconAction}
+            aria-label="Explore models"
+            title="Explore models"
             onClick={() =>
               onInfo(
                 'Model downloads',
@@ -81,24 +62,23 @@ export function ModelsPage({
               )
             }
           >
-            <Download size={17} />
-            Download models
-            <ChevronDown size={14} />
+            <Compass size={16} aria-hidden="true" />
           </Button>
         </div>
       </header>
-      <div className={`${styles.library} ${grid ? styles.grid : ''}`}>
+      <div className={styles.columns}>
+        <span>Name</span>
+        <span>Last used</span>
+      </div>
+      <div className={styles.library}>
         {models.map((model) => (
-          <ModelCard
+          <ModelRow
             key={model.id}
             model={model}
             active={model.id === library.activeModelId}
-            grid={grid}
-            onStart={() => onStart(model)}
-            onStop={() => onStop(model.id)}
             onRemove={() => onRemove(model)}
             onDetails={() => onDetails(model)}
-            onCluster={onCluster}
+            onConfigure={() => onConfigure(model)}
           />
         ))}
         {models.length === 0 && (

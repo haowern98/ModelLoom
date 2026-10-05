@@ -1,12 +1,20 @@
 # ModelLoom product requirements
 
-**Status:** Updated requirements draft for review; implementation is not authorized  
-**Date:** 2026-09-30  
+**Status:** Product requirements with a fixed renderer UI baseline; runtime and release acceptance remain pending
+
+**Updated:** 2026-10-05
+
 **Scope:** The install-to-chat product experience. Inference speed research remains a separate workstream governed by `AGENTS.md` and the user's later benchmark clarifications.
 
 This is the authoritative product specification, moved from `ModelLoom-Project Prd.md`. Existing P1-P7 requirement numbers are preserved. Later agreed behavior is recorded under P8-P9 and in [ADR-0001](decisions/0001-product-and-ui-baseline.md). [ADR-0002](decisions/0002-lm-studio-runtime-direction.md) supersedes the earlier process-name ban and establishes the LM Studio hosting/audit, crash isolation, upgrade, and shutdown requirements. Technical proposals and unresolved choices are recorded separately in the [decision register](decisions/README.md).
 
 Related specifications: [technical](TECHNICAL-SPEC.md), [integration](INTEGRATION-SPEC.md), [security](SECURITY-SPEC.md), and [UI](UI-SPEC.md). Specifications define behavior and constraints; execution work belongs in [plans](../plans/PLAN.md).
+
+## Current delivery scope, 2026-10-05
+
+The user has fixed the current UI and authorized documentation reconciliation only, with no UI changes. [UI-SPEC's current baseline](UI-SPEC.md#current-ui-baseline-2026-10-05) records the implemented shell, Models/configuration, Cluster, Chat and API presentation. Settings is still a placeholder; Explore/catalogue, Storage and Metrics remain deferred. The proposed two-column Models layout and Downloaded/Imported/Browse tabs are not the current design.
+
+Working interactions are local demo behaviour: library filtering/details/removal, validated session defaults, simulated placement/model lifecycle, joining previews, conversation drafts/feedback and explicit text copying. Chat Send/attachments and real API lifecycle/exposure/key/log controls remain unavailable. No runtime, network enrollment, persistent history or actual API service is implied. P1-P9 and J1-J15 below remain production requirements, not a report that they are implemented. Preserve the UI baseline when planning integrations; future visual changes need separate authorization.
 
 ## 1. Product goal
 
@@ -40,6 +48,7 @@ Ship a platform-appropriate single app installer/package for Windows, Linux, and
 2. Show the actual path in use, including direct versus relayed private-network connection, and test reachability before model loading. Show measured connection quality without treating a connected badge as a speed guarantee. If a direct connection cannot be established, explain the blocker in the UI.
 3. Joining a cluster requires visible approval. Worker traffic is limited to approved peers and is never exposed by default on the public internet. API access is configured separately from worker access.
 4. The Headscale option connects to a control server the user already operates; hosting a Headscale server inside ModelLoom is outside this release.
+5. Either desktop installation can initiate the connection. Add device invites another PC to contribute to this PC's cluster; Join cluster asks a coordinator to accept this PC as a contributor. The request direction determines the resulting roles. Share this PC enables participation requests and local hardware selection without automatically approving requests or starting inference. Show incoming invitations and join requests in Cluster overview with explicit Approve/Decline and the resulting coordinator/contributor roles. The approved UI demo simulates these actions in session memory only; discovery, delivery, identity approval and role changes remain networking integration work.
 
 ### P3. Model library and placement
 
@@ -48,6 +57,7 @@ Ship a platform-appropriate single app installer/package for Windows, Linux, and
 3. Suggest a split across the selected devices. Experienced users can adjust placement per device and see the expected memory use and participation before starting.
 4. Preserve the original GGUF weights and configured sampling behavior. If a model, tensor type, backend, or placement is unsupported, explain the limitation and offer only compatible choices; never silently substitute a model or quantization.
 5. Show where the model files and worker caches live, and provide in-app controls to clear them.
+6. Models is a compact library with identity, size, format, quantization and recorded last use; expose detailed metadata and per-model configuration through row actions. Unknown last use is shown as unknown. Planning, validation and Run/Stop live in Cluster. The approved configuration demo edits and validates per-model defaults for the current app session only, with no engine or active-session effects; real settings application remains integration work.
 
 ### P4. Chat and API
 
@@ -84,18 +94,18 @@ Follow [ADR-0003](decisions/0003-lm-studio-behavior-reference.md): use LM Studio
 
 1. The first release has one active model, shared by built-in Chat and the API. Selecting another library item does not silently replace the active model. Switching explains required interruption and requires the user's explicit action.
 2. Chat and API share the active model's bounded request admission and follow LM Studio's configurable parallel-request/continuous-batching behavior where supported. One active model does not imply one active request. Show queued/busy states and provide cancellation. D09 investigates concurrency, pending capacity, fairness, timeouts, and overload behavior against versioned LM Studio evidence before scheduler implementation; its documented concurrency default of four is a reference to validate, not a verified cluster resource limit.
-3. Saved placement changes remain pending until an explicit restart. Show both the active placement and pending placement. Explain interrupted requests before applying changes; do not apply a new split silently during generation.
+3. Placement edits form a pending proposal directly, without per-device Keep draft or a separate Save changes step. Initial Run validates and loads the selected proposal; edits to an active allocation remain pending until explicit Apply and restart. Show both the active placement and pending placement. Explain interrupted requests before applying changes; do not apply a new split silently during generation.
 4. Model-data transfer/cache on approved workers is allowed automatically within the configured storage limits. Show storage locations and provide cleanup controls. This approval does not require a complete GGUF copy on each worker; the required data and transfer mechanism remain a technical decision.
 5. LAN and private-network API access require an API key and explicit exposure settings. Localhost is the default scope and requires an API key by default, as approved by the user; any optional exception needs an explicit reviewed policy.
 
 ### P9. Agreed screens and visual fidelity
 
 1. Provide five main screens: **Models, Cluster, Chat, API, and Settings**. Use the supplied ModelLoom images as the visual source of truth, preserved under [UI references](references/ui/README.md).
-2. Match the reference layouts, proportions, spacing, typography, colors, icons, cards, controls, and persistent status bar at the corresponding reference window sizes. Do not redesign the screens under the guise of implementation cleanup.
-3. Where a screen has a sidebar and right-hand content panel, the right-hand panel is darker and visually above the sidebar, with rounded exposed corners. The additional ChatGPT image clarifies layering only; it does not replace the ModelLoom screen designs.
+2. Match the reference layouts, proportions, spacing, typography, colors, icons, cards, and controls at the corresponding reference window sizes, with the approved revisions in UI-SPEC applied. The user removed the persistent bottom status bar; content uses the freed space. Do not redesign the screens under the guise of implementation cleanup.
+3. Where a screen has a sidebar and right-hand content panel, the right-hand panel is darker and visually above the sidebar, with rounded exposed corners. The later explicitly approved Chat and API revisions in UI-SPEC supersede their original compositions: Chat has a straight fine inner divider and rounded outer workspace; API has a centred stack of four sections. These are specific accepted revisions, not permission for further redesign.
 4. Display actual model metadata, hardware, connection paths, API addresses, and measurements. Reference numbers and sample chat text are illustrative, not runtime facts or promises about supported inference strategies.
 5. API server/access controls live on the API screen. Cluster connectivity, LAN, Tailscale, and Headscale settings live in Settings -> Network and are accessible from relevant Cluster actions.
-6. Response thumbs-up/down are stored locally against the response, without remote feedback submission. Attachment formats/capabilities, Home/Storage/Metrics destinations, and inconsistent reference navigation icons still require an explicit scope/design decision. Preserve the visual references; do not silently remove controls or invent extra capabilities.
+6. Response thumbs-up/down are stored locally against the response, without remote feedback submission. Home opens Chat and API has a direct Server icon after Models; More contains Chat only. Attachment formats/capabilities and future Storage/Metrics/profile/download behaviour remain unresolved; their current unavailable treatment is fixed. Preserve the visual references; do not silently remove controls or invent extra capabilities.
 7. Non-happy-path states follow the reference styling and remain actionable. The five images do not define light-theme visuals, small-window layouts, exact font assets, or every modal; those need reviewed extensions before implementation of the affected interaction.
 
 ## 4. Security and privacy requirements
@@ -123,7 +133,7 @@ Upstream llama.cpp [describes its RPC backend as a fragile, insecure proof of co
 8. **Headless worker:** Start and recover a Linux worker without a desktop session; inspect and stop it from the coordinator UI.
 
 9. **Shared model and queue:** Submit Chat and API requests to the same active model. Verify queued/busy/cancelled states, bounded overload handling, and no hidden model switch.
-10. **Placement restart:** Save a changed split during a session. Confirm active placement stays unchanged until an explicitly requested restart and that interruption is explained.
+10. **Placement restart:** Edit a proposed split during a session without a separate save step. Confirm active placement stays unchanged until an explicitly requested restart and that interruption is explained.
 11. **Model storage:** Exercise permitted model-data transfer/cache on an approved worker, inspect locations and limits, and clear an idle cache without deleting unrelated files or the user's original model.
 12. **Visual fidelity:** Compare each of the five screens against its preserved reference at the matching window size. Review the darker foreground panel, rounded corners, and accessible operation. Any intentional deviation needs user approval and a recorded reason.
 13. **Runtime crash isolation:** During generation, exercise controlled termination and an ordinary native runtime-crash case separately. The GUI and unaffected core remain usable, the partial answer is marked interrupted/failed, affected queue work is resolved explicitly, and controlled restart/reload works without a hidden request replay.
@@ -149,14 +159,14 @@ Beginner guidance and expert controls are required in the first public release, 
 - D01 is an LM Studio architecture replication audit, not an unconstrained choice of alternative hosting models. Establish current GUI/core/runtime boundaries, exact observed trees, process/library use, local communication, package layout/version selection, crash/restart and GUI survival, desktop/headless reuse, update/rollback, shutdown ownership, and OS process presentation. Inspect current installations by platform when authorized; do not finalize ModelLoom-specific hosting until the audit is complete and reviewed.
 - Decide whether private-network connectivity uses an embedded component or one supplied and managed by ModelLoom. This choice must preserve the one-app installation journey. A Tailscale account or an existing Headscale server can remain external.
 - Define model-file distribution/cache policy and the exact API authentication mechanism before implementation. These decisions must be visible in the UI and tested in the acceptance journeys.
-- The later approved defaults select Hugging Face GGUF downloads, localhost keys by default, local response feedback, and window X as full Quit. Settle attachment formats/capabilities, extra navigation destinations, and original visual assets; the earlier table supplied no concrete defaults for those choices. See ADR-0003.
+- The later approved defaults select Hugging Face GGUF downloads, localhost keys by default, local response feedback, and window X as full Quit. The implemented navigation mapping is recorded in UI-SPEC. Settle attachment formats/capabilities, deferred destination behaviour and remaining visual assets; do not reopen the fixed current layout by treating those integration choices as a redesign authorization. See ADR-0003.
 - Determine queue limits, supported OpenAI-compatible endpoints, persistence format, runtime package trust/compatibility, exact OS version floors, and UI assets through the relevant specifications and decisions. Do not infer these from screenshot example values.
 
 ## 8. Process and acceptance evidence
 
 Use spec-anchored development: revise specifications alongside approved software changes and link behavior tests to requirement IDs. The lecture guidance calls for product/technical/integration specifications, separate execution plans, tests, and review (Lecture 7, pages 8 and 14-20). Apply permission boundaries, systematic failure/adversarial testing, and traceable validation (Lecture 6, pages 6-12 and 17-34).
 
-An acceptance result records the app/runtime revisions, model identity, selected settings, devices, platform, scenario, observed result, and non-sensitive evidence. Do not mark a journey complete solely from a mock screen, simulated worker, build, or CI badge. No implementation acceptance journey has been run in this workspace.
+An acceptance result records the app/runtime revisions, model identity, selected settings, devices, platform, scenario, observed result, and non-sensitive evidence. Do not mark a journey complete solely from a mock screen, simulated worker, build, or CI badge. Local component/browser and unsigned packaged Windows UI checks have been run, as recorded in TESTING-SPEC. No full production J1-J15 journey is established by the demo. The current reconciliation does not rerun tests or extend the prior evidence to runtime, networking, persistence, security enforcement or other platforms.
 
 ## References
 

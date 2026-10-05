@@ -17,8 +17,8 @@
   gap: 20px;
 }
 .dialog h2 {
-  font-size: var(--font-size-heading);
-  font-weight: 600;
+  font-size: var(--font-size-dialog-title);
+  font-weight: var(--font-weight-medium);
 }
 .dialog header button {
   display: grid;
@@ -45,6 +45,10 @@
   justify-content: flex-end;
   gap: 10px;
   margin-top: 22px;
+}
+.body footer button {
+  min-height: var(--control-height-dialog);
+  font-weight: var(--font-weight-medium);
 }
 .body dl {
   display: grid;

@@ -1,7 +1,8 @@
 # ModelLoom technical specification
 
 **Status:** Desktop foundation approved and implemented; remaining architecture proposals need review
-**Updated:** 2026-10-01  
+**Updated:** 2026-10-05
+
 **Product source:** [PRODUCT-SPEC.md](PRODUCT-SPEC.md)
 
 ## 1. Purpose and decision status
@@ -12,17 +13,25 @@ Translate P1-P9 into component responsibilities and non-functional requirements.
 
 Electron, existing dense llama.cpp-compatible GGUFs, the three connection modes, independent runtime releases, and the product/UI baseline are established requirements. [ADR-0002](decisions/0002-lm-studio-runtime-direction.md) adds the accepted LM Studio hosting direction, grouped llama-server naming, crash isolation, shared headless core/runtime machinery, and owned shutdown. The desktop choices are now approved as recorded below; the remaining language/tooling and component proposals still need review. D01 must complete the [LM Studio runtime audit](../plans/LM-STUDIO-RUNTIME-AUDIT.md) before exact hosting/protocol/package decisions. No native runtime has been implemented.
 
-On 2026-10-01 the user approved implementation of the desktop foundation: Electron, React, strict TypeScript, pnpm, Vite/Electron Forge, CSS Modules/shared tokens, ESLint/Prettier, Vitest/Testing Library and Playwright. `apps/desktop/` now implements the shared shell and Models screen with explicitly marked demo data; other screens are placeholders. This settles D10's desktop choices only. Core language, native/runtime hosting, supported platform floors, networking, signed updates, and distributed correctness remain under their existing review gates. A preload is deferred because this milestone uses native window controls and has no privileged renderer operations.
+On 2026-10-01 the user approved implementation of the desktop foundation: Electron, React, strict TypeScript, pnpm, Vite/Electron Forge, CSS Modules/shared tokens, ESLint/Prettier, Vitest/Testing Library and Playwright. `apps/desktop/` now implements the shared shell, compact Models library, session-only per-model configuration, Cluster planning/launch demo and session-only Chat presentation with explicitly marked demo data. The API screen now adds renderer-only server/access presentation, example tabs and an empty log viewer; Settings remains deferred. API lifecycle, exposure and credential controls are disabled, with no listener, key generation, log source, persistent state or new IPC. Integration snippets are illustrative placeholders, not finalized API-contract evidence. Chat keeps Send and attachments unavailable as selected by the user, with no generation, storage or IPC integration. Models row actions expose sample details, configuration and protected demo-entry removal, while launching remains in Cluster. Configuration holds separate pending/saved values in renderer memory, validates before saving, and executes neither templates nor arguments. It adds no persistent storage, IPC, engine or active-session configuration path. This settles D10's desktop choices only. Core language, native/runtime hosting, supported platform floors, networking, signed updates, and distributed correctness remain under their existing review gates. A preload is deferred because this milestone uses native window controls and has no privileged renderer operations.
+
+### Implemented renderer boundary, 2026-10-05
+
+The current [UI baseline](UI-SPEC.md#current-ui-baseline-2026-10-05) is fixed; this reconciliation changes documentation only. App owns shared library/active-model, placement/load simulation, configuration, joining and conversation reducers/state. Feature components render that state and hold only their local view state. Screen navigation preserves shared session state; reload/full restart clears it. No database, control core, worker service, native engine or privileged renderer bridge exists in this milestone.
+
+Cluster alone changes the shared simulated active model after validated simulated loading; replacing or restarting an active session requires interruption confirmation. Chat/API model controls navigate to Cluster. Per-model Save defaults edits renderer defaults only and does not apply them to a session. Model removal affects fixture entries only, not disk files. API tabs/copy do not bind or call an endpoint. Chat/API use the same explicit text-copy helper with the existing sandbox-compatible fallback and success/failure feedback. No real secrets or logs are generated.
+
+The approved desktop tooling portion of D10 is implemented. The source-layout table below still describes future core/worker/contracts/runtime paths; naming them is not evidence they exist. Windows uses a 1280x720 initial window with a 1000x620 minimum. Local system/Arial containment and packaged Windows evidence do not settle OS floors or Linux/macOS release support.
 
 ## 2. Proposed languages and tooling
 
-| Layer | Recommendation | Constraint |
-| --- | --- | --- |
-| Desktop and control logic | TypeScript with strict checking | Validate external values at runtime as well as compile time. |
-| UI | React with TypeScript, HTML, CSS Modules, and shared CSS variables | Approved for the desktop foundation. Match the supplied screens; framework choice does not permit redesign. |
-| Native runtime | Versioned platform/backend llama.cpp packages built from a pinned C/C++/ggml source revision | Reuse supported CUDA/Metal/CPU backends. Custom native adapters are added only if the completed audit and distributed requirements justify them; do not invent a wrapper solely to rename llama-server. |
-| Networking component | Go only if selected integration needs it | `tsnet` is a Go library; D02 must settle the integration before adding a language or helper. |
-| Build and verification | One JS workspace manager, CMake/native platform toolchains, automated formatting/linting and tests | D10 selects supported versions, compiler standard, package manager, and test tools. Do not publish speculative setup commands as working instructions. |
+| Layer                     | Recommendation                                                                                     | Constraint                                                                                                                                                                                              |
+| ------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Desktop and control logic | TypeScript with strict checking                                                                    | Validate external values at runtime as well as compile time.                                                                                                                                            |
+| UI                        | React with TypeScript, HTML, CSS Modules, and shared CSS variables                                 | Approved for the desktop foundation. Match the supplied screens; framework choice does not permit redesign.                                                                                             |
+| Native runtime            | Versioned platform/backend llama.cpp packages built from a pinned C/C++/ggml source revision       | Reuse supported CUDA/Metal/CPU backends. Custom native adapters are added only if the completed audit and distributed requirements justify them; do not invent a wrapper solely to rename llama-server. |
+| Networking component      | Go only if selected integration needs it                                                           | `tsnet` is a Go library; D02 must settle the integration before adding a language or helper.                                                                                                            |
+| Build and verification    | One JS workspace manager, CMake/native platform toolchains, automated formatting/linting and tests | D10 selects supported versions, compiler standard, package manager, and test tools. Do not publish speculative setup commands as working instructions.                                                  |
 
 TypeScript strict mode strengthens checking; it is not a network or IPC validation mechanism. [TypeScript documentation](https://www.typescriptlang.org/tsconfig/strict). `tsnet` can embed a Tailscale node in a Go program; this does not establish our cross-platform packaging or Headscale integration. [Tailscale documentation](https://tailscale.com/docs/features/tsnet).
 
@@ -42,31 +51,31 @@ CUDA / Metal / CPU
 
 This establishes responsibilities and reuse, not a finalized process tree, port, IPC mechanism, or library ABI. D01 records those details from current installations and source evidence before ModelLoom-specific hosting is chosen.
 
-| Component | Responsibility | Must not own |
-| --- | --- | --- |
-| Desktop renderer | Five screens, accessible interactions, presentation of subscribed state | Direct filesystem/process access, unrestricted IPC, worker authorization decisions, update trust decisions. |
-| Desktop main and narrow preload bridge | Application lifecycle, approved privileged actions, validated communication with renderer | Arbitrary commands or file paths supplied by untrusted content. |
-| ModelLoom Core | GUI-independent model/session/device control, request coordination, owned runtime supervision, storage/diagnostics, desktop/headless reuse | DOM rendering, Electron-only lifecycle dependencies, or a duplicate headless runtime manager. |
-| Headless entry point and worker role | Independently operate the same core/runtime machinery, with worker/service lifecycle, local device participation, control and logs without a desktop | A requirement to run Electron or keep a user logged into a graphical desktop. |
-| Versioned inference runtime | GGUF loading, backend execution, supported placement, generation and native capability reporting under core control | Product UI or independent authority to accept peers/download unverified updates. |
-| Contracts | Logical messages, validation schemas, version rules, stable errors | Secret defaults, hidden fallback behavior, or an unreviewed wire protocol. |
-| Networking integration | LAN reachability/discovery and the selected private-network component behind reviewed access restrictions | Public raw RPC exposure or automatic API authorization. |
+| Component                              | Responsibility                                                                                                                                       | Must not own                                                                                                |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Desktop renderer                       | Five screens, accessible interactions, presentation of subscribed state                                                                              | Direct filesystem/process access, unrestricted IPC, worker authorization decisions, update trust decisions. |
+| Desktop main and narrow preload bridge | Application lifecycle, approved privileged actions, validated communication with renderer                                                            | Arbitrary commands or file paths supplied by untrusted content.                                             |
+| ModelLoom Core                         | GUI-independent model/session/device control, request coordination, owned runtime supervision, storage/diagnostics, desktop/headless reuse           | DOM rendering, Electron-only lifecycle dependencies, or a duplicate headless runtime manager.               |
+| Headless entry point and worker role   | Independently operate the same core/runtime machinery, with worker/service lifecycle, local device participation, control and logs without a desktop | A requirement to run Electron or keep a user logged into a graphical desktop.                               |
+| Versioned inference runtime            | GGUF loading, backend execution, supported placement, generation and native capability reporting under core control                                  | Product UI or independent authority to accept peers/download unverified updates.                            |
+| Contracts                              | Logical messages, validation schemas, version rules, stable errors                                                                                   | Secret defaults, hidden fallback behavior, or an unreviewed wire protocol.                                  |
+| Networking integration                 | LAN reachability/discovery and the selected private-network component behind reviewed access restrictions                                            | Public raw RPC exposure or automatic API authorization.                                                     |
 
 These are ownership boundaries. D01 is the LM Studio architecture replication audit, and D02-D03 determine transport and pairing. Isolate native inference outside the GUI/main process; a library loaded into the GUI itself cannot satisfy ordinary native-crash isolation. The audit determines whether the reference uses an executable, library-loaded worker, or other layers per runtime/platform and how to reproduce it. Windows app grouping, names, runtime/core survival, and absence of visible console windows need actual packaged-build verification. The accepted llama-server name does not finalize all helper/RPC names or establish macOS/Linux grouping.
 
 ## 4. Proposed source layout
 
-| Path | Purpose |
-| --- | --- |
-| `apps/desktop/` | Electron main/preload/renderer; renderer features Models, Cluster, Chat, API, Settings. |
-| `apps/worker/` | Provisional headless worker-role entry point into the same core/runtime machinery; any standalone core entry-point location is settled after D01. |
-| `packages/contracts/` | Validated app, worker, engine, and API-facing contracts. |
-| `packages/control-core/` | Shared device, networking, model/request, runtime, storage, and diagnostic logic. |
-| `engine/` | Only native integration/adapters and tests justified by the reviewed audit/distributed requirements; the versioned llama-server package does not require a new custom engine host by default. |
-| `third_party/llama.cpp/` | Pinned upstream dependency if the selected fetch/submodule arrangement uses a checkout here. |
-| `tests/integration/`, `tests/acceptance/`, `tests/fixtures/` | Cross-component tests, J1-J15 journeys, and small synthetic inputs. |
-| `packaging/desktop/`, `packaging/runtime/` | Separate app and native-runtime packaging. |
-| `scripts/`, `.github/workflows/` | Necessary development utilities and automated verification. |
+| Path                                                         | Purpose                                                                                                                                                                                       |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/desktop/`                                              | Electron main/preload/renderer; renderer features Models, Cluster, Chat, API, Settings.                                                                                                       |
+| `apps/worker/`                                               | Provisional headless worker-role entry point into the same core/runtime machinery; any standalone core entry-point location is settled after D01.                                             |
+| `packages/contracts/`                                        | Validated app, worker, engine, and API-facing contracts.                                                                                                                                      |
+| `packages/control-core/`                                     | Shared device, networking, model/request, runtime, storage, and diagnostic logic.                                                                                                             |
+| `engine/`                                                    | Only native integration/adapters and tests justified by the reviewed audit/distributed requirements; the versioned llama-server package does not require a new custom engine host by default. |
+| `third_party/llama.cpp/`                                     | Pinned upstream dependency if the selected fetch/submodule arrangement uses a checkout here.                                                                                                  |
+| `tests/integration/`, `tests/acceptance/`, `tests/fixtures/` | Cross-component tests, J1-J15 journeys, and small synthetic inputs.                                                                                                                           |
+| `packaging/desktop/`, `packaging/runtime/`                   | Separate app and native-runtime packaging.                                                                                                                                                    |
+| `scripts/`, `.github/workflows/`                             | Necessary development utilities and automated verification.                                                                                                                                   |
 
 Unit tests live beside the component they test. Create directories when needed. This draft does not authorize creating the source layout or select the upstream acquisition method.
 
@@ -75,7 +84,7 @@ Unit tests live beside the component they test. Create directories when needed. 
 - T01 (P3-P4, P8): Maintain one active model identity with its runtime, context/sampling settings, selected devices, and applied placement. A library selection, pending placement, or installed runtime update cannot silently change it.
 - T02 (P8): Route Chat and API through one bounded coordination policy using LM Studio's configurable concurrent predictions/continuous batching as the reference under [ADR-0003](decisions/0003-lm-studio-behavior-reference.md). One active model can serve multiple isolated requests. D09 verifies concurrency, queue ownership/capacity, wait bounds, fairness, overload, cancellation, and restart semantics; do not invent a serial-only default or duplicate engine scheduling without evidence. Validate cluster memory/context and unchanged-quality behavior before selecting actual limits. Pending requests must not be silently served by a newly switched model.
 - T03 (P4, P6): Distinguish stopped, preparation/loading, ready, generating, stopping, interrupted, and failed states. The exact event names belong to the reviewed contract. A partially generated answer cannot become completed after worker failure.
-- T04 (P8): Keep saved placement and applied placement separate. Apply pending changes through a user-requested restart after preflight; stop/cancel or otherwise resolve active and queued requests according to the approved policy.
+- T04 (P8): Keep the editable pending proposal and applied placement separate. The 2026-10-04 Cluster revision removes a separate UI save requirement; Run snapshots and validates the selected proposal for initial loading. Apply pending changes through a user-requested restart after preflight; stop/cancel or otherwise resolve active and queued requests according to the approved policy.
 - T05 (P1, P6): Bound retries and process restart attempts. Report exhausted recovery with a useful action. A restart must not duplicate a request, replay an interrupted generation secretly, create orphan workers, or race a shutdown/runtime switch.
 - T06 (P1, P4): Reconcile state after lost event connections and process restarts. A stale running badge is not proof of a live model, API, or worker.
 
@@ -110,14 +119,14 @@ The [2026-10-01 source investigation](../docs/research/NETWORKING-AND-RUNTIME-UP
 
 ## 9. Non-functional acceptance
 
-| Area | Required evidence |
-| --- | --- |
-| Reliability | Cancellation, worker loss, model-load failure, stale state, quota exhaustion, restart, failed-update recovery, native engine crash and owned exit tests; J7-J11, J13-J15. |
-| Security/privacy | Trust boundaries, forbidden peers/clients, malicious content, tampered packages, path escape, secret-free diagnostics, and owned-process/engine-endpoint checks; S01-S17. |
-| Usability/accessibility | Reference comparison for all five screens, keyboard/focus/scaling/reduced-motion checks, readable error recovery; J12. |
-| Portability | Clean-install evidence, Windows app grouping, observed macOS/Linux names/tree, mixed-device multi-node journeys, CUDA/Metal reporting, headless reuse and OS-specific cleanup; J1-J4, J8, J13-J15. |
-| Maintainability | Strict checking, consistent formatting, focused boundaries, documented contracts, pinned dependencies, tests linked to requirement IDs, and independent review where warranted. |
-| Offline behavior | With app/runtime/GGUF present, local and LAN inference works offline and failed update checks do not block it; J1, J2. |
-| Performance/resource use | Bounded queues/retries/cache limits and documented metric definitions. Numeric responsiveness, memory, and speed acceptance limits require reviewed evidence; none are invented here. |
+| Area                     | Required evidence                                                                                                                                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reliability              | Cancellation, worker loss, model-load failure, stale state, quota exhaustion, restart, failed-update recovery, native engine crash and owned exit tests; J7-J11, J13-J15.                          |
+| Security/privacy         | Trust boundaries, forbidden peers/clients, malicious content, tampered packages, path escape, secret-free diagnostics, and owned-process/engine-endpoint checks; S01-S17.                          |
+| Usability/accessibility  | Reference comparison for all five screens, keyboard/focus/scaling/reduced-motion checks, readable error recovery; J12.                                                                             |
+| Portability              | Clean-install evidence, Windows app grouping, observed macOS/Linux names/tree, mixed-device multi-node journeys, CUDA/Metal reporting, headless reuse and OS-specific cleanup; J1-J4, J8, J13-J15. |
+| Maintainability          | Strict checking, consistent formatting, focused boundaries, documented contracts, pinned dependencies, tests linked to requirement IDs, and independent review where warranted.                    |
+| Offline behavior         | With app/runtime/GGUF present, local and LAN inference works offline and failed update checks do not block it; J1, J2.                                                                             |
+| Performance/resource use | Bounded queues/retries/cache limits and documented metric definitions. Numeric responsiveness, memory, and speed acceptance limits require reviewed evidence; none are invented here.              |
 
 An automated build is not platform GUI evidence, mock worker tests are not mixed-device acceptance, and product acceptance is not a speed benchmark. Record exact versions/configuration, results, and limitations in the plan's evidence log.

@@ -1,6 +1,7 @@
 .placeholder h1 {
   font-size: var(--font-size-page-title);
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-page-title);
 }
 .placeholder > div {
   display: flex;
@@ -18,7 +19,7 @@
 }
 .placeholder h2 {
   font-size: var(--font-size-heading);
-  font-weight: 550;
+  font-weight: var(--font-weight-medium);
   color: var(--text);
 }
 .placeholder p {

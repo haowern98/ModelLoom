@@ -1,7 +1,8 @@
 # ModelLoom integration specification
 
 **Status:** Draft logical contracts for review; no wire protocol or API implementation is finalized  
-**Updated:** 2026-10-01  
+**Updated:** 2026-10-05
+
 **Sources:** [product](PRODUCT-SPEC.md), [technical](TECHNICAL-SPEC.md), [security](SECURITY-SPEC.md)
 
 ## 1. Scope and contract status
@@ -10,7 +11,26 @@ Define what components exchange and the externally visible outcomes. GUI -> Mode
 
 The contracts cover renderer-to-control communication, control-to-engine operations, approved worker participation, Chat/API requests, storage, and runtime distribution. Inference tensor/RPC messages remain owned by the pinned native runtime; do not invent a second tensor protocol from this draft.
 
+The authorized configuration demo is renderer state only: each sample model has separate pending values and saved defaults for the current app session. Save performs local editor validation, without IPC, persistent storage, placement changes or active-session effects. Back/navigation retains pending values; reload/restart clears them. GPU Offload navigates to Cluster. Speculative decoding remains Off, without draft-model configuration. This does not finalize a production defaults schema or runtime-application contract.
+
+The 2026-10-05 approved API screen is renderer-only presentation. It creates no server, socket, credential, real log stream, or protocol binding. Lifecycle/exposure/key/log mutations are unavailable; the address and integration snippets are labelled examples. Language selection and explicit snippet copy are local UI actions only. The shared library's active model is visibly simulated, and model changes still happen in Cluster. No IPC or new permissions are introduced. D07 and the production API-management contract remain open.
+
+### Current local UI contracts
+
+These are observed renderer-only contracts behind the fixed [UI baseline](UI-SPEC.md#current-ui-baseline-2026-10-05), not accepted production wire schemas:
+
+| Action/state | Current observable outcome | Boundary still pending |
+| --- | --- | --- |
+| Library search/details/removal | Filters fixtures, displays unverified metadata, confirms removal and prevents removing the active demo model until stopped. No files are read/deleted. | Import/metadata/storage contracts. |
+| Placement/model lifecycle | Pending model/allocation stays separate from active state. Run/restart validates exact synthetic layer coverage; switching/restarting an active session asks for confirmation. Cancellable 800ms simulated loading completes in shared app state across navigation. | Real metadata, preflight, optimizer, engine/session and request interruption contracts. |
+| Chat | New/select/search, per-chat drafts and mutually exclusive feedback update session memory. Explicit response copy reports success/failure. Send/attachments are disabled. | Durable storage, Markdown, requests/streaming/cancellation and attachments. |
+| API | Direct sidebar navigation; local example tabs/copy and Choose in Cluster. Stopped, example address, unavailable statistics, no key and empty logs. | Server/access/key lifecycle, metrics/log source and supported client contract. |
+
+The local clipboard helper writes only explicitly selected response/snippet text and restores focus/selection when using its fallback. It neither reads credentials nor executes text. Future state subscriptions, dedicated IPC methods and remote operations below remain requirements for reviewed integration; the current main process supplies no preload/IPC bridge.
+
 ## 2. Common rules
+
+The 2026-10-05 approved Cluster joining demo also holds outgoing example requests, incoming example decisions, sharing availability and hardware choices in renderer memory for the current app session. Add device and Join cluster demonstrate opposite request directions; Share this PC neither sends nor approves a request. Resolving an example request does not enroll a peer, change the diagram/allocation, connect a coordinator, or launch inference. Manual-address input is inert text, not a validated endpoint or network operation. Non-demo builds expose no example candidates or incoming requests and cannot simulate sharing. Production request delivery, identity binding, approval/revocation and participant-role transitions still require D02-D03 and the existing contracts.
 
 - I01: Validate message schema, caller identity/permission, lengths, ranges, enumerations, and referenced object IDs at every trust boundary. TypeScript types do not validate received bytes.
 - I02: Correlate operations using opaque operation/request IDs. State updates carry a source/session identity and revision so clients can reject stale events and resynchronize after reconnect.
@@ -22,36 +42,36 @@ The contracts cover renderer-to-control communication, control-to-engine operati
 
 ## 3. Logical data model
 
-| Entity | Required information | Invariants |
-| --- | --- | --- |
-| Device | Stable peer/device identity; label; OS/architecture; role; approval state; health; runtime identity; available compute devices | An address or discovered name is not a trusted identity. Removal revokes the authorized participation path. |
-| Compute device | Device owner; backend/type; reported capabilities; capacity kind; available/used memory; freshness; readiness | Discrete VRAM and unified memory remain distinct. Unknown measurements are explicitly unknown. |
-| Connection | Peer identity; selected LAN/Tailscale/Headscale mode; observed path; reachability; direct/relay/unknown; RTT measurement and freshness | API permissions are not inherited from this connection. No silent public fallback. |
-| Model asset | Stable asset identity; local file/reference; observed GGUF metadata; size; integrity identity; source/license metadata when available | Display name alone does not select a file or imply compatibility. No model/quantization substitution. |
-| Placement | Model/config identity; participating compute devices; supported assignments; estimated memory; saved revision; applied revision | Pending changes cannot alter an active session. Assignments come from actual model/runtime capabilities. |
-| Runtime package | Package/source/build identities; OS/architecture/backend; compatibility metadata; verified manifest/package identity; installed/selected/active state | Selection does not activate an unverified package or bypass cluster compatibility. |
-| Core deployment/runtime process | Deployment mode/ownership, trusted owned process/session references, runtime package/session identity, readiness/exit/error state | Desktop-owned and independently launched headless deployments are distinct. Display name alone is not identity or permission to terminate a process. |
-| Model session | Session/model/runtime/placement identities; context and sampling config; participating peers; lifecycle/error state | Exactly one active model under P8; session identity changes on a reviewed switch/restart. |
-| Generation request | Request/session IDs; source Chat/API; caller; input/settings; queued/running/terminal state; cancellation association | A request is served by its intended model/session or receives an explicit failure; never an unnoticed model swap. |
-| Conversation/message | Local identity; timestamps; selected session/model information; role/text; generation request link; completion/interruption state | Partial output and failure state persist together. Format/migration governed by D04. |
-| Diagnostic/metric | Source, value/unit, scope, timestamp/window, availability, and redacted error category | Samples, estimates, and measurements are distinct; unavailable is not zero or healthy. |
+| Entity                          | Required information                                                                                                                                  | Invariants                                                                                                                                           |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Device                          | Stable peer/device identity; label; OS/architecture; role; approval state; health; runtime identity; available compute devices                        | An address or discovered name is not a trusted identity. Removal revokes the authorized participation path.                                          |
+| Compute device                  | Device owner; backend/type; reported capabilities; capacity kind; available/used memory; freshness; readiness                                         | Discrete VRAM and unified memory remain distinct. Unknown measurements are explicitly unknown.                                                       |
+| Connection                      | Peer identity; selected LAN/Tailscale/Headscale mode; observed path; reachability; direct/relay/unknown; RTT measurement and freshness                | API permissions are not inherited from this connection. No silent public fallback.                                                                   |
+| Model asset                     | Stable asset identity; local file/reference; observed GGUF metadata; size; integrity identity; source/license metadata when available                 | Display name alone does not select a file or imply compatibility. No model/quantization substitution.                                                |
+| Placement                       | Model/config identity; participating compute devices; supported assignments; estimated memory; pending revision; applied revision                     | Pending changes cannot alter an active session. Assignments come from actual model/runtime capabilities.                                             |
+| Runtime package                 | Package/source/build identities; OS/architecture/backend; compatibility metadata; verified manifest/package identity; installed/selected/active state | Selection does not activate an unverified package or bypass cluster compatibility.                                                                   |
+| Core deployment/runtime process | Deployment mode/ownership, trusted owned process/session references, runtime package/session identity, readiness/exit/error state                     | Desktop-owned and independently launched headless deployments are distinct. Display name alone is not identity or permission to terminate a process. |
+| Model session                   | Session/model/runtime/placement identities; context and sampling config; participating peers; lifecycle/error state                                   | Exactly one active model under P8; session identity changes on a reviewed switch/restart.                                                            |
+| Generation request              | Request/session IDs; source Chat/API; caller; input/settings; queued/running/terminal state; cancellation association                                 | A request is served by its intended model/session or receives an explicit failure; never an unnoticed model swap.                                    |
+| Conversation/message            | Local identity; timestamps; selected session/model information; role/text; generation request link; completion/interruption state                     | Partial output and failure state persist together. Format/migration governed by D04.                                                                 |
+| Diagnostic/metric               | Source, value/unit, scope, timestamp/window, availability, and redacted error category                                                                | Samples, estimates, and measurements are distinct; unavailable is not zero or healthy.                                                               |
 
 Field names, exact types, optionality, serializations, and version numbers require reviewed schemas. This table is not permission to pass unrestricted local paths or capabilities to the renderer.
 
 ## 4. Desktop bridge
 
-| Operation family | Validated input | Observable result |
-| --- | --- | --- |
-| State inspection/subscription | Allowed subscription scope and current revision | Snapshot plus ordered scoped events; reconnect can request a fresh snapshot. |
-| Model import/download | Explicit local selection through privileged file selection, or approved catalogue asset identity | Metadata/compatibility and progress, then verified availability or actionable failure. |
-| Device discovery/pairing/removal | Selected network, candidate identity, user approval/action | Discovered is separate from approved; removed/revoked peers lose access. |
-| Placement save/apply | Intended model/config, compute-device IDs, supported assignments, revision, explicit restart action | Saved pending revision; preflight; applied revision only after restart succeeds. |
-| Model lifecycle | Intended model/runtime/config/placement identities and explicit action | Preparation/loading/ready/stopping/failed state. Switching reports affected work before execution. |
-| Chat generation/cancellation | Conversation/session identity, validated settings/input, caller-owned request ID | Queue state, progress, text events, and exactly one terminal result. |
-| API management | Explicit endpoint scope/settings, credential action, start/stop action | Actual bound address/state, masked credential status, and non-sensitive metrics. |
-| Runtime lifecycle | Verified package identity, selected version, explicit activation/rollback action | Download/verification/compatibility/activation result with retained rollback inventory; independently accessible through the shared headless core machinery. |
-| Full desktop Quit | Local user action and owned deployment/session scope | Admission closed, requests resolved/cancelled, owned shutdown progress and verified exits; unrelated headless deployments remain untouched. |
-| Storage/diagnostics | Owned storage resource IDs, explicit removal/export selections | Quota/usage report or scoped cleanup/export result with redaction. |
+| Operation family                 | Validated input                                                                                     | Observable result                                                                                                                                            |
+| -------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| State inspection/subscription    | Allowed subscription scope and current revision                                                     | Snapshot plus ordered scoped events; reconnect can request a fresh snapshot.                                                                                 |
+| Model import/download            | Explicit local selection through privileged file selection, or approved catalogue asset identity    | Metadata/compatibility and progress, then verified availability or actionable failure.                                                                       |
+| Device discovery/pairing/removal | Selected network, candidate identity, user approval/action                                          | Discovered is separate from approved; removed/revoked peers lose access.                                                                                     |
+| Placement plan/run/apply         | Intended model/config, compute-device IDs, supported assignments, revision, explicit restart action | Pending proposal without a separate UI save; preflight on Run/apply; applied revision only after loading or confirmed restart succeeds.                      |
+| Model lifecycle                  | Intended model/runtime/config/placement identities and explicit action                              | Preparation/loading/ready/stopping/failed state. Switching reports affected work before execution.                                                           |
+| Chat generation/cancellation     | Conversation/session identity, validated settings/input, caller-owned request ID                    | Queue state, progress, text events, and exactly one terminal result.                                                                                         |
+| API management                   | Explicit endpoint scope/settings, credential action, start/stop action                              | Actual bound address/state, masked credential status, and non-sensitive metrics.                                                                             |
+| Runtime lifecycle                | Verified package identity, selected version, explicit activation/rollback action                    | Download/verification/compatibility/activation result with retained rollback inventory; independently accessible through the shared headless core machinery. |
+| Full desktop Quit                | Local user action and owned deployment/session scope                                                | Admission closed, requests resolved/cancelled, owned shutdown progress and verified exits; unrelated headless deployments remain untouched.                  |
+| Storage/diagnostics              | Owned storage resource IDs, explicit removal/export selections                                      | Quota/usage report or scoped cleanup/export result with redaction.                                                                                           |
 
 Expose dedicated methods for approved actions; no generic send-any-channel, execute-command, read-any-path, or unrestricted native-object bridge. Validate the requesting renderer/frame as well as payloads. UI key reveal/copy is a narrow explicit local action under the reviewed credential design, not a general secret-reading API.
 
@@ -83,10 +103,10 @@ D09 must establish LM Studio's versioned concurrent-prediction/load-parameter be
 
 Product requirement P4 establishes an OpenAI-compatible local API. The following is a **proposed initial compatibility surface for D07 review**, not a promise that every OpenAI endpoint/SDK feature is supported:
 
-| Candidate operation | Intended behavior | Review requirement |
-| --- | --- | --- |
-| Model listing (`GET /v1/models`) | Report identifiers usable by this server and active model availability | Define whether imported but inactive models are listed and how availability is represented. |
-| Chat completions (`POST /v1/chat/completions`) | Validate requested active model, supported messages/settings, non-streaming and streaming generation | Pin accepted fields, response shapes, usage reporting, termination and error semantics. |
+| Candidate operation                            | Intended behavior                                                                                    | Review requirement                                                                          |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Model listing (`GET /v1/models`)               | Report identifiers usable by this server and active model availability                               | Define whether imported but inactive models are listed and how availability is represented. |
+| Chat completions (`POST /v1/chat/completions`) | Validate requested active model, supported messages/settings, non-streaming and streaming generation | Pin accepted fields, response shapes, usage reporting, termination and error semantics.     |
 
 Do not advertise embeddings, vision, audio, tool execution, Responses API, model routing, or arbitrary OpenAI compatibility without a specification and actual runtime support. D08 decides attachment scope. Generated examples use the active model's API identifier and actual endpoint; Python examples do not make Python an app implementation dependency.
 

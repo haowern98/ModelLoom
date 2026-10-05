@@ -1,0 +1,21 @@
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 240px;
+  height: var(--control-height-search);
+  padding: 0 14px;
+  border: 1px solid #383838;
+  border-radius: 999px;
+  color: #ababab;
+  background: #1a1a1a;
+}
+.field input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: #f3f3f3;
+  font-size: var(--font-size-control);
+  line-height: 20px;
+}

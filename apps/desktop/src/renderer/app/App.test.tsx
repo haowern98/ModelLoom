@@ -4,19 +4,28 @@ import { describe, expect, it } from 'vitest';
 import { App } from './App';
 
 describe('Models milestone', () => {
-  it('discloses sample data and renders the five reference models', () => {
+  it('discloses sample data and renders compact model rows without launch controls', () => {
     render(<App />);
     expect(screen.getByText('Demo data')).toBeVisible();
     expect(screen.getAllByRole('article')).toHaveLength(5);
+    const qwen = within(screen.getByRole('article', { name: 'Qwen3.8-27B' }));
+    expect(qwen.getByText('16.4 GB')).toBeVisible();
+    expect(qwen.getByText('GGUF')).toBeVisible();
+    expect(qwen.getByText('Q4_K_M')).toBeVisible();
+    expect(qwen.getByText('qwen3.8')).toBeVisible();
+    expect(screen.getAllByLabelText('Last used: unknown')).toHaveLength(5);
     expect(
-      within(screen.getByRole('article', { name: 'Qwen3.8-27B' })).getByText('Running'),
-    ).toBeVisible();
+      screen.queryByRole('button', { name: /Start|Stop|Open in Cluster/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/^(Running|Ready|Stopped|Fully compatible)$/),
+    ).not.toBeInTheDocument();
   });
 
   it('filters case-insensitively and recovers from no matches', async () => {
     const user = userEvent.setup();
     render(<App />);
-    const search = screen.getByRole('searchbox', { name: 'Search models' });
+    const search = screen.getByRole('searchbox', { name: 'Find model' });
     await user.type(search, 'LLAMA');
     expect(screen.getAllByRole('article')).toHaveLength(1);
     expect(screen.getByRole('article', { name: 'Llama 3.1 8B' })).toBeVisible();
@@ -28,40 +37,45 @@ describe('Models milestone', () => {
     expect(screen.getAllByRole('article')).toHaveLength(5);
   });
 
-  it('keeps the running model until switching is explicitly confirmed', async () => {
+  it('opens six configuration sections and saves model defaults without changing Cluster', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(
-      within(screen.getByRole('article', { name: 'Llama 3.1 8B' })).getByRole('button', {
-        name: 'Start',
-      }),
-    );
-    expect(screen.getByRole('dialog', { name: 'Switch demo model?' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(
-      within(screen.getByRole('article', { name: 'Qwen3.8-27B' })).getByText('Running'),
-    ).toBeVisible();
-    await user.click(
-      within(screen.getByRole('article', { name: 'Llama 3.1 8B' })).getByRole('button', {
-        name: 'Start',
-      }),
-    );
-    await user.click(screen.getByRole('button', { name: 'Switch demo model' }));
-    expect(
-      within(screen.getByRole('article', { name: 'Llama 3.1 8B' })).getByText('Running'),
-    ).toBeVisible();
-    expect(
-      within(screen.getByRole('article', { name: 'Qwen3.8-27B' })).queryByText('Running'),
-    ).not.toBeInTheDocument();
+    const configure = screen.getByRole('button', { name: 'Configure Llama 3.1 8B' });
+    await user.click(configure);
+    expect(screen.getByRole('heading', { name: 'Model configuration' })).toBeVisible();
+    for (const name of [
+      'Prompt',
+      'Context and Performance',
+      'Generation',
+      'Reasoning',
+      'Speculative decoding',
+      'Advanced',
+    ])
+      expect(screen.getByRole('region', { name })).toBeVisible();
+    const temperature = screen.getByRole('spinbutton', { name: 'Temperature' });
+    await user.clear(temperature);
+    await user.type(temperature, '0.6');
+    await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Defaults saved for this demo session');
+    await user.click(screen.getByRole('button', { name: 'Back to Models' }));
+    expect(screen.getByRole('button', { name: 'Configure Llama 3.1 8B' })).toHaveFocus();
+    await user.click(screen.getByRole('button', { name: 'Configure Llama 3.1 8B' }));
+    expect(screen.getByRole('spinbutton', { name: 'Temperature' })).toHaveValue(0.6);
+    await user.click(screen.getByRole('button', { name: 'Cluster' }));
+    expect(screen.getByRole('button', { name: 'Selected demo model: Qwen3.8-27B' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Stop model' })).toBeVisible();
   });
 
-  it('stops a demo session through its menu and protects active removal', async () => {
+  it('protects active removal until the model is stopped in Cluster', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Actions for Qwen3.8-27B' }));
     expect(screen.getByRole('button', { name: 'Remove demo entry' })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Stop demo model' }));
-    expect(screen.queryByText('Running')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stop demo model' })).not.toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: 'Cluster' }));
+    await user.click(screen.getByRole('button', { name: 'Stop model' }));
+    await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Actions for Qwen3.8-27B' }));
     await user.click(screen.getByRole('button', { name: 'Remove demo entry' }));
     expect(screen.getByRole('dialog', { name: 'Remove demo entry?' })).toBeVisible();
@@ -72,12 +86,12 @@ describe('Models milestone', () => {
   it('navigates without presenting unfinished screens as operational', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: 'Open in Cluster' }));
+    await user.click(screen.getByRole('button', { name: 'Cluster' }));
     expect(screen.getByRole('heading', { name: 'Cluster' })).toBeVisible();
-    expect(screen.getByText('This screen comes in the next milestone.')).toBeVisible();
+    expect(screen.getByText('Demo data')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Models' }));
     expect(screen.getByRole('heading', { name: 'Models' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Open API' }));
+    await user.click(screen.getByRole('button', { name: 'API' }));
     expect(screen.getByRole('heading', { name: 'API' })).toBeVisible();
     expect(screen.getByText('No API server is running.')).toBeVisible();
   });

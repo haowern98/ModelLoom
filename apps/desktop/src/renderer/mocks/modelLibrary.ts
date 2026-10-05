@@ -2,6 +2,7 @@
 export interface DemoModel {
   readonly id: string;
   readonly name: string;
+  readonly identifier: string;
   readonly description: string;
   readonly family: 'qwen' | 'llama' | 'mistral' | 'phi' | 'gemma';
   readonly quantization: string;
@@ -31,6 +32,7 @@ export function createDemoLibrary(): DemoLibrary {
       {
         id: 'qwen',
         name: 'Qwen3.8-27B',
+        identifier: 'qwen3.8',
         description: 'Qwen 3.8 27B Instruct',
         family: 'qwen',
         quantization: 'Q4_K_M',
@@ -43,6 +45,7 @@ export function createDemoLibrary(): DemoLibrary {
       {
         id: 'llama',
         name: 'Llama 3.1 8B',
+        identifier: 'llama-3.1',
         description: 'Llama 3.1 8B Instruct',
         family: 'llama',
         quantization: 'Q4_K_M',
@@ -55,6 +58,7 @@ export function createDemoLibrary(): DemoLibrary {
       {
         id: 'mistral',
         name: 'Mistral 7B Instruct',
+        identifier: 'mistral-7b',
         description: 'Mistral 7B Instruct v0.3',
         family: 'mistral',
         quantization: 'Q4_K_M',
@@ -67,6 +71,7 @@ export function createDemoLibrary(): DemoLibrary {
       {
         id: 'phi',
         name: 'Phi 3 Mini',
+        identifier: 'phi-3',
         description: 'Phi-3 Mini Instruct',
         family: 'phi',
         quantization: 'Q4_K_M',
@@ -79,6 +84,7 @@ export function createDemoLibrary(): DemoLibrary {
       {
         id: 'gemma',
         name: 'Gemma 2 9B',
+        identifier: 'gemma-2',
         description: 'Gemma 2 9B Instruct',
         family: 'gemma',
         quantization: 'Q4_K_M',

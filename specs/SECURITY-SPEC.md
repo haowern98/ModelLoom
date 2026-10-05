@@ -1,10 +1,17 @@
 # ModelLoom security specification
 
 **Status:** Draft security requirements for review; transport, identity, storage, and signing designs are not finalized  
-**Updated:** 2026-10-01  
+**Updated:** 2026-10-05
+
 **Scope:** P1-P6/P8 security boundaries for desktop, headless workers, private networking, API, model files, and runtime updates.
 
 Read with [PRODUCT-SPEC.md](PRODUCT-SPEC.md), [TECHNICAL-SPEC.md](TECHNICAL-SPEC.md), [INTEGRATION-SPEC.md](INTEGRATION-SPEC.md), and the [decision register](decisions/README.md). [ADR-0002](decisions/0002-lm-studio-runtime-direction.md) accepts the LM Studio reference direction and grouped llama-server; it does not accept an unauthenticated internal engine endpoint or finalize its process/security design. This document specifies outcomes and review criteria; it does not select cryptographic algorithms or authorize implementation.
+
+## Current UI boundary, 2026-10-05
+
+The documentation reconciliation preserves the current UI and adds no security capability or approval. The desktop main source enables context isolation/sandboxing, disables renderer Node integration and supplies no preload/IPC. New windows/navigation and permission requests are denied. Local packaged smoke evidence covers these renderer protections and normal app exit; it does not close the worker, API, storage, runtime or update requirements below.
+
+Chat/messages, model metadata, template/argument editors and API snippets render as inert text. Explicit Chat response/API example copying uses the existing text-only clipboard fallback; no credential or clipboard-reading UI exists. API key/reveal/copy/generate and exposure/server controls are disabled, with no actual key, socket or authentication enforcement to test. Joining previews authorize no peer and manual-address text triggers no network request. Real privileged boundaries and all affected security designs still require review before integration. The UI baseline freeze does not waive S01-S17.
 
 ## 1. Assets and trust boundaries
 
@@ -96,4 +103,4 @@ Lecture 6, pages 6-12 and 17-34, motivates approval boundaries, traceability, ad
 | Wrong runtime executable/endpoint, stale/reused process reference, or same-name unrelated process | No impersonation or out-of-scope termination; operations target the verified owned instance. | S17 |
 | Native runtime crash, hung engine, forced desktop exit, or update racing Quit | Affected work fails honestly; GUI survives ordinary engine crash; owned cleanup is confirmed; unrelated headless work is untouched. | S16-S17 |
 
-Tests must include real boundary/network checks for release acceptance; mocks only establish local logic. Before security-sensitive implementation, accept the affected ADR, finalize contracts, specify concrete test setup/limits, and review the design. No tests in this table have been run yet.
+Tests must include real boundary/network checks for release acceptance; mocks only establish local logic. Before security-sensitive implementation, accept the affected ADR, finalize contracts, specify concrete test setup/limits, and review the design. Production boundary cases in this table remain pending. The local renderer isolation/text-rendering checks recorded in TESTING-SPEC are partial UI evidence, not proof of real pairing, authentication, protected storage, native cleanup or update trust.
