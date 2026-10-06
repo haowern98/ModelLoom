@@ -20,9 +20,16 @@ export interface PlannerReport {
   readonly kv: { readonly ram: number; readonly vram: number };
   readonly scratch: { readonly ram: number; readonly vram: number };
   readonly uncertainty: string | null;
+  /** Validated placement in bytes per physical GPU UUID; aggregate VRAM alone cannot admit CUDA. */
+  readonly deviceVram?: readonly { readonly uuid: string; readonly bytes: number }[];
 }
 export type Preflight = Readonly<{
-  code: 'NEEDS_RESOURCE_EVIDENCE' | 'INSUFFICIENT_RESOURCES' | 'INVALID_CONFIGURATION' | 'ADMITTED';
+  code:
+    | 'NEEDS_RESOURCE_EVIDENCE'
+    | 'INSUFFICIENT_RESOURCES'
+    | 'INVALID_CONFIGURATION'
+    | 'INCOMPATIBLE_DRIVER'
+    | 'ADMITTED';
   totalContext: number;
   ram: number | null;
   vram: number | null;
