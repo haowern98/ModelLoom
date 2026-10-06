@@ -1,8 +1,8 @@
 # ModelLoom testing specification
 
-**Status:** Production acceptance draft; local desktop demo evidence is recorded below
+**Status:** Production acceptance draft; local and hosted desktop demo evidence is recorded below
 
-**Updated:** 2026-10-05
+**Updated:** 2026-10-06
 
 **Scope:** Product acceptance, contract validation, security, visual fidelity, runtime lifecycle, and inference correctness. This document does not authorize coding, workloads, process termination, or experiments.
 
@@ -499,3 +499,20 @@ All six existing Chat and Settings browser cases passed with one worker, retaini
 The user's gap-only PROCEED adds 19px above later date groups. Before the change, collapsed-search browser text ranges measured 26px from New chat to Today and 7px from the last Today entry to Yesterday. Only the inter-group margin changed.
 
 All six existing Chat/Settings browser cases passed with one worker (14.8s); targeted Prettier and demo packaging exited 0. Verified prior preview PID 29032 exited normally before packaging. The first native helper run failed because its measurement selector included an outer section ancestor and measured the wrong button; the local helper was corrected to select the last button within Today explicitly. The fresh native run measured both visible text gaps at 26.4286 CSS px at 1.75 density, while retaining 30px rows, 6px vertical padding, 1px row gaps, typography, search fill and 240px panel width. Composer containment and no horizontal overflow passed at 1280x722 and 1001x621, with no renderer errors. The compact native screenshot was visually inspected. Main PID 37188 remains open on Chat with search collapsed. No full-suite/hosted CI run, staging, commit or publication is claimed.
+
+### Publication and hosted CI reconciliation, 2026-10-06
+
+The user separately authorized publication after the UI revisions. The desktop baseline merged through [PR #2](https://github.com/haowern98/ModelLoom/pull/2) at `e02c64a194f2887f3e9f2c1abb6fd92d0758c512`; the Settings preview and final Chat-sidebar refinements merged through [PR #3](https://github.com/haowern98/ModelLoom/pull/3) at `c723350eb5252a225c6079567616b7614060bd0d`. Earlier entries above describe their local snapshots and authorization at that time, not the current publication or process state.
+
+| Hosted run | Revision | Verified result |
+| --- | --- | --- |
+| [37367108948: PR #3](https://github.com/haowern98/ModelLoom/actions/runs/37367108948) | `d8c5152b68d0d1b3416b1e0ed25561e91a93ca69` | Completed successfully on attempt 3; Quality, Browser, Windows desktop and Security all passed before merge. Earlier attempts contained jobs cancelled before acquiring hosted runners; successful job results were retained across retries. |
+| [37405168066: main after PR #3](https://github.com/haowern98/ModelLoom/actions/runs/37405168066) | `c723350eb5252a225c6079567616b7614060bd0d` | Quality, Browser and Windows desktop passed; Security failed at Dependency vulnerability audit. Its retained JSON reported high-severity GHSA-68fv-2mgg-jv7q in source-map-js 1.2.1. |
+| [37407189996: PR #4](https://github.com/haowern98/ModelLoom/actions/runs/37407189996) | `b512d940b46bda018aed52b25e794dfa917bc7b6` | Quality, Browser, Windows desktop and Security all passed before merge. |
+| [37407421755: main after PR #4](https://github.com/haowern98/ModelLoom/actions/runs/37407421755) | `f68300ab9c4f45b09f26fee3b01fcdaf08145391` | Quality, Browser, Windows desktop and Security all passed after merge, including the formerly failing dependency audit. |
+
+[PR #4](https://github.com/haowern98/ModelLoom/pull/4) changes only pnpm-lock.yaml: source-map-js 1.2.1 becomes 1.2.2 with its registry integrity and PostCSS snapshot references. Package manifests, renderer files and security thresholds are unchanged. Fresh local audit evidence reproduced exit 1 with one high finding before the update, then exit 0 with zero high/critical findings afterward; one existing low finding remained. Frozen-lockfile installation passed, and the installed package and PostCSS dependency resolution both reported 1.2.2. Typecheck, lint, production renderer build, all 39 unit cases and all 44 browser cases passed. Browser checks used CI=true with one worker and a fresh Vite server; unit checks used one worker.
+
+The local format:check exited 1 because seven previously checked-out Windows files used CRLF. Independent Prettier comparison confirmed that each warned file differs only in line endings and its committed LF content satisfies formatting. No UI files were rewritten. The later hosted Quality jobs passed their normal formatting step. Renderer SHA-256 hashes remained identical throughout the dependency fix and merge.
+
+This documentation-only reconciliation re-reads the exact GitHub run results; it does not rerun builds/tests or claim a new hosted result for the documentation edits. Native Linux/macOS acceptance, runtime/network/security integration, signed updates and inference correctness remain outside this desktop-demo evidence. Local main is synchronized to `f68300ab9c4f45b09f26fee3b01fcdaf08145391`; local-only research/reference/review files remain uncommitted.
