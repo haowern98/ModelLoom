@@ -28,7 +28,15 @@ export default tseslint.config(
   {
     files: ['**/*.cjs'],
     ...tseslint.configs.disableTypeChecked,
-    languageOptions: { globals: { require: 'readonly', module: 'readonly' } },
+    languageOptions: {
+      globals: {
+        require: 'readonly',
+        module: 'readonly',
+        process: 'readonly',
+        console: 'readonly',
+        __dirname: 'readonly',
+      },
+    },
     rules: {
       ...tseslint.configs.disableTypeChecked.rules,
       '@typescript-eslint/no-require-imports': 'off',
