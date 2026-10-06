@@ -4,8 +4,48 @@ import type { FixtureDeployment } from './fixture-engine.js';
 import { RuntimeSupervisor } from '../runtime/supervisor.js';
 import type { Selection } from '../runtime/contracts.js';
 import { ownershipBinding } from './windows-ownership.js';
+import { discoverResources } from './resource-probe.js';
+import path from 'node:path';
+import { existsSync } from 'node:fs';
 
 const owners: FixtureDeployment[] = [];
+it('resolves the Windows system directory independently of caller environment', () => {
+  const previous = process.env.SystemRoot;
+  process.env.SystemRoot = 'Z:\\untrusted';
+  try {
+    const system = ownershipBinding().systemDirectory();
+    expect(path.isAbsolute(system)).toBe(true);
+    expect(system.toLowerCase()).not.toContain('untrusted');
+    expect(path.basename(system).toLowerCase()).toBe('system32');
+  } finally {
+    if (previous === undefined) delete process.env.SystemRoot;
+    else process.env.SystemRoot = previous;
+  }
+});
+it('discovers current RAM and GPU query status without loading a model', async () => {
+  const snapshot = await discoverResources();
+  expect(snapshot.ram).toBeGreaterThan(0);
+  if (snapshot.gpuQuery === 'OK') {
+    expect(snapshot.gpus).not.toBeNull();
+    expect(Object.isFrozen(snapshot.gpus)).toBe(true);
+  } else {
+    expect(snapshot.gpus).toBeNull();
+  }
+});
+it('queries an installed NVIDIA tool with OS-derived folders despite spoofed environment', async () => {
+  if (!existsSync(path.join(ownershipBinding().systemDirectory(), 'nvidia-smi.exe'))) return;
+  const previous = process.env.ProgramFiles;
+  process.env.ProgramFiles = 'Z:\\untrusted';
+  try {
+    expect((await discoverResources()).gpuQuery).toBe('OK');
+  } finally {
+    if (previous === undefined) delete process.env.ProgramFiles;
+    else process.env.ProgramFiles = previous;
+  }
+});
+it('does not run a query for an already cancelled discovery', async () => {
+  await expect(discoverResources(AbortSignal.abort())).rejects.toThrow('QUERY_CANCELLED');
+});
 const policy = { startupMs: 3_000, gracefulStopMs: 200, forcedExitMs: 2_000 };
 const selection = (id = 'd1', operationId = 'op1'): Selection => ({
   deploymentId: id,
