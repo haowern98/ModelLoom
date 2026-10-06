@@ -1,10 +1,15 @@
 #define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <aclapi.h>
 #include <cstdint>
+#include <iphlpapi.h>
 #include <memory>
 #include <node_api.h>
+#include <sddl.h>
 #include <string>
 #include <vector>
 #include <windows.h>
+#include <winsock2.h>
 
 namespace {
 struct Handle {
@@ -29,11 +34,16 @@ struct Deployment {
   }
 };
 struct Child {
-  Handle job, process, input, output;
+  Handle job, process, input, output, server;
   DWORD pid = 0;
+  DWORD server_pid = 0;
   bool sent_stop = false;
   bool sent_abort = false;
 };
+struct Files {
+  std::vector<std::unique_ptr<Handle>> handles;
+};
+const napi_type_tag files_tag = {0x6c3d86eb2eab4b65, 0x91e8ad26d78ad73c};
 const napi_type_tag root_tag = {0x38b514ec25dc489c, 0xb3825916e5144c9a};
 const napi_type_tag child_tag = {0x450b2a77cf054caa, 0x9c7901d1b657928a};
 
@@ -82,6 +92,90 @@ napi_value nothing(napi_env env) {
     return fail(env, "OWNERSHIP_FAILED");
   return result;
 }
+/** Fresh directories receive a protected current-user/SYSTEM DACL at creation.
+ */
+napi_value private_directory(napi_env env, napi_callback_info info) {
+  napi_value values[1];
+  std::wstring directory;
+  if (!arguments(env, info, 1, values))
+    return fail(env, "INVALID_CONTROL");
+  size_t length = 0;
+  if (napi_get_value_string_utf16(env, values[0], nullptr, 0, &length) !=
+          napi_ok ||
+      !length || length > 32700)
+    return fail(env, "INVALID_CONTROL");
+  std::vector<char16_t> name(length + 1);
+  if (napi_get_value_string_utf16(env, values[0], name.data(), name.size(),
+                                  &length) != napi_ok)
+    return fail(env, "INVALID_CONTROL");
+  for (size_t i = 0; i < length; i++)
+    directory.push_back(static_cast<wchar_t>(name[i]));
+  if (directory.find(L'\0') != std::wstring::npos || directory.size() < 4 ||
+      directory[1] != L':' || directory[2] != L'\\' ||
+      directory.find(L':', 2) != std::wstring::npos)
+    return fail(env, "INVALID_CONTROL");
+  std::vector<std::unique_ptr<Handle>> ancestors;
+  std::wstring parent = directory;
+  for (size_t depth = 0; parent.size() > 3; ++depth) {
+    if (depth > 64)
+      return fail(env, "OWNERSHIP_FAILED");
+    const size_t slash = parent.find_last_of(L'\\');
+    if (slash == std::wstring::npos)
+      return fail(env, "INVALID_CONTROL");
+    parent = parent.substr(0, slash == 2 ? 3 : slash);
+    auto handle = std::make_unique<Handle>(CreateFileW(
+        parent.c_str(), FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr));
+    BY_HANDLE_FILE_INFORMATION attributes{};
+    if (handle->value == INVALID_HANDLE_VALUE ||
+        !GetFileInformationByHandle(handle->value, &attributes) ||
+        (attributes.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
+        !(attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+      return fail(env, "OWNERSHIP_FAILED");
+    ancestors.push_back(std::move(handle));
+  }
+  Handle token;
+  HANDLE raw = nullptr;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw))
+    return fail(env, "OWNERSHIP_FAILED");
+  token.reset(raw);
+  DWORD bytes = 0;
+  GetTokenInformation(token.value, TokenUser, nullptr, 0, &bytes);
+  std::vector<unsigned char> user(bytes);
+  if (!GetTokenInformation(token.value, TokenUser, user.data(), bytes, &bytes))
+    return fail(env, "OWNERSHIP_FAILED");
+  LPWSTR sid = nullptr;
+  if (!ConvertSidToStringSidW(
+          reinterpret_cast<TOKEN_USER *>(user.data())->User.Sid, &sid))
+    return fail(env, "OWNERSHIP_FAILED");
+  const std::wstring sddl =
+      L"D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;" + std::wstring(sid) + L")";
+  LocalFree(sid);
+  PSECURITY_DESCRIPTOR descriptor = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+          sddl.c_str(), SDDL_REVISION_1, &descriptor, nullptr))
+    return fail(env, "OWNERSHIP_FAILED");
+  SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), descriptor,
+                                 FALSE};
+  BOOL created = CreateDirectoryW(directory.c_str(), &attributes);
+  DWORD error = created ? ERROR_SUCCESS : GetLastError();
+  DWORD flags = GetFileAttributesW(directory.c_str());
+  BOOL present = FALSE, defaulted = FALSE;
+  PACL dacl = nullptr;
+  bool ok =
+      (created || error == ERROR_ALREADY_EXISTS) &&
+      flags != INVALID_FILE_ATTRIBUTES && (flags & FILE_ATTRIBUTE_DIRECTORY) &&
+      !(flags & FILE_ATTRIBUTE_REPARSE_POINT) &&
+      GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted) &&
+      present &&
+      SetNamedSecurityInfoW(directory.data(), SE_FILE_OBJECT,
+                            DACL_SECURITY_INFORMATION |
+                                PROTECTED_DACL_SECURITY_INFORMATION,
+                            nullptr, nullptr, dacl, nullptr) == ERROR_SUCCESS;
+  LocalFree(descriptor);
+  return ok ? nothing(env) : fail(env, "OWNERSHIP_FAILED");
+}
 bool wide(napi_env env, napi_value value, std::wstring &result) {
   size_t size = 0;
   if (napi_get_value_string_utf16(env, value, nullptr, 0, &size) != napi_ok ||
@@ -96,6 +190,65 @@ bool wide(napi_env env, napi_value value, std::wstring &result) {
   for (size_t i = 0; i < size; ++i)
     result.push_back(static_cast<wchar_t>(buffer[i]));
   return result.find(L'\0') == std::wstring::npos;
+}
+/** Deny file replacement/write and ancestor rename while the verifier hashes
+ * and launches. */
+napi_value seal_files(napi_env env, napi_callback_info info) {
+  napi_value values[1];
+  bool array = false;
+  uint32_t count = 0;
+  if (!arguments(env, info, 1, values) ||
+      napi_is_array(env, values[0], &array) != napi_ok || !array ||
+      napi_get_array_length(env, values[0], &count) != napi_ok || count == 0 ||
+      count > 256)
+    return fail(env, "INVALID_CONTROL");
+  auto files = std::make_unique<Files>();
+  for (uint32_t i = 0; i < count; i++) {
+    napi_value value;
+    std::wstring name;
+    if (napi_get_element(env, values[0], i, &value) != napi_ok ||
+        !wide(env, value, name) || name.size() < 4 || name[1] != L':' ||
+        name[2] != L'\\' || name.find(L':', 2) != std::wstring::npos)
+      return fail(env, "INVALID_CONTROL");
+    bool file = true;
+    size_t depth = 0;
+    for (;;) {
+      if (++depth > 64)
+        return fail(env, "OWNERSHIP_FAILED");
+      auto handle = std::make_unique<Handle>(CreateFileW(
+          name.c_str(), file ? GENERIC_READ : FILE_READ_ATTRIBUTES,
+          file ? FILE_SHARE_READ : FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+          OPEN_EXISTING,
+          FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr));
+      BY_HANDLE_FILE_INFORMATION file_info{};
+      if (handle->value == INVALID_HANDLE_VALUE ||
+          !GetFileInformationByHandle(handle->value, &file_info) ||
+          (file_info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
+          (file && ((file_info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+                    file_info.nNumberOfLinks != 1)) ||
+          (!file && !(file_info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)))
+        return fail(env, "OWNERSHIP_FAILED");
+      files->handles.push_back(std::move(handle));
+      if (name.size() == 3)
+        break;
+      size_t slash = name.find_last_of(L'\\');
+      if (slash == std::wstring::npos)
+        return fail(env, "INVALID_CONTROL");
+      name = name.substr(0, slash == 2 ? 3 : slash);
+      file = false;
+    }
+  }
+  return wrap(env, std::move(files), files_tag);
+}
+napi_value release_files(napi_env env, napi_callback_info info) {
+  napi_value values[1];
+  if (!arguments(env, info, 1, values))
+    return fail(env, "INVALID_CONTROL");
+  auto *files = unwrap<Files>(env, values[0], files_tag);
+  if (!files)
+    return fail(env, "INVALID_CONTROL");
+  files->handles.clear();
+  return nothing(env);
 }
 std::wstring quote(const std::wstring &text) {
   std::wstring result = L"\"";
@@ -137,17 +290,18 @@ napi_value create(napi_env env, napi_callback_info info) {
 
 /** Native children remain suspended until both containment assignments succeed.
  */
-napi_value launch(napi_env env, napi_callback_info info) {
-  napi_value values[3];
-  if (!arguments(env, info, 3, values))
+napi_value launch_mode(napi_env env, napi_callback_info info, bool console) {
+  napi_value values[4];
+  if (!arguments(env, info, console ? 4 : 3, values))
     return fail(env, "INVALID_CONTROL");
   auto *root = unwrap<Deployment>(env, values[0], root_tag);
-  std::wstring executable, command;
+  std::wstring executable, command, temporary;
   bool array = false;
   uint32_t length = 0;
   if (!root || !root->job.value || !wide(env, values[1], executable) ||
       napi_is_array(env, values[2], &array) != napi_ok || !array ||
-      napi_get_array_length(env, values[2], &length) != napi_ok || length > 16)
+      napi_get_array_length(env, values[2], &length) != napi_ok ||
+      length > 64 || (console && !wide(env, values[3], temporary)))
     return fail(env, "INVALID_CONTROL");
   command = quote(executable);
   for (uint32_t i = 0; i < length; ++i) {
@@ -180,7 +334,9 @@ napi_value launch(napi_env env, napi_callback_info info) {
     return fail(env, "OWNERSHIP_FAILED");
   STARTUPINFOEXW startup{};
   startup.StartupInfo.cb = sizeof(startup);
-  startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+  startup.StartupInfo.dwFlags =
+      STARTF_USESTDHANDLES | (console ? STARTF_USESHOWWINDOW : 0);
+  startup.StartupInfo.wShowWindow = SW_HIDE;
   startup.StartupInfo.hStdInput = reader.value;
   startup.StartupInfo.hStdOutput = writer.value;
   startup.StartupInfo.hStdError = writer.value;
@@ -203,13 +359,36 @@ napi_value launch(napi_env env, napi_callback_info info) {
                UpdateProcThreadAttribute(
                    startup.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_JOB_LIST,
                    containment, sizeof(containment), nullptr, nullptr) != FALSE;
+  std::wstring directory =
+      executable.substr(0, executable.find_last_of(L"\\/"));
+  wchar_t windows[32768];
+  if (console && !GetWindowsDirectoryW(windows, 32768)) {
+    DeleteProcThreadAttributeList(startup.lpAttributeList);
+    return fail(env, "LAUNCH_FAILED");
+  }
+  // No inherited LLAMA_ARG, user PATH or current directory can change a real
+  // launch.
+  std::wstring environment;
+  if (console) {
+    for (const auto &item : std::vector<std::wstring>{
+             L"PATH=" + directory + L";" + windows + L"\\System32",
+             L"SystemRoot=" + std::wstring(windows), L"TEMP=" + temporary,
+             L"TMP=" + temporary}) {
+      environment += item;
+      environment += L'\0';
+    }
+    environment += L'\0';
+  }
   PROCESS_INFORMATION process{};
   BOOL created =
       configured &&
       CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, TRUE,
-                     CREATE_NO_WINDOW | CREATE_SUSPENDED |
-                         EXTENDED_STARTUPINFO_PRESENT,
-                     nullptr, nullptr, &startup.StartupInfo, &process);
+                     (console ? CREATE_NEW_CONSOLE | CREATE_UNICODE_ENVIRONMENT
+                              : CREATE_NO_WINDOW) |
+                         CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,
+                     console ? environment.data() : nullptr,
+                     console ? directory.c_str() : nullptr,
+                     &startup.StartupInfo, &process);
   DeleteProcThreadAttributeList(startup.lpAttributeList);
   if (!created)
     return fail(env, "LAUNCH_FAILED");
@@ -227,6 +406,95 @@ napi_value launch(napi_env env, napi_callback_info info) {
     return fail(env, "OWNERSHIP_FAILED");
   }
   return wrap(env, std::move(child), child_tag);
+}
+napi_value launch(napi_env env, napi_callback_info info) {
+  return launch_mode(env, info, false);
+}
+napi_value launch_console(napi_env env, napi_callback_info info) {
+  return launch_mode(env, info, true);
+}
+
+/** Startup receipt is checked once against the contained image/time, then
+ * retained as a handle. */
+napi_value capture_server(napi_env env, napi_callback_info info) {
+  napi_value values[3];
+  uint32_t pid = 0;
+  std::wstring expected;
+  if (!arguments(env, info, 3, values))
+    return fail(env, "INVALID_CONTROL");
+  auto *child = unwrap<Child>(env, values[0], child_tag);
+  if (!child || !child->process.value || child->server.value ||
+      napi_get_value_uint32(env, values[1], &pid) != napi_ok || !pid ||
+      !wide(env, values[2], expected))
+    return fail(env, "INVALID_CONTROL");
+  Handle server(
+      OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid));
+  BOOL contained = FALSE;
+  wchar_t image[32768];
+  DWORD size = 32768;
+  FILETIME owner_created{}, server_created{}, exited{}, kernel{}, user{};
+  if (!server.value || WaitForSingleObject(server.value, 0) != WAIT_TIMEOUT ||
+      !IsProcessInJob(server.value, child->job.value, &contained) ||
+      !contained ||
+      !QueryFullProcessImageNameW(server.value, 0, image, &size) ||
+      _wcsicmp(image, expected.c_str()) != 0 ||
+      !GetProcessTimes(child->process.value, &owner_created, &exited, &kernel,
+                       &user) ||
+      !GetProcessTimes(server.value, &server_created, &exited, &kernel,
+                       &user) ||
+      CompareFileTime(&server_created, &owner_created) < 0)
+    return fail(env, "OWNERSHIP_FAILED");
+  child->server.reset(server.value);
+  server.value = nullptr;
+  child->server_pid = pid;
+  return nothing(env);
+}
+/** A live retained handle plus exact IPv4 loopback LISTEN ownership is
+ * required. */
+napi_value owned_listener(napi_env env, napi_callback_info info) {
+  napi_value values[2], result;
+  uint32_t port = 0;
+  if (!arguments(env, info, 2, values))
+    return fail(env, "INVALID_CONTROL");
+  auto *child = unwrap<Child>(env, values[0], child_tag);
+  if (!child || !child->server.value ||
+      napi_get_value_uint32(env, values[1], &port) != napi_ok || port < 1024 ||
+      port > 65535)
+    return fail(env, "INVALID_CONTROL");
+  bool owned = false;
+  if (WaitForSingleObject(child->server.value, 0) == WAIT_TIMEOUT &&
+      WaitForSingleObject(child->process.value, 0) == WAIT_TIMEOUT) {
+    DWORD bytes = 0;
+    GetExtendedTcpTable(nullptr, &bytes, FALSE, AF_INET,
+                        TCP_TABLE_OWNER_PID_LISTENER, 0);
+    if (bytes > 16 * 1024 * 1024)
+      return fail(env, "OWNERSHIP_FAILED");
+    std::vector<unsigned char> buffer(bytes);
+    if (GetExtendedTcpTable(buffer.data(), &bytes, FALSE, AF_INET,
+                            TCP_TABLE_OWNER_PID_LISTENER, 0) != NO_ERROR)
+      return fail(env, "OWNERSHIP_FAILED");
+    auto *table = reinterpret_cast<MIB_TCPTABLE_OWNER_PID *>(buffer.data());
+    for (DWORD i = 0; i < table->dwNumEntries; ++i) {
+      const auto &row = table->table[i];
+      owned = owned || (row.dwOwningPid == child->server_pid &&
+                        row.dwState == MIB_TCP_STATE_LISTEN &&
+                        row.dwLocalAddr == htonl(INADDR_LOOPBACK) &&
+                        ntohs(static_cast<u_short>(row.dwLocalPort)) == port);
+    }
+  }
+  if (napi_get_boolean(env, owned, &result) != napi_ok)
+    return fail(env, "OWNERSHIP_FAILED");
+  return result;
+}
+napi_value available_memory(napi_env env, napi_callback_info info) {
+  napi_value values[1], result;
+  MEMORYSTATUSEX status{};
+  status.dwLength = sizeof(status);
+  if (!arguments(env, info, 0, values) || !GlobalMemoryStatusEx(&status) ||
+      napi_create_double(env, static_cast<double>(status.ullAvailPhys),
+                         &result) != napi_ok)
+    return fail(env, "OWNERSHIP_FAILED");
+  return result;
 }
 
 /** Capture only a just-forked core with matching image/time, retaining its
@@ -388,6 +656,7 @@ napi_value release(napi_env env, napi_callback_info info) {
   child->process.reset();
   child->input.reset();
   child->output.reset();
+  child->server.reset();
   return nothing(env);
 }
 /** No C++ allocation/standard-library exception may cross the Node-API callback
@@ -406,12 +675,26 @@ napi_value checked(napi_env env, napi_callback_info info) noexcept {
  * utility IPC. */
 NAPI_MODULE_INIT() {
   const napi_property_descriptor properties[] = {
+      {"captureServer", nullptr, checked<capture_server>, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"ownedListener", nullptr, checked<owned_listener>, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"availableMemory", nullptr, checked<available_memory>, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"privateDirectory", nullptr, checked<private_directory>, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"sealFiles", nullptr, checked<seal_files>, nullptr, nullptr, nullptr,
+       napi_default, nullptr},
+      {"releaseFiles", nullptr, checked<release_files>, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
       {"createDeployment", nullptr, checked<create>, nullptr, nullptr, nullptr,
        napi_default, nullptr},
       {"admitCore", nullptr, checked<admit>, nullptr, nullptr, nullptr,
        napi_default, nullptr},
       {"launch", nullptr, checked<launch>, nullptr, nullptr, nullptr,
        napi_default, nullptr},
+      {"launchConsole", nullptr, checked<launch_console>, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
       {"observe", nullptr, checked<observe>, nullptr, nullptr, nullptr,
        napi_default, nullptr},
       {"requestStop", nullptr, checked<stop>, nullptr, nullptr, nullptr,

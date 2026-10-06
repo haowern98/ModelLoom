@@ -8,9 +8,21 @@ interface Observation {
   readonly output: string;
 }
 interface Binding {
+  privateDirectory(directory: string): void;
+  sealFiles(files: readonly string[]): object;
+  releaseFiles(files: object): void;
+  captureServer(child: object, pid: number, expectedImage: string): void;
+  ownedListener(child: object, port: number): boolean;
+  availableMemory(): number;
   createDeployment(): object;
   admitCore(root: object, pid: number, image: string, launchTime: number): void;
   launch(root: object, executable: string, args: readonly string[]): object;
+  launchConsole(
+    root: object,
+    executable: string,
+    args: readonly string[],
+    temporaryDirectory: string,
+  ): object;
   observe(child: object): Observation;
   requestStop(child: object): void;
   abortFixture(child: object): void;
@@ -20,9 +32,16 @@ interface Binding {
   coresExited(root: object): boolean;
 }
 const operations = [
+  'privateDirectory',
+  'sealFiles',
+  'releaseFiles',
+  'captureServer',
+  'ownedListener',
+  'availableMemory',
   'createDeployment',
   'admitCore',
   'launch',
+  'launchConsole',
   'observe',
   'requestStop',
   'abortFixture',
