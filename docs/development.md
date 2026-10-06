@@ -116,6 +116,12 @@ For subagents, honor the Luna/max preference only where the available tool suppo
 
 ## 6. Reporting evidence and limitations
 
+### Windows development fixture hosts
+
+The separately authorized Windows ownership slice lives in `packages/core/`; it does not connect the current desktop renderer or load real models. From the repository root, `pnpm --filter @modelloom/core test:native` builds the harmless fixture and ownership binding, emits the headless/utility hosts and runs 17 native integration cases. `pnpm --filter @modelloom/core check:native` checks owned C++ formatting and static analysis. Both commands passed locally on Windows 11 build 26200 with the pinned existing MSVC/Node development tuple described in [core README](../packages/core/README.md). Ordinary root tests remain separate so Linux CI does not silently claim Windows ownership evidence. Generated artifacts stay in ignored `packages/core/out/`.
+
+The shared core has 112 ordinary cases; existing desktop tests have 39. Current core/host checks pass, while full local formatting still reports seven untouched desktop files. All 77 tracked desktop files match the pre-slice hashes. [TESTING-SPEC](../specs/TESTING-SPEC.md#windows-ownership-and-fixture-hosts-2026-10-06) records commands, red/green evidence and limitations. No new hosted result or production/native-engine acceptance follows from these development commands.
+
 Record revision, platform, runtime/model identity, configuration, scenario, command/test exit status, relevant redacted logs, result, and limitations. Mark not-run checks plainly. Mocked worker tests, CPU-only/native builds, and CI cannot stand in for mixed-GPU, real network, GUI, or headless acceptance.
 
 Never claim a network option is a performance guarantee, a UI mock is a working service, or a faster inference result preserves quality without the approved comparison evidence. Product milestones and separately authorized inference research have different acceptance gates.

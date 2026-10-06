@@ -1,6 +1,6 @@
 # ModelLoom core lifecycle
 
-Private, GUI-independent TypeScript core with an in-memory engine fixture. It has no native launcher, renderer connection or emitted distribution artifact.
+Private, GUI-independent TypeScript lifecycle core with in-memory tests and Windows development fixture hosts. It has no production engine launcher or renderer connection.
 
 `RuntimeSupervisor(deploymentId, adapter, policy)` supervises one active load attempt. `load(selection)` validates opaque deployment/session/operation/package/model IDs and starts a fresh operation. Invalid commands reject with a safe code; startup failures return a failed snapshot. `snapshot()` returns immutable state. `record(event)` accepts admitted request starts, text and completion, while lifecycle events remain internal. `stop()` closes admission immediately, interrupts running records, shares pending cleanup and confirms exit before reporting stopped.
 
@@ -8,7 +8,7 @@ The default policy in `contracts.ts` gives startup 180,000 ms, graceful cleanup 
 
 `decodeEvent(text)` checks UTF-8 byte length before parsing, with a 1,048,576-byte limit. It validates exact event fields and bounded identifiers, copies accepted data and reports `INVALID_CONTROL` without echoing rejected input. This private contract is not an IPC authentication boundary. `transition(state, event)` ignores stale identities and preserves terminal request records. Partial text becomes interrupted after failure or stop; completed text stays completed. Records survive reload only within this core object's lifetime.
 
-The engine interface is a captured owned-instance capability with readiness, graceful/forced stop and an exit receipt. A successful stop call alone never proves exit. Only `tests/fake-engine.ts` implements this interface here; it contains deferred promises and opens no processes or listeners.
+The engine interface is a captured owned-instance capability with readiness, graceful/forced stop and an exit receipt. A successful stop call alone never proves exit. `tests/fake-engine.ts` uses deferred promises without processes. `src/hosts/fixture-engine.ts` launches only the compiled harmless fixture: no model, network listener or externally supplied executable.
 
 Run from the repository root:
 
@@ -22,6 +22,19 @@ pnpm test
 pnpm format:check
 ```
 
-Tests exercise validation, stale callbacks, startup/readiness/exit races, partial interruption, hanging/rejected cleanup, late launch and independent deployments with virtual time. They do not prove native containment, GPU behavior, GUI crash survival, persistence, concurrency capacity or inference quality.
+Ordinary tests exercise validation, stale callbacks, startup/readiness/exit races, partial interruption, hanging/rejected cleanup, late launch and independent deployments with virtual time. Windows native integration tests run separately:
 
-Real engine activation remains gated by signed bootstrap verification, exact build/dependency identity, context/resource preflight and a demonstrated graceful-stop contract. Desktop/headless hosts and Windows ownership adapters are later slices under [ADR-0004](../../specs/decisions/0004-runtime-lifecycle-proposal.md). The existing desktop source and UI are untouched.
+```powershell
+pnpm --filter @modelloom/core check:native
+pnpm --filter @modelloom/core test:native
+```
+
+These commands require the existing Windows x64 development tuple: MSVC 14.44.35207, its installed LLVM tools, Node 24.7.0 headers/import library, Electron 44.5.1 and node-gyp 12.4.0. Build artifacts and the compiler-environment helper go to ignored `out/`. The pinned node-gyp dependency supplies its standard Windows delay-load hook for the same Node-API module in Node and Electron; it does not compile or download an inference runtime. `check:native` checks owned C++ formatting and clang-tidy; `test:native` builds with /W4 /WX, emits hosts, then runs the native suites. Non-Windows native invocation fails closed.
+
+The main/headless owner retains unnamed, non-inherited deployment and nested engine Job Objects. A native child enters both jobs atomically at creation, remains suspended until membership is confirmed, and inherits only its input/output pipes. Graceful stop writes one fixed byte; forced stop targets the captured engine job. Exit requires the process handle to be signaled and no active descendants. The utility core is admitted through its captured image/time-checked process handle before receiving launch authority. Unexpected core loss closes the deployment. Independent headless deployments retain their own jobs.
+
+`tests/desktop-entry.cjs` runs a dedicated Electron main/utility harness with no BrowserWindow. Main-to-utility controls use the inherited Electron channel; the test driver uses inherited Node IPC, and headless uses bounded UTF-8 NDJSON pipes. Commands, broker events and utility replies use closed schemas and full selection identity. IDs increase monotonically; replay and post-Quit admission are rejected. Fixture crash controls are development-only. No renderer/preload or current desktop application code is connected.
+
+Local Windows 11 build 26200 evidence on 2026-10-06: 112 ordinary core cases and 17 native/host cases passed, including real native exception, interrupted partial text, explicit reload, hung descendants, abnormal owner/core exits and unrelated deployment survival. Job containment is ownership machinery, not a security sandbox. No packaged app grouping, visible-console presentation, GUI survival, durable history, other-platform support, inference quality or GPU behavior is established.
+
+Real engine activation remains gated by signed bootstrap verification, exact build/dependency identity, context/resource preflight and a demonstrated graceful-stop contract under [ADR-0004](../../specs/decisions/0004-runtime-lifecycle-proposal.md). Development assets are not verified production packages, and the fixture protocol is not production IPC/engine authentication. The existing desktop source and UI are untouched. Local results and limits are recorded in [TESTING-SPEC](../../specs/TESTING-SPEC.md).
