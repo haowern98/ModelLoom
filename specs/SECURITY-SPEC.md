@@ -15,16 +15,16 @@ Chat/messages, model metadata, template/argument editors and API snippets render
 
 ## 1. Assets and trust boundaries
 
-| Asset or boundary | Threat | Required outcome |
-| --- | --- | --- |
-| Renderer -> privileged app control | Malicious chat/metadata/link content invokes native operations | Only explicit validated application actions reach privileged operations. |
-| Core -> local runtime/process lifecycle | Impersonated engine endpoint, forged readiness, wrong executable, process takeover, or broad termination | Reviewed owned-instance identity, restricted internal protocol, verified launch target, and scoped confirmed termination. |
-| Discovered peer -> approved worker | Spoofed discovery, address reuse, unauthorized access | Discovery conveys no trust; enforce approved peer identity before worker access. |
-| LAN/private network -> worker engine | Raw RPC abuse, interception, impersonation | Reviewed authenticated/confidential access boundary prevents unapproved clients reaching native RPC. |
-| API client -> model/session/queue | Unauthorized use, browser abuse, resource exhaustion | Explicit exposure, required network authentication, validated requests, bounded consumption. |
-| File/download -> native parser/installer | Malformed GGUF, path escape, malicious package or archive | Bounded parsing/extraction, integrity/trust checks, controlled installation and execution. |
-| Local storage/logs/exports | Disclosure or corruption of secrets and conversations | Platform-protected credentials, scoped persistence, redaction, safe recovery and deletion. |
-| Runtime release -> active cluster | Forged update, incompatible rollout, failed activation | Signed verified packages, compatibility checks, retained working rollback, clear failure. |
+| Asset or boundary                        | Threat                                                                                                   | Required outcome                                                                                                          |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Renderer -> privileged app control       | Malicious chat/metadata/link content invokes native operations                                           | Only explicit validated application actions reach privileged operations.                                                  |
+| Core -> local runtime/process lifecycle  | Impersonated engine endpoint, forged readiness, wrong executable, process takeover, or broad termination | Reviewed owned-instance identity, restricted internal protocol, verified launch target, and scoped confirmed termination. |
+| Discovered peer -> approved worker       | Spoofed discovery, address reuse, unauthorized access                                                    | Discovery conveys no trust; enforce approved peer identity before worker access.                                          |
+| LAN/private network -> worker engine     | Raw RPC abuse, interception, impersonation                                                               | Reviewed authenticated/confidential access boundary prevents unapproved clients reaching native RPC.                      |
+| API client -> model/session/queue        | Unauthorized use, browser abuse, resource exhaustion                                                     | Explicit exposure, required network authentication, validated requests, bounded consumption.                              |
+| File/download -> native parser/installer | Malformed GGUF, path escape, malicious package or archive                                                | Bounded parsing/extraction, integrity/trust checks, controlled installation and execution.                                |
+| Local storage/logs/exports               | Disclosure or corruption of secrets and conversations                                                    | Platform-protected credentials, scoped persistence, redaction, safe recovery and deletion.                                |
+| Runtime release -> active cluster        | Forged update, incompatible rollout, failed activation                                                   | Signed verified packages, compatibility checks, retained working rollback, clear failure.                                 |
 
 Host administrators and compromised operating systems are outside a promise of protection by the application alone. This does not permit exposing secrets unnecessarily or treating all local processes as trustworthy. Do not claim the app makes the upstream native parser or RPC backend intrinsically secure.
 
@@ -68,6 +68,8 @@ GGUF and catalogue inputs need actual runtime compatibility and malformed-file t
 
 ## 6. Runtime updates and supply chain
 
+[ADR-0004](decisions/0004-runtime-lifecycle-proposal.md) accepts established TUF verification as the direction and initial deployment/process ownership boundaries. It does not approve root/release-key operation, bootstrap manifests, credential storage or a production verification implementation. The first core plan uses in-memory fixtures and no signing keys; S15-S17 remain mandatory before affected live activation and release work. Windows Job Objects are ownership/cleanup machinery, not a native-code security sandbox.
+
 The [TUF investigation](../docs/research/NETWORKING-AND-RUNTIME-UPDATES.md) recommends an established client rather than custom signing logic, subject to D11 acceptance. Signed repository metadata, package compatibility/installation, native executable signing, and coordinated cluster activation are distinct responsibilities. Keep intentional runtime rollback separate from rollback of trusted metadata; review offline reuse, expiry, local cache integrity, clock failures, revocation, and root-key recovery explicitly.
 
 - S15 (P5-P6): Verify a signed manifest and the exact referenced package before extraction, installation, or activation. Bind package identity/hash to platform/backend/compatibility metadata; do not trust a version label or transport alone. D11 specifies vetted signature tooling, canonical representation, trust roots, rotation/revocation, replay/downgrade policy, offline verification, and release-key custody. Use established cryptographic libraries; do not design custom cryptography.
@@ -88,19 +90,19 @@ Lecture 6, pages 6-12 and 17-34, motivates approval boundaries, traceability, ad
 
 ## 8. Required security acceptance cases
 
-| Test condition | Expected outcome | Requirement |
-| --- | --- | --- |
-| Chat/catalogue content contains HTML, scripts, command instructions, or unsafe links | Safe display; no native operation, secret access, or automatic navigation. | S01-S03 |
-| Untrusted frame or malformed IPC requests a privileged action | Denied with no side effect or secret disclosure. | S01-S02 |
-| Spoofed discovery, unapproved/revoked peer, address reuse, or replayed pairing | No worker access or restored approval; clear failure. | S04-S07 |
-| Client connects to raw worker port over an unintended interface | Connection/operation denied by the enforced boundary. | S05-S07 |
-| Missing/invalid/old network API key or unapproved browser/Host request | Denied before inference; no sensitive response. | S08-S11 |
-| Oversized request, full queue, repeated failures, or client disconnect | Bounded resource use and documented overload/cancellation. | S11 |
-| Malformed file, path traversal, symlink escape, disk full, or interrupted transfer | No out-of-scope write/delete; no incomplete asset marked ready. | S12 |
-| Credential store unavailable, sensitive diagnostic input, or retained partial chat | No plaintext credential fallback/export leak; correct persisted state. | S13-S14 |
-| Tampered/mismatched/replayed runtime package or unauthorized downgrade | Candidate rejected; working runtime retained. | S15-S16 |
-| Partial cluster activation or candidate model-load failure | No incompatible serving; safe recovery and offered verified rollback. | S16 |
-| Wrong runtime executable/endpoint, stale/reused process reference, or same-name unrelated process | No impersonation or out-of-scope termination; operations target the verified owned instance. | S17 |
-| Native runtime crash, hung engine, forced desktop exit, or update racing Quit | Affected work fails honestly; GUI survives ordinary engine crash; owned cleanup is confirmed; unrelated headless work is untouched. | S16-S17 |
+| Test condition                                                                                    | Expected outcome                                                                                                                    | Requirement |
+| ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| Chat/catalogue content contains HTML, scripts, command instructions, or unsafe links              | Safe display; no native operation, secret access, or automatic navigation.                                                          | S01-S03     |
+| Untrusted frame or malformed IPC requests a privileged action                                     | Denied with no side effect or secret disclosure.                                                                                    | S01-S02     |
+| Spoofed discovery, unapproved/revoked peer, address reuse, or replayed pairing                    | No worker access or restored approval; clear failure.                                                                               | S04-S07     |
+| Client connects to raw worker port over an unintended interface                                   | Connection/operation denied by the enforced boundary.                                                                               | S05-S07     |
+| Missing/invalid/old network API key or unapproved browser/Host request                            | Denied before inference; no sensitive response.                                                                                     | S08-S11     |
+| Oversized request, full queue, repeated failures, or client disconnect                            | Bounded resource use and documented overload/cancellation.                                                                          | S11         |
+| Malformed file, path traversal, symlink escape, disk full, or interrupted transfer                | No out-of-scope write/delete; no incomplete asset marked ready.                                                                     | S12         |
+| Credential store unavailable, sensitive diagnostic input, or retained partial chat                | No plaintext credential fallback/export leak; correct persisted state.                                                              | S13-S14     |
+| Tampered/mismatched/replayed runtime package or unauthorized downgrade                            | Candidate rejected; working runtime retained.                                                                                       | S15-S16     |
+| Partial cluster activation or candidate model-load failure                                        | No incompatible serving; safe recovery and offered verified rollback.                                                               | S16         |
+| Wrong runtime executable/endpoint, stale/reused process reference, or same-name unrelated process | No impersonation or out-of-scope termination; operations target the verified owned instance.                                        | S17         |
+| Native runtime crash, hung engine, forced desktop exit, or update racing Quit                     | Affected work fails honestly; GUI survives ordinary engine crash; owned cleanup is confirmed; unrelated headless work is untouched. | S16-S17     |
 
 Tests must include real boundary/network checks for release acceptance; mocks only establish local logic. Before security-sensitive implementation, accept the affected ADR, finalize contracts, specify concrete test setup/limits, and review the design. Production boundary cases in this table remain pending. The local renderer isolation/text-rendering checks recorded in TESTING-SPEC are partial UI evidence, not proof of real pairing, authentication, protected storage, native cleanup or update trust.
