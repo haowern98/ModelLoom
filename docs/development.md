@@ -1,6 +1,6 @@
 # ModelLoom development guide
 
-**Status:** Desktop foundation implemented; runtime and distributed integration remain pending
+**Status:** Desktop preview and Windows core harnesses implemented; real-runtime activation gated and distributed integration pending
 **Updated:** 2026-10-06
 
 ## 1. Current workspace state
@@ -64,7 +64,7 @@ The recommended source boundaries are in the technical spec; create directories 
 
 ### Desktop foundation commands
 
-Run these from `E:\ModelLoom-Project`. The verified host is Windows x64, Node 24.7.0 and pnpm 11.19.0. Direct dependency versions are pinned and the workspace lockfile is present. The pnpm workspace uses `nodeLinker: hoisted` for Forge and explicitly permits Electron/esbuild build steps. No global tool settings were changed.
+Run these from `E:\ModelLoom-Project`. The current privileged/headless development host is Windows x64, Node 24.21.0 and pnpm 11.19.0. The original desktop-foundation checks used Node 24.7.0; native Node-API headers/import-library compatibility is described in the core README. Direct dependency versions are pinned and the workspace lockfile is present. The pnpm workspace uses `nodeLinker: hoisted` for Forge and explicitly permits Electron/esbuild build steps. No global tool settings were changed.
 
 | Command                          | Purpose and verified scope                                                                                                                                                                                                                                                                                           |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -97,7 +97,7 @@ Development fixtures must be small and non-sensitive. Actual models, chats, cach
 | Windows desktop | Frozen-lockfile install, unsigned demo packaging, and the real packaged smoke test on Windows 2025. Failed runs retain available screenshots, error context, and traces for seven days.                                                                                                                                                                                                   |
 | Security        | Gitleaks 8.30.1 scans all fetched Git history with redacted output. Its downloaded executable is checked against a pinned SHA-256 digest. The dependency audit fails on high/critical findings or registry errors; its JSON report is retained for seven days. Low/moderate findings remain review items, not a clean-security claim. Run `pnpm audit` locally to inspect all severities. |
 
-Jobs use Node 24.7.0 and the pnpm version in `package.json`. Third-party actions are pinned to full commit hashes; repository permissions are read-only and checkout credentials are not persisted. Jobs have bounded timeouts and obsolete runs for the same ref are cancelled. No signing keys, deployment credentials, publication step, or model/GPU workload is included. The Gitleaks CLI does not require a paid organization-action license.
+The activation slice updates all four jobs to Node 24.21.0 and retains the pnpm version in `package.json`; this CI edit has only local evidence until published and run. Third-party actions are pinned to full commit hashes; repository permissions are read-only and checkout credentials are not persisted. Jobs have bounded timeouts and obsolete runs for the same ref are cancelled. No production signing keys, deployment credentials, publication step, or model/GPU workload is included. The Gitleaks CLI does not require a paid organization-action license.
 
 These jobs establish automated desktop-foundation evidence only. They do not establish visual identity, full platform support, runtime/network security, signed updates, or inference correctness. Required-check enforcement is a separate GitHub branch-rule setting and has not been enabled. A successful local command or workflow lint is not a successful GitHub-hosted run. [GitHub secure-use guidance](https://docs.github.com/en/actions/reference/security/secure-use), [Gitleaks CLI documentation](https://github.com/gitleaks/gitleaks), [pnpm audit](https://pnpm.io/cli/audit).
 
@@ -120,7 +120,11 @@ For subagents, honor the Luna/max preference only where the available tool suppo
 
 The separately authorized Windows ownership slice lives in `packages/core/`; it does not connect the current desktop renderer or load real models. From the repository root, `pnpm --filter @modelloom/core test:native` builds the harmless fixture and ownership binding, emits the headless/utility hosts and runs 17 native integration cases. `pnpm --filter @modelloom/core check:native` checks owned C++ formatting and static analysis. Both commands passed locally on Windows 11 build 26200 with the pinned existing MSVC/Node development tuple described in [core README](../packages/core/README.md). Ordinary root tests remain separate so Linux CI does not silently claim Windows ownership evidence. Generated artifacts stay in ignored `packages/core/out/`.
 
-The shared core has 112 ordinary cases; existing desktop tests have 39. Current core/host checks pass, while full local formatting still reports seven untouched desktop files. All 77 tracked desktop files match the pre-slice hashes. [TESTING-SPEC](../specs/TESTING-SPEC.md#windows-ownership-and-fixture-hosts-2026-10-06) records commands, red/green evidence and limitations. No new hosted result or production/native-engine acceptance follows from these development commands.
+At publication, this ownership slice had 112 ordinary core cases, 17 native cases and 39 desktop cases. Its historical results are in [TESTING-SPEC](../specs/TESTING-SPEC.md#windows-ownership-and-fixture-hosts-2026-10-06).
+
+### Gated activation slice
+
+The later PROCEED adds the implementation described in [runtime activation](runtime-activation.md) on `feat/runtime-lifecycle`. Current checks pass 180 ordinary core, 30 Windows native and 39 desktop cases, with typecheck, lint, owned formatting and native static checks passing. All 77 tracked desktop files remain byte-identical; full local formatting still reports the same seven untouched desktop files. The user subsequently authorized focused commits and a branch push; no hosted result is claimed for this slice. Production public-root/signed-package/resource-planner inputs and actual model acceptance remain pending; the coded resource path is CPU only, with CUDA discovery deferred. Preview controls remain unavailable.
 
 Record revision, platform, runtime/model identity, configuration, scenario, command/test exit status, relevant redacted logs, result, and limitations. Mark not-run checks plainly. Mocked worker tests, CPU-only/native builds, and CI cannot stand in for mixed-GPU, real network, GUI, or headless acceptance.
 

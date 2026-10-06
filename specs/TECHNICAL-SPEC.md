@@ -132,3 +132,7 @@ The [2026-10-01 source investigation](../docs/research/NETWORKING-AND-RUNTIME-UP
 | Performance/resource use | Bounded queues/retries/cache limits and documented metric definitions. Numeric responsiveness, memory, and speed acceptance limits require reviewed evidence; none are invented here.              |
 
 An automated build is not platform GUI evidence, mock worker tests are not mixed-device acceptance, and product acceptance is not a speed benchmark. Record exact versions/configuration, results, and limitations in the plan's evidence log.
+
+### Windows activation implementation status, 2026-10-06
+
+The subsequent accepted activation slice implements local TUF package verification, checked expanded-bundle installation, bounded GGUF metadata inspection, exact context/resource-report validation and an owned hidden-console helper in the shared core. Node 24.21.0 is the privileged/headless and CI host pin; Electron 44.5.1 remains unchanged. The gated real-engine adapter uses retained native jobs/handles, fixed arguments and authenticated owned readiness. Public-root and validated-planner catalogues are empty, so production loading remains disabled. Its first coded admission path is CPU/zero GPU layers; CUDA availability/planner evidence is pending. These components do not connect preview controls, complete distributed/platform journeys, or establish inference equivalence. [Runtime activation](../docs/runtime-activation.md) records exact APIs and remaining gates.
