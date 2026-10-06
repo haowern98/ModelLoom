@@ -11,7 +11,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
-    files: ['apps/desktop/**/*.{ts,tsx}'],
+    files: ['apps/desktop/**/*.{ts,tsx}', 'packages/core/**/*.ts'],
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
     },
