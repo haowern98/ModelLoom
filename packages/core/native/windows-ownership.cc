@@ -6,6 +6,7 @@
 #include <memory>
 #include <node_api.h>
 #include <sddl.h>
+#include <shlobj.h>
 #include <string>
 #include <vector>
 #include <windows.h>
@@ -497,6 +498,41 @@ napi_value available_memory(napi_env env, napi_callback_info info) {
   return result;
 }
 
+/** Resolve the OS directory without trusting PATH or caller environment values.
+ */
+napi_value system_directory(napi_env env, napi_callback_info info) {
+  napi_value values[1], result;
+  wchar_t directory[32768];
+  if (!arguments(env, info, 0, values))
+    return fail(env, "INVALID_CONTROL");
+  const UINT length = GetSystemDirectoryW(directory, 32768);
+  if (length == 0 || length >= 32768 ||
+      napi_create_string_utf16(env,
+                               reinterpret_cast<const char16_t *>(directory),
+                               length, &result) != napi_ok)
+    return fail(env, "OWNERSHIP_FAILED");
+  return result;
+}
+
+/** NVIDIA's query requires ProgramFiles on this driver; use the OS known
+ * folder. */
+napi_value program_directory(napi_env env, napi_callback_info info) {
+  napi_value values[1], result;
+  if (!arguments(env, info, 0, values))
+    return fail(env, "INVALID_CONTROL");
+  PWSTR directory = nullptr;
+  const HRESULT status =
+      SHGetKnownFolderPath(FOLDERID_ProgramFilesX64, 0, nullptr, &directory);
+  const std::unique_ptr<wchar_t, decltype(&CoTaskMemFree)> owned(
+      directory, &CoTaskMemFree);
+  if (FAILED(status) || !directory ||
+      napi_create_string_utf16(env,
+                               reinterpret_cast<const char16_t *>(directory),
+                               NAPI_AUTO_LENGTH, &result) != napi_ok)
+    return fail(env, "OWNERSHIP_FAILED");
+  return result;
+}
+
 /** Capture only a just-forked core with matching image/time, retaining its
  * handle thereafter. */
 napi_value admit(napi_env env, napi_callback_info info) {
@@ -681,6 +717,10 @@ NAPI_MODULE_INIT() {
        nullptr, napi_default, nullptr},
       {"availableMemory", nullptr, checked<available_memory>, nullptr, nullptr,
        nullptr, napi_default, nullptr},
+      {"systemDirectory", nullptr, checked<system_directory>, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"programDirectory", nullptr, checked<program_directory>, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
       {"privateDirectory", nullptr, checked<private_directory>, nullptr,
        nullptr, nullptr, napi_default, nullptr},
       {"sealFiles", nullptr, checked<seal_files>, nullptr, nullptr, nullptr,

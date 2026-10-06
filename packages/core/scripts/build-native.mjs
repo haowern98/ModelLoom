@@ -113,6 +113,8 @@ execFileSync(
     'advapi32.lib',
     'iphlpapi.lib',
     'ws2_32.lib',
+    'shell32.lib',
+    'ole32.lib',
     '/DELAYLOAD:node.exe',
     `/OUT:${path.join(output, 'ownership.node')}`,
   ],
