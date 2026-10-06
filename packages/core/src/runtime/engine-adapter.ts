@@ -9,7 +9,7 @@ export interface EngineExit {
  * Captured capability for one owned instance, never a name/PID lookup.
  * @remarks The adapter must correlate selection and provide a fulfilling exit receipt.
  * Stop methods may reject or hang; the supervisor enforces deadlines and retains unconfirmed ownership.
- * Real containment, package trust and authentication are future adapter requirements.
+ * Production adapters must enforce containment, package trust and authenticated owned readiness.
  */
 export interface OwnedEngine {
   readonly selection: Selection;
@@ -21,7 +21,7 @@ export interface OwnedEngine {
 /**
  * Launches exactly the selected instance. Cancellation must settle launch or return the captured
  * instance for cleanup; a late result remains the adapter's owned instance, not a newer deployment.
- * No production implementation exists in this slice.
+ * The Windows real-engine adapter implements this boundary but remains gated on reviewed live assets.
  */
 export interface EngineAdapter {
   launch(selection: Selection, signal: AbortSignal): Promise<OwnedEngine>;
