@@ -82,3 +82,9 @@ Do not change renderer layouts/styles, enable existing preview controls, add pub
 3. Review the concrete plan, then begin its first fixture-backed core task after scoped coding authorization. Keep commits focused in feat/test/docs/refactor/chore groups, maximum two explicit files per commit, on `feat/runtime-lifecycle`. Publication remains separately authorized.
 
 No new probe, dependency installation, build, GPU workload, product code, UI edit, commit or publication was performed to produce this proposal. The existing audit remains evidence with limits, rather than a claim of implementation readiness for every subsystem.
+
+## 8. Subsequent activation implementation, 2026-10-06
+
+After publication of the Windows fixture slice at `b636110e775d66f7cd21340d864eb36c00e8ef63`, the user accepted the concrete real-runtime activation contract with PROCEED. The resulting local code uses tuf-js 6.0.0, a build-pinned public-root boundary, a signed expanded-file inventory, checked new-version installation and retained dependency handles. It adds bounded GGUF inspection, exact planner-report admission, owned authenticated readiness and a private hidden-console helper for isolated Ctrl+C. No UI or renderer bridge was changed.
+
+This acceptance authorizes those implementation pieces, not production root/key custody or distribution. The public-root and validated-memory catalogues remain empty. The adapter admits only the inspected upstream source and CPU with zero GPU layers; CUDA driver/VRAM discovery is pending. Synthetic signal handlers demonstrate helper isolation and owned exit, not actual upstream cleanup. Live activation, actual-model readiness/response/cancellation/reload, packaged grouping, D11 security operation, other platforms and inference equivalence retain their gates. See [runtime activation](../../docs/runtime-activation.md) and the later TESTING-SPEC evidence.
