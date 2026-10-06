@@ -14,6 +14,8 @@ interface Binding {
   captureServer(child: object, pid: number, expectedImage: string): void;
   ownedListener(child: object, port: number): boolean;
   availableMemory(): number;
+  systemDirectory(): string;
+  programDirectory(): string;
   createDeployment(): object;
   admitCore(root: object, pid: number, image: string, launchTime: number): void;
   launch(root: object, executable: string, args: readonly string[]): object;
@@ -38,6 +40,8 @@ const operations = [
   'captureServer',
   'ownedListener',
   'availableMemory',
+  'systemDirectory',
+  'programDirectory',
   'createDeployment',
   'admitCore',
   'launch',
