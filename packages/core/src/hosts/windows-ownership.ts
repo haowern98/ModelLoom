@@ -1,0 +1,59 @@
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+
+interface Observation {
+  readonly pid: number;
+  readonly exitCode: number;
+  readonly activeProcesses: number;
+  readonly output: string;
+}
+interface Binding {
+  createDeployment(): object;
+  admitCore(root: object, pid: number, image: string, launchTime: number): void;
+  launch(root: object, executable: string, args: readonly string[]): object;
+  observe(child: object): Observation;
+  requestStop(child: object): void;
+  abortFixture(child: object): void;
+  forceStop(child: object): void;
+  release(child: object): void;
+  closeDeployment(root: object): void;
+  coresExited(root: object): boolean;
+}
+const operations = [
+  'createDeployment',
+  'admitCore',
+  'launch',
+  'observe',
+  'requestStop',
+  'abortFixture',
+  'forceStop',
+  'release',
+  'closeDeployment',
+  'coresExited',
+] as const;
+
+/** Loads only the local development fixture binding; never resolves a renderer-supplied path. */
+export function ownershipBinding(): Binding {
+  if (process.platform !== 'win32' || process.arch !== 'x64')
+    throw new Error('UNSUPPORTED_PLATFORM');
+  const loaded: unknown = createRequire(import.meta.url)(
+    fileURLToPath(new URL('../../out/native/ownership.node', import.meta.url)),
+  );
+  if (
+    !loaded ||
+    typeof loaded !== 'object' ||
+    !operations.every((key) => key in loaded && typeof Reflect.get(loaded, key) === 'function')
+  )
+    throw new Error('INVALID_NATIVE_BINDING');
+  // The private native module's complete operation table is checked before this narrow assertion.
+  return loaded as Binding;
+}
+
+/** Bounded ownership-only wait. Job completion, not a successful termination call, is required. */
+export async function confirmExit(done: () => boolean, milliseconds = 2_000): Promise<void> {
+  const deadline = Date.now() + milliseconds;
+  while (!done()) {
+    if (Date.now() >= deadline) throw new Error('CLEANUP_FAILED');
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+}
