@@ -1,5 +1,4 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
-import { Monitor } from 'lucide-react';
 import { AppShell } from './AppShell';
 import type { Destination } from './navigation';
 import { ModelsPage } from '../features/models/ModelsPage';
@@ -9,6 +8,8 @@ import type { DemoConfiguration } from '../features/models/configuration';
 import { ClusterPage } from '../features/cluster/ClusterPage';
 import { ChatPage } from '../features/chat/ChatPage';
 import { ApiPage } from '../features/api/ApiPage';
+import { SettingsPage } from '../features/settings/SettingsPage';
+import type { SettingsCategory } from '../features/settings/SettingsPage';
 import { createDemoChat, transitionDemoChat } from '../mocks/chat';
 import { createDemoPlacement, demoDevices, transitionDemoPlacement } from '../mocks/cluster';
 import { createDemoJoining, transitionDemoJoining } from '../mocks/clusterJoining';
@@ -16,7 +17,6 @@ import { createDemoLibrary, transitionDemoLibrary } from '../mocks/modelLibrary'
 import type { DemoModel } from '../mocks/modelLibrary';
 import { Dialog } from '../components/Dialog';
 import { Button } from '../components/Button';
-import styles from './App.module.css';
 
 type Modal =
   { type: 'remove' | 'details'; model: DemoModel } | { type: 'info'; title: string; text: string };
@@ -27,6 +27,7 @@ export function App() {
     demo ? createDemoLibrary() : { models: [], activeModelId: null },
   );
   const [destination, setDestination] = useState<Destination>('Models');
+  const [settingsCategory, setSettingsCategory] = useState<SettingsCategory>('Appearance');
   const [chat, dispatchChat] = useReducer(transitionDemoChat, demo, createDemoChat);
   const [deviceNames, setDeviceNames] = useState<Record<string, string>>({});
   const [joining, dispatchJoining] = useReducer(
@@ -148,18 +149,11 @@ export function App() {
       ) : destination === 'API' ? (
         <ApiPage demo={demo} activeModel={activeModel} onCluster={() => navigate('Cluster')} />
       ) : (
-        <section className={styles.placeholder}>
-          <h1>{destination}</h1>
-          <div>
-            <Monitor size={36} />
-            <h2>This screen comes in the next milestone.</h2>
-            <p>
-              The current milestone covers the shared shell, Models, Cluster, Chat and API demo
-              screens.
-            </p>
-            <Button onClick={() => setDestination('Models')}>Back to Models</Button>
-          </div>
-        </section>
+        <SettingsPage
+          category={settingsCategory}
+          onCategory={setSettingsCategory}
+          onApi={() => navigate('API')}
+        />
       )}
       {modal && (
         <Dialog

@@ -4,11 +4,13 @@
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 210px minmax(0, 1fr);
+  grid-template-columns: 240px minmax(0, 1fr);
   color: var(--text);
   background: #181818;
 }
 .sidebar {
+  --font-size-control: var(--font-size-body);
+  --font-size-secondary: var(--font-size-description);
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -56,6 +58,8 @@
 }
 .search > label {
   width: 100%;
+  border-color: #2e2d30;
+  background: #2e2d30;
 }
 .history {
   min-height: 0;
@@ -63,15 +67,18 @@
   padding: 6px 6px 40px;
 }
 .history h2 {
-  padding: 12px 12px 6px;
-  font-size: var(--font-size-secondary);
-  font-weight: var(--font-weight-normal);
+  padding: 0 12px 6px;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
   color: var(--muted);
+}
+.history section + section {
+  margin-top: 19px;
 }
 .conversationButton {
   display: block;
   width: 100%;
-  padding: 10px 12px;
+  padding: 6px 12px;
   border: 0;
   border-radius: 10px;
   text-align: left;
@@ -81,6 +88,9 @@
   font-size: var(--font-size-control);
   line-height: var(--line-height-control);
   background: transparent;
+}
+.conversationButton + .conversationButton {
+  margin-top: 1px;
 }
 .conversationButton:hover,
 .conversationButton[aria-current='true'] {
@@ -263,9 +273,6 @@
   margin-block: 40px;
 }
 @media (max-width: 1050px) {
-  .page {
-    grid-template-columns: 190px minmax(0, 1fr);
-  }
   .header {
     padding-inline: 18px;
   }

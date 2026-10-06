@@ -26,6 +26,7 @@ const navigationIconProps = { size: 20, strokeWidth: 1.75 };
 
 export function AppShell({ destination, onNavigate, demo, children }: AppShellProps) {
   const [moreOpen, setMoreOpen] = useState(false);
+  const splitPanel = destination === 'Chat' || destination === 'Settings';
   return (
     <div className={styles.shell}>
       <div className={styles.titlebar}>
@@ -158,12 +159,10 @@ export function AppShell({ destination, onNavigate, demo, children }: AppShellPr
         </div>
       </aside>
       <section
-        className={`${styles.foreground} ${destination === 'Cluster' || destination === 'Models' || destination === 'Chat' || destination === 'API' ? styles.neutralForeground : ''} ${destination === 'Chat' ? styles.chatForeground : ''}`}
+        className={`${styles.foreground} ${styles.neutralForeground} ${splitPanel ? styles.chatForeground : ''}`}
         aria-label="ModelLoom workspace"
       >
-        <main className={`${styles.main} ${destination === 'Chat' ? styles.chatMain : ''}`}>
-          {children}
-        </main>
+        <main className={`${styles.main} ${splitPanel ? styles.chatMain : ''}`}>{children}</main>
       </section>
     </div>
   );
