@@ -55,6 +55,8 @@ if (options[0] === '--check') {
   const sources = [
     path.join(root, 'native/windows-ownership.cc'),
     path.join(root, 'tests/native/engine-fixture.cc'),
+    path.join(root, 'native/runtime-control.cc'),
+    path.join(root, 'tests/native/console-fixture.cc'),
   ];
   const llvm = path.join(installation, 'VC/Tools/Llvm/bin');
   execFileSync(path.join(llvm, 'clang-format.exe'), ['--dry-run', '--Werror', ...sources], {
@@ -108,6 +110,9 @@ execFileSync(
     path.join(output, 'delay-hook.obj'),
     path.join(headers, 'x64/node.lib'),
     'delayimp.lib',
+    'advapi32.lib',
+    'iphlpapi.lib',
+    'ws2_32.lib',
     '/DELAYLOAD:node.exe',
     `/OUT:${path.join(output, 'ownership.node')}`,
   ],
@@ -123,6 +128,24 @@ execFileSync(
   ],
   { cwd: output, env, stdio: 'inherit' },
 );
+for (const [source, name] of [
+  ['native/runtime-control.cc', 'ModelLoom-runtime-host'],
+  ['tests/native/console-fixture.cc', 'console-fixture'],
+]) {
+  execFileSync(
+    compiler,
+    [
+      ...common,
+      path.join(root, source),
+      `/Fo${path.join(output, `${name}.obj`)}`,
+      `/Fe${path.join(output, `${name}.exe`)}`,
+      '/link',
+      'user32.lib',
+      'ws2_32.lib',
+    ],
+    { cwd: output, env, stdio: 'inherit' },
+  );
+}
 console.log(
   'Built Windows x64 ownership binding and harmless engine fixture with MSVC 14.44.35207 /W4 /WX',
 );
