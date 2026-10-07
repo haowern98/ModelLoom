@@ -17,6 +17,13 @@ export function requireInstalledLive(installed: InstalledPackage): Inventory {
   if (!capability) throw new Error('UNVERIFIED_PACKAGE');
   return requireLivePackage(capability).inventory;
 }
+/** Realm comes from the retained verifier capability, never a caller-supplied install field. */
+export function installedRealm(installed: InstalledPackage): 'live' | 'development' {
+  const capability = installedPackages.get(installed);
+  const realm = requireLivePackage(capability).realm;
+  if (realm !== 'live' && realm !== 'development') throw new Error('UNVERIFIED_PACKAGE');
+  return realm;
+}
 async function inspect(directory: string, inventory: Inventory): Promise<void> {
   const expected = new Set(inventory.files.map((file) => file.path));
   let entries = 0;

@@ -9,6 +9,7 @@ import { METADATA_LIMIT, parseInventory } from './inventory.js';
 import type { Inventory } from './inventory.js';
 import { lstatSync, readFileSync } from 'node:fs';
 import { APPROVED_RUNTIME_ROOTS } from './trust-policy.js';
+import { DEVELOPMENT_BUILD, DEVELOPMENT_ROOT } from './development-policy.js';
 import { ownershipBinding } from '../hosts/windows-ownership.js';
 
 export interface VerifiedPackage {
@@ -16,7 +17,7 @@ export interface VerifiedPackage {
 }
 interface Evidence {
   readonly inventory: Inventory;
-  readonly realm: 'fixture' | 'live';
+  readonly realm: 'fixture' | 'live' | 'development';
   readonly verifiedAt: number;
   readonly expires: number;
 }
@@ -53,7 +54,7 @@ function verifier(publicRoot: Buffer, realm: Evidence['realm']) {
       let work: string | undefined;
       let lock: Awaited<ReturnType<typeof open>> | undefined;
       try {
-        if (realm === 'live') ownershipBinding().privateDirectory(path.resolve(state));
+        if (realm !== 'fixture') ownershipBinding().privateDirectory(path.resolve(state));
         else await mkdir(state, { recursive: true });
         const stateStat = await lstat(state);
         if (!stateStat.isDirectory() || stateStat.isSymbolicLink())
@@ -201,13 +202,25 @@ export function packageEvidence(value: unknown): Readonly<Evidence> {
 }
 export function requireLivePackage(value: unknown): Readonly<Evidence> {
   const evidence = packageEvidence(value);
-  if (evidence.realm !== 'live') throw new Error('UNVERIFIED_PACKAGE');
+  if (evidence.realm !== 'live' && !(evidence.realm === 'development' && DEVELOPMENT_BUILD))
+    throw new Error('UNVERIFIED_PACKAGE');
   return evidence;
 }
 /** Production root provisioning is a reviewed build change, never a runtime argument or bundle file. */
 export function createRuntimeVerifier(): ReturnType<typeof verifier> {
   const policy = APPROVED_RUNTIME_ROOTS[0];
   if (!policy || APPROVED_RUNTIME_ROOTS.length !== 1) throw new Error('MISSING_TRUST_ROOT');
+  return pinnedVerifier(policy, 'live');
+}
+/** Requires the explicit development build and its pinned public root, never a caller-selected root. */
+export function createDevelopmentRuntimeVerifier(): ReturnType<typeof verifier> {
+  if (!DEVELOPMENT_BUILD) throw new Error('DEVELOPMENT_BUILD_REQUIRED');
+  return pinnedVerifier(DEVELOPMENT_ROOT, 'development');
+}
+function pinnedVerifier(
+  policy: Readonly<{ asset: string; sha256: string }>,
+  realm: 'live' | 'development',
+): ReturnType<typeof verifier> {
   if (!/^[a-zA-Z0-9.-]+\.json$/u.test(policy.asset) || !/^[a-f0-9]{64}$/u.test(policy.sha256))
     throw new Error('INVALID_TRUST_ROOT');
   const asset = new URL(`../../assets/${policy.asset}`, import.meta.url);
@@ -221,6 +234,8 @@ export function createRuntimeVerifier(): ReturnType<typeof verifier> {
   )
     throw new Error('INVALID_TRUST_ROOT');
   const metadata: unknown = JSON.parse(root.toString('utf8'));
+  if ((object(object(metadata).signed).development_only === true) !== (realm === 'development'))
+    throw new Error('INVALID_TRUST_ROOT');
   const roles = object(object(object(metadata).signed).roles);
   const role = object(roles.root);
   const targets = object(roles.targets);
@@ -237,5 +252,5 @@ export function createRuntimeVerifier(): ReturnType<typeof verifier> {
     targetKeys.some((key: unknown) => typeof key !== 'string' || rootKeys.includes(key))
   )
     throw new Error('INVALID_TRUST_ROOT');
-  return verifier(root, 'live');
+  return verifier(root, realm);
 }
