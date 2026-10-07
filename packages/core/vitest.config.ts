@@ -8,6 +8,7 @@ export default defineConfig({
       'src/hosts/hosts.test.ts',
       'src/hosts/runtime-console.test.ts',
       'src/runtime-package/install.test.ts',
+      'src/publisher/development-custody.test.ts',
     ],
     clearMocks: true,
   },
