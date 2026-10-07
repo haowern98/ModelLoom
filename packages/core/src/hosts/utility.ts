@@ -3,6 +3,7 @@ import type { Selection } from '../runtime/contracts.js';
 import { MAX_CONTROL_BYTES } from '../runtime/contracts.js';
 import { decodeObject, exact } from './control.js';
 import { decodeEngine, selectionFrom, selectionKey } from './broker-protocol.js';
+import { FIXTURE_SCOPE } from './broker-protocol.js';
 import { fixtureSession } from './session.js';
 
 export interface UtilityChannel {
@@ -23,6 +24,7 @@ function deferred<T>() {
 /** Fixture utility host: shared policy, no native handles and no renderer channel. */
 export function runUtility(channel: UtilityChannel): void {
   let admitted = false;
+  let scope = FIXTURE_SCOPE;
   const entries = new Map<
     string,
     {
@@ -39,7 +41,7 @@ export function runUtility(channel: UtilityChannel): void {
   };
   const adapter: EngineAdapter = {
     launch(input, abort) {
-      const selection = selectionFrom(input);
+      const selection = selectionFrom(input, scope);
       const key = selectionKey(selection);
       if (!admitted || abort.aborted || entries.has(key))
         return Promise.reject(new Error('START_FAILED'));
@@ -54,7 +56,7 @@ export function runUtility(channel: UtilityChannel): void {
       return entry.captured.promise;
     },
   };
-  const session = fixtureSession(
+  let session = fixtureSession(
     adapter,
     () => {
       const selection = session.core.snapshot().selection;
@@ -67,8 +69,37 @@ export function runUtility(channel: UtilityChannel): void {
       if (typeof input !== 'string') throw new Error('INVALID_CONTROL');
       const envelope = decodeObject(input);
       if (envelope.type === 'admitted') {
-        exact(envelope, ['type']);
+        exact(envelope, ['type', 'deploymentId', 'packageId', 'modelId']);
         if (admitted) throw new Error('INVALID_CONTROL');
+        if (typeof envelope.deploymentId !== 'string') throw new Error('INVALID_CONTROL');
+        const admittedSelection = selectionFrom(
+          {
+            deploymentId: envelope.deploymentId,
+            packageId: envelope.packageId,
+            modelId: envelope.modelId,
+            sessionId: 'admission',
+            operationId: 'admission',
+          },
+          {
+            deploymentId: envelope.deploymentId,
+            packageId: String(envelope.packageId),
+            modelId: String(envelope.modelId),
+          },
+        );
+        scope = {
+          deploymentId: admittedSelection.deploymentId,
+          packageId: admittedSelection.packageId,
+          modelId: admittedSelection.modelId,
+        };
+        session = fixtureSession(
+          adapter,
+          () => {
+            const selection = session.core.snapshot().selection;
+            if (selection) send({ type: 'broker', action: 'crash', selection });
+          },
+          () => channel.exit(23),
+          envelope.deploymentId,
+        );
         admitted = true;
         return;
       }
@@ -79,7 +110,7 @@ export function runUtility(channel: UtilityChannel): void {
         return;
       }
       if (envelope.type === 'engine') {
-        const event = decodeEngine(input);
+        const event = decodeEngine(input, scope);
         const entry = entries.get(selectionKey(event.selection));
         if (!entry) return; // Late receipts cannot settle a newer load.
         switch (event.phase) {

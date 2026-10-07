@@ -1,15 +1,17 @@
 import { fileURLToPath } from 'node:url';
-import type { OwnedEngine } from '../runtime/engine-adapter.js';
+import type { EngineAdapter, OwnedEngine } from '../runtime/engine-adapter.js';
 import type { Selection } from '../runtime/contracts.js';
 import { MAX_CONTROL_BYTES } from '../runtime/contracts.js';
 import { createFixtureDeployment } from './fixture-engine.js';
 import type { FixtureMode } from './fixture-engine.js';
 import { decodeBroker, decodeReply, selectionKey } from './broker-protocol.js';
+import { FIXTURE_SCOPE } from './broker-protocol.js';
+import type { BrokerScope } from './broker-protocol.js';
 import { decodeObject, exact } from './control.js';
 
 /** Captured Electron utility child. This capability is constructed by trusted main, never IPC. */
 export interface UtilityChild {
-  readonly pid?: number;
+  readonly pid?: number | undefined;
   postMessage(text: string): void;
   on(event: 'spawn' | 'exit' | 'message', listener: (...args: unknown[]) => void): void;
   kill(): boolean;
@@ -19,15 +21,39 @@ export interface DesktopFixtureHost {
   command(text: string): Promise<Record<string, unknown>>;
   close(): Promise<void>;
 }
+/** Trusted main supplies instance capabilities. No renderer-provided entry point or launcher. */
+export interface DesktopDeployment {
+  readonly adapter: EngineAdapter;
+  children(): readonly number[];
+  admitCore(pid: number, expectedImage: string, launchTime: number): void;
+  close(): Promise<void>;
+  /** Optional fault hook for synthetic development tests; not provided by live desktop ownership. */
+  crash?(): void;
+}
 /** Main-owned development fixture host; containment precedes utility launch authority. */
 export async function createDesktopFixtureHost(
   fork: UtilityFork,
   mode: FixtureMode = 'ready',
 ): Promise<DesktopFixtureHost> {
   const deployment = createFixtureDeployment();
-  const adapter = deployment.adapter(mode);
+  return createDesktopEngineHost(fork, {
+    adapter: deployment.adapter(mode),
+    children: () => deployment.children(),
+    admitCore: (pid, image, time) => deployment.admitCore(pid, image, time),
+    close: () => deployment.close(),
+    crash: () => deployment.crash(),
+  });
+}
+/** Shared desktop broker. Main retains engine/core ownership; the utility runs lifecycle policy. */
+export async function createDesktopEngineHost(
+  fork: UtilityFork,
+  deployment: DesktopDeployment,
+  deploymentId = 'fixture-host',
+  scope: BrokerScope = FIXTURE_SCOPE,
+): Promise<DesktopFixtureHost> {
+  const adapter = deployment.adapter;
   const began = Date.now();
-  const utility = fork(fileURLToPath(new URL('../../tests/utility-entry.cjs', import.meta.url)));
+  const utility = fork(fileURLToPath(new URL('../../scripts/utility-entry.cjs', import.meta.url)));
   let alive = true;
   let closing: Promise<void> | undefined;
   let engine: { key: string; value: OwnedEngine } | undefined;
@@ -77,7 +103,7 @@ export async function createDesktopFixtureHost(
         return;
       }
       if (envelope.type === 'broker') {
-        const command = decodeBroker(input);
+        const command = decodeBroker(input, scope);
         const key = selectionKey(command.selection);
         if (command.action === 'launch') {
           if (engine || launching) throw new Error('BUSY');
@@ -113,14 +139,15 @@ export async function createDesktopFixtureHost(
         } else if (engine?.key === key) {
           if (command.action === 'stop') await engine.value.requestStop();
           else if (command.action === 'force') await engine.value.forceStop();
-          else deployment.crash();
+          else if (deployment.crash) deployment.crash();
+          else throw new Error('INVALID_CONTROL');
         }
         return;
       }
       exact(envelope, ['type', 'reply', 'quit']);
       if (envelope.type !== 'reply' || typeof envelope.quit !== 'boolean')
         throw new Error('INVALID_CONTROL');
-      const reply = decodeReply(envelope.reply);
+      const reply = decodeReply(envelope.reply, scope);
       if (typeof reply.id !== 'number') throw new Error('INVALID_CONTROL');
       const waiter = pending.get(reply.id);
       if (!waiter) return;
@@ -160,7 +187,12 @@ export async function createDesktopFixtureHost(
           deployment.admitCore(pid, process.execPath, began);
           void booted
             .then(() => {
-              send({ type: 'admitted' });
+              send({
+                type: 'admitted',
+                deploymentId,
+                packageId: scope.packageId,
+                modelId: scope.modelId,
+              });
               clearTimeout(timer);
               resolve();
             })
