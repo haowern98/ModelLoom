@@ -24,7 +24,7 @@ export async function inspectGGUF(file: string): Promise<GGUFInfo> {
         !Number.isSafeInteger(size) ||
         size < 0 ||
         offset + size > bytesRead ||
-        ++operations > 65536
+        ++operations > 4_000_000
       )
         return invalid();
       const bytes = buffer.subarray(offset, offset + size);
@@ -49,7 +49,9 @@ export async function inspectGGUF(file: string): Promise<GGUFInfo> {
       if (type === 9) {
         const item = u32(),
           count = u64();
-        if (item === 9 || count > 16384) return invalid();
+        // Modern tokenizers routinely exceed 16K entries. The byte budget still
+        // bounds every value; the operation cap also bounds many tiny strings.
+        if (item === 9 || count > 1_000_000) return invalid();
         for (let i = 0; i < count; i++) value(item);
         return undefined;
       }
