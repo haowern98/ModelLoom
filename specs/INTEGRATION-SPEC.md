@@ -134,6 +134,37 @@ Trace resulting checks to P1-P6/P8, T01-T24, S01-S17, J1-J11 and J13-J15. Includ
 
 Verifier-issued package authority and installed receipts are private in-process capabilities; serialized fields and fixture receipts never authorize production launch. The fixed supported configuration contains model SHA-256, per-slot context, slots, GPU layers, K/V cache types, seed and temperature. Unsupported settings are rejected, and aggregate native context is checked without changing selected settings. `NEEDS_RESOURCE_EVIDENCE` distinguishes missing/uncertain exact planner data from `INSUFFICIENT_RESOURCES` and `INVALID_CONFIGURATION`.
 
-The private loopback adapter requires native ownership of the listener and authenticated model-alias/context/slot responses. Its fresh key file is removed only after confirmed owned exit. Normal stop signals the isolated helper console; startup cancellation and hung shutdown use retained owned jobs. The current headless/utility entry points still use fixtures: no renderer bridge, public API or live CLI is enabled. Real CPU activation requires provisioned trust/assets/planner evidence; CUDA support and actual upstream behavior are pending. [Runtime activation](../docs/runtime-activation.md) defines the implemented boundary and evidence limits.
+On 2026-10-07 the user selected server prompt reuse enabled by default. For the
+inspected upstream build, the later approved allowance for the 24 GB system pins
+a 768 MiB RAM prompt-cache cap and two context checkpoints per slot, superseding
+the earlier 8192 MiB/32 policy. These are peak limits, not an eager RAM
+reservation. Exact memory reports must separately account for prompt-cache RAM,
+all selected slots' checkpoints and cache overhead, matching the fixed policy.
+Admission adds that validated budget to weights, KV and scratch. Missing cache
+evidence blocks launch; insufficient RAM does not authorize disabling caching
+or reducing the selected context. One explicit development report now binds the
+tested Bonsai hash, artifact, physical UUID and unchanged 7680-token configuration.
+Its RAM admission estimate is 6618 MiB; its VRAM allowance is 4365 MiB. Allocation
+failure remains possible and must produce a failed state rather than false readiness.
 
-The later resource slice exposes a read-only development diagnostic, not a live inference command. `discoverResources` returns fresh RAM bytes and physical GPU UUID/PCI identity, installed NVIDIA driver version, total/free VRAM bytes, MIG mode and driver model; failed discovery is unknown. Query output and lifetime are bounded. `checkCudaResources` requires exact validated per-UUID budgets whose sum matches the report, checks each selected device independently and never pools interchangeable VRAM. Missing/unknown evidence remains `NEEDS_RESOURCE_EVIDENCE`; insufficient memory remains `INSUFFICIENT_RESOURCES`; a driver below the signed inventory's numeric `minimumDriver` returns `INCOMPATIBLE_DRIVER`. The snapshot cannot reserve capacity, authorize a CUDA launch or change settings. CUDA launch-device mapping, approved reports and real-model execution remain gated.
+The private loopback adapter requires native ownership of the listener and authenticated model-alias/context/slot responses. Its fresh key file is removed only after confirmed owned exit. Normal stop signals the isolated helper console; startup cancellation and hung shutdown use retained owned jobs. An explicit unpackaged development build connects existing Import GGUF and Cluster picker/Run/Cancel/Stop controls to the shared core for exact local Bonsai. Closed commands carry an opaque imported-model ID; main owns the OS picker, verifier, configuration and process capabilities. Sender/frame checks and sandboxed preload prevent arbitrary paths, arguments or runtime credentials from entering renderer authority. Production activation, public API, chat generation, custom settings and real CPU admission remain closed. [Runtime activation](../docs/runtime-activation.md) records the implemented boundary and evidence limits.
+
+`discoverResources` remains a read-only bounded diagnostic used by development admission: fresh RAM, physical GPU UUID/PCI identity, installed NVIDIA driver version, total/free VRAM, MIG mode and driver model. Failed discovery is unknown. `checkCudaResources` requires exact per-UUID budgets whose sum matches the report and never pools interchangeable VRAM. Missing evidence remains `NEEDS_RESOURCE_EVIDENCE`; shortage remains `INSUFFICIENT_RESOURCES`; a driver below the signed inventory's numeric floor returns `INCOMPATIBLE_DRIVER`. The snapshot cannot reserve capacity or authorize launch alone. Development activation additionally requires verified package capabilities and the exact reviewed report; production and other-device reports remain unprovisioned.
+
+The 2026-10-07 startup correction separates local-device visibility from runtime
+activation. Every normal desktop instance reports its own hostname, OS, CPU and
+trusted role through the existing closed snapshot command, before any GGUF import,
+model load or peer connection. The local card identifies **This device** regardless
+of Coordinator/Worker role. Initial standalone desktop role remains Coordinator;
+this does not implement worker enrollment or role switching. Device observation
+does not create an engine or grant admission. Available development GPU capacity
+supplements the card; missing GPU details are omitted and cannot hide the PC or
+authorize CPU/other-GPU loading. Ordinary/packaged builds keep activation disabled
+while exposing local identity; explicit demo builds retain their labelled fixtures.
+
+GPU display names are read in the same bounded NVIDIA query as UUID and memory,
+not inferred from a model, screenshot or unrelated display adapter. Each name stays
+with that physical device's VRAM reading. Names are limited to 256 characters;
+malformed rows or control characters fail discovery, and `[N/A]` remains unknown.
+The renderer uses the observed name, or **GPU name unavailable** when only capacity
+is known. Display metadata grants no runtime or admission authority.
