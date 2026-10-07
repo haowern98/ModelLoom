@@ -5,6 +5,7 @@
 #include <iphlpapi.h>
 #include <memory>
 #include <node_api.h>
+#include <psapi.h>
 #include <sddl.h>
 #include <shlobj.h>
 #include <string>
@@ -40,6 +41,7 @@ struct Child {
   DWORD server_pid = 0;
   bool sent_stop = false;
   bool sent_abort = false;
+  SIZE_T helper_peak_ws = 0, server_peak_ws = 0;
 };
 struct Files {
   std::vector<std::unique_ptr<Handle>> handles;
@@ -78,8 +80,8 @@ napi_value wrap(napi_env env, std::unique_ptr<T> data,
 bool arguments(napi_env env, napi_callback_info info, size_t count,
                napi_value *values) {
   size_t actual = count + 1;
-  napi_value all[5]{};
-  if (count > 4 ||
+  napi_value all[6]{};
+  if (count > 5 ||
       napi_get_cb_info(env, info, &actual, all, nullptr, nullptr) != napi_ok ||
       actual != count)
     return false;
@@ -291,12 +293,13 @@ napi_value create(napi_env env, napi_callback_info info) {
 
 /** Native children remain suspended until both containment assignments succeed.
  */
-napi_value launch_mode(napi_env env, napi_callback_info info, bool console) {
-  napi_value values[4];
-  if (!arguments(env, info, console ? 4 : 3, values))
+napi_value launch_mode(napi_env env, napi_callback_info info, bool console,
+                       bool cuda = false) {
+  napi_value values[5];
+  if (!arguments(env, info, cuda ? 5 : console ? 4 : 3, values))
     return fail(env, "INVALID_CONTROL");
   auto *root = unwrap<Deployment>(env, values[0], root_tag);
-  std::wstring executable, command, temporary;
+  std::wstring executable, command, temporary, gpu;
   bool array = false;
   uint32_t length = 0;
   if (!root || !root->job.value || !wide(env, values[1], executable) ||
@@ -304,6 +307,21 @@ napi_value launch_mode(napi_env env, napi_callback_info info, bool console) {
       napi_get_array_length(env, values[2], &length) != napi_ok ||
       length > 64 || (console && !wide(env, values[3], temporary)))
     return fail(env, "INVALID_CONTROL");
+  // Full physical UUID only. No ordinals, abbreviated UUIDs, MIG or environment
+  // maps cross this launch boundary; CUDA remaps the sole visible device to 0.
+  if (cuda) {
+    if (!wide(env, values[4], gpu) || gpu.size() != 40 ||
+        gpu.substr(0, 4) != L"GPU-")
+      return fail(env, "INVALID_CONTROL");
+    for (size_t i = 4; i < gpu.size(); ++i) {
+      const bool hyphen = i == 12 || i == 17 || i == 22 || i == 27;
+      const auto c = gpu[i];
+      if (hyphen ? c != L'-'
+                 : !((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f') ||
+                     (c >= L'A' && c <= L'F')))
+        return fail(env, "INVALID_CONTROL");
+    }
+  }
   command = quote(executable);
   for (uint32_t i = 0; i < length; ++i) {
     napi_value value;
@@ -372,6 +390,7 @@ napi_value launch_mode(napi_env env, napi_callback_info info, bool console) {
   std::wstring environment;
   if (console) {
     for (const auto &item : std::vector<std::wstring>{
+             L"CUDA_CACHE_PATH=" + temporary, L"CUDA_VISIBLE_DEVICES=" + gpu,
              L"PATH=" + directory + L";" + windows + L"\\System32",
              L"SystemRoot=" + std::wstring(windows), L"TEMP=" + temporary,
              L"TMP=" + temporary}) {
@@ -413,6 +432,9 @@ napi_value launch(napi_env env, napi_callback_info info) {
 }
 napi_value launch_console(napi_env env, napi_callback_info info) {
   return launch_mode(env, info, true);
+}
+napi_value launch_cuda_console(napi_env env, napi_callback_info info) {
+  return launch_mode(env, info, true, true);
 }
 
 /** Startup receipt is checked once against the contained image/time, then
@@ -629,6 +651,26 @@ napi_value observe(napi_env env, napi_callback_info info) {
                                  JobObjectBasicAccountingInformation,
                                  &accounting, sizeof(accounting), nullptr))
     return fail(env, "OWNERSHIP_FAILED");
+  JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+  if (!QueryInformationJobObject(child->job.value,
+                                 JobObjectExtendedLimitInformation, &limits,
+                                 sizeof(limits), nullptr))
+    return fail(env, "OWNERSHIP_FAILED");
+  bool memory_known = true;
+  auto peak = [&memory_known](HANDLE process, SIZE_T &previous) {
+    if (!process || WaitForSingleObject(process, 0) == WAIT_OBJECT_0)
+      return;
+    PROCESS_MEMORY_COUNTERS counters{};
+    if (!K32GetProcessMemoryInfo(process, &counters, sizeof(counters))) {
+      memory_known = false;
+      return;
+    }
+    previous = (std::max)(previous, counters.PeakWorkingSetSize);
+  };
+  // Only retained, ownership-checked handles; never reopen a later PID for
+  // attribution.
+  peak(child->process.value, child->helper_peak_ws);
+  peak(child->server.value, child->server_peak_ws);
   if (napi_create_object(env, &result) != napi_ok ||
       napi_create_string_utf8(env, buffer, read, &output) != napi_ok ||
       napi_set_named_property(env, result, "output", output) != napi_ok)
@@ -636,7 +678,13 @@ napi_value observe(napi_env env, napi_callback_info info) {
   if (!number(env, result, "pid", child->pid) ||
       !number(env, result, "exitCode",
               exited ? static_cast<double>(code) : -1) ||
-      !number(env, result, "activeProcesses", accounting.ActiveProcesses))
+      !number(env, result, "activeProcesses", accounting.ActiveProcesses) ||
+      !number(env, result, "peakJobCommit",
+              static_cast<double>(limits.PeakJobMemoryUsed)) ||
+      !number(env, result, "peakWorkingSet",
+              memory_known ? static_cast<double>(child->helper_peak_ws +
+                                                 child->server_peak_ws)
+                           : -1))
     return fail(env, "OWNERSHIP_FAILED");
   return result;
 }
@@ -735,6 +783,8 @@ NAPI_MODULE_INIT() {
        napi_default, nullptr},
       {"launchConsole", nullptr, checked<launch_console>, nullptr, nullptr,
        nullptr, napi_default, nullptr},
+      {"launchCudaConsole", nullptr, checked<launch_cuda_console>, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
       {"observe", nullptr, checked<observe>, nullptr, nullptr, nullptr,
        napi_default, nullptr},
       {"requestStop", nullptr, checked<stop>, nullptr, nullptr, nullptr,

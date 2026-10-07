@@ -6,6 +6,10 @@ interface Observation {
   readonly exitCode: number;
   readonly activeProcesses: number;
   readonly output: string;
+  /** Sum of the captured helper/server peak resident sets; -1 means observation failed. */
+  readonly peakWorkingSet: number;
+  /** Peak private commit of the complete owned engine job, in bytes. */
+  readonly peakJobCommit: number;
 }
 interface Binding {
   privateDirectory(directory: string): void;
@@ -24,6 +28,14 @@ interface Binding {
     executable: string,
     args: readonly string[],
     temporaryDirectory: string,
+  ): object;
+  /** GPU visibility is set only in this owned child, using a full physical UUID. */
+  launchCudaConsole(
+    root: object,
+    executable: string,
+    args: readonly string[],
+    temporaryDirectory: string,
+    gpuUuid: string,
   ): object;
   observe(child: object): Observation;
   requestStop(child: object): void;
@@ -46,6 +58,7 @@ const operations = [
   'admitCore',
   'launch',
   'launchConsole',
+  'launchCudaConsole',
   'observe',
   'requestStop',
   'abortFixture',
