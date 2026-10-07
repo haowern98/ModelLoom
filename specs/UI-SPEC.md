@@ -240,6 +240,20 @@ Editor validation rejects empty/nonfinite values, nonintegers in count fields an
 
 ## 5. Cluster screen
 
+The 2026-10-07 approved startup correction shows the user's own PC in the existing
+device card before model import/loading or remote connections. Identify it as
+**This device**, display its observed hardware and trusted role, and keep model
+status unloaded until actual readiness. Visibility is independent of Coordinator
+or Worker role. Missing GPU information must not hide the PC. No card, toolbar,
+font, colour or spacing redesign is part of this correction. Labelled demo builds
+retain their fixture presentation; normal desktop builds show the observed PC
+even when runtime activation is unavailable.
+
+The GPU tile uses its detected model name alongside memory from the same physical
+device; the generic hardcoded NVIDIA GPU label is removed. When capacity is known
+but the name is unavailable, state **GPU name unavailable**. Keep existing tile
+geometry, fonts and colours.
+
 The subsequent approved hardware-stacking revision makes coordinator tiles use
 the same vertical stack and icon/text layout as worker tiles: CPU first, followed
 by each GPU beneath it. Remove coordinator-only horizontal columns and compact
