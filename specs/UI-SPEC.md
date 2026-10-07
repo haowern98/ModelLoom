@@ -240,6 +240,62 @@ Editor validation rejects empty/nonfinite values, nonintegers in count fields an
 
 ## 5. Cluster screen
 
+The 2026-10-07 approved startup correction shows the user's own PC in the existing
+device card before model import/loading or remote connections. Identify it as
+**This device**, display its observed hardware and trusted role, and keep model
+status unloaded until actual readiness. Visibility is independent of Coordinator
+or Worker role. Missing GPU information must not hide the PC. No card, toolbar,
+font, colour or spacing redesign is part of this correction. Labelled demo builds
+retain their fixture presentation; normal desktop builds show the observed PC
+even when runtime activation is unavailable.
+
+The GPU tile uses its detected model name alongside memory from the same physical
+device; the generic hardcoded NVIDIA GPU label is removed. When capacity is known
+but the name is unavailable, state **GPU name unavailable**. Keep existing tile
+geometry, fonts and colours.
+
+The subsequent approved hardware-stacking revision makes coordinator tiles use
+the same vertical stack and icon/text layout as worker tiles: CPU first, followed
+by each GPU beneath it. Remove coordinator-only horizontal columns and compact
+tile overrides. Preserve the coordinator card's graph position, width, role badge,
+palette and typography; hardware content determines its height.
+
+GPU and unified-memory tiles retain the empty layer-bar track when unassigned,
+with **Unassigned** and the existing pencil control below it. The approved track
+colour is #4A4A4A so it remains visible against #303030 hardware tiles; assigned
+fill remains white (#FFFFFF). Fill appears only when a layer range is assigned.
+
+The approved CPU/GPU icon revision uses Lucide **Cpu** and **Gpu**, both white,
+at the existing 26px size and 1.7 stroke width. GPU replaces the circuit-board
+symbol. Preserve unified-memory icons and the remaining card styling.
+
+The subsequent approved Settings-style card revision removes the monitor icon
+beside the device name. The subsequent approved device-name revision uses 16px
+at weight 500, retaining the shared font family. CPU/GPU labels use 14px at
+weight 500; hardware details use 13px at weight 400 with the Settings description
+line-height of 1.625.
+The subsequent approved header revision removes the OS/address subtitle from
+graph cards; OS/address information remains in device details. The latest
+approved alignment centres the device name vertically with the role badge and
+three-dot menu, superseding the earlier 4px name-to-tile gap. The approved top
+inset is exactly 18px from the outer card edge to the pill's top: a 1px border
+plus 17px top padding, with a 24px header/control area. The final approved
+adjustments raise the outer top edge and entire header by 2px in total,
+compensating with a 10px header-to-hardware gap to keep hardware cards and the
+bottom edge fixed.
+The device name retains its separate 1px upward translation from the shared
+centre. Do not apply positional offsets to the badge or menu.
+The subsequent approved device-details spacing revision uses 18px device-card
+side/bottom padding, a 12px gap between hardware tiles and 12px padding inside
+each tile; the later measured 18px top inset above supersedes the top padding.
+The subsequent approved device-details colour revision supersedes the earlier
+Integration-card palette: device cards use #262626 with a 16px corner radius;
+hardware tiles use #303030 with a 12px radius and borders matching their fill.
+Selected device cards retain that background with their existing selection outline.
+Remove the device drop shadow while retaining selected and focus indications.
+Preserve card widths and graph placement, vertical hardware stacking, white
+CPU/GPU icons, role badges, layer tracks, Unassigned labels and existing controls.
+
 ![Cluster reference](references/ui/cluster.png)
 
 Preserve the selected-model header, search and placement toolbar, coordinator/worker cards, CPU/GPU tiles, dotted connection curves with latency labels, assignment bars, editing affordances, and menus.

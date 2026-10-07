@@ -36,6 +36,7 @@ interface ClusterPanelProps extends JoiningProps {
   onCancelRename: () => void;
   onRename: (name: string) => void;
   hasChanges: boolean;
+  local?: boolean;
   onDiscard: () => void;
 }
 
@@ -119,6 +120,7 @@ function LayerEditor({
 export function ClusterPanel({
   id,
   demo,
+  local = false,
   joining,
   onJoining,
   selection,
@@ -223,9 +225,13 @@ export function ClusterPanel({
                 <dt>State</dt>
                 <dd>
                   {loading
-                    ? 'Loading demo model'
+                    ? local
+                      ? 'Loading local model'
+                      : 'Loading demo model'
                     : selectedModel?.id === activeModel?.id && activeModel
-                      ? 'Ready · simulated'
+                      ? local
+                        ? 'Ready'
+                        : 'Ready · simulated'
                       : 'Not loaded'}
                 </dd>
               </div>
@@ -235,7 +241,9 @@ export function ClusterPanel({
               </div>
               <div>
                 <dt>Devices</dt>
-                <dd>{devices.length} sample devices</dd>
+                <dd>
+                  {devices.length} {local ? 'local device' : 'sample devices'}
+                </dd>
               </div>
               <div>
                 <dt>Discrete VRAM</dt>
@@ -261,7 +269,11 @@ export function ClusterPanel({
             <PendingRequests demo={demo} joining={joining} onJoining={onJoining} />
             <section className={styles.panelSection}>
               <h3>Layer allocation</h3>
-              <p className={styles.panelDescription}>Sample allocation, not measured memory use.</p>
+              <p className={styles.panelDescription}>
+                {local
+                  ? 'This local configuration uses full GPU offload. Custom placement is unavailable.'
+                  : 'Sample allocation, not measured memory use.'}
+              </p>
               {devices.map((device) => (
                 <button
                   key={device.id}
@@ -271,14 +283,18 @@ export function ClusterPanel({
                 >
                   <span>{device.name}</span>
                   <small>
-                    {canPlace
-                      ? ranges
-                          .filter((range) =>
-                            device.hardware.some((hardware) => hardware.id === range.hardwareId),
-                          )
-                          .map((range) => `${range.first}–${range.last}`)
-                          .join(', ') || 'Unassigned'
-                      : 'Not assigned'}
+                    {local
+                      ? activeModel
+                        ? 'Full GPU offload'
+                        : 'Not loaded'
+                      : canPlace
+                        ? ranges
+                            .filter((range) =>
+                              device.hardware.some((hardware) => hardware.id === range.hardwareId),
+                            )
+                            .map((range) => `${range.first}–${range.last}`)
+                            .join(', ') || 'Unassigned'
+                        : 'Not assigned'}
                   </small>
                 </button>
               ))}
@@ -287,7 +303,9 @@ export function ClusterPanel({
         )}
         {selection.type === 'device' && (
           <>
-            <p className={styles.panelDescription}>Sample device · {selection.device.role}</p>
+            <p className={styles.panelDescription}>
+              {local ? 'Local device' : 'Sample device'} · {selection.device.role}
+            </p>
             <dl className={styles.details}>
               <div>
                 <dt>OS</dt>
@@ -299,17 +317,21 @@ export function ClusterPanel({
               </div>
               <div>
                 <dt>Connection</dt>
-                <dd>Not verified</dd>
+                <dd>{local ? 'This device' : 'Not verified'}</dd>
               </div>
             </dl>
             <section className={styles.panelSection}>
               <h3>Hardware and layers</h3>
               <p className={styles.panelDescription}>
-                {loading
-                  ? 'Simulated loading. Editing resumes when loading finishes or is cancelled.'
-                  : activeModel
-                    ? 'Edit sample ranges below. Run requires confirmation before replacing the active session.'
-                    : 'Assign sample layers below, then click Run to load the model.'}
+                {local
+                  ? loading
+                    ? 'Loading the local model. Cancel stops the owned engine.'
+                    : 'The tested local configuration uses full GPU offload. Custom layer editing is unavailable.'
+                  : loading
+                    ? 'Simulated loading. Editing resumes when loading finishes or is cancelled.'
+                    : activeModel
+                      ? 'Edit sample ranges below. Run requires confirmation before replacing the active session.'
+                      : 'Assign sample layers below, then click Run to load the model.'}
               </p>
               {selection.device.hardware.map((hardware) => {
                 const input = inputs.find((entry) => entry.hardwareId === hardware.id);

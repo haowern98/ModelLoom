@@ -13,6 +13,7 @@ interface ModelsPageProps {
   onDetails: (model: DemoModel) => void;
   onConfigure: (model: DemoModel) => void;
   onInfo: (title: string, text: string) => void;
+  onImport?: () => void;
 }
 
 export function ModelsPage({
@@ -22,6 +23,7 @@ export function ModelsPage({
   onDetails,
   onConfigure,
   onInfo,
+  onImport,
 }: ModelsPageProps) {
   const [query, setQuery] = useState('');
   const filtered = library.models.filter((model) =>
@@ -42,10 +44,12 @@ export function ModelsPage({
             aria-label="Import GGUF"
             title="Import GGUF"
             onClick={() =>
-              onInfo(
-                'GGUF import',
-                'No file is imported in this demo. GGUF import becomes available when model storage and runtime integration are ready.',
-              )
+              onImport
+                ? onImport()
+                : onInfo(
+                    'GGUF import',
+                    'No file is imported in this demo. GGUF import becomes available when model storage and runtime integration are ready.',
+                  )
             }
           >
             <Upload size={16} aria-hidden="true" />

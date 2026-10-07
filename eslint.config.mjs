@@ -11,7 +11,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
-    files: ['apps/desktop/**/*.{ts,tsx}'],
+    files: ['apps/desktop/**/*.{ts,tsx}', 'packages/core/**/*.ts'],
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
     },
@@ -28,7 +28,15 @@ export default tseslint.config(
   {
     files: ['**/*.cjs'],
     ...tseslint.configs.disableTypeChecked,
-    languageOptions: { globals: { require: 'readonly', module: 'readonly' } },
+    languageOptions: {
+      globals: {
+        require: 'readonly',
+        module: 'readonly',
+        process: 'readonly',
+        console: 'readonly',
+        __dirname: 'readonly',
+      },
+    },
     rules: {
       ...tseslint.configs.disableTypeChecked.rules,
       '@typescript-eslint/no-require-imports': 'off',

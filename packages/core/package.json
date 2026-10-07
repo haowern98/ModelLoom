@@ -1,0 +1,25 @@
+{
+  "name": "@modelloom/core",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:hosts": "tsc -p tsconfig.build.json",
+    "build:native": "node scripts/build-native.mjs",
+    "check:native": "node scripts/build-native.mjs --check",
+    "probe:resources": "pnpm build:native && pnpm build:hosts && node scripts/probe-resources.mjs",
+    "test:native": "pnpm build:native && pnpm build:hosts && vitest run --config vitest.native.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "24.7.0",
+    "node-gyp": "12.4.0",
+    "typescript": "5.9.3",
+    "vitest": "5.0.3"
+  },
+  "dependencies": {
+    "@tufjs/canonical-json": "2.0.0",
+    "@tufjs/models": "5.0.0",
+    "tuf-js": "6.0.0"
+  }
+}

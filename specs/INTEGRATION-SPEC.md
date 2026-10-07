@@ -1,13 +1,13 @@
 # ModelLoom integration specification
 
 **Status:** Draft logical contracts for review; no wire protocol or API implementation is finalized  
-**Updated:** 2026-10-05
+**Updated:** 2026-10-06
 
 **Sources:** [product](PRODUCT-SPEC.md), [technical](TECHNICAL-SPEC.md), [security](SECURITY-SPEC.md)
 
 ## 1. Scope and contract status
 
-Define what components exchange and the externally visible outcomes. GUI -> ModelLoom Core -> independently versioned runtime is the accepted functional direction under [ADR-0002](decisions/0002-lm-studio-runtime-direction.md). These logical contracts constrain later schemas without assuming IPC channel names, binary encoding, local ports, library, database, or engine ABI. The D01 LM Studio architecture replication audit must be complete and reviewed before core/engine hosting and communication are selected. D02-D04, D06-D07, and D09-D11 settle other details before implementation.
+Define what components exchange and the externally visible outcomes. GUI -> ModelLoom Core -> independently versioned runtime is the accepted functional direction under [ADR-0002](decisions/0002-lm-studio-runtime-direction.md). These logical contracts constrain later schemas without assuming IPC channel names, binary encoding, local ports, library, database, or engine ABI. [ADR-0004](decisions/0004-runtime-lifecycle-proposal.md) accepts the initial Windows development exception and hosting/communication direction. D01 remains open overall; the first fixture-backed plan does not introduce live IPC, sockets or native activation. D02-D04, D06-D07, and D09-D11 settle other details before implementation.
 
 The contracts cover renderer-to-control communication, control-to-engine operations, approved worker participation, Chat/API requests, storage, and runtime distribution. Inference tensor/RPC messages remain owned by the pinned native runtime; do not invent a second tensor protocol from this draft.
 
@@ -19,12 +19,12 @@ The 2026-10-05 approved API screen is renderer-only presentation. It creates no 
 
 These are observed renderer-only contracts behind the fixed [UI baseline](UI-SPEC.md#current-ui-baseline-2026-10-05), not accepted production wire schemas:
 
-| Action/state | Current observable outcome | Boundary still pending |
-| --- | --- | --- |
-| Library search/details/removal | Filters fixtures, displays unverified metadata, confirms removal and prevents removing the active demo model until stopped. No files are read/deleted. | Import/metadata/storage contracts. |
-| Placement/model lifecycle | Pending model/allocation stays separate from active state. Run/restart validates exact synthetic layer coverage; switching/restarting an active session asks for confirmation. Cancellable 800ms simulated loading completes in shared app state across navigation. | Real metadata, preflight, optimizer, engine/session and request interruption contracts. |
-| Chat | New/select/search, per-chat drafts and mutually exclusive feedback update session memory. Explicit response copy reports success/failure. Send/attachments are disabled. | Durable storage, Markdown, requests/streaming/cancellation and attachments. |
-| API | Direct sidebar navigation; local example tabs/copy and Choose in Cluster. Stopped, example address, unavailable statistics, no key and empty logs. | Server/access/key lifecycle, metrics/log source and supported client contract. |
+| Action/state                   | Current observable outcome                                                                                                                                                                                                                                          | Boundary still pending                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Library search/details/removal | Filters fixtures, displays unverified metadata, confirms removal and prevents removing the active demo model until stopped. No files are read/deleted.                                                                                                              | Import/metadata/storage contracts.                                                      |
+| Placement/model lifecycle      | Pending model/allocation stays separate from active state. Run/restart validates exact synthetic layer coverage; switching/restarting an active session asks for confirmation. Cancellable 800ms simulated loading completes in shared app state across navigation. | Real metadata, preflight, optimizer, engine/session and request interruption contracts. |
+| Chat                           | New/select/search, per-chat drafts and mutually exclusive feedback update session memory. Explicit response copy reports success/failure. Send/attachments are disabled.                                                                                            | Durable storage, Markdown, requests/streaming/cancellation and attachments.             |
+| API                            | Direct sidebar navigation; local example tabs/copy and Choose in Cluster. Stopped, example address, unavailable statistics, no key and empty logs.                                                                                                                  | Server/access/key lifecycle, metrics/log source and supported client contract.          |
 
 The local clipboard helper writes only explicitly selected response/snippet text and restores focus/selection when using its fallback. It neither reads credentials nor executes text. Future state subscriptions, dedicated IPC methods and remote operations below remain requirements for reviewed integration; the current main process supplies no preload/IPC bridge.
 
@@ -77,7 +77,9 @@ Expose dedicated methods for approved actions; no generic send-any-channel, exec
 
 ## 5. Control-to-engine and worker contracts
 
-The engine reports runtime/build/backend capabilities and actual devices before model preflight. The GUI communicates with a GUI-independent core; that core owns runtime lifecycle. Both desktop and independent headless entry points use essentially the same core/engine contract. A versioned llama-server process is acceptable; the D01 audit determines the exact observed reference process/library arrangement and communication protocol before ModelLoom-specific selection. Define startup handshake, trusted identity, readiness bounds, cancellation, shutdown, exit/crash events, compatibility, and any actual library ABI after that audit.
+The engine reports runtime/build/backend capabilities and actual devices before model preflight. The GUI communicates with a GUI-independent core; that core owns runtime lifecycle. Both desktop and independent headless entry points use essentially the same core/engine contract. ADR-0004 selects a separate versioned llama-server and narrow deployment-private authenticated HTTP/streaming adapter. Desktop main retains process capabilities while the utility core owns lifecycle policy; headless uses the same core/broker logic. Define and test exact startup/authenticated activation, identity, cancellation and exit contracts in the affected implementation plans. Initial policy is 180 seconds startup and 5 seconds graceful plus 2 seconds forced-exit confirmation, with a 1 MiB control-message bound. Actual wire schemas and live activation remain gated; fixture behavior is not runtime acceptance.
+
+The authorized Windows development hosts now use the same supervisor for harmless native fixtures. Desktop main/utility messages use the inherited Electron channel; the test driver uses inherited Node IPC, and headless consumes local UTF-8 NDJSON pipes. Exact command/broker/reply variants, full selection correlation, monotonic command IDs and closed Quit admission are tested. Native handles stay in the owner, and confirmed process/tree exit precedes successful teardown. These fixture schemas and crash controls are not public APIs, renderer bridges or a substitute for the gated authenticated real-engine adapter.
 
 Worker control reports approved identity, reachable path, compute capabilities, runtime compatibility, assigned work, and errors. Pairing/authentication must finish before a peer can reach native worker operations. Transport security and native-RPC encapsulation are specified under D03. The app's approved-peer label must correspond to an enforced access boundary.
 
@@ -91,7 +93,7 @@ An ordinary llama-server termination/native crash emits a correlated runtime-exi
 
 Full desktop Quit must have explicit ordered lifecycle semantics: close admission, cancel/resolve queued and active work, request graceful owned-runtime teardown, escalate if the bounded deadline expires, wait for verified engine/helper exit, then complete the desktop-owned core/GUI shutdown. The reviewed protocol defines acknowledgement versus actual exit, cancellation races, stream terminal behavior, and handling of a hung/unreachable core. Do not assume that terminating a parent automatically terminates all descendants.
 
-D01 must establish an abnormal-exit cleanup strategy and authoritative ownership references, including processes created during loading/updating/restarting and PID/handle reuse. Never select victims by executable name. Independently launched headless deployments have their own lifecycle and are not terminated by another desktop's Quit; remote worker services receive reviewed assignment teardown rather than an indiscriminate service shutdown. Window X performs full Quit under ADR-0003; minimize is distinct.
+ADR-0004 selects deployment-scoped Windows Job Objects and trusted process/session capabilities as the initial cleanup direction; implementation must prove actual containment and exit, including processes created during loading/updating/restarting and PID/handle reuse. Never select victims by executable name. Independently launched headless deployments have their own lifecycle and are not terminated by another desktop's Quit; remote worker services receive reviewed assignment teardown rather than an indiscriminate service shutdown. Window X performs full Quit under ADR-0003; minimize is distinct.
 
 ## 6. Chat/API coordination
 
@@ -127,3 +129,42 @@ Independent app/runtime releases need explicit supported contract ranges, not as
 Before contract implementation, each affected D decision must be accepted, messages must have concrete schemas with bounds and versioning, and error/cancellation semantics must have observable acceptance tests. Validate malformed, oversized, replayed/stale, unauthorized, interrupted, and incompatible inputs as well as normal behavior.
 
 Trace resulting checks to P1-P6/P8, T01-T24, S01-S17, J1-J11 and J13-J15. Include graceful exit, hung-engine escalation, native crash, abnormal desktop exit, concurrent runtime transition/Quit, independent headless ownership, and no hidden replay. UI tests cover presentation but cannot establish actual worker security, transport compatibility, native execution, process cleanup, or API interoperability. Record tested client/runtime/platform versions and unsupported fields rather than claiming blanket SDK compatibility.
+
+### Gated Windows activation contract, 2026-10-06
+
+Verifier-issued package authority and installed receipts are private in-process capabilities; serialized fields and fixture receipts never authorize production launch. The fixed supported configuration contains model SHA-256, per-slot context, slots, GPU layers, K/V cache types, seed and temperature. Unsupported settings are rejected, and aggregate native context is checked without changing selected settings. `NEEDS_RESOURCE_EVIDENCE` distinguishes missing/uncertain exact planner data from `INSUFFICIENT_RESOURCES` and `INVALID_CONFIGURATION`.
+
+On 2026-10-07 the user selected server prompt reuse enabled by default. For the
+inspected upstream build, the later approved allowance for the 24 GB system pins
+a 768 MiB RAM prompt-cache cap and two context checkpoints per slot, superseding
+the earlier 8192 MiB/32 policy. These are peak limits, not an eager RAM
+reservation. Exact memory reports must separately account for prompt-cache RAM,
+all selected slots' checkpoints and cache overhead, matching the fixed policy.
+Admission adds that validated budget to weights, KV and scratch. Missing cache
+evidence blocks launch; insufficient RAM does not authorize disabling caching
+or reducing the selected context. One explicit development report now binds the
+tested Bonsai hash, artifact, physical UUID and unchanged 7680-token configuration.
+Its RAM admission estimate is 6618 MiB; its VRAM allowance is 4365 MiB. Allocation
+failure remains possible and must produce a failed state rather than false readiness.
+
+The private loopback adapter requires native ownership of the listener and authenticated model-alias/context/slot responses. Its fresh key file is removed only after confirmed owned exit. Normal stop signals the isolated helper console; startup cancellation and hung shutdown use retained owned jobs. An explicit unpackaged development build connects existing Import GGUF and Cluster picker/Run/Cancel/Stop controls to the shared core for exact local Bonsai. Closed commands carry an opaque imported-model ID; main owns the OS picker, verifier, configuration and process capabilities. Sender/frame checks and sandboxed preload prevent arbitrary paths, arguments or runtime credentials from entering renderer authority. Production activation, public API, chat generation, custom settings and real CPU admission remain closed. [Runtime activation](../docs/runtime-activation.md) records the implemented boundary and evidence limits.
+
+`discoverResources` remains a read-only bounded diagnostic used by development admission: fresh RAM, physical GPU UUID/PCI identity, installed NVIDIA driver version, total/free VRAM, MIG mode and driver model. Failed discovery is unknown. `checkCudaResources` requires exact per-UUID budgets whose sum matches the report and never pools interchangeable VRAM. Missing evidence remains `NEEDS_RESOURCE_EVIDENCE`; shortage remains `INSUFFICIENT_RESOURCES`; a driver below the signed inventory's numeric floor returns `INCOMPATIBLE_DRIVER`. The snapshot cannot reserve capacity or authorize launch alone. Development activation additionally requires verified package capabilities and the exact reviewed report; production and other-device reports remain unprovisioned.
+
+The 2026-10-07 startup correction separates local-device visibility from runtime
+activation. Every normal desktop instance reports its own hostname, OS, CPU and
+trusted role through the existing closed snapshot command, before any GGUF import,
+model load or peer connection. The local card identifies **This device** regardless
+of Coordinator/Worker role. Initial standalone desktop role remains Coordinator;
+this does not implement worker enrollment or role switching. Device observation
+does not create an engine or grant admission. Available development GPU capacity
+supplements the card; missing GPU details are omitted and cannot hide the PC or
+authorize CPU/other-GPU loading. Ordinary/packaged builds keep activation disabled
+while exposing local identity; explicit demo builds retain their labelled fixtures.
+
+GPU display names are read in the same bounded NVIDIA query as UUID and memory,
+not inferred from a model, screenshot or unrelated display adapter. Each name stays
+with that physical device's VRAM reading. Names are limited to 256 characters;
+malformed rows or control characters fail discovery, and `[N/A]` remains unknown.
+The renderer uses the observed name, or **GPU name unavailable** when only capacity
+is known. Display metadata grants no runtime or admission authority.

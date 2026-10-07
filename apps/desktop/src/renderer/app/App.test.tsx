@@ -1,7 +1,75 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+import type { RuntimeCommand, RuntimeView } from '../../shared/runtime';
+
+afterEach(() => {
+  delete window.modelLoomRuntime;
+});
+
+it('shows an unloaded local worker before any model import, without requiring GPU details', async () => {
+  const user = userEvent.setup();
+  const command = vi.fn<(input: RuntimeCommand) => Promise<RuntimeView>>(() =>
+    Promise.resolve({
+      enabled: true,
+      model: null,
+      phase: 'stopped' as const,
+      error: null,
+      device: {
+        name: 'own-pc',
+        os: 'Windows',
+        cpuName: 'Actual CPU',
+        threads: 8,
+        role: 'Worker' as const,
+      },
+    }),
+  );
+  window.modelLoomRuntime = { command };
+  render(<App />);
+  await user.click(screen.getByRole('button', { name: 'Cluster' }));
+  const device = within(await screen.findByRole('article', { name: 'own-pc' }));
+  expect(device.getByText('Worker')).toBeVisible();
+  expect(device.queryByText('Windows · This device')).not.toBeInTheDocument();
+  expect(device.getByText('Actual CPU')).toBeVisible();
+  expect(device.queryByText('NVIDIA GPU')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Run model' })).toBeDisabled();
+  expect(screen.queryByText('No devices connected')).not.toBeInTheDocument();
+  expect(command.mock.calls.every(([input]) => input?.action === 'snapshot')).toBe(true);
+  await user.click(device.getByRole('button', { name: 'Actions for own-pc' }));
+  await user.click(screen.getByRole('button', { name: 'Device details' }));
+  expect(screen.getByText('Windows', { selector: 'dd' })).toBeVisible();
+  expect(screen.getAllByText('This device', { selector: 'dd' })).toHaveLength(2);
+});
+
+it('displays the detected GPU model beside the observed VRAM without loading a model', async () => {
+  const user = userEvent.setup();
+  window.modelLoomRuntime = {
+    command: () =>
+      Promise.resolve({
+        enabled: true,
+        model: null,
+        phase: 'stopped',
+        error: null,
+        device: {
+          name: 'own-gpu-pc',
+          os: 'Windows',
+          cpuName: 'Actual CPU',
+          threads: 8,
+          role: 'Coordinator',
+          gpuMemoryGiB: 16,
+          gpuName: 'NVIDIA GeForce RTX 4060 Ti',
+        },
+      }),
+  };
+  render(<App />);
+  await user.click(screen.getByRole('button', { name: 'Cluster' }));
+  const device = within(await screen.findByRole('article', { name: 'own-gpu-pc' }));
+  expect(device.getByText('NVIDIA GeForce RTX 4060 Ti')).toBeVisible();
+  expect(device.getByText('16.0 GiB VRAM')).toBeVisible();
+  expect(device.queryByText('NVIDIA GPU')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Run model' })).toBeDisabled();
+});
 
 describe('Models milestone', () => {
   it('discloses sample data and renders compact model rows without launch controls', () => {

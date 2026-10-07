@@ -313,7 +313,7 @@ test('Cluster preserves the reference composition and sample disclosure at deskt
       );
       await expect(page.getByRole('heading', { name: 'studio-desktop', exact: true })).toHaveCSS(
         'font-size',
-        '14px',
+        '16px',
       );
     }
   }
@@ -449,14 +449,16 @@ test('keyboard pan, bounded zoom and fit work without zooming layer inputs', asy
   const card = page.getByRole('article', { name: 'studio-desktop' });
   const original = await card.boundingBox();
   if (!original) throw new Error('Card is missing');
+  // Fit-to-view can start below 100% when vertically stacked hardware makes the graph taller.
+  const unscaledWidth = await card.evaluate((element: HTMLElement) => element.offsetWidth);
   await canvas.focus();
   await page.keyboard.press('ArrowRight');
   expect((await card.boundingBox())?.x).toBeCloseTo(original.x + 40, 1);
   for (let index = 0; index < 12; index++) await page.keyboard.press('+');
-  expect((await card.boundingBox())?.width).toBeCloseTo(original.width * 2, 1);
+  expect((await card.boundingBox())?.width).toBeCloseTo(unscaledWidth * 2, 1);
   await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toBeDisabled();
   for (let index = 0; index < 24; index++) await page.keyboard.press('-');
-  expect((await card.boundingBox())?.width).toBeCloseTo(original.width * 0.25, 1);
+  expect((await card.boundingBox())?.width).toBeCloseTo(unscaledWidth * 0.25, 1);
   await expect(page.getByRole('button', { name: 'Zoom out', exact: true })).toBeDisabled();
   await page.keyboard.press('0');
   expect((await card.boundingBox())?.width).toBeCloseTo(original.width, 1);

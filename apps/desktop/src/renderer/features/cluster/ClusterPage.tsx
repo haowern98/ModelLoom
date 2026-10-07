@@ -37,6 +37,7 @@ interface ClusterPageProps extends JoiningProps {
   placement: DemoPlacement;
   dispatch: Dispatch<PlacementAction>;
   onStop: () => void;
+  localRuntime?: { loading: boolean; onChoose(model: DemoModel): void; onRun(): void };
 }
 
 /** A renderer-only visual demo. No discovery, optimization, runtime launch, or network call occurs. */
@@ -51,6 +52,7 @@ export function ClusterPage({
   placement,
   dispatch,
   onStop,
+  localRuntime,
 }: ClusterPageProps) {
   const [query, setQuery] = useState('');
   const [panelOpen, setPanelOpen] = useState(false);
@@ -93,7 +95,7 @@ export function ClusterPage({
     setPanelOpen(true);
   };
   const [modal, setModal] = useState<Modal | null>(null);
-  const devices = demo ? availableDevices : [];
+  const devices = demo || localRuntime ? availableDevices : [];
   const pendingRequests = demo
     ? incomingExamples.filter((request) => !joining.decisions[request.id]).length
     : 0;
@@ -135,9 +137,9 @@ export function ClusterPage({
         placement.inputs[index]?.last.trim() &&
         validSampleRange(range, layerCount),
     );
-  const loading = Boolean(placement.launch);
+  const loading = localRuntime ? localRuntime.loading : Boolean(placement.launch);
   const canPlace = demo && Boolean(selectedModel);
-  const changed = hasPlacementChanges(placement);
+  const changed = !localRuntime && hasPlacementChanges(placement);
   const selectedIsActive = selectedModel?.id === activeModel?.id && Boolean(activeModel);
   const runAction = loading
     ? 'Cancel loading'
@@ -194,19 +196,27 @@ export function ClusterPage({
         <div className={styles.heading}>
           <h1 id="cluster-heading">Cluster</h1>
           <ClusterModelPicker
+            local={Boolean(localRuntime)}
             models={models}
             selectedModel={selectedModel}
             activeModelId={activeModel?.id}
-            disabled={!demo || loading}
-            onChoose={(model) => setModal({ type: 'placement', model })}
+            disabled={(!demo && !localRuntime) || loading}
+            onChoose={(model) =>
+              localRuntime ? localRuntime.onChoose(model) : setModal({ type: 'placement', model })
+            }
           />
           <button
             type="button"
             className={styles.runIcon}
             aria-label={runAction}
-            title={`${runAction}${loading ? ' · simulated loading' : ''}`}
-            disabled={!demo || !selectedModel || !devices.length}
+            title={`${runAction}${loading && !localRuntime ? ' · simulated loading' : ''}`}
+            disabled={(!demo && !localRuntime) || !selectedModel || !devices.length}
             onClick={() => {
+              if (localRuntime) {
+                if (loading || selectedIsActive) onStop();
+                else localRuntime.onRun();
+                return;
+              }
               if (loading) {
                 dispatch({ type: 'cancel' });
                 notify('information', 'Demo loading cancelled · previous session unchanged');
@@ -220,9 +230,13 @@ export function ClusterPage({
           </button>
           <span className={styles.srOnly} aria-live="polite">
             {loading
-              ? 'Loading demo model · no engine is started'
+              ? localRuntime
+                ? 'Loading local model'
+                : 'Loading demo model · no engine is started'
               : selectedIsActive
-                ? 'Demo model ready'
+                ? localRuntime
+                  ? 'Local model ready'
+                  : 'Demo model ready'
                 : 'Selected model not loaded'}
           </span>
         </div>
@@ -315,6 +329,7 @@ export function ClusterPage({
                   proposed={!selectedIsActive || changed || loading}
                   loading={loading}
                   active={canPlace}
+                  localReady={Boolean(localRuntime && activeModel)}
                   onDetails={(device) => showPanel({ type: 'device', device })}
                   onRename={(device) => showPanel({ type: 'device', device, renaming: true })}
                   selected={selection.type === 'device' && selection.device.id === device.id}
@@ -341,6 +356,7 @@ export function ClusterPage({
           <ClusterPanel
             id={panelId}
             demo={demo}
+            local={Boolean(localRuntime)}
             joining={joining}
             onJoining={onJoining}
             selection={currentSelection}

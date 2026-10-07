@@ -1,5 +1,8 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  build: { sourcemap: true, rollupOptions: { external: ['electron', 'node:path', 'node:url'] } },
+  build: {
+    sourcemap: true,
+    rollupOptions: { external: ['electron', 'node:path', 'node:url', 'node:crypto', 'node:os'] },
+  },
 });

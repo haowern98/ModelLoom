@@ -1,8 +1,8 @@
 .page {
   position: relative;
   --surface: #181818;
-  --card: #1f1f1f;
-  --tile: #262626;
+  --card: #262626;
+  --tile: #303030;
   --border: #383838;
   --text: #f3f3f3;
   --muted: #ababab;
@@ -509,11 +509,13 @@
 }
 .device {
   position: relative;
+  /* Raise the top edge with the header; the added header gap keeps hardware and bottom fixed. */
+  margin-top: -2px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-panel);
   background: var(--card);
-  padding: 10px;
-  box-shadow: 0 3px 8px #0002;
+  /* The 1px border plus 17px top padding puts the role pill 18px from the outer edge. */
+  padding: 17px 18px 18px;
   cursor: pointer;
 }
 .device:hover {
@@ -521,7 +523,7 @@
 }
 .device[data-selected='true'] {
   border-color: #ababab;
-  background: #252525;
+  background: var(--card);
   box-shadow: 0 0 0 1px #ababab;
 }
 .coordinator {
@@ -532,25 +534,25 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  min-height: 24px;
+  margin-bottom: 10px;
 }
-.monitor {
-  color: #3895ff;
+.headerControls {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 8px;
+  height: 24px;
 }
 .identity {
   min-width: 0;
   flex: 1;
 }
 .identity h2 {
-  font-size: var(--font-size-card-title);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-medium);
   line-height: 18px;
-}
-.identity p {
-  color: var(--muted);
-  font-size: var(--font-size-metadata);
-  white-space: nowrap;
-  line-height: 15px;
+  transform: translateY(-1px);
 }
 .role {
   border-radius: 12px;
@@ -564,40 +566,38 @@
 }
 .hardware {
   display: grid;
-  gap: 8px;
-}
-.coordinator .hardware {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 .tile {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 6px;
-  border: 1px solid #333333;
-  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid var(--tile);
+  border-radius: var(--radius-card);
   background: var(--tile);
   min-width: 0;
 }
 .tile > svg {
   color: #d2d8e1;
 }
-.tile > svg.gpuIcon {
-  color: #81d532;
+.tile > svg.hardwareIcon {
+  color: #ffffff;
 }
 .hardwareText {
   min-width: 0;
   flex: 1;
 }
 .hardwareText h3 {
-  font-size: var(--font-size-metadata);
+  font-size: var(--font-size-card-title);
   font-weight: var(--font-weight-medium);
-  line-height: 1.25;
+  line-height: var(--line-height-body);
 }
 .hardwareText p {
-  font-size: var(--font-size-metadata);
+  font-size: var(--font-size-description);
+  font-weight: var(--font-weight-normal);
   color: var(--muted);
-  line-height: 1.25;
+  line-height: var(--line-height-description);
 }
 .hardwareStatus {
   display: flex;
@@ -621,7 +621,7 @@
 .bar {
   height: 8px;
   border: 1px solid var(--border);
-  background: #303030;
+  background: #4a4a4a;
   border-radius: 8px;
   overflow: hidden;
 }
@@ -652,24 +652,6 @@
 }
 .rangeRow button:hover {
   background: var(--cluster-control-hover);
-}
-.coordinator .tile {
-  display: block;
-  position: relative;
-}
-.coordinator .tile > svg {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  width: 20px;
-  height: 20px;
-}
-.coordinator .hardwareText h3 {
-  padding-left: 27px;
-  min-height: 23px;
-}
-.coordinator .hardwareText {
-  width: 100%;
 }
 .menuAnchor {
   position: relative;
