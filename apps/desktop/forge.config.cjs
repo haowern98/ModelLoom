@@ -6,7 +6,10 @@ module.exports = {
   makers: [new MakerZIP({}, ['win32', 'darwin', 'linux'])],
   plugins: [
     new VitePlugin({
-      build: [{ entry: 'src/main/index.ts', config: 'vite.main.config.ts', target: 'main' }],
+      build: [
+        { entry: 'src/main/index.ts', config: 'vite.main.config.ts', target: 'main' },
+        { entry: 'src/preload/index.ts', config: 'vite.preload.config.ts', target: 'preload' },
+      ],
       renderer: [{ name: 'main_window', config: 'vite.renderer.config.ts' }],
     }),
   ],
