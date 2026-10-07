@@ -96,6 +96,12 @@ importers:
 
   packages/core:
     dependencies:
+      '@tufjs/canonical-json':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@tufjs/models':
+        specifier: 5.0.0
+        version: 5.0.0
       tuf-js:
         specifier: 6.0.0
         version: 6.0.0
