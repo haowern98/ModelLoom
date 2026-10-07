@@ -4,11 +4,15 @@ export interface RuntimeConfiguration {
   readonly contextPerSlot: number;
   readonly slots: number;
   readonly gpuLayers: number;
+  /** Full physical NVIDIA UUID for the supported single-GPU launch; omitted for CPU. */
+  readonly gpuDevice?: string;
   readonly cacheK: 'f16' | 'q8_0';
   readonly cacheV: 'f16' | 'q8_0';
   readonly seed: number;
   readonly temperature: number;
 }
+/** Reviewed fixed server reuse policy. A cache limit is a peak budget, not eager allocation. */
+export const SERVER_CACHE_POLICY = Object.freeze({ promptCacheMiB: 768, contextCheckpoints: 2 });
 /** Validated estimates in bytes, bound to one model/build/backend/configuration. Uncertainty blocks admission. */
 export interface PlannerReport {
   readonly modelSha256: string;
@@ -19,6 +23,12 @@ export interface PlannerReport {
   readonly weights: { readonly ram: number; readonly vram: number };
   readonly kv: { readonly ram: number; readonly vram: number };
   readonly scratch: { readonly ram: number; readonly vram: number };
+  /** Separate validated peak for RAM prompt reuse, all per-slot checkpoints and cache overhead. */
+  readonly serverCaches: {
+    readonly promptCacheMiB: number;
+    readonly contextCheckpoints: number;
+    readonly ram: number;
+  };
   readonly uncertainty: string | null;
   /** Validated placement in bytes per physical GPU UUID; aggregate VRAM alone cannot admit CUDA. */
   readonly deviceVram?: readonly { readonly uuid: string; readonly bytes: number }[];
@@ -65,6 +75,12 @@ export function checkResources(
     totalContext > 2_147_483_647 ||
     !Number.isSafeInteger(configuration.gpuLayers) ||
     configuration.gpuLayers < 0 ||
+    (Object.hasOwn(configuration, 'gpuDevice') &&
+      (configuration.gpuLayers === 0 ||
+        typeof configuration.gpuDevice !== 'string' ||
+        !/^GPU-[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$/u.test(
+          configuration.gpuDevice,
+        ))) ||
     !Number.isSafeInteger(configuration.seed) ||
     configuration.seed < 0 ||
     configuration.seed > 4294967295 ||
@@ -88,7 +104,13 @@ export function checkResources(
   )
     return result('NEEDS_RESOURCE_EVIDENCE');
   const amounts = [report.weights, report.kv, report.scratch];
+  const caches = report.serverCaches;
   if (
+    !caches ||
+    caches.promptCacheMiB !== SERVER_CACHE_POLICY.promptCacheMiB ||
+    caches.contextCheckpoints !== SERVER_CACHE_POLICY.contextCheckpoints ||
+    !Number.isSafeInteger(caches.ram) ||
+    caches.ram < SERVER_CACHE_POLICY.promptCacheMiB * 1048576 ||
     amounts.some(
       (part) =>
         !part ||
@@ -99,7 +121,7 @@ export function checkResources(
     )
   )
     return result('NEEDS_RESOURCE_EVIDENCE');
-  const ram = amounts.reduce((sum, part) => sum + part.ram, 0),
+  const ram = amounts.reduce((sum, part) => sum + part.ram, caches.ram),
     vram = amounts.reduce((sum, part) => sum + part.vram, 0);
   if (
     !Number.isSafeInteger(ram) ||

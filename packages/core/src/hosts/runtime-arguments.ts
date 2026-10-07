@@ -1,5 +1,5 @@
 import type { RuntimeConfiguration } from '../runtime/preflight.js';
-import { checkResources } from '../runtime/preflight.js';
+import { checkResources, SERVER_CACHE_POLICY } from '../runtime/preflight.js';
 /** Closed supported configuration. Unsupported selected controls fail instead of being silently omitted. */
 export function fixedArguments(
   model: string,
@@ -18,6 +18,7 @@ export function fixedArguments(
     'seed',
     'temperature',
   ];
+  if (Object.hasOwn(configuration, 'gpuDevice')) keys.push('gpuDevice');
   if (
     Object.keys(configuration).length !== keys.length ||
     !keys.every((key) => Object.hasOwn(configuration, key)) ||
@@ -36,6 +37,7 @@ export function fixedArguments(
     throw new Error('INVALID_CONFIGURATION');
   const cfg = configuration as RuntimeConfiguration;
   if (
+    (cfg.gpuLayers > 0 && !cfg.gpuDevice) ||
     checkResources(cfg, '', 'cpu', undefined, { ram: 0, vram: 0 }).code === 'INVALID_CONFIGURATION'
   )
     throw new Error('INVALID_CONFIGURATION');
@@ -62,10 +64,22 @@ export function fixedArguments(
     String(cfg.slots),
     '--n-gpu-layers',
     String(cfg.gpuLayers),
+    '--device',
+    cfg.gpuDevice ? 'CUDA0' : 'none',
+    '--split-mode',
+    'none',
+    '--main-gpu',
+    '0',
     '--cache-type-k',
     cfg.cacheK,
     '--cache-type-v',
     cfg.cacheV,
+    // Quantized CUDA value cache uses the same explicit mode as the validated Bonsai run.
+    ...(cfg.gpuDevice && cfg.cacheV === 'q8_0' ? ['--flash-attn', 'on'] : []),
+    '--cache-ram',
+    String(SERVER_CACHE_POLICY.promptCacheMiB),
+    '--ctx-checkpoints',
+    String(SERVER_CACHE_POLICY.contextCheckpoints),
     '--seed',
     String(cfg.seed),
     '--temp',
