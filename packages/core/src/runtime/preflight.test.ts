@@ -11,6 +11,7 @@ const config: RuntimeConfiguration = Object.freeze({
   seed: 7,
   temperature: 0.8,
 });
+const cacheRam = 768 * 1048576;
 const report: PlannerReport = {
   artifact: 'cpu-1',
   backend: 'cpu',
@@ -20,13 +21,14 @@ const report: PlannerReport = {
   weights: { ram: 100, vram: 0 },
   kv: { ram: 40, vram: 0 },
   scratch: { ram: 10, vram: 0 },
+  serverCaches: { promptCacheMiB: 768, contextCheckpoints: 2, ram: cacheRam },
   uncertainty: null,
 };
 it('checks aggregate resources while retaining per-slot context and exact settings', () => {
-  expect(checkResources(config, 'cpu-1', 'cpu', report, { ram: 150, vram: 0 })).toEqual({
+  expect(checkResources(config, 'cpu-1', 'cpu', report, { ram: cacheRam + 150, vram: 0 })).toEqual({
     code: 'ADMITTED',
     totalContext: 8192,
-    ram: 150,
+    ram: cacheRam + 150,
     vram: 0,
   });
   expect(config.temperature).toBe(0.8);
@@ -37,8 +39,34 @@ it('refuses unknown requirements instead of calculating them from file size', ()
     checkResources(config, 'cpu-1', 'cpu', undefined, { ram: 10 ** 12, vram: 10 ** 12 }).code,
   ).toBe('NEEDS_RESOURCE_EVIDENCE');
 });
+it('requires matching server-cache evidence and includes its RAM in admission', () => {
+  const cacheRam = 768 * 1048576 + 4096;
+  const withCaches = {
+    ...report,
+    serverCaches: { promptCacheMiB: 768, contextCheckpoints: 2, ram: cacheRam },
+  };
+  expect(
+    checkResources(config, 'cpu-1', 'cpu', withCaches, { ram: cacheRam + 150, vram: 0 }),
+  ).toMatchObject({ code: 'ADMITTED', ram: cacheRam + 150 });
+  expect(
+    checkResources(config, 'cpu-1', 'cpu', withCaches, { ram: cacheRam + 149, vram: 0 }).code,
+  ).toBe('INSUFFICIENT_RESOURCES');
+  for (const serverCaches of [
+    undefined,
+    { promptCacheMiB: 0, contextCheckpoints: 2, ram: cacheRam },
+    { promptCacheMiB: 768, contextCheckpoints: 0, ram: cacheRam },
+    { promptCacheMiB: 768, contextCheckpoints: 2, ram: 768 * 1048576 - 1 },
+    { promptCacheMiB: 768, contextCheckpoints: 2, ram: NaN },
+  ])
+    expect(
+      checkResources(config, 'cpu-1', 'cpu', { ...withCaches, serverCaches } as PlannerReport, {
+        ram: Number.MAX_SAFE_INTEGER,
+        vram: 0,
+      }).code,
+    ).toBe('NEEDS_RESOURCE_EVIDENCE');
+});
 it.each([
-  { ram: 149, vram: 0 },
+  { ram: cacheRam + 149, vram: 0 },
   { ram: 0, vram: 100000 },
 ])('refuses shortage %j without moving resources', (available) => {
   expect(checkResources(config, 'cpu-1', 'cpu', report, available).code).toBe(
