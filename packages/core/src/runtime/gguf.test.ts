@@ -51,6 +51,34 @@ it('reads bounded model context and exact file identity without estimating memor
     sha256: createHash('sha256').update(bytes).digest('hex'),
   });
 });
+it('accepts a normal large tokenizer array within the metadata byte budget', async () => {
+  const header = fixture();
+  header.writeBigUInt64LE(3n, 16);
+  const bytes = Buffer.concat([
+    header,
+    str('tokenizer.ggml.tokens'),
+    u32(9),
+    u32(8),
+    u64(32768n),
+    ...Array.from({ length: 32768 }, () => str('token')),
+  ]);
+  expect(await inspectGGUF(await file(bytes))).toMatchObject({
+    architecture: 'llama',
+    contextLimit: 4096,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  });
+});
+it('still rejects a tokenizer array whose declared count exceeds the bounded header', async () => {
+  const header = fixture();
+  header.writeBigUInt64LE(3n, 16);
+  await expect(
+    inspectGGUF(
+      await file(
+        Buffer.concat([header, str('tokenizer.ggml.tokens'), u32(9), u32(8), u64(1000001n)]),
+      ),
+    ),
+  ).rejects.toThrow('INVALID_GGUF');
+});
 it.each([
   Buffer.from('notGGUF'),
   Buffer.concat([Buffer.from('GGUF'), u32(3), u64(1n), u64(99999999999n)]),
