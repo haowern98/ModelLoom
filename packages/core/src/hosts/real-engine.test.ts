@@ -51,3 +51,69 @@ it('refuses extra configuration instead of silently dropping unsupported setting
     fixedArguments('model.gguf', { ...config, executable: 'evil.exe' }, 9999, 'key', 'alias'),
   ).toThrow('INVALID_CONFIGURATION');
 });
+it('enables bounded prompt caching and checkpoints by default for CPU and CUDA', () => {
+  for (const selected of [
+    config,
+    { ...config, gpuLayers: 48, gpuDevice: 'GPU-22c23971-dacf-2123-2169-ad70d8f6729a' },
+  ]) {
+    const args = fixedArguments('model.gguf', selected, 9999, 'key', 'alias');
+    for (const [flag, value] of [
+      ['--cache-ram', '768'],
+      ['--ctx-checkpoints', '2'],
+    ] as const)
+      expect(args.slice(args.indexOf(flag), args.indexOf(flag) + 2)).toEqual([flag, value]);
+  }
+});
+it('disables implicit GPU selection for a CPU configuration', () => {
+  const args = fixedArguments('model.gguf', config, 9999, 'key', 'alias');
+  expect(args.slice(args.indexOf('--device'), args.indexOf('--device') + 2)).toEqual([
+    '--device',
+    'none',
+  ]);
+});
+it('binds explicit single-GPU offload to visible CUDA0 without changing model settings', () => {
+  const selected = {
+    ...config,
+    gpuLayers: 48,
+    gpuDevice: 'GPU-22c23971-dacf-2123-2169-ad70d8f6729a',
+  };
+  const args = fixedArguments('model.gguf', selected, 9999, 'key', 'alias');
+  for (const [flag, value] of [
+    ['--device', 'CUDA0'],
+    ['--split-mode', 'none'],
+    ['--main-gpu', '0'],
+    ['--n-gpu-layers', '48'],
+  ] as const)
+    expect(args.slice(args.indexOf(flag), args.indexOf(flag) + 2)).toEqual([flag, value]);
+  expect(args).not.toContain(selected.gpuDevice);
+});
+it('uses the tested flash attention setting for quantized CUDA value cache', () => {
+  const args = fixedArguments(
+    'model.gguf',
+    {
+      ...config,
+      gpuLayers: 48,
+      gpuDevice: 'GPU-22c23971-dacf-2123-2169-ad70d8f6729a',
+      cacheK: 'q8_0',
+      cacheV: 'q8_0',
+    },
+    9999,
+    'key',
+    'alias',
+  );
+  expect(args.slice(args.indexOf('--flash-attn'), args.indexOf('--flash-attn') + 2)).toEqual([
+    '--flash-attn',
+    'on',
+  ]);
+});
+it.each([
+  { ...config, gpuLayers: 48 },
+  { ...config, gpuLayers: 48, gpuDevice: 'GPU-22c23971' },
+  { ...config, gpuLayers: 48, gpuDevice: '0' },
+  { ...config, gpuLayers: 48, gpuDevice: 'GPU-22c23971-dacf-2123-2169-ad70d8f6729a,1' },
+  { ...config, gpuDevice: 'GPU-22c23971-dacf-2123-2169-ad70d8f6729a' },
+])('refuses missing, ambiguous or CPU-inconsistent GPU placement', (selected) => {
+  expect(() => fixedArguments('model.gguf', selected, 9999, 'key', 'alias')).toThrow(
+    'INVALID_CONFIGURATION',
+  );
+});
