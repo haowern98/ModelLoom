@@ -6,6 +6,7 @@ import { repository } from '../../tests/package-repository.js';
 import {
   createFixtureVerifier,
   createRuntimeVerifier,
+  createDevelopmentRuntimeVerifier,
   packageEvidence,
   requireLivePackage,
 } from './verifier.js';
@@ -46,6 +47,7 @@ it('verifies real signatures and inventory hash through the local-only client', 
 it('rejects a forged capability and absent production trust root', () => {
   expect(() => requireLivePackage({ packageId: 'llama-cpu' })).toThrow('UNVERIFIED_PACKAGE');
   expect(() => createRuntimeVerifier()).toThrow('MISSING_TRUST_ROOT');
+  expect(() => createDevelopmentRuntimeVerifier()).toThrow('DEVELOPMENT_BUILD_REQUIRED');
 });
 it('retains authority until signed expiry and rejects expiry or a backwards clock', async () => {
   const { repo, state, verifier } = await setup();
