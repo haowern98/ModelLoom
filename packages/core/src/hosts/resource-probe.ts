@@ -28,7 +28,7 @@ export async function discoverResources(signal?: AbortSignal): Promise<ResourceD
   const query = spawn(
     path.join(system, 'nvidia-smi.exe'),
     [
-      '--query-gpu=uuid,pci.bus_id,driver_version,memory.total,memory.free,mig.mode.current,driver_model.current',
+      '--query-gpu=uuid,pci.bus_id,driver_version,memory.total,memory.free,mig.mode.current,driver_model.current,name',
       '--format=csv,noheader,nounits',
     ],
     {

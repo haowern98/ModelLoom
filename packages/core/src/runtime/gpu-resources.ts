@@ -4,6 +4,7 @@ import type { PlannerReport, Preflight, RuntimeConfiguration } from './preflight
 /** A fresh physical-device observation, not an allocation guarantee or a CUDA context. */
 export interface GpuResource {
   readonly uuid: string;
+  readonly name?: string | null;
   readonly bus: string;
   readonly driver: string;
   readonly total: number | null;
@@ -19,7 +20,9 @@ export interface ResourceSnapshot {
 const uuidPattern = /^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu;
 const versionPattern = /^\d{1,3}(?:\.\d{1,3}){1,3}$/u;
 
-/** Decodes only the seven fixed NVIDIA CSV properties, converting integer MiB to bytes. */
+/** Decodes only the eight fixed NVIDIA CSV properties, converting integer MiB to bytes.
+ * The bounded display name remains attached to its physical UUID; it is not admission authority.
+ */
 export function parseGpuQuery(output: Buffer): readonly GpuResource[] {
   const invalid = () => {
     throw new Error('INVALID_GPU_QUERY');
@@ -46,12 +49,17 @@ export function parseGpuQuery(output: Buffer): readonly GpuResource[] {
   return Object.freeze(
     rows.map((row): GpuResource => {
       const fields = row.split(',').map((field) => field.trim());
-      const [uuid, bus, driver, totalMiB, freeMiB, mig, driverModel] = fields;
+      const [uuid, bus, driver, totalMiB, freeMiB, mig, driverModel, name] = fields;
       if (
-        fields.length !== 7 ||
+        fields.length !== 8 ||
         !uuid ||
         !bus ||
         !driver ||
+        !name ||
+        name.length > 256 ||
+        Array.from(name).some(
+          (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+        ) ||
         totalMiB === undefined ||
         freeMiB === undefined ||
         !uuidPattern.test(uuid) ||
@@ -68,7 +76,16 @@ export function parseGpuQuery(output: Buffer): readonly GpuResource[] {
       const total = memory(totalMiB),
         free = memory(freeMiB);
       if (total !== null && free !== null && free > total) return invalid();
-      return Object.freeze({ uuid, bus, driver, total, free, mig, driverModel });
+      return Object.freeze({
+        uuid,
+        name: name === '[N/A]' ? null : name,
+        bus,
+        driver,
+        total,
+        free,
+        mig,
+        driverModel,
+      });
     }),
   );
 }
@@ -104,6 +121,9 @@ export function checkCudaResources(
     !snapshot.gpus ||
     !versionPattern.test(minimumDriver) ||
     !placement ||
+    (configuration.gpuDevice !== undefined &&
+      (placement.length !== 1 ||
+        placement[0]?.uuid.toLowerCase() !== configuration.gpuDevice.toLowerCase())) ||
     placement.length === 0 ||
     placement.length > 64
   )
