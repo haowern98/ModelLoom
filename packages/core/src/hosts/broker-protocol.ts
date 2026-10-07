@@ -4,19 +4,33 @@ import { decodeObject, exact } from './control.js';
 
 export type BrokerAction = 'launch' | 'stop' | 'force' | 'crash';
 export type EnginePhase = 'captured' | 'ready' | 'exited' | 'failed';
-export function selectionFrom(value: unknown): Selection {
+/** Main-captured scope. This is sent over the inherited utility channel, never renderer IPC. */
+export interface BrokerScope {
+  deploymentId: string;
+  packageId: string;
+  modelId: string;
+}
+export const FIXTURE_SCOPE: BrokerScope = Object.freeze({
+  deploymentId: 'fixture-host',
+  packageId: 'fixture',
+  modelId: 'fixture',
+});
+export function selectionFrom(value: unknown, scope: BrokerScope = FIXTURE_SCOPE): Selection {
   const event = decodeEvent(JSON.stringify({ type: 'start', selection: value }));
   if (
     event.type !== 'start' ||
-    event.selection.deploymentId !== 'fixture-host' ||
-    event.selection.packageId !== 'fixture' ||
-    event.selection.modelId !== 'fixture'
+    event.selection.deploymentId !== scope.deploymentId ||
+    event.selection.packageId !== scope.packageId ||
+    event.selection.modelId !== scope.modelId
   )
     throw new Error('INVALID_CONTROL');
   return event.selection;
 }
 /** Full selection identity is correlated for every utility-to-owner operation. */
-export function decodeBroker(text: string): { action: BrokerAction; selection: Selection } {
+export function decodeBroker(
+  text: string,
+  scope: BrokerScope = FIXTURE_SCOPE,
+): { action: BrokerAction; selection: Selection } {
   const value = decodeObject(text);
   exact(value, ['type', 'action', 'selection']);
   const action = value.action;
@@ -25,9 +39,12 @@ export function decodeBroker(text: string): { action: BrokerAction; selection: S
     (action !== 'launch' && action !== 'stop' && action !== 'force' && action !== 'crash')
   )
     throw new Error('INVALID_CONTROL');
-  return { action, selection: selectionFrom(value.selection) };
+  return { action, selection: selectionFrom(value.selection, scope) };
 }
-export function decodeEngine(text: string): {
+export function decodeEngine(
+  text: string,
+  scope: BrokerScope = FIXTURE_SCOPE,
+): {
   phase: EnginePhase;
   selection: Selection;
   code: number;
@@ -45,14 +62,19 @@ export function decodeEngine(text: string): {
     code > 4_294_967_295
   )
     throw new Error('INVALID_CONTROL');
-  return { phase, selection: selectionFrom(value.selection), code };
+  return { phase, selection: selectionFrom(value.selection, scope), code };
 }
 export function selectionKey(selection: Selection): string {
-  return JSON.stringify(selectionFrom(selection));
+  const event = decodeEvent(JSON.stringify({ type: 'start', selection }));
+  if (event.type !== 'start') throw new Error('INVALID_CONTROL');
+  return JSON.stringify(event.selection);
 }
 
 /** Validate every utility reply before forwarding data to the local fixture harness. */
-export function decodeReply(input: unknown): Record<string, unknown> {
+export function decodeReply(
+  input: unknown,
+  scope: BrokerScope = FIXTURE_SCOPE,
+): Record<string, unknown> {
   const reply = decodeObject(JSON.stringify(input));
   if (typeof reply.id !== 'number' || !Number.isSafeInteger(reply.id) || reply.id < 0)
     throw new Error('INVALID_CONTROL');
@@ -69,15 +91,15 @@ export function decodeReply(input: unknown): Record<string, unknown> {
   const snapshot = decodeObject(JSON.stringify(reply.snapshot));
   exact(snapshot, ['deploymentId', 'phase', 'selection', 'fault', 'requests']);
   if (
-    snapshot.deploymentId !== 'fixture-host' ||
+    snapshot.deploymentId !== scope.deploymentId ||
     typeof snapshot.phase !== 'string' ||
     !['stopped', 'starting', 'loading', 'ready', 'stopping', 'failed'].includes(snapshot.phase)
   )
     throw new Error('INVALID_CONTROL');
-  const selection = snapshot.selection === null ? null : selectionFrom(snapshot.selection);
+  const selection = snapshot.selection === null ? null : selectionFrom(snapshot.selection, scope);
   // Fault/request validation uses the existing core contract, including its identifier restrictions.
   const identity = selection ?? {
-    deploymentId: 'fixture-host',
+    deploymentId: scope.deploymentId,
     sessionId: 'empty',
     operationId: 'empty',
   };

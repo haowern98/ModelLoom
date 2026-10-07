@@ -16,8 +16,9 @@ export function fixtureSession(
   crashCore: () => void = () => {
     throw new Error('INVALID_CONTROL');
   },
+  deploymentId = 'fixture-host',
 ) {
-  const core = new RuntimeSupervisor('fixture-host', adapter, LIFECYCLE_POLICY);
+  const core = new RuntimeSupervisor(deploymentId, adapter, LIFECYCLE_POLICY);
   let lastId = 0;
   let quitting = false;
   return {
