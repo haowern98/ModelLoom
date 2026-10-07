@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Monitor, Cpu, CircuitBoard, Apple, Pencil, EllipsisVertical, Plus } from 'lucide-react';
+import { Cpu, Gpu, Apple, Pencil, EllipsisVertical, Plus } from 'lucide-react';
 import type { DemoDevice, SampleRange } from '../../mocks/cluster';
 import { Button } from '../../components/Button';
 import styles from './ClusterPage.module.css';
@@ -57,7 +57,6 @@ export function DeviceCard({
         <Plus size={16} aria-hidden="true" />
       </button>
       <header className={styles.deviceHeader}>
-        <Monitor className={styles.monitor} size={30} strokeWidth={1.7} />
         <div className={styles.identity}>
           <h2 aria-label={device.name}>
             <button
@@ -71,62 +70,60 @@ export function DeviceCard({
               {device.name}
             </button>
           </h2>
-          <p>
-            {device.os} · {device.address}
-          </p>
         </div>
-        <span className={styles.role}>{device.role}</span>
-        <div
-          ref={menuAnchor}
-          className={styles.menuAnchor}
-          onBlur={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') setMenuOpen(false);
-          }}
-        >
-          <Button
-            variant="icon"
-            className={styles.menuButton}
-            aria-label={`Actions for ${device.name}`}
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen(!menuOpen)}
+        <div className={styles.headerControls}>
+          <span className={styles.role}>{device.role}</span>
+          <div
+            ref={menuAnchor}
+            className={styles.menuAnchor}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setMenuOpen(false);
+            }}
           >
-            <EllipsisVertical size={16} />
-          </Button>
-          {menuOpen && (
-            <div className={styles.menu}>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onDetails(device);
-                }}
-              >
-                Device details
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  // The menu item disappears; use its persistent trigger when the panel closes.
-                  menuAnchor.current?.querySelector('button')?.focus();
-                  onRename(device);
-                }}
-              >
-                Rename device
-              </button>
-            </div>
-          )}
+            <Button
+              variant="icon"
+              className={styles.menuButton}
+              aria-label={`Actions for ${device.name}`}
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen(!menuOpen)}
+            >
+              <EllipsisVertical size={16} />
+            </Button>
+            {menuOpen && (
+              <div className={styles.menu}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onDetails(device);
+                  }}
+                >
+                  Device details
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    // The menu item disappears; use its persistent trigger when the panel closes.
+                    menuAnchor.current?.querySelector('button')?.focus();
+                    onRename(device);
+                  }}
+                >
+                  Rename device
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
       <div className={styles.hardware}>
         {device.hardware.map((hardware) => {
           const range = ranges.find((entry) => entry.hardwareId === hardware.id);
           const activeRange = appliedRanges.find((entry) => entry.hardwareId === hardware.id);
-          const Icon =
-            hardware.kind === 'cpu' ? Cpu : hardware.kind === 'unified' ? Apple : CircuitBoard;
+          const Icon = hardware.kind === 'cpu' ? Cpu : hardware.kind === 'unified' ? Apple : Gpu;
           return (
             <section
               className={`${styles.tile} ${hardware.kind === 'cpu' ? styles.cpu : ''}`}
@@ -136,7 +133,7 @@ export function DeviceCard({
               <Icon
                 size={26}
                 strokeWidth={1.7}
-                className={hardware.kind === 'gpu' ? styles.gpuIcon : ''}
+                className={hardware.kind !== 'unified' ? styles.hardwareIcon : ''}
               />
               <div className={styles.hardwareText}>
                 <h3>{hardware.label}</h3>
@@ -150,18 +147,18 @@ export function DeviceCard({
                 )}
                 {hardware.kind !== 'cpu' && (
                   <div className={styles.assignment}>
-                    {range && (
-                      <div
-                        className={styles.bar}
-                        title="Sample allocation share, not measured memory use"
-                      >
+                    <div
+                      className={styles.bar}
+                      title={range ? 'Sample allocation share, not measured memory use' : undefined}
+                    >
+                      {range && (
                         <span
                           style={{
                             width: `${((range.last - range.first + 1) / layerCount) * 100}%`,
                           }}
                         />
-                      </div>
-                    )}
+                      )}
+                    </div>
                     <div className={styles.rangeRow}>
                       <span>
                         {range
