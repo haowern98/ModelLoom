@@ -1,9 +1,19 @@
 import type { EngineAdapter, EngineExit, OwnedEngine } from '../runtime/engine-adapter.js';
 import type { RuntimeConfiguration } from '../runtime/preflight.js';
 import type { InstalledPackage } from '../runtime-package/install.js';
-import { requireInstalledLive, revalidateInstalled } from '../runtime-package/install.js';
+import {
+  installedRealm,
+  requireInstalledLive,
+  revalidateInstalled,
+} from '../runtime-package/install.js';
 import { APPROVED_MEMORY_REPORTS } from '../runtime-package/trust-policy.js';
+import {
+  DEVELOPMENT_BUILD,
+  DEVELOPMENT_MEMORY_REPORTS,
+} from '../runtime-package/development-policy.js';
 import { checkResources } from '../runtime/preflight.js';
+import { checkCudaResources } from '../runtime/gpu-resources.js';
+import { discoverResources } from './resource-probe.js';
 import { inspectGGUF } from '../runtime/gguf.js';
 import { decodeEvent } from '../runtime/contracts.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -15,9 +25,13 @@ import { fixedArguments } from './runtime-arguments.js';
 import { checkOwnedReadiness } from './readiness.js';
 
 export interface RealEngineAdapter extends EngineAdapter {
+  children(): readonly number[];
+  admitCore(pid: number, expectedImage: string, launchTime: number): void;
   close(): Promise<void>;
 }
-/** Production adapter is gated by both build-root authority and reviewed exact memory reports. No desktop binding is enabled. */
+/** Shared adapter gated by package authority and exact reviewed memory reports.
+ * Development reports require both a development capability and the explicit development build.
+ */
 export function realEngineAdapter(
   installed: InstalledPackage,
   model: string,
@@ -29,21 +43,36 @@ export function realEngineAdapter(
   if (inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77')
     throw new Error('UNSUPPORTED_RUNTIME');
   const cfg = Object.freeze(structuredClone(configuration));
-  const report = APPROVED_MEMORY_REPORTS.find(
+  const reports =
+    installedRealm(installed) === 'development' && DEVELOPMENT_BUILD
+      ? DEVELOPMENT_MEMORY_REPORTS
+      : APPROVED_MEMORY_REPORTS;
+  const report = reports.find(
     (entry) =>
       entry.artifact === inventory.artifact &&
       entry.backend === inventory.backend &&
       isDeepStrictEqual(entry.configuration, cfg),
   );
-  if (!report || inventory.backend !== 'cpu' || cfg.gpuLayers !== 0)
+  if (
+    !report ||
+    (inventory.backend === 'cpu'
+      ? cfg.gpuLayers !== 0 || cfg.gpuDevice !== undefined
+      : !cfg.gpuDevice || cfg.gpuLayers === 0 || !inventory.minimumDriver)
+  )
     throw new Error('NEEDS_RESOURCE_EVIDENCE');
   fixedArguments(model, cfg, port, 'key-file', 'configuration-check');
   const native = ownershipBinding(),
     root = native.createDeployment();
   const active = new Map<object, Promise<EngineExit>>();
+  const pids = new Map<object, number[]>();
   let closed = false,
     launching = false;
   return {
+    children: () => [...pids.values()].flat(),
+    admitCore(pid, image, time) {
+      if (closed) throw new Error('OWNERSHIP_FAILED');
+      native.admitCore(root, pid, image, time);
+    },
     async launch(input, signal): Promise<OwnedEngine> {
       const event = decodeEvent(JSON.stringify({ type: 'start', selection: input }));
       if (
@@ -66,11 +95,6 @@ export function realEngineAdapter(
         const info = await inspectGGUF(model);
         if (info.sha256 !== cfg.modelSha256 || cfg.contextPerSlot > info.contextLimit)
           throw new Error('INVALID_CONFIGURATION');
-        const admission = checkResources(cfg, inventory.artifact, inventory.backend, report, {
-          ram: native.availableMemory(),
-          vram: 0,
-        });
-        if (admission.code !== 'ADMITTED') throw new Error(admission.code);
         if (signal.aborted || closed) throw new Error('START_FAILED');
         const secret = randomBytes(32).toString('base64url'),
           alias = `model-${randomUUID()}`;
@@ -84,13 +108,28 @@ export function realEngineAdapter(
         if (signal.aborted || closed) throw new Error('START_FAILED');
         // Metadata may expire while a large GGUF is hashed. Recheck immediately before creation.
         requireInstalledLive(installed);
+        const admission =
+          inventory.backend === 'cuda'
+            ? checkCudaResources(
+                cfg,
+                inventory.artifact,
+                report,
+                await discoverResources(signal),
+                inventory.minimumDriver!,
+              )
+            : checkResources(cfg, inventory.artifact, inventory.backend, report, {
+                ram: native.availableMemory(),
+                vram: 0,
+              });
+        if (admission.code !== 'ADMITTED') throw new Error(admission.code);
+        if (signal.aborted || closed) throw new Error('START_FAILED');
+        requireInstalledLive(installed);
         const server = path.join(installed.directory, inventory.entrypoint);
-        const child = native.launchConsole(
-          root,
-          path.join(installed.directory, inventory.helper),
-          [server, ...fixedArguments(model, cfg, port, keyFile, alias)],
-          credentialDirectory,
-        );
+        const helper = path.join(installed.directory, inventory.helper);
+        const args = [server, ...fixedArguments(model, cfg, port, keyFile, alias)];
+        const child = cfg.gpuDevice
+          ? native.launchCudaConsole(root, helper, args, credentialDirectory, cfg.gpuDevice)
+          : native.launchConsole(root, helper, args, credentialDirectory);
         const files = packageLock,
           selectedModel = modelLock,
           credentials = credentialDirectory;
@@ -109,10 +148,14 @@ export function realEngineAdapter(
         });
         void exited.catch(() => undefined);
         active.set(child, exited);
+        const ownedPids: number[] = [];
+        pids.set(child, ownedPids);
         const tick = () => {
           if (finishing) return;
           try {
             const observation = native.observe(child);
+            if (observation.pid && !ownedPids.includes(observation.pid))
+              ownedPids.push(observation.pid);
             if (!captured) {
               line += observation.output;
               const newline = line.indexOf('\n');
@@ -121,6 +164,7 @@ export function realEngineAdapter(
                 const receipt = /^ENGINE ([1-9][0-9]*)\r?$/u.exec(line.slice(0, newline));
                 if (!receipt) throw new Error('INVALID_CONTROL');
                 native.captureServer(child, Number(receipt[1]), server);
+                if (!ownedPids.includes(Number(receipt[1]))) ownedPids.push(Number(receipt[1]));
                 captured = true;
                 line = '';
               }
@@ -136,6 +180,7 @@ export function realEngineAdapter(
               void rm(credentials, { recursive: true }).then(
                 () => {
                   active.delete(child);
+                  pids.delete(child);
                   resolveExit({ code: observation.exitCode, signal: null });
                 },
                 () => rejectExit(new Error('CLEANUP_FAILED')),
