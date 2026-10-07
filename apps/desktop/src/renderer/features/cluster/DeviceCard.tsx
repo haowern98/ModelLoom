@@ -12,6 +12,7 @@ interface DeviceCardProps {
   loading: boolean;
   proposed: boolean;
   active: boolean;
+  localReady?: boolean;
   onEdit: (hardwareId: string) => void;
   onDetails: (device: DemoDevice) => void;
   onRename: (device: DemoDevice) => void;
@@ -28,6 +29,7 @@ export function DeviceCard({
   loading,
   proposed,
   active,
+  localReady = false,
   onEdit,
   onDetails,
   onRename,
@@ -161,9 +163,11 @@ export function DeviceCard({
                     </div>
                     <div className={styles.rangeRow}>
                       <span>
-                        {range
-                          ? `${proposed ? 'Planned layers' : 'Layers'} ${range.first} – ${range.last}`
-                          : 'Unassigned'}
+                        {localReady && hardware.kind === 'gpu'
+                          ? 'Full GPU offload'
+                          : range
+                            ? `${proposed ? 'Planned layers' : 'Layers'} ${range.first} – ${range.last}`
+                            : 'Unassigned'}
                       </span>
                       <button
                         type="button"
