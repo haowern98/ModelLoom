@@ -15,14 +15,17 @@ afterEach(async () => {
     native.release(child);
   }
 });
-function start(mode = 'ready') {
+function start(mode = 'ready', gpu?: string) {
   const root = native.createDeployment();
   roots.push(root);
   const helper = fileURLToPath(
     new URL('../../out/native/ModelLoom-runtime-host.exe', import.meta.url),
   );
   const fixture = fileURLToPath(new URL('../../out/native/console-fixture.exe', import.meta.url));
-  const child = native.launchConsole(root, helper, [fixture, mode], os.tmpdir());
+  const child =
+    gpu === undefined
+      ? native.launchConsole(root, helper, [fixture, mode], os.tmpdir())
+      : native.launchCudaConsole(root, helper, [fixture, mode], os.tmpdir(), gpu);
   children.push(child);
   let text = '';
   return {
@@ -45,11 +48,44 @@ it('delivers Ctrl+C once in a hidden private console and observes cleanup plus e
     fileURLToPath(new URL('../../out/native/console-fixture.exe', import.meta.url)),
   );
   expect(native.ownedListener(instance.child, 9999)).toBe(false);
+  expect(instance.read().peakWorkingSet).toBeGreaterThan(0);
+  expect(instance.read().peakJobCommit).toBeGreaterThan(0);
   native.requestStop(instance.child);
   native.requestStop(instance.child);
   await expect.poll(() => instance.read().activeProcesses).toBe(0);
   expect(instance.read()).toMatchObject({ exitCode: 0 });
   expect(instance.read().text).toContain('CLEANUP');
+});
+it('passes only the selected full GPU UUID to its child and leaves an independent CPU child isolated', async () => {
+  const uuid = 'GPU-22c23971-dacf-2123-2169-ad70d8f6729a';
+  const previous = process.env.CUDA_VISIBLE_DEVICES;
+  process.env.CUDA_VISIBLE_DEVICES = 'ambient-override';
+  try {
+    const selected = start('gpu', uuid),
+      cpu = start('gpu');
+    await expect.poll(() => selected.read().text).toContain(`GPU ${uuid}`);
+    await expect.poll(() => cpu.read().text).toContain('GPU NONE');
+    expect(cpu.read().text).not.toContain(uuid);
+    native.requestStop(selected.child);
+    await expect.poll(() => selected.read().activeProcesses).toBe(0);
+    expect(cpu.read().exitCode).toBe(-1);
+  } finally {
+    if (previous === undefined) delete process.env.CUDA_VISIBLE_DEVICES;
+    else process.env.CUDA_VISIBLE_DEVICES = previous;
+  }
+});
+it.each([
+  '0',
+  'GPU-22c23971',
+  'GPU-22c23971-dacf-2123-2169-ad70d8f6729a,1',
+  'MIG-GPU-22c23971-dacf-2123-2169-ad70d8f6729a/1/2',
+])('rejects ambiguous native GPU selection before creating a child', (uuid) => {
+  const root = native.createDeployment();
+  roots.push(root);
+  expect(() => native.launchCudaConsole(root, 'unused.exe', [], os.tmpdir(), uuid)).toThrow(
+    'INVALID_CONTROL',
+  );
+  expect(native.coresExited(root)).toBe(true);
 });
 it('force-cleans a hung signal handler without stopping an independent console', async () => {
   const first = start('hang'),

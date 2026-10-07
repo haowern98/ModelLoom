@@ -23,6 +23,16 @@ int wmain(int argc, wchar_t **argv) {
   wchar_t overridden[16];
   if (GetEnvironmentVariableW(L"LLAMA_ARG_CTX_SIZE", overridden, 16) != 0)
     return 2;
+  if (mode == L"gpu") {
+    wchar_t gpu[128]{};
+    SetLastError(ERROR_SUCCESS);
+    const auto count =
+        GetEnvironmentVariableW(L"CUDA_VISIBLE_DEVICES", gpu, 128);
+    if (count >= 128 || (!count && GetLastError() == ERROR_ENVVAR_NOT_FOUND))
+      return 2;
+    std::printf("GPU %ls\n", count ? gpu : L"NONE");
+    std::fflush(stdout);
+  }
   SOCKET listener = INVALID_SOCKET;
   if (mode == L"listen") {
     WSADATA data{};
