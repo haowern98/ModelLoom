@@ -11,12 +11,14 @@ export function ClusterModelPicker({
   activeModelId,
   disabled,
   onChoose,
+  local = false,
 }: {
   models: readonly DemoModel[];
   selectedModel: DemoModel | undefined;
   activeModelId: string | undefined;
   disabled: boolean;
   onChoose: (model: DemoModel) => void;
+  local?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLDivElement>(null);
@@ -71,7 +73,11 @@ export function ClusterModelPicker({
         ref={trigger}
         type="button"
         className={styles.model}
-        aria-label={selectedModel ? `Selected demo model: ${selectedModel.name}` : 'Choose model'}
+        aria-label={
+          selectedModel
+            ? `Selected ${local ? 'local' : 'demo'} model: ${selectedModel.name}`
+            : 'Choose model'
+        }
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
