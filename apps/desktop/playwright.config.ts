@@ -15,7 +15,7 @@ export default defineConfig({
       testMatch: '**/*.browser.spec.ts',
       use: {
         browserName: 'chromium',
-        baseURL: 'http://127.0.0.1:5173',
+        baseURL: 'http://127.0.0.1:5175',
         viewport: { width: 1280, height: 720 },
         deviceScaleFactor: 1,
       },
@@ -25,10 +25,19 @@ export default defineConfig({
   ...(desktopOnly
     ? {}
     : {
-        webServer: {
-          command: 'pnpm dev:web',
-          url: 'http://127.0.0.1:5173',
-          reuseExistingServer: !process.env.CI,
-        },
+        webServer: [
+          {
+            command:
+              'pnpm exec vite --config vite.renderer.config.ts --host 127.0.0.1 --port 5175 --strictPort --mode demo',
+            url: 'http://127.0.0.1:5175',
+            reuseExistingServer: !process.env.CI,
+          },
+          {
+            command:
+              'pnpm exec vite --config vite.renderer.config.ts --host 127.0.0.1 --port 5176 --strictPort',
+            url: 'http://127.0.0.1:5176',
+            reuseExistingServer: !process.env.CI,
+          },
+        ],
       }),
 });
