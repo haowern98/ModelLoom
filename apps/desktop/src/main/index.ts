@@ -1,6 +1,7 @@
 import { app, BrowserWindow, session, dialog, ipcMain, utilityProcess } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import { createRuntimeController } from './runtime-controller';
 import type { RuntimeDependencies } from './runtime-controller';
 import { localDeviceSnapshot } from './local-device';
@@ -12,6 +13,7 @@ let quitting = false,
 
 /** Creates the sandboxed renderer and sender-checked device/runtime bridge. */
 async function createWindow(): Promise<void> {
+  const chatCaller = randomUUID();
   const window = new BrowserWindow({
     width: 1280,
     height: 720,
@@ -61,6 +63,9 @@ async function createWindow(): Promise<void> {
         (entry) =>
           utilityProcess.fork(entry, [], { serviceName: 'ModelLoom Core', stdio: 'ignore' }),
         path.join(coreRoot, 'out/activation/b11306'),
+        // Follow LM Studio's profile-root storage, separate from Chromium's AppData cache.
+        path.join(app.getPath('home'), '.modelloom'),
+        chatCaller,
       );
       dependencies = {
         ...development,
@@ -85,7 +90,7 @@ async function createWindow(): Promise<void> {
       /* Missing explicit development assets keep the ordinary preview closed. */
     }
   }
-  const windowController = createRuntimeController(dependencies);
+  const windowController = createRuntimeController(dependencies, chatCaller);
   controller = windowController;
   ipcMain.handle('modelloom:runtime', async (event, input: unknown) => {
     if (
@@ -95,6 +100,19 @@ async function createWindow(): Promise<void> {
     )
       throw new Error('INVALID_CONTROL');
     return windowController.command(input);
+  });
+  ipcMain.handle('modelloom:chat', async (event, input: unknown) => {
+    if (
+      event.sender !== window.webContents ||
+      event.senderFrame !== window.webContents.mainFrame ||
+      quitting
+    )
+      throw new Error('INVALID_CONTROL');
+    return windowController.chat(input);
+  });
+  windowController.subscribeChat(() => {
+    if (!quitting && !window.webContents.isDestroyed())
+      window.webContents.send('modelloom:chat-changed');
   });
   window.on('close', (event) => {
     if (!quitConfirmed) {
