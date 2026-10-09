@@ -1,13 +1,29 @@
 # ModelLoom development guide
 
-**Status:** Desktop preview and Windows core harnesses implemented; real-runtime activation gated and distributed integration pending
-**Updated:** 2026-10-06
+**Status:** Windows development runtime and durable local Chat implemented; API, distributed and production/release integration pending
+**Updated:** 2026-10-10
 
 ## 1. Current workspace state
 
 The workspace is `E:\ModelLoom-Project`. It contains specifications, guides, plans, agent instructions, six preserved UI-reference images, and the later Bionic Task Manager runtime-reference image. The reference images, ADRs, research notes, and local-only guides are not part of this desktop-foundation publication. The original `ModelLoom-Project Prd.md` has been moved to `specs/PRODUCT-SPEC.md`; that is the single authoritative product document.
 
-Git is initialized on `main`, and the original six specification files were pushed in three two-file commits to the private `haowern98/ModelLoom` repository. The authorized desktop foundation now lives in `apps/desktop/`. It contains a runnable Electron shell, Models, Cluster, Chat and API demo screens, reference-derived styles, demo fixtures and tests. The desktop UI baseline was published in [PR #2](https://github.com/haowern98/ModelLoom/pull/2), followed by the Settings preview and Chat-sidebar refinements in [PR #3](https://github.com/haowern98/ModelLoom/pull/3). The lockfile-only source-map-js audit fix was published in [PR #4](https://github.com/haowern98/ModelLoom/pull/4). Local `main` is updated to merge commit `f68300ab9c4f45b09f26fee3b01fcdaf08145391`. Native runtimes, inference, workers, networking, signed updates and installers remain unimplemented. Settings provides the separately authorized renderer-only preview described in UI-SPEC section 8. The API screen is a renderer-only presentation with unavailable server/access/key controls, empty logs and copyable illustrative examples.
+The current checkout is `feat/local-generation`, based on `4a02cf2`, the PR #5
+runtime-lifecycle merge. The local Chat/startup/deletion/popup and sample-free
+startup slice is recorded in focused local commits; no hosted CI or publication
+is claimed for it. Earlier publications
+include [PR #2](https://github.com/haowern98/ModelLoom/pull/2) (desktop foundation),
+[PR #3](https://github.com/haowern98/ModelLoom/pull/3) (Settings/Chat preview),
+[PR #4](https://github.com/haowern98/ModelLoom/pull/4) (dependency fix), and
+[PR #5](https://github.com/haowern98/ModelLoom/pull/5) (Windows runtime lifecycle).
+Their dated hosted results do not verify this local slice.
+
+The explicitly enabled Windows development build now imports the approved local
+GGUF, loads/stops the verified owned CUDA engine and supports durable Chat through
+the protected utility core. Ordinary/demo generation remains disabled. Settings
+and the public API retain their unavailable preview controls; workers, networking,
+production runtime/update trust, installers and other-platform acceptance remain
+pending. See [local Chat development](local-generation.md) for current behavior,
+exact inputs, saved schema, test evidence and outstanding validation limits.
 
 The user's 2026-10-01 **PROCEED** authorized the shared desktop shell and Models milestone. It does not close the core/runtime/network/update audit gates or authorize GPU experiments. The user subsequently authorized publishing the foundation, tests, tooling, updated specifications, development guide, and CI workflow. The 2026-10-03 **PROCEED** initially authorized the Cluster screen with clearly labelled demo data and local validation; later separate publication approvals covered the merged PRs above. `AGENTS.md`, `docs/CODE-QUALITY.md`, and `plans/` remain ignored and uncommitted.
 
@@ -17,11 +33,26 @@ The later authorized Models revisions provide a compact library and a gear actio
 
 The 2026-10-05 reconciliation was documentation-only and prohibited UI changes. The later 2026-10-06 Settings PROCEED separately authorizes the UI preview in UI-SPEC section 8. Preserve the [current UI baseline](../specs/UI-SPEC.md#current-ui-baseline-2026-10-05) when planning integrations; additional visual revisions need separate explicit authorization.
 
-Current working behaviour is session-only and simulated where labelled. Send/attachments, real API server/key/exposure/log actions, import/catalogue/download and deferred destinations remain unavailable. Settings category navigation/search and its Runtime inventory dialog work locally; appearance and runtime controls remain unavailable. Explore and the proposed two-column Models layout/Downloaded/Imported/Browse tabs are deferred. Keep the Models compass, identifier and GGUF tags currently present. Latest local dependency-fix validation covers 39 unit cases, 44 browser cases, typecheck, lint and a production renderer build. The latest hosted `main` run passed all four workflow jobs, including packaged Windows checks and the dependency audit; see TESTING-SPEC for exact revisions, failures, retries and limitations.
+Current development Chat supports Send/Stop/Retry, startup history without a model,
+per-chat saved drafts, separate thinking/answer, saved native rates and measured
+thinking duration, and confirmed deletion. The user removed thumbs-up/down;
+Copy/Retry remain. Responses render as inert plain text. Attachments, API
+server/key/exposure/log actions, catalogue/download and deferred destinations
+remain unavailable. Configuration/defaults and joining previews still use session
+state where labelled. Settings category navigation/search and its inventory
+dialog work, while appearance/runtime operations remain unavailable. Preserve
+the existing Models layout and tags. TESTING-SPEC and local-generation.md record
+dated local checks separately from historical hosted runs; no latest-slice CI,
+full M1 or release acceptance is implied.
 
 The 2026-10-05 API PROCEED authorizes the reviewed centred column with Server, Access, Integration and Server logs cards, matching Model configuration's shared fonts, spacing and outer scrollbar margins. API is a direct sidebar destination after Models, using the same 20px icon and 36px button as the other destinations; its More menu entry is removed. Start/exposure/key/log mutation controls are unavailable; examples and endpoint are explicitly illustrative, statistics are unavailable and logs are empty. Language tabs, explicit example copy with feedback, and Choose in Cluster work locally. Clipboard copy reuses Chat's existing sandbox-compatible fallback without new permissions. No API listener, key material, real logs/metrics, persistent state or IPC is added; D07 remains open.
 
-The 2026-10-05 Chat PROCEED authorizes the reviewed two-column conversation layout with rounded outer left corners, a fine straight divider and an intermediate charcoal sidebar. The Home icon opens Chat. Conversation selection/search, drafts and feedback retain session-only state; copy is explicit and errors are reported. The user chose Send unavailable for now. Attachments and Send remain disabled, and the active-model dropdown directs changes to Cluster. No persistent history, generation, IPC or networking is implemented. Non-demo builds seed no sample messages; see UI-SPEC section 6 and TESTING-SPEC for scope and evidence.
+The historical 2026-10-05 Chat PROCEED authorized the two-column layout and
+session-only renderer interactions, with Send unavailable at that time. Later
+ADR-0005 approvals supersede that unavailable-Send/no-storage boundary for the
+explicit development build. They retain the supplied composition, Home-to-Chat
+navigation and Cluster model selection; attachments remain disabled. Sections
+10-12 of UI-SPEC record the approved thinking/speed/deletion/popup refinements.
 
 The 2026-10-05 approved joining revision adds a fixed-label Add dropdown with Add device/Join cluster/Share this PC views in the existing Cluster panel, plus incoming example decisions in overview. The Add label and chevron share one hover surface; choosing a view never changes the label. Its request status and sharing preferences live in renderer memory only. The example controls deliver no request, authorize no identity, add no connected card and alter no model allocation. Real networking and contributor-role transitions remain outside this UI milestone.
 
@@ -66,21 +97,40 @@ The recommended source boundaries are in the technical spec; create directories 
 
 Run these from `E:\ModelLoom-Project`. The current privileged/headless development host is Windows x64, Node 24.21.0 and pnpm 11.19.0. The original desktop-foundation checks used Node 24.7.0; native Node-API headers/import-library compatibility is described in the core README. Direct dependency versions are pinned and the workspace lockfile is present. The pnpm workspace uses `nodeLinker: hoisted` for Forge and explicitly permits Electron/esbuild build steps. No global tool settings were changed.
 
-| Command                          | Purpose and verified scope                                                                                                                                                                                                                                                                                           |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm install --frozen-lockfile` | Restore the approved tuple; initial install and lockfile policy validation passed.                                                                                                                                                                                                                                   |
-| `pnpm dev`                       | Open the Electron desktop with clearly labeled demo data. First launch may download the pinned Electron binary.                                                                                                                                                                                                      |
-| `pnpm dev:web`                   | Local browser preview at `http://127.0.0.1:5173`; do not run alongside another server using that port.                                                                                                                                                                                                               |
-| `pnpm typecheck`                 | Strict source/configuration/test type checking.                                                                                                                                                                                                                                                                      |
-| `pnpm lint`                      | Type-aware TypeScript linting and conventional Node configuration checks.                                                                                                                                                                                                                                            |
-| `pnpm format:check`              | Verify owned code and configuration formatting. `pnpm format` applies it.                                                                                                                                                                                                                                            |
-| `pnpm test`                      | Ten state/component behavior tests.                                                                                                                                                                                                                                                                                  |
-| `pnpm test:e2e`                  | Five browser checks: reference-size composition, keyboard modal behavior, smaller-window/grid/search interaction, and metadata containment across seven widths with both system and Arial fallback fonts. Install Chromium with `pnpm --filter @modelloom/desktop exec playwright install chromium` on a clean host. |
-| `pnpm build`                     | Renderer production build with demo fixture initialization disabled.                                                                                                                                                                                                                                                 |
-| `pnpm package:demo`              | Explicit unsigned Windows demo package under `apps/desktop/out/ModelLoom-win32-x64/`; no installer or updater is produced.                                                                                                                                                                                           |
-| `pnpm test:desktop`              | Launch the packaged demo, check renderer Node isolation/sandbox, exercise Models/configuration/Cluster/Chat/API navigation and supported demo controls, capture views, and confirm the owned app exits. Requires `pnpm package:demo` first.                                                                          |
+| Command                          | Purpose and verified scope                                                                                                                                                                                                                                                 |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile` | Restore the approved tuple; initial install and lockfile policy validation passed.                                                                                                                                                                                         |
+| `pnpm dev`                       | Open the ordinary Electron desktop without sample models/devices. On Windows, rebuild hosts and enable the approved development core before opening the window; preparation failure stops startup. First launch may download the pinned Electron binary.                   |
+| `pnpm dev:web`                   | Ordinary browser preview at `http://127.0.0.1:5173`, without sample data or a native bridge; do not run alongside another server using that port.                                                                                                                          |
+| `pnpm typecheck`                 | Strict source/configuration/test type checking.                                                                                                                                                                                                                            |
+| `pnpm lint`                      | Type-aware TypeScript linting and conventional Node configuration checks.                                                                                                                                                                                                  |
+| `pnpm format:check`              | Verify owned code and configuration formatting. `pnpm format` applies it.                                                                                                                                                                                                  |
+| `pnpm test`                      | Run ordinary desktop/core regression suites; current dated counts and limits are recorded in TESTING-SPEC.                                                                                                                                                                 |
+| `pnpm test:e2e`                  | Run browser checks for composition, interactions, dialogs and containment; suite counts are dated in TESTING-SPEC rather than fixed to the original foundation. Install Chromium with `pnpm --filter @modelloom/desktop exec playwright install chromium` on a clean host. |
+| `pnpm build`                     | Renderer production build with demo fixture initialization disabled.                                                                                                                                                                                                       |
+| `pnpm package:demo`              | Explicit unsigned Windows demo package under `apps/desktop/out/ModelLoom-win32-x64/`; no installer or updater is produced.                                                                                                                                                 |
+| `pnpm test:desktop`              | Launch the packaged demo, check renderer Node isolation/sandbox, exercise Models/configuration/Cluster/Chat/API navigation and supported demo controls, capture views, and confirm the owned app exits. Requires `pnpm package:demo` first.                                |
 
-`pnpm package` is the ordinary non-demo package command; only the explicit Windows demo package has been exercised in this milestone. Demo state is enabled for development, `--mode demo`, or the scoped `MODELLOOM_DEMO=1` packaging process. It is not enabled by default for a production renderer build. The desktop exposes no preload/IPC yet, denies new windows/navigation/permission requests, and uses native window controls. Closing its last window exits it; there is no inference engine to clean up yet.
+`pnpm package` is the ordinary non-demo package command; packaged Windows evidence
+belongs to the preceding demo/runtime slices, not the current local Chat
+slice. The October 10 PROCEED removes automatic samples from ordinary serving
+and rebuilding. Demo state requires explicit `--mode demo` or scoped
+`MODELLOOM_DEMO=1` test/preview packaging; unit tests opt in separately. Browser
+checks serve explicit fixtures on port 5175 and ordinary startup on port 5176,
+away from the user's development app. A disabled/missing core shows actual
+available hardware or an empty/unavailable state, never a sample replacement.
+
+The Windows Forge `preStart` hook rebuilds the host output, then runs the existing
+`packages/core/scripts/build-development.mjs`, which verifies the pinned public
+root and restores development-only output. This runs for ordinary development
+starts, not packaging or explicitly requested demo starts. Both steps must
+succeed before Electron opens. Ordinary host builds still reset the development
+flag; production trust, package verification and resource admission are unchanged.
+The later explicit runtime/Chat development preload uses closed sender-checked
+commands while keeping sandbox/isolation, navigation and permission restrictions.
+Window X performs full Quit, joining history/request preparation and stopping
+the app's owned core/runtime helpers; no independent deployment is terminated.
+Current-slice packaged acceptance and wider crash/platform journeys remain open.
 
 Browser and packaged Windows checks now have both local and hosted evidence. Linux/macOS native desktop acceptance, engine crashes, process grouping with llama-server, worker security, performance and unchanged inference quality remain unverified. Hosted Ubuntu browser checks do not establish Linux native desktop support. Icons/model marks are reconstructed presentation assets, and font/asset/pixel identity still needs visual review.
 
