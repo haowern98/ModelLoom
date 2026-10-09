@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,13 +6,68 @@ import {
   initializeCustody,
   checkCustody,
   publishDevelopmentMetadata,
+  renewDevelopmentMetadata,
 } from './development-custody.js';
 import { inventory } from '../../tests/inventory-fixture.js';
 import { createFixtureVerifier, requireLivePackage } from '../runtime-package/verifier.js';
 const directories: string[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
+it('renews expired role metadata with increasing versions, unchanged keys and cached verifier state', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'modelloom-renew-'));
+  directories.push(directory);
+  const store = path.join(directory, 'keys'),
+    previous = path.join(directory, 'previous'),
+    renewed = path.join(directory, 'renewed');
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(Date.now() - 8 * 86400000);
+  await initializeCustody(store);
+  await publishDevelopmentMetadata(store, inventory, previous);
+  const root = await readFile(path.join(store, 'public-root.json'));
+  const verifier = createFixtureVerifier(root),
+    state = path.join(directory, 'state');
+  await verifier.verify(previous, state);
+  vi.useRealTimers();
+  await expect(verifier.verify(previous, state)).rejects.toThrow('PACKAGE_VERIFICATION_FAILED');
+  const original = await readFile(path.join(previous, 'timestamp.json'), 'utf8');
+  await renewDevelopmentMetadata(store, previous, renewed);
+  expect((await verifier.verify(renewed, state)).packageId).toBe(inventory.packageId);
+  for (const role of ['targets', 'snapshot', 'timestamp']) {
+    const value = JSON.parse(await readFile(path.join(renewed, `${role}.json`), 'utf8')) as {
+      signed: { version: number };
+    };
+    expect(value.signed.version).toBe(2);
+  }
+  expect(await readFile(path.join(renewed, 'root.json'))).toEqual(root);
+  expect(await readFile(path.join(renewed, 'inventory.json'))).toEqual(
+    await readFile(path.join(previous, 'inventory.json')),
+  );
+  expect(await readFile(path.join(previous, 'timestamp.json'), 'utf8')).toBe(original);
+  const third = path.join(directory, 'third');
+  await renewDevelopmentMetadata(store, renewed, third);
+  expect((await verifier.verify(third, state)).packageId).toBe(inventory.packageId);
+  await expect(verifier.verify(renewed, state)).rejects.toThrow('PACKAGE_VERIFICATION_FAILED');
+  const oldInventory = await readFile(path.join(previous, 'inventory.json'));
+  await writeFile(
+    path.join(previous, 'inventory.json'),
+    Buffer.concat([oldInventory, Buffer.from(' ')]),
+  );
+  await expect(
+    renewDevelopmentMetadata(store, previous, path.join(directory, 'changed-inventory')),
+  ).rejects.toThrow('INVALID_METADATA');
+  await writeFile(path.join(previous, 'inventory.json'), oldInventory);
+  await expect(renewDevelopmentMetadata(store, previous, renewed)).rejects.toThrow(
+    'REPOSITORY_ALREADY_EXISTS',
+  );
+  const tampered = JSON.parse(original) as { signed: { version: number } };
+  tampered.signed.version = 99;
+  await writeFile(path.join(previous, 'timestamp.json'), JSON.stringify(tampered));
+  await expect(
+    renewDevelopmentMetadata(store, previous, path.join(directory, 'forged')),
+  ).rejects.toThrow();
+}, 60000);
 it('stores six DPAPI ciphertexts with separated roles and a self-verified two-of-three public root', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'modelloom-custody-'));
   directories.push(directory);
