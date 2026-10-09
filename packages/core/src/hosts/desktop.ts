@@ -8,6 +8,11 @@ import { decodeBroker, decodeReply, selectionKey } from './broker-protocol.js';
 import { FIXTURE_SCOPE } from './broker-protocol.js';
 import type { BrokerScope } from './broker-protocol.js';
 import { decodeObject, exact } from './control.js';
+import { OwnerChatChannel } from './chat-channel.js';
+import type { ChatTransport } from '../generation/service.js';
+import type { Provenance } from '../history/store.js';
+import type { ChatReply } from '../generation/chat-wire.js';
+import { decodeChatCommand, decodeChatReply } from '../generation/chat-wire.js';
 
 /** Captured Electron utility child. This capability is constructed by trusted main, never IPC. */
 export interface UtilityChild {
@@ -20,6 +25,8 @@ export type UtilityFork = (entry: string) => UtilityChild;
 export interface DesktopFixtureHost {
   command(text: string): Promise<Record<string, unknown>>;
   close(): Promise<void>;
+  chat?(caller: string, command: unknown): Promise<ChatReply>;
+  changed?(listener: () => void): () => void;
 }
 /** Trusted main supplies instance capabilities. No renderer-provided entry point or launcher. */
 export interface DesktopDeployment {
@@ -27,6 +34,12 @@ export interface DesktopDeployment {
   children(): readonly number[];
   admitCore(pid: number, expectedImage: string, launchTime: number): void;
   close(): Promise<void>;
+  chat?(engine: OwnedEngine): ChatTransport;
+  chatSetup?: {
+    readonly applicationData: string;
+    readonly caller: string;
+    readonly provenance: Provenance;
+  };
   /** Optional fault hook for synthetic development tests; not provided by live desktop ownership. */
   crash?(): void;
 }
@@ -58,6 +71,27 @@ export async function createDesktopEngineHost(
   let closing: Promise<void> | undefined;
   let engine: { key: string; value: OwnedEngine } | undefined;
   let launching = false;
+  const chatPending = new Map<
+    number,
+    {
+      resolve: (reply: ChatReply) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  const observers = new Set<() => void>();
+  let chatId = 0;
+  const chatChannel = new OwnerChatChannel(
+    (value) => send(value),
+    () => {
+      if (!engine || !deployment.chat) throw new Error('NOT_READY');
+      return { selection: engine.value.selection, transport: deployment.chat(engine.value) };
+    },
+    () => {
+      utility.kill();
+      void close().catch(() => undefined);
+    },
+  );
   let boot!: () => void;
   const booted = new Promise<void>((resolve) => {
     boot = resolve;
@@ -76,6 +110,8 @@ export async function createDesktopEngineHost(
     utility.postMessage(text);
   };
   function close(): Promise<void> {
+    chatChannel.close();
+    observers.clear();
     closing ??= deployment.close();
     return closing;
   }
@@ -87,6 +123,11 @@ export async function createDesktopEngineHost(
         item.reject(new Error('CORE_EXITED'));
       }
       pending.clear();
+      for (const item of chatPending.values()) {
+        clearTimeout(item.timer);
+        item.reject(new Error('CORE_EXITED'));
+      }
+      chatPending.clear();
       void close().then(resolve, resolve);
     }),
   );
@@ -97,6 +138,27 @@ export async function createDesktopEngineHost(
     void (async () => {
       if (typeof input !== 'string') throw new Error('INVALID_CONTROL');
       const envelope = decodeObject(input);
+      if (envelope.type === 'generation') {
+        await chatChannel.receive(envelope);
+        return;
+      }
+      if (envelope.type === 'chat-changed') {
+        exact(envelope, ['type']);
+        for (const observer of observers) observer();
+        return;
+      }
+      if (envelope.type === 'chat-reply') {
+        exact(envelope, ['type', 'id', 'reply']);
+        if (typeof envelope.id !== 'number' || Buffer.byteLength(input) > 65536)
+          throw new Error('INVALID_CONTROL');
+        const reply = decodeChatReply(envelope.reply);
+        const item = chatPending.get(envelope.id);
+        if (!item) return;
+        clearTimeout(item.timer);
+        chatPending.delete(envelope.id);
+        item.resolve(reply);
+        return;
+      }
       if (envelope.type === 'booted') {
         exact(envelope, ['type']);
         boot();
@@ -192,6 +254,7 @@ export async function createDesktopEngineHost(
                 deploymentId,
                 packageId: scope.packageId,
                 modelId: scope.modelId,
+                ...(deployment.chatSetup ? { chat: deployment.chatSetup } : {}),
               });
               clearTimeout(timer);
               resolve();
@@ -210,6 +273,36 @@ export async function createDesktopEngineHost(
   }
   return {
     close,
+    changed(listener) {
+      observers.add(listener);
+      return () => observers.delete(listener);
+    },
+    chat(caller, input) {
+      if (
+        !alive ||
+        closing ||
+        !deployment.chatSetup ||
+        caller !== deployment.chatSetup.caller ||
+        chatPending.size >= 16
+      )
+        return Promise.resolve({ ok: false, error: 'NOT_READY' });
+      const command = decodeChatCommand(input),
+        id = ++chatId;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          chatPending.delete(id);
+          reject(new Error('CORE_TIMEOUT'));
+        }, 125000);
+        chatPending.set(id, { resolve, reject, timer });
+        try {
+          send({ type: 'chat-command', id, caller, command });
+        } catch {
+          clearTimeout(timer);
+          chatPending.delete(id);
+          reject(new Error('CORE_EXITED'));
+        }
+      });
+    },
     command(text) {
       let value: Record<string, unknown>;
       try {

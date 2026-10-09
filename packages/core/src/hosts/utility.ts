@@ -5,6 +5,11 @@ import { decodeObject, exact } from './control.js';
 import { decodeEngine, selectionFrom, selectionKey } from './broker-protocol.js';
 import { FIXTURE_SCOPE } from './broker-protocol.js';
 import { fixtureSession } from './session.js';
+import { ChatController } from '../generation/chat-controller.js';
+import { UtilityChatTransport } from './chat-channel.js';
+import { openHistoryStore } from '../history/store.js';
+import type { HistoryStore, Provenance } from '../history/store.js';
+import { trustedHistoryRoot } from '../history/windows-directory.js';
 
 export interface UtilityChannel {
   send(text: string): void;
@@ -21,10 +26,19 @@ function deferred<T>() {
   void promise.catch(() => undefined);
   return { promise, resolve, reject };
 }
-/** Fixture utility host: shared policy, no native handles and no renderer channel. */
-export function runUtility(channel: UtilityChannel): void {
+/** Utility core host: lifecycle, protected history and admission; no engine credentials or renderer channel. */
+export function runUtility(channel: UtilityChannel, injectedHistory?: HistoryStore): void {
   let admitted = false;
   let scope = FIXTURE_SCOPE;
+  let chat: ChatController | undefined, remote: UtilityChatTransport | undefined;
+  let historyOwner: Awaited<ReturnType<typeof openHistoryStore>> | undefined;
+  let chatPreparation: Promise<void> | undefined;
+  let generationId = 0;
+  let chatEpoch = 0;
+  let provenance: Provenance | undefined;
+  let lastChat = 0,
+    quitting = false,
+    dirty = false;
   const entries = new Map<
     string,
     {
@@ -68,8 +82,46 @@ export function runUtility(channel: UtilityChannel): void {
     try {
       if (typeof input !== 'string') throw new Error('INVALID_CONTROL');
       const envelope = decodeObject(input);
+      if (envelope.type === 'generation-result') {
+        remote?.receive(envelope);
+        return;
+      }
+      if (envelope.type === 'chat-command') {
+        exact(envelope, ['type', 'id', 'caller', 'command']);
+        if (
+          !admitted ||
+          typeof envelope.id !== 'number' ||
+          !Number.isSafeInteger(envelope.id) ||
+          envelope.id <= lastChat ||
+          typeof envelope.caller !== 'string'
+        )
+          throw new Error('INVALID_CONTROL');
+        lastChat = envelope.id;
+        dirty = false;
+        const caller = envelope.caller;
+        const reply = (chatPreparation ?? Promise.resolve())
+          .catch(() => undefined)
+          .then(() =>
+            !quitting && chat
+              ? chat.command(caller, envelope.command)
+              : {
+                  ok: false,
+                  error: !quitting && chatPreparation ? 'HISTORY_UNAVAILABLE' : 'NOT_READY',
+                },
+          );
+        void reply
+          .then((value) => send({ type: 'chat-reply', id: envelope.id, reply: value }))
+          .catch(() => channel.exit(1));
+        return;
+      }
       if (envelope.type === 'admitted') {
-        exact(envelope, ['type', 'deploymentId', 'packageId', 'modelId']);
+        exact(envelope, [
+          'type',
+          'deploymentId',
+          'packageId',
+          'modelId',
+          ...(envelope.chat === undefined ? [] : ['chat']),
+        ]);
         if (admitted) throw new Error('INVALID_CONTROL');
         if (typeof envelope.deploymentId !== 'string') throw new Error('INVALID_CONTROL');
         const admittedSelection = selectionFrom(
@@ -101,6 +153,32 @@ export function runUtility(channel: UtilityChannel): void {
           envelope.deploymentId,
         );
         admitted = true;
+        if (envelope.chat !== undefined) {
+          const setup = decodeObject(JSON.stringify(envelope.chat));
+          exact(setup, ['applicationData', 'caller', 'provenance']);
+          if (
+            typeof setup.applicationData !== 'string' ||
+            typeof setup.caller !== 'string' ||
+            !/^[a-zA-Z0-9_-]{1,128}$/u.test(setup.caller)
+          )
+            throw new Error('INVALID_CONTROL');
+          provenance = setup.provenance as Provenance;
+          const caller = setup.caller,
+            applicationData = setup.applicationData;
+          chatPreparation = (async () => {
+            if (!injectedHistory)
+              historyOwner = await openHistoryStore(trustedHistoryRoot(applicationData));
+            const history = injectedHistory ?? historyOwner?.store;
+            if (!history) throw new Error('HISTORY_UNAVAILABLE');
+            chat = new ChatController(history, caller, () => {
+              if (!dirty) {
+                dirty = true;
+                send({ type: 'chat-changed' });
+              }
+            });
+          })();
+          void chatPreparation.catch(() => undefined);
+        }
         return;
       }
       if (envelope.type === 'exit') {
@@ -141,10 +219,46 @@ export function runUtility(channel: UtilityChannel): void {
               },
             });
             break;
-          case 'ready':
-            entry.ready.resolve();
+          case 'ready': {
+            const epoch = chatEpoch;
+            void (async () => {
+              await chatPreparation?.catch(() => undefined);
+              if (
+                quitting ||
+                epoch !== chatEpoch ||
+                entries.get(selectionKey(event.selection)) !== entry
+              ) {
+                entry.ready.resolve();
+                return;
+              }
+              if (chat && provenance) {
+                remote = new UtilityChatTransport(entry.selection, send, () => ++generationId);
+                try {
+                  await chat.bind({
+                    session: {
+                      deploymentId: entry.selection.deploymentId,
+                      sessionId: entry.selection.sessionId,
+                      operationId: entry.selection.operationId,
+                    },
+                    provenance,
+                    transport: remote,
+                    cleanup: () => {
+                      send({ type: 'broker', action: 'stop', selection: entry.selection });
+                      return Promise.resolve();
+                    },
+                  });
+                } catch {
+                  remote?.close();
+                }
+              }
+              entry.ready.resolve();
+            })().catch(() => channel.exit(1));
             break;
+          }
           case 'exited':
+            chatEpoch++;
+            remote?.close();
+            void chat?.bind(null).catch(() => channel.exit(1));
             entry.ready.reject(new Error('ENGINE_EXITED'));
             entry.exited.resolve({ code: event.code, signal: null });
             entries.delete(selectionKey(event.selection));
@@ -161,8 +275,21 @@ export function runUtility(channel: UtilityChannel): void {
       exact(envelope, ['type', 'text']);
       if (envelope.type !== 'command' || typeof envelope.text !== 'string')
         throw new Error('INVALID_CONTROL');
-      void session
-        .handle(envelope.text)
+      const command = decodeObject(envelope.text);
+      const handle = async () => {
+        if (command.action === 'quit') quitting = true;
+        if (command.action === 'quit' || command.action === 'stop') chatEpoch++;
+        await chatPreparation?.catch(() => undefined);
+        if (command.action === 'quit' || command.action === 'stop') await chat?.bind(null);
+        const reply = await session.handle(envelope.text as string);
+        if (reply.quit) {
+          await chat?.close();
+          remote?.close();
+          historyOwner?.close();
+        }
+        return reply;
+      };
+      void handle()
         .then(({ reply, quit }) => send({ type: 'reply', reply, quit }))
         .catch(() => channel.exit(1));
     } catch {
