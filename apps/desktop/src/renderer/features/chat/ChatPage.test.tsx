@@ -155,3 +155,114 @@ it('enables ready Send and targets Stop without changing the chat presentation',
   expect(stop).toHaveBeenCalledTimes(1);
   expect(screen.getByRole('status')).toHaveTextContent('Generating');
 });
+it('replaces Copy feedback with new live status and does not resurrect it after completion', async () => {
+  const user = userEvent.setup(),
+    base = createDemoChat(false),
+    chat = {
+      ...base,
+      conversations: [
+        {
+          ...base.conversations[0]!,
+          draft: 'Next question',
+          messages: [{ id: 'answer', role: 'assistant' as const, text: 'Answer' }],
+        },
+      ],
+    },
+    props = { demo: false, chat, dispatch: vi.fn(), activeModel: undefined, onCluster: vi.fn() },
+    live = {
+      ready: true,
+      busy: false,
+      notice: 'Saved on this device',
+      send: vi.fn(),
+      stop: vi.fn(),
+      retry: vi.fn(),
+    };
+  const view = render(<ChatPage {...props} live={live} />);
+  await user.click(screen.getByRole('button', { name: 'Copy response 1' }));
+  expect(screen.getByRole('status')).toHaveTextContent('Response copied');
+  view.rerender(<ChatPage {...props} live={{ ...live, notice: 'Local history is full.' }} />);
+  expect(screen.getByRole('status')).toHaveTextContent('Local history is full.');
+  view.rerender(<ChatPage {...props} live={live} />);
+  expect(screen.getByRole('status')).toHaveTextContent('Saved on this device');
+});
+it('replaces Delete feedback when a new Send operation starts', async () => {
+  const user = userEvent.setup(),
+    base = createDemoChat(false),
+    chat = { ...base, conversations: [{ ...base.conversations[0]!, draft: 'Question' }] },
+    props = { demo: false, chat, dispatch: vi.fn(), activeModel: undefined, onCluster: vi.fn() },
+    live = {
+      ready: true,
+      busy: false,
+      notice: 'Saved on this device',
+      send: vi.fn(),
+      stop: vi.fn(),
+      retry: vi.fn(),
+      remove: () => Promise.resolve(true),
+    };
+  const view = render(<ChatPage {...props} live={live} />);
+  await user.click(screen.getByRole('button', { name: 'Delete chat: New chat' }));
+  await user.click(screen.getByRole('button', { name: 'Delete' }));
+  expect(screen.getByRole('status')).toHaveTextContent('Chat deleted.');
+  await user.click(screen.getByRole('button', { name: 'Send message' }));
+  expect(screen.getByRole('status')).toHaveTextContent('Saved on this device');
+  view.rerender(
+    <ChatPage {...props} live={{ ...live, busy: true, notice: 'Preparing response…' }} />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Preparing response…');
+});
+it.each(['send', 'enter', 'retry', 'stop'] as const)(
+  'clears Copy feedback when starting %s before the live status changes',
+  async (action) => {
+    const user = userEvent.setup(),
+      base = createDemoChat(false),
+      chat = {
+        ...base,
+        conversations: [
+          {
+            ...base.conversations[0]!,
+            draft: 'Next question',
+            messages: [
+              { id: 'answer', role: 'assistant' as const, text: 'Answer', attemptId: 'attempt1' },
+            ],
+          },
+        ],
+      },
+      live = {
+        ready: true,
+        busy: action === 'stop',
+        notice: action === 'stop' ? 'Generating…' : 'Saved on this device',
+        send: vi.fn(),
+        stop: vi.fn(),
+        retry: vi.fn(),
+      };
+    render(
+      <ChatPage
+        demo={false}
+        chat={chat}
+        dispatch={vi.fn()}
+        activeModel={undefined}
+        onCluster={vi.fn()}
+        live={live}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Copy response 1' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Response copied');
+    if (action === 'enter') {
+      await user.click(screen.getByRole('textbox', { name: 'Message' }));
+      await user.keyboard('{Enter}');
+    } else {
+      await user.click(
+        screen.getByRole('button', {
+          name: {
+            send: 'Send message',
+            retry: 'Retry response 1',
+            stop: 'Stop response',
+          }[action],
+        }),
+      );
+    }
+    expect(screen.getByRole('status')).toHaveTextContent(live.notice);
+    expect(live[action === 'enter' ? 'send' : action]).toHaveBeenCalledTimes(1);
+    if (action === 'retry') expect(live.retry).toHaveBeenCalledWith('attempt1');
+  },
+);
