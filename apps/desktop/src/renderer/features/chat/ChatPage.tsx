@@ -61,6 +61,7 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
   const [query, setQuery] = useState('');
   const [modelOpen, setModelOpen] = useState(false);
   const [notice, setNotice] = useState('');
+  const [previousLiveNotice, setPreviousLiveNotice] = useState(live?.notice);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const [removing, setRemoving] = useState(false);
   const composer = useRef<HTMLTextAreaElement>(null);
@@ -81,6 +82,12 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
           .toLowerCase()
           .includes(query.trim().toLowerCase()),
   );
+
+  // Copy/Delete feedback belongs to the current live status, never a later operation.
+  if (previousLiveNotice !== live?.notice) {
+    setPreviousLiveNotice(live?.notice);
+    setNotice('');
+  }
 
   useEffect(() => {
     if (searchOpen) search.current?.querySelector('input')?.focus();
@@ -279,7 +286,10 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
                           aria-label={`Retry response ${index + 1}`}
                           title="Retry response"
                           disabled={!live.ready || live.busy}
-                          onClick={() => live.retry(message.attemptId!)}
+                          onClick={() => {
+                            setNotice('');
+                            live.retry(message.attemptId!);
+                          }}
                         >
                           <RotateCcw size={16} aria-hidden="true" />
                         </button>
@@ -330,6 +340,7 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
                   conversation?.draft.trim()
                 ) {
                   event.preventDefault();
+                  setNotice('');
                   live.send();
                 }
               }}
@@ -398,7 +409,11 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
                         : 'Load a model to send a message'
                 }
                 disabled={!live || (!live.busy && (!live.ready || !conversation?.draft.trim()))}
-                onClick={() => (live?.busy ? live.stop() : live?.send())}
+                onClick={() => {
+                  setNotice('');
+                  if (live?.busy) live.stop();
+                  else live?.send();
+                }}
               >
                 {live?.busy ? (
                   <Square size={16} aria-hidden="true" />
