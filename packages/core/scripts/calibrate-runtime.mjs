@@ -12,13 +12,16 @@ import { inspectGGUF } from '../out/runtime/gguf.js';
 import { discoverResources } from '../out/hosts/resource-probe.js';
 // Explicit signed diagnostic. --fit-print inspects the exact configuration with no model allocation;
 // it neither lowers settings nor grants an uncertain planner result live-loader admission.
-if (process.argv.length !== 3) throw new Error('Use calibrate-runtime.mjs <Bonsai-Q1_0.gguf>');
+const fourSlots = process.argv[3] === '--four-slots';
+if (process.argv.length !== (fourSlots ? 4 : 3))
+  throw new Error('Use calibrate-runtime.mjs <Bonsai-Q1_0.gguf> [--four-slots]');
+const evidenceName = fourSlots ? 'planner-four-slots' : 'planner';
 const base = path.resolve('out/activation/b11306'),
   model = path.resolve(process.argv[2]);
 const cfg = Object.freeze({
   modelSha256: '71d6871836886267f39f1ac69b1b1dd8a783970708d7a189960112ed02978901',
   contextPerSlot: 7680,
-  slots: 1,
+  slots: fourSlots ? 4 : 1,
   gpuLayers: 999999,
   gpuDevice: 'GPU-22c23971-dacf-2123-2169-ad70d8f6729a',
   cacheK: 'q8_0',
@@ -45,7 +48,7 @@ const installed = await installExpanded(
 const lock = await revalidateInstalled(installed),
   native = ownershipBinding(),
   root = native.createDeployment();
-const temp = path.join(base, 'planner-temporary');
+const temp = path.join(base, `${evidenceName}-temporary`);
 native.privateDirectory(temp);
 let child, modelLock;
 try {
@@ -68,9 +71,9 @@ try {
       '--fit-print',
       'on',
       '--ctx-size',
-      String(cfg.contextPerSlot),
+      String(cfg.contextPerSlot * cfg.slots),
       '--parallel',
-      '1',
+      String(cfg.slots),
       '--n-gpu-layers',
       String(cfg.gpuLayers),
       '--device',
@@ -112,9 +115,9 @@ try {
   } while (Date.now() < deadline);
   if (status === undefined) throw new Error('PLANNER_TIMEOUT');
   await mkdir(path.join(base, 'evidence'), { recursive: true });
-  await writeFile(path.join(base, 'evidence/planner.log'), output);
+  await writeFile(path.join(base, `evidence/${evidenceName}.log`), output);
   await writeFile(
-    path.join(base, 'evidence/planner-input.json'),
+    path.join(base, `evidence/${evidenceName}-input.json`),
     JSON.stringify(
       {
         configuration: cfg,
@@ -131,7 +134,7 @@ try {
     JSON.stringify({
       status,
       directory: installed.directory,
-      log: path.join(base, 'evidence/planner.log'),
+      log: path.join(base, `evidence/${evidenceName}.log`),
       configuration: cfg,
     }),
   );
