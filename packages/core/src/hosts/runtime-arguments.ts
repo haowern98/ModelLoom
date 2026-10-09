@@ -53,6 +53,7 @@ export function fixedArguments(
     '--api-key-file',
     keyFile,
     '--no-ui',
+    '--slots',
     '--no-agent',
     '--no-ui-mcp-proxy',
     '--no-mmproj',

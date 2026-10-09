@@ -23,11 +23,19 @@ import path from 'node:path';
 import { confirmExit, ownershipBinding } from './windows-ownership.js';
 import { fixedArguments } from './runtime-arguments.js';
 import { checkOwnedReadiness } from './readiness.js';
+import { readOwnedSlots } from './slot-status.js';
+import { OwnedSlotMonitor } from './slot-monitor.js';
+import { createOwnedChatTransport } from './chat-transport.js';
+import type { ChatTransport } from '../generation/service.js';
 
 export interface RealEngineAdapter extends EngineAdapter {
   children(): readonly number[];
   admitCore(pid: number, expectedImage: string, launchTime: number): void;
   close(): Promise<void>;
+  /** Private owner capability for this exact ready instance; never serialized to core/renderer. */
+  slots(engine: OwnedEngine): OwnedSlotMonitor;
+  /** Captured fixed Chat transport; credential/endpoint never leave the owner. */
+  chat(engine: OwnedEngine): ChatTransport;
 }
 /** Shared adapter gated by package authority and exact reviewed memory reports.
  * Development reports require both a development capability and the explicit development build.
@@ -65,9 +73,21 @@ export function realEngineAdapter(
     root = native.createDeployment();
   const active = new Map<object, Promise<EngineExit>>();
   const pids = new Map<object, number[]>();
+  const slotMonitors = new WeakMap<OwnedEngine, OwnedSlotMonitor>();
+  const chatTransports = new WeakMap<OwnedEngine, ChatTransport>();
   let closed = false,
     launching = false;
   return {
+    chat(engine) {
+      const transport = chatTransports.get(engine);
+      if (closed || !transport) throw new Error('NOT_READY');
+      return transport;
+    },
+    slots(engine) {
+      const monitor = slotMonitors.get(engine);
+      if (closed || !monitor) throw new Error('STATUS_UNCONFIRMED');
+      return monitor;
+    },
     children: () => [...pids.values()].flat(),
     admitCore(pid, image, time) {
       if (closed) throw new Error('OWNERSHIP_FAILED');
@@ -141,6 +161,8 @@ export function realEngineAdapter(
           captured = false,
           ready = false,
           line = '';
+        let statusStopDeadline: number | undefined;
+        let slotPreparation: Promise<OwnedSlotMonitor> | undefined;
         let resolveExit!: (receipt: EngineExit) => void, rejectExit!: (error: Error) => void;
         const exited = new Promise<EngineExit>((resolve, reject) => {
           resolveExit = resolve;
@@ -153,6 +175,10 @@ export function realEngineAdapter(
         const tick = () => {
           if (finishing) return;
           try {
+            if (statusStopDeadline !== undefined && Date.now() >= statusStopDeadline) {
+              native.forceStop(child);
+              statusStopDeadline = undefined;
+            }
             const observation = native.observe(child);
             if (observation.pid && !ownedPids.includes(observation.pid))
               ownedPids.push(observation.pid);
@@ -196,7 +222,7 @@ export function realEngineAdapter(
         };
         const timer = setInterval(tick, 10);
         tick();
-        return {
+        const owned: OwnedEngine = {
           selection: event.selection,
           exited,
           async waitReady(abort) {
@@ -212,6 +238,37 @@ export function realEngineAdapter(
                     cfg.slots,
                     () => !ended && native.ownedListener(child, port),
                     abort,
+                  );
+                  // Concurrent readiness callers share one status preparation/monitor.
+                  slotPreparation ??= (async () => {
+                    const owns = () => !ended && !finishing && native.ownedListener(child, port);
+                    const monitor = new OwnedSlotMonitor(
+                      cfg.slots,
+                      (signal) => readOwnedSlots(port, secret, cfg.slots, owns, signal),
+                      owns,
+                      exited.then(() => undefined),
+                      () => {
+                        // Confirmed ownership scopes teardown; the existing tick confirms exit.
+                        statusStopDeadline = Date.now() + 5000;
+                        native.requestStop(child);
+                      },
+                    );
+                    await monitor.initialize();
+                    return monitor;
+                  })();
+                  const monitor = await slotPreparation;
+                  if (abort.aborted || ended || closed) throw new Error('START_FAILED');
+                  slotMonitors.set(owned, monitor);
+                  chatTransports.set(
+                    owned,
+                    createOwnedChatTransport({
+                      port,
+                      key: secret,
+                      alias,
+                      session: event.selection,
+                      owns: () => !ended && !finishing && native.ownedListener(child, port),
+                      monitor,
+                    }),
                   );
                   ready = true;
                   return;
@@ -234,6 +291,11 @@ export function realEngineAdapter(
             return Promise.resolve();
           },
         };
+        void exited.then(
+          () => slotMonitors.delete(owned),
+          () => slotMonitors.delete(owned),
+        );
+        return owned;
       } finally {
         launching = false;
         packageLock?.release();
