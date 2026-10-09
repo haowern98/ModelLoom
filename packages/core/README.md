@@ -1,6 +1,19 @@
 # ModelLoom core lifecycle
 
-Private, GUI-independent TypeScript lifecycle core with in-memory tests and Windows development fixture hosts. A gated Windows real-engine adapter is implemented; production activation and the renderer connection remain disabled.
+Private, GUI-independent TypeScript core with lifecycle, protected history,
+generation admission and Windows development hosts. The explicitly enabled
+development desktop now connects the real-engine adapter and closed Chat bridge;
+ordinary generation and production activation remain disabled.
+
+**Reconciled 2026-10-10:** Local schema-4 history, native settlement, Send/Stop/
+Retry, saved thinking/duration/rates, model-independent history startup and
+confirmed deletion are implemented locally. The exact development catalogue
+contains one-slot and four-slot reports; the desktop selects four slots. See
+[current scope and dated evidence](../../docs/local-generation.md), including the
+failed post-startup resource-preflight retry and isolated native cleanup rerun.
+Fixture/earlier activation descriptions below retain their original scope;
+they do not describe the later desktop connection. Production trust, public API,
+workers, distribution and release/platform acceptance remain pending.
 
 `RuntimeSupervisor(deploymentId, adapter, policy)` supervises one active load attempt. `load(selection)` validates opaque deployment/session/operation/package/model IDs and starts a fresh operation. Invalid commands reject with a safe code; startup failures return a failed snapshot. `snapshot()` returns immutable state. `record(event)` accepts admitted request starts, text and completion, while lifecycle events remain internal. `stop()` closes admission immediately, interrupts running records, shares pending cleanup and confirms exit before reporting stopped.
 
