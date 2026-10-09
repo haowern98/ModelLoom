@@ -1,21 +1,41 @@
 # ModelLoom technical specification
 
-**Status:** Desktop foundation approved and implemented; remaining architecture proposals need review
-**Updated:** 2026-10-06
+**Status:** Windows development runtime and durable local Chat implemented; production, API and distributed architecture retain their review/evidence gates
+**Updated:** 2026-10-10
 
 **Product source:** [PRODUCT-SPEC.md](PRODUCT-SPEC.md)
 
 ## 1. Purpose and decision status
 
+### Current implementation, 2026-10-10
+
+[ADR-0005](decisions/0005-local-generation-development.md) and its later scoped
+approvals now connect the sandboxed desktop through a closed preload/main bridge
+to one protected utility-owned history/admission core and a separately owned,
+verified llama-server. History starts before model loading. Explicit loading
+prepares the exact development CUDA adapter; Send/Retry require it to be ready.
+The core has four active/eight pending reservations, caller-owned cancellation,
+native slot settlement, schema-4 persistent history and confirmed deletion.
+Thinking/answer, native final speeds and measured thinking duration are saved
+separately. No stored work is automatically replayed.
+
+This is the normally disabled Windows development path, not general production
+activation. API/settings/joining controls remain previews where unavailable;
+workers, network enrollment, model distribution, released runtime updates and
+other-platform acceptance remain pending. See [local Chat development](../docs/local-generation.md)
+for exact configuration, dated results and the latest resource-preflight failure.
+Earlier foundation/fixture descriptions below are scoped historical records;
+they do not describe the current development build.
+
 The later [ADR-0003](decisions/0003-lm-studio-behavior-reference.md) extends LM Studio's reference role to applicable non-networking architecture and behavior, including concurrency and runtime compatibility. Use documented/observed behavior first, preserve approved ModelLoom requirements, and record evidence-backed deviations. Networking remains under D02-D03; proprietary internals and signing mechanisms cannot be assumed.
 
 Translate P1-P9 into component responsibilities and non-functional requirements. Product behavior remains authoritative in the product specification. Contracts belong in [INTEGRATION-SPEC.md](INTEGRATION-SPEC.md), security in [SECURITY-SPEC.md](SECURITY-SPEC.md), and presentation in [UI-SPEC.md](UI-SPEC.md). Execution steps belong in [PLAN.md](../plans/PLAN.md).
 
-Electron, existing dense llama.cpp-compatible GGUFs, the three connection modes, independent runtime releases, and the product/UI baseline are established requirements. [ADR-0002](decisions/0002-lm-studio-runtime-direction.md) adds the accepted LM Studio hosting direction, grouped llama-server naming, crash isolation, shared headless core/runtime machinery, and owned shutdown. The desktop choices are now approved as recorded below; the remaining language/tooling and component proposals still need review. [ADR-0004](decisions/0004-runtime-lifecycle-proposal.md) accepts the initial Windows development exception and shared TypeScript hosting direction. D01 remains open overall; live package activation and release/platform evidence retain their gates. No native runtime has been implemented.
+Electron, existing dense llama.cpp-compatible GGUFs, the three connection modes, independent runtime releases, and the product/UI baseline are established requirements. [ADR-0002](decisions/0002-lm-studio-runtime-direction.md) adds the accepted LM Studio hosting direction, grouped llama-server naming, crash isolation, shared headless core/runtime machinery, and owned shutdown. The desktop choices are now approved as recorded below; the remaining language/tooling and component proposals still need review. [ADR-0004](decisions/0004-runtime-lifecycle-proposal.md) accepts the initial Windows development exception and shared TypeScript hosting direction. D01 remains open overall; live package activation and release/platform evidence retain their gates. The explicit Windows development adapter now hosts the verified separate native runtime; production and other-platform acceptance remain open.
 
-On 2026-10-01 the user approved implementation of the desktop foundation: Electron, React, strict TypeScript, pnpm, Vite/Electron Forge, CSS Modules/shared tokens, ESLint/Prettier, Vitest/Testing Library and Playwright. `apps/desktop/` now implements the shared shell, compact Models library, session-only per-model configuration, Cluster planning/launch demo and session-only Chat presentation with explicitly marked demo data. The API screen now adds renderer-only server/access presentation, example tabs and an empty log viewer; Settings now adds a renderer-only Appearance/Runtime preview, category search/navigation and an empty runtime-inventory dialog; its controls remain unavailable and no theme, runtime, persistence or IPC integration is added. API lifecycle, exposure and credential controls are disabled, with no listener, key generation, log source, persistent state or new IPC. Integration snippets are illustrative placeholders, not finalized API-contract evidence. Chat keeps Send and attachments unavailable as selected by the user, with no generation, storage or IPC integration. Models row actions expose sample details, configuration and protected demo-entry removal, while launching remains in Cluster. Configuration holds separate pending/saved values in renderer memory, validates before saving, and executes neither templates nor arguments. It adds no persistent storage, IPC, engine or active-session configuration path. This settles D10's desktop choices only. Core TypeScript and the initial hosting direction are accepted under ADR-0004. Exact build/tool pins, supported platform floors, networking, bootstrap verification, signed updates and distributed correctness retain their affected review/evidence gates. A preload is deferred because this milestone uses native window controls and has no privileged renderer operations.
+On 2026-10-01 the user approved implementation of the desktop foundation: Electron, React, strict TypeScript, pnpm, Vite/Electron Forge, CSS Modules/shared tokens, ESLint/Prettier, Vitest/Testing Library and Playwright. `apps/desktop/` now implements the shared shell, compact Models library, session-only per-model configuration, Cluster planning/launch demo and session-only Chat presentation with explicitly marked demo data. The API screen now adds renderer-only server/access presentation, example tabs and an empty log viewer; Settings now adds a renderer-only Appearance/Runtime preview, category search/navigation and an empty runtime-inventory dialog; its controls remain unavailable and no theme, runtime, persistence or IPC integration is added. API lifecycle, exposure and credential controls are disabled, with no listener, key generation, log source, persistent state or new IPC. Integration snippets are illustrative placeholders, not finalized API-contract evidence. Chat keeps Send and attachments unavailable as selected by the user, with no generation, storage or IPC integration. Models row actions expose sample details, configuration and protected demo-entry removal, while launching remains in Cluster. Configuration holds separate pending/saved values in renderer memory, validates before saving, and executes neither templates nor arguments. It adds no persistent storage, IPC, engine or active-session configuration path. This settles D10's desktop choices only. Core TypeScript and the initial hosting direction are accepted under ADR-0004. Exact build/tool pins, supported platform floors, networking, bootstrap verification, signed updates and distributed correctness retain their affected review/evidence gates. That original renderer milestone deferred preload; later runtime/Chat approvals add closed sender-checked development bridges without weakening renderer isolation.
 
-### Implemented renderer boundary, 2026-10-05
+### Historical renderer-only boundary, 2026-10-05
 
 The current [UI baseline](UI-SPEC.md#current-ui-baseline-2026-10-05) is fixed; this reconciliation changes documentation only. App owns shared library/active-model, placement/load simulation, configuration, joining and conversation reducers/state. Feature components render that state and hold only their local view state. Screen navigation preserves shared session state; reload/full restart clears it. No database, control core, worker service, native engine or privileged renderer bridge exists in this milestone.
 
