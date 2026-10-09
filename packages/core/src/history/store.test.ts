@@ -105,6 +105,23 @@ it('stores drafts without creating generation and returns summaries without hist
   expect(await store.readConversation(c.id)).toMatchObject({ draft: ' draft ', turns: [] });
   expect(await store.listConversations()).toMatchObject([{ id: c.id, turns: [] }]);
 });
+it.each([
+  ['Synthetic question', ''],
+  ['Next question', 'Next question'],
+  ['', ''],
+])(
+  'starting a turn preserves an unrelated saved draft %j across reopen',
+  async (draft, expected) => {
+    const { db, store } = setup(),
+      c = await store.newConversation();
+    await store.saveDraft(c.id, draft);
+    await store.beginTurn(input(c.id));
+    const reopened = new HistoryStore(db);
+    const saved = await reopened.readConversation(c.id);
+    expect(saved.draft).toBe(expected);
+    expect(saved.turns[0]?.text).toBe('Synthetic question');
+  },
+);
 it('recovers every active attempt as interrupted and preserves committed partial text', async () => {
   const { store } = setup(),
     c = await store.newConversation();

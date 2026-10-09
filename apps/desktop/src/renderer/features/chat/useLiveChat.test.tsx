@@ -483,6 +483,51 @@ it('retains a newer draft typed while the sent prompt is being prepared', async 
   expect(saved.turns[0]?.text).toBe('First question');
   await f.core.close();
 });
+it('reloads a newer saved draft before the original Send reply reaches the renderer', async () => {
+  let releaseCount!: (tokens: number) => void, releaseReply!: () => void;
+  const f = await fixture(
+    () =>
+      new Promise<number>((resolve) => {
+        releaseCount = resolve;
+      }),
+  );
+  const bridge = window.modelLoomChat!,
+    command = bridge.command.bind(bridge),
+    held = new Promise<void>((resolve) => {
+      releaseReply = resolve;
+    });
+  bridge.command = async (input) => {
+    const reply = await command(input);
+    if (input.action === 'send') await held;
+    return reply;
+  };
+  const user = userEvent.setup(),
+    view = render(<Harness />);
+  try {
+    await screen.findByText('Saved on this device');
+    const composer = screen.getByRole('textbox', { name: 'Message' });
+    await user.type(composer, 'First question');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => expect(releaseCount).toBeTypeOf('function'));
+    await user.clear(composer);
+    await user.type(composer, 'Next question');
+    const id = (await f.history.listConversations())[0]!.id;
+    await waitFor(async () =>
+      expect((await f.history.readConversation(id)).draft).toBe('Next question'),
+    );
+    releaseCount(10);
+    await waitFor(() => expect(f.work).toHaveLength(1));
+    view.unmount();
+    render(<Harness ready={false} />);
+    await screen.findByRole('heading', { name: 'First question' });
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Next question');
+    expect((await f.history.readConversation(id)).draft).toBe('Next question');
+    expect(f.work).toHaveLength(1);
+  } finally {
+    releaseReply();
+    await f.core.close();
+  }
+});
 it('keeps another conversation running when navigating and stopping the selected response', async () => {
   const f = await fixture();
   const user = userEvent.setup();
