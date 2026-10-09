@@ -878,3 +878,20 @@ debugger. Evidence: ignored `plans/ordinary-startup-live.json` and
 `plans/ordinary-startup-local-device.png`. Typechecking, lint correction and
 host/renderer builds passed. No GPU/model run or manual Computer Use is claimed;
 mining stayed running. This supplies no new release, networking or quality evidence.
+
+### PR #6 draft and notification corrections, 2026-10-10
+
+Regression tests reproduced a newer saved draft being cleared at Send admission
+and Copy/Delete feedback masking later live status. The draft test holds the Send
+reply, admits the original message after a newer draft is saved, then remounts the
+renderer without a loaded model and checks the newer draft survives without a
+second request. Store cases also check matching and empty drafts across store
+reconstruction. Presentation tests cover current errors, completion without stale
+feedback returning, Delete followed by Send, keyboard Send, Retry and Stop.
+
+After the two fixes, `pnpm test` passed all 103 desktop and 444 core tests;
+`pnpm typecheck`, `pnpm lint`, changed-file Prettier and `git diff --check` also
+exited 0. These are local SQLite/synthetic transport and DOM checks. No new
+native, real-model, manual UI or hosted CI evidence is claimed. Full-history
+paging performance is deferred. Hosted CI must be checked on PR #6's updated
+head after publication.
