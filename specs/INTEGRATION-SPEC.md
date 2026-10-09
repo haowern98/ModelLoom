@@ -287,3 +287,10 @@ are bound to both query and history revision. Summaries include the validated
 saved update timestamp for local-calendar grouping. New chat atomically reuses
 an untouched empty conversation, preserving all drafts and conversations with
 turns. No history schema, native command or inference setting changes.
+
+The subsequent PR-review corrections clear the persisted draft at Send admission
+only if it still matches the submitted text, within the same transaction as the
+new turn. A newer saved draft survives even if the renderer reloads before the
+Send reply. Copy/Delete feedback clears when live status changes or Send, Retry
+or Stop starts, including keyboard Send, so later status and errors are visible.
+These corrections add no command or saved-chat format change.

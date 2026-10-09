@@ -58,6 +58,13 @@ Responses are rendered as text. The transcript follows new output while the
 reader remains at the bottom. New text typed while a prompt is preparing is
 retained as the next draft.
 
+The subsequent PR #6 review corrections preserve that newer saved draft through
+Send admission and renderer reload before the Send reply. Admission clears only
+the draft matching the submitted message, atomically with saving the turn. Old
+Copy/Delete notifications clear on a new live status or Send/Retry/Stop operation,
+including keyboard Send. The separate full-history paging performance finding
+remains deferred. No schema, layout, inference setting or generation policy changes.
+
 The October 10 review corrections make Stop abort prompt preparation before
 native work starts, retaining unsent drafts. Active Stop keeps the existing
 native settlement checks. Search reads saved titles, user messages and answer
