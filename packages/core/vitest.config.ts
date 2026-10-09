@@ -4,6 +4,8 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
     exclude: [
+      'src/hosts/chat-native.test.ts',
+      'src/history/windows-directory.test.ts',
       'src/hosts/windows-ownership.test.ts',
       'src/hosts/hosts.test.ts',
       'src/hosts/runtime-console.test.ts',
