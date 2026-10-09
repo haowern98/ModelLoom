@@ -1,14 +1,16 @@
 .dialog {
+  --text: var(--neutral-text);
+  --muted: var(--neutral-muted);
   width: min(470px, calc(100vw - 40px));
   color: var(--text);
-  background: #1b1d23;
-  border: 1px solid #3b414e;
+  background: #262626;
+  border: 1px solid var(--neutral-border);
   border-radius: 16px;
   padding: 22px;
   box-shadow: 0 24px 80px #0009;
 }
 .dialog::backdrop {
-  background: #080a10b3;
+  background: #000000b3;
 }
 .dialog header {
   display: flex;
@@ -27,14 +29,17 @@
   border: 0;
   background: none;
   color: var(--muted);
-  width: 30px;
-  height: 30px;
-  border-radius: 6px;
+  width: var(--control-height-icon);
+  height: var(--control-height-icon);
+  border-radius: 50%;
+}
+.dialog header button:hover {
+  background: #2f2f2f;
 }
 .body {
   padding-top: 18px;
   font-size: var(--font-size-body);
-  color: #b8bdc9;
+  color: var(--muted);
   line-height: 1.6;
 }
 .body p + p {
@@ -49,6 +54,22 @@
 .body footer button {
   min-height: var(--control-height-dialog);
   font-weight: var(--font-weight-medium);
+  color: var(--text);
+  background: #303030;
+  border-color: var(--neutral-border);
+  border-radius: 999px;
+  box-shadow: none;
+}
+.body footer button:hover {
+  background: #3a3a3a;
+}
+.body footer button:last-child:not(:first-child) {
+  color: #181818;
+  background: #ffffff;
+  border-color: transparent;
+}
+.body footer button:last-child:not(:first-child):hover {
+  background: #e5e5e5;
 }
 .body dl {
   display: grid;
