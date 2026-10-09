@@ -4,6 +4,7 @@ import {
   initializeCustody,
   checkCustody,
   publishDevelopmentMetadata,
+  renewDevelopmentMetadata,
 } from '../out/publisher/development-custody.js';
 import { readFile, lstat } from 'node:fs/promises';
 import { ownershipBinding } from '../out/hosts/windows-ownership.js';
@@ -12,9 +13,11 @@ import { ownershipBinding } from '../out/hosts/windows-ownership.js';
 const operation = process.argv[2];
 if (!(
   (process.argv.length === 3 && ['init', 'check'].includes(operation)) ||
-  (process.argv.length === 5 && operation === 'publish')
+  (process.argv.length === 5 && ['publish', 'renew'].includes(operation))
 ))
-  throw new Error('Use init, check, or publish <inventory.json> <new-repository>');
+  throw new Error(
+    'Use init, check, publish <inventory.json> <new-repository>, or renew <previous-repository> <new-repository>',
+  );
 const native = ownershipBinding(),
   system = native.systemDirectory();
 const query = spawnSync(
@@ -52,4 +55,12 @@ if (operation === 'publish') {
     process.argv[4],
   );
   console.log(JSON.stringify({ published: path.resolve(process.argv[4]) }));
+}
+if (operation === 'renew') {
+  await renewDevelopmentMetadata(
+    directory,
+    path.resolve(process.argv[3]),
+    path.resolve(process.argv[4]),
+  );
+  console.log(JSON.stringify({ renewed: path.resolve(process.argv[4]) }));
 }

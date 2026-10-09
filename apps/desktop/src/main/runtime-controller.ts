@@ -1,9 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { decodeRuntimeCommand } from '../shared/runtime';
 import type { RuntimeView, RuntimeDevice } from '../shared/runtime';
+import { decodeChatCommand } from '../shared/chat';
+import type { ChatReply } from '../shared/chat';
 interface Host {
   command(text: string): Promise<Record<string, unknown>>;
   close(): Promise<void>;
+  chat?(caller: string, input: unknown): Promise<ChatReply>;
+  changed?(listener: () => void): () => void;
+  /** Trusted main prepares a verified engine only after model/resource admission. */
+  prepare?(file: string): Promise<void>;
 }
 /** Trusted main dependencies; none of these capabilities are renderer inputs. */
 interface ActivationDependencies {
@@ -15,6 +21,8 @@ interface ActivationDependencies {
   inspect(file: string): Promise<{ sha256: string; size: string }>;
   preflight(): Promise<void>;
   createHost(file: string): Promise<Host>;
+  /** Model-independent utility/history startup; retains the same owner across model loads. */
+  createHistoryHost?(): Promise<Host>;
   device?(): Promise<RuntimeDevice>;
 }
 export type RuntimeDependencies =
@@ -39,7 +47,7 @@ const messages: Record<string, string> = {
  * Quit closes admission immediately and waits for in-flight preparation and owned exit.
  * Returned data never contains paths, native handles, ports or raw exception text.
  */
-export function createRuntimeController(deps: RuntimeDependencies) {
+export function createRuntimeController(deps: RuntimeDependencies, caller: string = randomUUID()) {
   let view: RuntimeView = { enabled: deps.enabled, model: null, phase: 'stopped', error: null };
   let file: string | null = null,
     host: Host | undefined;
@@ -48,7 +56,29 @@ export function createRuntimeController(deps: RuntimeDependencies) {
     quitting = false,
     importing = false;
   let preparation: Promise<Host> | undefined;
+  let enginePreparation: Promise<void> | undefined;
+  let historyFailed = false;
   let deviceProbe: Promise<void> | undefined;
+  let unsubscribe: (() => void) | undefined;
+  const chatListeners = new Set<() => void>();
+  const observeChat = (created: Host) => {
+    if (!quitting)
+      unsubscribe = created.changed?.(() => {
+        for (const listener of chatListeners) listener();
+      });
+    return created;
+  };
+  if (deps.enabled && deps.createHistoryHost) {
+    preparation = Promise.resolve()
+      .then(() => deps.createHistoryHost!())
+      .then((created) => {
+        host = observeChat(created);
+        return created;
+      });
+    void preparation.catch(() => {
+      historyFailed = true;
+    });
+  }
   const observeDevice = async () => {
     if (!deps.device || view.device || quitting) return;
     deviceProbe ??= deps
@@ -95,6 +125,25 @@ export function createRuntimeController(deps: RuntimeDependencies) {
       view.error = messages.CLEANUP_FAILED!;
   };
   return {
+    async chat(input: unknown): Promise<ChatReply> {
+      const command = decodeChatCommand(input);
+      if (quitting || !deps.enabled) return { ok: false, error: 'NOT_READY' };
+      try {
+        if (deps.createHistoryHost && preparation) await preparation;
+        if (quitting) return { ok: false, error: 'NOT_READY' };
+        if (!host?.chat)
+          return { ok: false, error: historyFailed ? 'HISTORY_UNAVAILABLE' : 'NOT_READY' };
+        if (['send', 'retry'].includes(command.action) && view.phase !== 'ready')
+          return { ok: false, error: 'NOT_READY' };
+        return await host.chat(caller, command);
+      } catch {
+        return { ok: false, error: 'HISTORY_UNAVAILABLE' };
+      }
+    },
+    subscribeChat(listener: () => void): () => void {
+      chatListeners.add(listener);
+      return () => chatListeners.delete(listener);
+    },
     async command(input: unknown): Promise<RuntimeView> {
       const command = decodeRuntimeCommand(input);
       if (quitting) return result();
@@ -115,7 +164,10 @@ export function createRuntimeController(deps: RuntimeDependencies) {
             if (info.sha256 !== deps.expectedHash) throw new Error('UNSUPPORTED_MODEL');
             if (quitting) return result();
             await observeDevice();
-            if (host) {
+            if (host && deps.createHistoryHost) {
+              await send('stop');
+            } else if (host) {
+              unsubscribe?.();
               await send('quit');
               await host.close();
               host = undefined;
@@ -142,9 +194,16 @@ export function createRuntimeController(deps: RuntimeDependencies) {
           view = { ...view, phase: 'starting', error: null };
           await deps.preflight();
           if (operation !== epoch || quitting) return result();
+          if (deps.createHistoryHost && preparation) await preparation;
+          if (operation !== epoch || quitting) return result();
           if (!host) {
             preparation = deps.createHost(file);
-            host = await preparation;
+            host = observeChat(await preparation);
+          }
+          if (operation !== epoch || quitting) return result();
+          if (host.prepare) {
+            enginePreparation = host.prepare(file);
+            await enginePreparation;
           }
           if (operation !== epoch || quitting) return result();
           await send('load', {
@@ -172,12 +231,21 @@ export function createRuntimeController(deps: RuntimeDependencies) {
     },
     async quit(): Promise<void> {
       quitting = true;
+      unsubscribe?.();
+      chatListeners.clear();
       ++epoch;
       if (preparation) {
         try {
           host = await preparation;
         } catch {
           /* No host was created. */
+        }
+      }
+      if (enginePreparation) {
+        try {
+          await enginePreparation;
+        } catch {
+          /* Failed preparation grants no engine authority. */
         }
       }
       if (host) {

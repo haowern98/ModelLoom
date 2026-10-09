@@ -2,13 +2,19 @@ export interface ChatMessage {
   readonly id: string;
   readonly role: 'user' | 'assistant';
   readonly text: string;
-  readonly feedback?: 'up' | 'down' | undefined;
+  readonly reasoning?: string;
+  readonly thinkingMs?: number;
+  readonly speeds?: { readonly generation: number | null; readonly prefill: number | null };
+  readonly state?: string;
+  readonly attemptId?: string;
+  readonly requestId?: string;
+  readonly reason?: string;
 }
 
 export interface DemoConversation {
   readonly id: string;
   readonly title: string;
-  readonly group: 'Today' | 'Yesterday';
+  readonly group: 'Today' | 'Yesterday' | 'Older';
   readonly draft: string;
   readonly messages: readonly ChatMessage[];
 }
@@ -20,9 +26,9 @@ export interface DemoChat {
 
 export type ChatAction =
   | { type: 'select'; id: string }
+  | { type: 'delete'; id: string }
   | { type: 'new'; id: string }
-  | { type: 'draft'; text: string }
-  | { type: 'feedback'; messageId: string; value: 'up' | 'down' };
+  | { type: 'draft'; text: string };
 
 /** Preview conversations live only in renderer memory; no model or storage is contacted. */
 export function createDemoChat(demo: boolean): DemoChat {
@@ -74,6 +80,11 @@ export function createDemoChat(demo: boolean): DemoChat {
 
 /** Session-only conversation actions cannot change the globally active model. */
 export function transitionDemoChat(state: DemoChat, action: ChatAction): DemoChat {
+  if (action.type === 'delete')
+    return {
+      selectedId: state.selectedId === action.id ? '' : state.selectedId,
+      conversations: state.conversations.filter((chat) => chat.id !== action.id),
+    };
   if (action.type === 'select')
     return state.conversations.some((chat) => chat.id === action.id)
       ? { ...state, selectedId: action.id }
@@ -93,15 +104,7 @@ export function transitionDemoChat(state: DemoChat, action: ChatAction): DemoCha
     ...state,
     conversations: state.conversations.map((chat) => {
       if (chat.id !== state.selectedId) return chat;
-      if (action.type === 'draft') return { ...chat, draft: action.text };
-      return {
-        ...chat,
-        messages: chat.messages.map((message) =>
-          message.id === action.messageId && message.role === 'assistant'
-            ? { ...message, feedback: message.feedback === action.value ? undefined : action.value }
-            : message,
-        ),
-      };
+      return { ...chat, draft: action.text };
     }),
   };
 }

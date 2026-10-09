@@ -1,13 +1,39 @@
 # ModelLoom security specification
 
-**Status:** Draft security requirements for review; transport, identity, storage, and signing designs are not finalized  
-**Updated:** 2026-10-05
+**Status:** Windows development runtime/history/Chat boundaries accepted and implemented; worker, API and production signing/security acceptance remain open
+
+**Updated:** 2026-10-10
 
 **Scope:** P1-P6/P8 security boundaries for desktop, headless workers, private networking, API, model files, and runtime updates.
 
 Read with [PRODUCT-SPEC.md](PRODUCT-SPEC.md), [TECHNICAL-SPEC.md](TECHNICAL-SPEC.md), [INTEGRATION-SPEC.md](INTEGRATION-SPEC.md), and the [decision register](decisions/README.md). [ADR-0002](decisions/0002-lm-studio-runtime-direction.md) accepts the LM Studio reference direction and grouped llama-server; it does not accept an unauthenticated internal engine endpoint or finalize its process/security design. This document specifies outcomes and review criteria; it does not select cryptographic algorithms or authorize implementation.
 
-## Current UI boundary, 2026-10-05
+## Current development boundary, 2026-10-10
+
+The explicit development build now has closed runtime/Chat preload commands.
+Main validates its captured window/main-frame sender and supplies the caller;
+the renderer cannot supply engine credentials, endpoints, paths, native slots,
+SQL or settlement receipts. External text remains inert. Native engine identity,
+authenticated private listener, package capabilities and owned cleanup remain
+enforced. Production trust/report catalogues are empty; development receipts,
+fixtures and passing tests never grant production authority.
+
+Schema-4 history is selected by trusted main under `%USERPROFILE%\.modelloom`,
+with private permissions, retained Windows identities, single-writer locking,
+quota checks and reserved PERSIST-journal transactions. Exact schema-1/2/3
+upgrades preserve existing fields; unknown schemas and unsafe paths remain
+refused. Confirmed deletion removes only a target chat after same-chat admission
+closure and confirmed native settlement; failed Stop or transaction retains it.
+Deletion adds no generic filesystem or secure-erasure capability. Startup history
+does not load an engine, replay requests or waive any model resource check.
+
+API exposure/key lifecycle, worker identity/revocation/protected RPC, signing
+operations and release/platform acceptance retain their affected decisions.
+[Local Chat development](../docs/local-generation.md) records implementation,
+dated native/live evidence and limits. This reconciliation makes no security
+change and supplies no new security review or live workload evidence.
+
+## Historical UI-only boundary, 2026-10-05
 
 The documentation reconciliation preserves the current UI and adds no security capability or approval. The desktop main source enables context isolation/sandboxing, disables renderer Node integration and supplies no preload/IPC. New windows/navigation and permission requests are denied. Local packaged smoke evidence covers these renderer protections and normal app exit; it does not close the worker, API, storage, runtime or update requirements below.
 

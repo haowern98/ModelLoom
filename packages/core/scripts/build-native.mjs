@@ -56,6 +56,7 @@ if (options[0] === '--check') {
     path.join(root, 'native/windows-ownership.cc'),
     path.join(root, 'tests/native/engine-fixture.cc'),
     path.join(root, 'native/runtime-control.cc'),
+    path.join(root, 'native/history-directory.cc'),
     path.join(root, 'tests/native/console-fixture.cc'),
   ];
   const llvm = path.join(installation, 'VC/Tools/Llvm/bin');
@@ -148,6 +149,24 @@ for (const [source, name] of [
     { cwd: output, env, stdio: 'inherit' },
   );
 }
+execFileSync(
+  compiler,
+  [
+    ...common,
+    '/LD',
+    `/I${path.join(headers, 'include/node')}`,
+    path.join(root, 'native/history-directory.cc'),
+    `/Fo${path.join(output, 'history.obj')}`,
+    '/link',
+    path.join(output, 'delay-hook.obj'),
+    path.join(headers, 'x64/node.lib'),
+    'delayimp.lib',
+    'advapi32.lib',
+    '/DELAYLOAD:node.exe',
+    `/OUT:${path.join(output, 'history.node')}`,
+  ],
+  { cwd: output, env, stdio: 'inherit' },
+);
 console.log(
   'Built Windows x64 ownership binding and harmless engine fixture with MSVC 14.44.35207 /W4 /WX',
 );

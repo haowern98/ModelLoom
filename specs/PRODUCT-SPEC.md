@@ -1,8 +1,8 @@
 # ModelLoom product requirements
 
-**Status:** Product requirements with a fixed renderer UI baseline; runtime and release acceptance remain pending
+**Status:** Product requirements with Windows development runtime/local Chat evidence; full M1, distributed and release acceptance remain pending
 
-**Updated:** 2026-10-05
+**Updated:** 2026-10-10
 
 **Scope:** The install-to-chat product experience. Inference speed research remains a separate workstream governed by `AGENTS.md` and the user's later benchmark clarifications.
 
@@ -10,7 +10,23 @@ This is the authoritative product specification, moved from `ModelLoom-Project P
 
 Related specifications: [technical](TECHNICAL-SPEC.md), [integration](INTEGRATION-SPEC.md), [security](SECURITY-SPEC.md), and [UI](UI-SPEC.md). Specifications define behavior and constraints; execution work belongs in [plans](../plans/PLAN.md).
 
-## Current delivery scope, 2026-10-06
+## Current delivery scope, 2026-10-10
+
+The explicitly enabled Windows development build supports verified local Bonsai
+loading and real Chat Send/Stop/Retry, durable history available before loading,
+separate thinking/answer, saved rates and thinking duration, and confirmed chat
+deletion. The later user approval removes thumbs-up/down and replaces the earlier
+feedback-control default. The supplied screen composition and approved later
+visual refinements remain authoritative; no unrelated redesign is authorized.
+
+This is partial M1 development evidence. The API is still a preview, attachments
+remain unavailable, and worker pairing/discovery/authorization, distributed
+inference and in-app Tailscale/Headscale are unimplemented. M1-M5 and J1-J15 are
+acceptance targets, not completed milestones. See [local Chat development](../docs/local-generation.md)
+for exact scope, dated failures/successes and remaining validation. Existing
+Tailscale on the two desktops supplies connectivity only, not ModelLoom workers.
+
+### Historical renderer-only delivery scope, 2026-10-06
 
 The 2026-10-05 documentation reconciliation fixed the existing UI without authorizing changes. [UI-SPEC's current baseline](UI-SPEC.md#current-ui-baseline-2026-10-05) records the implemented shell, Models/configuration, Cluster, Chat and API presentation. The separately authorized 2026-10-06 Settings renderer preview adds category navigation/search and Appearance/Runtime presentation with unavailable controls; production settings, Explore/catalogue, Storage and Metrics remain deferred. The proposed two-column Models layout and Downloaded/Imported/Browse tabs are not the current design.
 
@@ -105,7 +121,7 @@ Follow [ADR-0003](decisions/0003-lm-studio-behavior-reference.md): use LM Studio
 3. Where a screen has a sidebar and right-hand content panel, the right-hand panel is darker and visually above the sidebar, with rounded exposed corners. The later explicitly approved Chat and API revisions in UI-SPEC supersede their original compositions: Chat has a straight fine inner divider and rounded outer workspace; API has a centred stack of four sections. These are specific accepted revisions, not permission for further redesign.
 4. Display actual model metadata, hardware, connection paths, API addresses, and measurements. Reference numbers and sample chat text are illustrative, not runtime facts or promises about supported inference strategies.
 5. API server/access controls live on the API screen. Cluster connectivity, LAN, Tailscale, and Headscale settings live in Settings -> Network and are accessible from relevant Cluster actions.
-6. Response thumbs-up/down are stored locally against the response, without remote feedback submission. Home opens Chat and API has a direct Server icon after Models; More contains Chat only. Attachment formats/capabilities and future Storage/Metrics/profile/download behaviour remain unresolved; their current unavailable treatment is fixed. Preserve the visual references; do not silently remove controls or invent extra capabilities.
+6. The original local thumbs-up/down default is superseded by the user's 2026-10-09 approval to remove both controls. Copy and live Retry remain; measured response speeds display inline without extra icons or a dot. Home opens Chat and API has a direct Server icon after Models; More contains Chat only. Attachment formats/capabilities and future Storage/Metrics/profile/download behaviour remain unresolved; their current unavailable treatment is fixed. Preserve the visual references and separately approved revisions; do not silently remove other controls or invent extra capabilities.
 7. Non-happy-path states follow the reference styling and remain actionable. The five images do not define light-theme visuals, small-window layouts, exact font assets, or every modal; those need reviewed extensions before implementation of the affected interaction.
 
 ## 4. Security and privacy requirements
@@ -159,7 +175,7 @@ Beginner guidance and expert controls are required in the first public release, 
 - D01 is an LM Studio architecture replication audit, not an unconstrained choice of alternative hosting models. Establish current GUI/core/runtime boundaries, exact observed trees, process/library use, local communication, package layout/version selection, crash/restart and GUI survival, desktop/headless reuse, update/rollback, shutdown ownership, and OS process presentation. Inspect current installations by platform when authorized; the accepted ADR-0004 direction permits limited initial Windows development, while D01 remains open overall and live activation, security and platform/release acceptance retain their gates.
 - Decide whether private-network connectivity uses an embedded component or one supplied and managed by ModelLoom. This choice must preserve the one-app installation journey. A Tailscale account or an existing Headscale server can remain external.
 - Define model-file distribution/cache policy and the exact API authentication mechanism before implementation. These decisions must be visible in the UI and tested in the acceptance journeys.
-- The later approved defaults select Hugging Face GGUF downloads, localhost keys by default, local response feedback, and window X as full Quit. The implemented navigation mapping is recorded in UI-SPEC. Settle attachment formats/capabilities, deferred destination behaviour and remaining visual assets; do not reopen the fixed current layout by treating those integration choices as a redesign authorization. See ADR-0003.
+- The approved defaults select Hugging Face GGUF downloads, localhost keys by default and window X as full Quit. The original local-feedback default is superseded by the later approval to remove thumbs-up/down. The implemented navigation mapping is recorded in UI-SPEC. Settle attachment formats/capabilities, deferred destination behaviour and remaining visual assets; do not reopen the fixed current layout by treating those integration choices as a redesign authorization. See ADR-0003.
 - Determine queue limits, supported OpenAI-compatible endpoints, persistence format, runtime package trust/compatibility, exact OS version floors, and UI assets through the relevant specifications and decisions. Do not infer these from screenshot example values.
 
 ## 8. Process and acceptance evidence

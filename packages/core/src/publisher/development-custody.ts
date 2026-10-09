@@ -24,6 +24,65 @@ export interface CustodyReceipt {
   readonly keyIds: readonly string[];
   readonly rootSha256: string;
 }
+/** Renew authenticated historical metadata without rotating keys or resetting client rollback state.
+ * Expired delegated roles are accepted only as publisher input; the trust root must remain current.
+ */
+export async function renewDevelopmentMetadata(
+  directory: string,
+  previous: string,
+  repository: string,
+): Promise<void> {
+  await checkCustody(directory);
+  const rootBytes = await bounded(path.join(directory, 'public-root.json'));
+  if (!(await bounded(path.join(previous, 'root.json'))).equals(rootBytes))
+    throw new Error('ROOT_MISMATCH');
+  const root = Metadata.fromJSON(
+    MetadataKind.Root,
+    JSON.parse(rootBytes.toString('utf8')) as Parameters<typeof Root.fromJSON>[0],
+  );
+  const targetsBytes = await bounded(path.join(previous, 'targets.json'), METADATA_LIMIT);
+  const snapshotBytes = await bounded(path.join(previous, 'snapshot.json'), METADATA_LIMIT);
+  const timestampBytes = await bounded(path.join(previous, 'timestamp.json'), METADATA_LIMIT);
+  const targets = Metadata.fromJSON(
+    MetadataKind.Targets,
+    JSON.parse(targetsBytes.toString('utf8')) as Parameters<typeof Targets.fromJSON>[0],
+  );
+  const snapshot = Metadata.fromJSON(
+    MetadataKind.Snapshot,
+    JSON.parse(snapshotBytes.toString('utf8')) as Parameters<typeof Snapshot.fromJSON>[0],
+  );
+  const timestamp = Metadata.fromJSON(
+    MetadataKind.Timestamp,
+    JSON.parse(timestampBytes.toString('utf8')) as Parameters<typeof Timestamp.fromJSON>[0],
+  );
+  root.verifyDelegate('targets', targets);
+  root.verifyDelegate('snapshot', snapshot);
+  root.verifyDelegate('timestamp', timestamp);
+  const bytes = await bounded(path.join(previous, 'inventory.json'), METADATA_LIMIT);
+  parseInventory(JSON.parse(bytes.toString('utf8')));
+  const matches = (
+    meta: { length?: number; hashes?: Record<string, string> } | undefined,
+    data: Buffer,
+  ) => meta?.length === data.length && meta.hashes?.sha256 === digest(data);
+  if (
+    timestamp.signed.snapshotMeta.version !== snapshot.signed.version ||
+    !matches(timestamp.signed.snapshotMeta, snapshotBytes) ||
+    snapshot.signed.meta['targets.json']?.version !== targets.signed.version ||
+    !matches(snapshot.signed.meta['targets.json'], targetsBytes) ||
+    !matches(targets.signed.targets['inventory.json'], bytes)
+  )
+    throw new Error('INVALID_METADATA');
+  const next = (version: number) => {
+    if (!Number.isSafeInteger(version) || version < 1 || !Number.isSafeInteger(version + 1))
+      throw new Error('INVALID_METADATA_VERSION');
+    return version + 1;
+  };
+  await writeDevelopmentMetadata(directory, bytes, repository, {
+    targets: next(targets.signed.version),
+    snapshot: next(snapshot.signed.version),
+    timestamp: next(timestamp.signed.version),
+  });
+}
 /** Initial development publication only. Refuse reuse so metadata versions cannot silently roll back. */
 export async function publishDevelopmentMetadata(
   directory: string,
@@ -33,6 +92,18 @@ export async function publishDevelopmentMetadata(
   const inventory = parseInventory(input);
   const bytes = Buffer.from(JSON.stringify(inventory));
   if (bytes.length > METADATA_LIMIT) throw new Error('INVALID_INVENTORY');
+  await writeDevelopmentMetadata(directory, bytes, repository, {
+    targets: 1,
+    snapshot: 1,
+    timestamp: 1,
+  });
+}
+async function writeDevelopmentMetadata(
+  directory: string,
+  bytes: Buffer,
+  repository: string,
+  versions: { targets: number; snapshot: number; timestamp: number },
+): Promise<void> {
   await checkCustody(directory);
   const rootBytes = await bounded(path.join(directory, 'public-root.json'));
   const root = Metadata.fromJSON(
@@ -67,7 +138,7 @@ export async function publishDevelopmentMetadata(
     new Metadata(
       new Targets({
         specVersion: '1.0.31',
-        version: 1,
+        version: versions.targets,
         expires: expires(7),
         targets: {
           'inventory.json': new TargetFile({
@@ -79,15 +150,15 @@ export async function publishDevelopmentMetadata(
       }),
     ),
   );
-  const meta = (data: Buffer) =>
-    new MetaFile({ version: 1, length: data.length, hashes: { sha256: digest(data) } });
+  const meta = (data: Buffer, version: number) =>
+    new MetaFile({ version, length: data.length, hashes: { sha256: digest(data) } });
   const snapshot = await signedBytes(
     new Metadata(
       new Snapshot({
         specVersion: '1.0.31',
-        version: 1,
+        version: versions.snapshot,
         expires: expires(2),
-        meta: { 'targets.json': meta(targets) },
+        meta: { 'targets.json': meta(targets, versions.targets) },
       }),
     ),
   );
@@ -95,9 +166,9 @@ export async function publishDevelopmentMetadata(
     new Metadata(
       new Timestamp({
         specVersion: '1.0.31',
-        version: 1,
+        version: versions.timestamp,
         expires: expires(1),
-        snapshotMeta: meta(snapshot),
+        snapshotMeta: meta(snapshot, versions.snapshot),
       }),
     ),
   );
@@ -145,12 +216,12 @@ export function protectDevelopmentKey(operation: 'protect' | 'unprotect', bytes:
   if (!decoded.length || decoded.length > 16384) throw new Error('INVALID_CUSTODY');
   return decoded;
 }
-async function bounded(file: string): Promise<Buffer> {
+async function bounded(file: string, maximum = 65536): Promise<Buffer> {
   const stat = await lstat(file);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 65536)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > maximum)
     throw new Error('INVALID_CUSTODY');
   const bytes = await readFile(file);
-  if (bytes.length > 65536) throw new Error('INVALID_CUSTODY');
+  if (bytes.length > maximum) throw new Error('INVALID_CUSTODY');
   return bytes;
 }
 /** Explicit initialization only. An existing or partial store is never silently rekeyed. */

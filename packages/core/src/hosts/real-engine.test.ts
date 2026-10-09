@@ -31,6 +31,7 @@ it('builds fixed arguments with auto-fit, agent and Web UI disabled and a privat
     'deployment-model',
   );
   expect(args).toContain('--no-ui');
+  expect(args).toContain('--slots');
   expect(args).toContain('--no-agent');
   expect(args).toContain('--no-ui-mcp-proxy');
   expect(args.slice(args.indexOf('--fit'), args.indexOf('--fit') + 2)).toEqual(['--fit', 'off']);

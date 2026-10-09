@@ -1,5 +1,11 @@
 # Bonsai Windows development validation
 
+**Scope note, 2026-10-10:** This is the original one-slot validation record.
+The later exact four-slot report, desktop Chat connection and dated subsequent
+success/failure results are recorded in [local Chat development](local-generation.md).
+Keep the configurations and evidence separate; neither report is release or
+inference-equivalence acceptance.
+
 Date: 2026-10-07. This records local development evidence, not release acceptance,
 distributed correctness, a speed benchmark or a production signing arrangement.
 The user approved this work with mining left running and the existing UI design

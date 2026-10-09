@@ -18,6 +18,7 @@ import type { DemoModel } from '../mocks/modelLibrary';
 import { Dialog } from '../components/Dialog';
 import { Button } from '../components/Button';
 import { useRuntime } from './useRuntime';
+import { useLiveChat } from '../features/chat/useLiveChat';
 
 type Modal =
   { type: 'remove' | 'details'; model: DemoModel } | { type: 'info'; title: string; text: string };
@@ -25,6 +26,7 @@ type Modal =
 export function App() {
   const runtime = useRuntime();
   const live = runtime.view?.enabled === true;
+  const liveChat = useLiveChat(live, runtime.view?.phase === 'ready');
   const demo = __DEMO_DATA_ENABLED__;
   const localDevice = runtime.view?.device;
   const local = live || (!demo && Boolean(localDevice));
@@ -167,7 +169,7 @@ export function App() {
               setModal({
                 type: 'info',
                 title: 'Model configuration',
-                text: 'This first connection uses the tested settings: 7,680 tokens per request, one slot, Q8_0 KV cache, full GPU offload, seed 7 and temperature 0.8. Custom settings are not connected yet.',
+                text: 'This first connection uses the tested settings: 7,680 tokens per request, four slots, Q8_0 KV cache, full GPU offload, seed 7 and temperature 0.8. Custom settings are not connected yet.',
               });
               return;
             }
@@ -269,8 +271,9 @@ export function App() {
       ) : destination === 'Chat' ? (
         <ChatPage
           demo={demo && !live}
-          chat={chat}
-          dispatch={dispatchChat}
+          chat={live ? liveChat.chat : chat}
+          dispatch={live ? liveChat.dispatch : dispatchChat}
+          live={live ? liveChat.controls : undefined}
           activeModel={activeModel}
           onCluster={() => navigate('Cluster')}
         />

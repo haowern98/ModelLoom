@@ -11,7 +11,7 @@ import { installExpanded } from '../runtime-package/install.js';
 import { inspectGGUF } from '../runtime/gguf.js';
 import { checkCudaResources } from '../runtime/gpu-resources.js';
 import { discoverResources } from './resource-probe.js';
-import { ownershipBinding } from './windows-ownership.js';
+import { confirmExit, ownershipBinding } from './windows-ownership.js';
 import { realEngineAdapter } from './real-engine.js';
 import { createDesktopEngineHost } from './desktop.js';
 import type { UtilityFork } from './desktop.js';
@@ -19,10 +19,111 @@ import type { UtilityFork } from './desktop.js';
  * renderer commands cannot choose a repository, verifier, report, executable or arguments.
  * Ordinary builds keep the development verifier closed. Production packaging is separate.
  */
-export function developmentDesktopDependencies(fork: UtilityFork, base: string) {
-  const report = DEVELOPMENT_MEMORY_REPORTS[0];
+export function developmentDesktopDependencies(
+  fork: UtilityFork,
+  base: string,
+  applicationData?: string,
+  caller?: string,
+) {
+  const report = DEVELOPMENT_MEMORY_REPORTS.find((entry) => entry.configuration.slots === 4);
   if (!DEVELOPMENT_BUILD || !report) throw new Error('DEVELOPMENT_BUILD_REQUIRED');
+  const configuration = report.configuration,
+    modelSha256 = report.modelSha256;
   const deploymentId = `desktop-development-${randomUUID()}`;
+  /** History has its own retained core containment, independent of verified engine assets.
+   * The engine adapter is prepared only by trusted main after import/resource admission.
+   * Both owners close on core failure or Quit; no synthetic engine is supplied at startup.
+   */
+  async function createHistoryHost() {
+    const native = ownershipBinding(),
+      root = native.createDeployment();
+    let adapter: ReturnType<typeof realEngineAdapter> | undefined;
+    let preparedFile: string | undefined;
+    let preparation: Promise<void> | undefined;
+    let closed = false,
+      closing: Promise<void> | undefined;
+    const close = () => {
+      if (closing) return closing;
+      closed = true;
+      native.closeDeployment(root);
+      closing = (async () => {
+        try {
+          await preparation;
+        } catch {
+          /* Failed preparation cannot authorize launch. */
+        }
+        await Promise.all([adapter?.close(), confirmExit(() => native.coresExited(root))]);
+      })();
+      return closing;
+    };
+    const prepare = (file: string) => {
+      const previous = preparation ?? Promise.resolve();
+      preparation = previous
+        .catch(() => undefined)
+        .then(async () => {
+          if (closed) throw new Error('CORE_EXITED');
+          if (adapter && preparedFile === file) return;
+          await adapter?.close();
+          adapter = undefined;
+          preparedFile = undefined;
+          const capability = await createDevelopmentRuntimeVerifier().verify(
+            path.join(base, 'repository'),
+            path.join(base, 'desktop-verification'),
+          );
+          const installed = await installExpanded(
+            capability,
+            path.join(base, 'candidate'),
+            path.join(base, 'installed'),
+          );
+          if (closed) throw new Error('CORE_EXITED');
+          adapter = realEngineAdapter(installed, file, configuration, 18478);
+          preparedFile = file;
+        });
+      return preparation;
+    };
+    try {
+      const host = await createDesktopEngineHost(
+        fork,
+        {
+          adapter: {
+            async launch(selection, signal) {
+              if (closed || !adapter) throw new Error('NOT_READY');
+              return adapter.launch(selection, signal);
+            },
+          },
+          children: () => adapter?.children() ?? [],
+          admitCore: (pid, image, time) => {
+            if (closed) throw new Error('OWNERSHIP_FAILED');
+            native.admitCore(root, pid, image, time);
+          },
+          close,
+          ...(applicationData && caller
+            ? {
+                chat: (engine: Parameters<ReturnType<typeof realEngineAdapter>['chat']>[0]) => {
+                  if (closed || !adapter) throw new Error('NOT_READY');
+                  return adapter.chat(engine);
+                },
+                chatSetup: {
+                  applicationData,
+                  caller,
+                  provenance: {
+                    packageId: 'llama-cuda-development',
+                    upstreamCommit: '4f31296a907d73f3409f720429bcf31111615d77',
+                    configuration,
+                  },
+                },
+              }
+            : {}),
+        },
+        deploymentId,
+        { deploymentId, packageId: 'llama-cuda-development', modelId: modelSha256 },
+      );
+      return { ...host, prepare };
+    } catch (error) {
+      await close();
+      throw error;
+    }
+  }
   return {
     enabled: true as const,
     expectedHash: report.modelSha256,
@@ -69,28 +170,17 @@ export function developmentDesktopDependencies(fork: UtilityFork, base: string) 
       );
       if (result.code !== 'ADMITTED') throw new Error(result.code);
     },
+    createHistoryHost,
     async createHost(file: string) {
-      const capability = await createDevelopmentRuntimeVerifier().verify(
-        path.join(base, 'repository'),
-        path.join(base, 'desktop-verification'),
-      );
-      const installed = await installExpanded(
-        capability,
-        path.join(base, 'candidate'),
-        path.join(base, 'installed'),
-      );
-      const adapter = realEngineAdapter(installed, file, report.configuration, 18478);
-      return createDesktopEngineHost(
-        fork,
-        {
-          adapter,
-          children: () => adapter.children(),
-          admitCore: (pid, image, time) => adapter.admitCore(pid, image, time),
-          close: () => adapter.close(),
-        },
-        deploymentId,
-        { deploymentId, packageId: installed.packageId, modelId: report.modelSha256 },
-      );
+      const host = await createHistoryHost();
+      try {
+        await host.prepare(file);
+        return host;
+      } catch (error) {
+        await host.command(JSON.stringify({ id: 1, action: 'quit' }));
+        await host.close();
+        throw error;
+      }
     },
   };
 }

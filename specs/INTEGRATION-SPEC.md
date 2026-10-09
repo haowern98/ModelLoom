@@ -1,11 +1,27 @@
 # ModelLoom integration specification
 
-**Status:** Draft logical contracts for review; no wire protocol or API implementation is finalized  
-**Updated:** 2026-10-06
+**Status:** Closed Windows development runtime/Chat contracts implemented; public API and worker/network contracts remain under review
+
+**Updated:** 2026-10-10
 
 **Sources:** [product](PRODUCT-SPEC.md), [technical](TECHNICAL-SPEC.md), [security](SECURITY-SPEC.md)
 
 ## 1. Scope and contract status
+
+The current accepted development bridge is described in the dated local Chat
+amendment below and [ADR-0005](decisions/0005-local-generation-development.md).
+Runtime/Chat main/preload/utility controls, authenticated captured-engine
+transport, native settlement and schema-4 history are implemented locally.
+Commands include model-independent history/drafts/deletion, plus ready-engine
+Send/Retry and caller-bound cancellation. Replies/notifications remain bounded
+and closed; no renderer path, endpoint, credential or native receipt authority
+is introduced. D07 public API and D02-D03 worker communication are still open.
+See [current development evidence](../docs/local-generation.md).
+
+The foundation/configuration/demo descriptions below are historical scope;
+the unavailable public API controls still describe current behavior. Earlier
+fixture evidence alone did not prove real inference; subsequent dated live
+results are recorded separately and do not imply production acceptance.
 
 Define what components exchange and the externally visible outcomes. GUI -> ModelLoom Core -> independently versioned runtime is the accepted functional direction under [ADR-0002](decisions/0002-lm-studio-runtime-direction.md). These logical contracts constrain later schemas without assuming IPC channel names, binary encoding, local ports, library, database, or engine ABI. [ADR-0004](decisions/0004-runtime-lifecycle-proposal.md) accepts the initial Windows development exception and hosting/communication direction. D01 remains open overall; the first fixture-backed plan does not introduce live IPC, sockets or native activation. D02-D04, D06-D07, and D09-D11 settle other details before implementation.
 
@@ -15,7 +31,7 @@ The authorized configuration demo is renderer state only: each sample model has 
 
 The 2026-10-05 approved API screen is renderer-only presentation. It creates no server, socket, credential, real log stream, or protocol binding. Lifecycle/exposure/key/log mutations are unavailable; the address and integration snippets are labelled examples. Language selection and explicit snippet copy are local UI actions only. The shared library's active model is visibly simulated, and model changes still happen in Cluster. No IPC or new permissions are introduced. D07 and the production API-management contract remain open.
 
-### Current local UI contracts
+### Historical renderer-only UI contracts, 2026-10-05
 
 These are observed renderer-only contracts behind the fixed [UI baseline](UI-SPEC.md#current-ui-baseline-2026-10-05), not accepted production wire schemas:
 
@@ -26,9 +42,26 @@ These are observed renderer-only contracts behind the fixed [UI baseline](UI-SPE
 | Chat                           | New/select/search, per-chat drafts and mutually exclusive feedback update session memory. Explicit response copy reports success/failure. Send/attachments are disabled.                                                                                            | Durable storage, Markdown, requests/streaming/cancellation and attachments.             |
 | API                            | Direct sidebar navigation; local example tabs/copy and Choose in Cluster. Stopped, example address, unavailable statistics, no key and empty logs.                                                                                                                  | Server/access/key lifecycle, metrics/log source and supported client contract.          |
 
-The local clipboard helper writes only explicitly selected response/snippet text and restores focus/selection when using its fallback. It neither reads credentials nor executes text. Future state subscriptions, dedicated IPC methods and remote operations below remain requirements for reviewed integration; the current main process supplies no preload/IPC bridge.
+The local clipboard helper writes only explicitly selected response/snippet text and restores focus/selection when using its fallback. It neither reads credentials nor executes text. Future state subscriptions, dedicated IPC methods and remote operations below remain requirements for reviewed integration; the original renderer-only milestone supplied no preload/IPC bridge; the later approved development bridges are recorded below.
 
 ## 2. Common rules
+
+### Accepted local-generation development contract, 2026-10-09
+
+[ADR-0005](decisions/0005-local-generation-development.md) accepts the bounded
+local history/request design and the later owner-private native-settlement
+amendment. The selected engine broker permits fixed Chat completions, matching
+Chat token counting and authenticated GET `/slots`. Only the owner selects a
+native slot. Its captured stream must end before a later serialized idle check
+can release capacity; aborted streams additionally require prior observation of
+the matching native task. Status failure or inconsistent capacity closes native
+admission and requests owned cleanup. Core/renderer data cannot serve as a
+release receipt, choose slots, or supply routes/credentials. Reader/monitor
+fixture evidence alone does not establish live Chat, native cancellation,
+four-slot resources, inference equivalence or renderer integration. Subsequent
+approved transport/UI and live validation are recorded below and in
+[local Chat development](../docs/local-generation.md); inference equivalence and
+release acceptance remain separate.
 
 The 2026-10-05 approved Cluster joining demo also holds outgoing example requests, incoming example decisions, sharing availability and hardware choices in renderer memory for the current app session. Add device and Join cluster demonstrate opposite request directions; Share this PC neither sends nor approves a request. Resolving an example request does not enroll a peer, change the diagram/allocation, connect a coordinator, or launch inference. Manual-address input is inert text, not a validated endpoint or network operation. Non-demo builds expose no example candidates or incoming requests and cannot simulate sharing. Production request delivery, identity binding, approval/revocation and participant-role transitions still require D02-D03 and the existing contracts.
 
@@ -168,3 +201,96 @@ with that physical device's VRAM reading. Names are limited to 256 characters;
 malformed rows or control characters fail discovery, and `[N/A]` remains unknown.
 The renderer uses the observed name, or **GPU name unavailable** when only capacity
 is known. Display metadata grants no runtime or admission authority.
+
+### Local Chat development bridge, 2026-10-09
+
+ADR-0005's later PROCEED connects the existing Chat screen to the captured
+development runtime through a closed caller-bound bridge. Commands are
+newConversation, list/read with opaque revision-bound cursors, saveDraft, send,
+cancel, retry, deleteConversation and the later review fixes cancelConversation
+and search. Replies are
+closed success/error shapes, limited to 64 KiB;
+read fragments reserve room for JSON escaping. Main checks the requesting
+window/main frame, supplies the caller identity and retains engine credentials.
+Utility-owned history and admission never accept renderer paths, endpoints,
+slots or native-settlement assertions. Owner/utility progress allows only one
+acknowledged bounded chunk in flight per execution.
+
+The later approved thinking amendment accepts bounded `reasoning` progress in
+addition to answer `text`, with identical identity, sequence, Unicode, envelope
+and acknowledgement checks. Saved views project thinking separately from the
+answer. Both fields share output/history quotas. Completed assistant context
+uses the runtime's native `reasoning_content` field through the existing selected
+template for token counting and generation; no thinking/template/sampling
+override is introduced. The later approved measured-speed amendment upgrades
+only exact schemas 1 or 2 to schema 3, preserving all existing fields, adding empty
+thinking for schema 1 and nullable speeds for both. Unknown schemas remain refused.
+Native final `timings` project only generation/prefill rates, each positive finite
+or null when unavailable. Optional unusable native diagnostics are omitted;
+projected rates receive exact-key scalar validation. Rates accompany the existing
+terminal chunk, which still requires valid finish/[DONE]/EOF and native settlement.
+The final response and rates commit atomically before terminal notification.
+Saved views project only those rates; no native timing envelope/settings enter
+the renderer. Copy/Retry remain, thumbs-up/down are removed, and rates display
+inline with no extra icons or separator. Generation includes thinking tokens.
+
+The later approved thinking-duration amendment extends guarded upgrades to exact
+schemas 1, 2 or 3 to schema 4, preserving existing fields and adding nullable
+nonnegative integer `thinkingMs`. Utility core measures monotonic elapsed time
+from first nonempty reasoning to first answer, or cancellation/termination if
+no answer begins; queue/prefill, later answer output and cleanup are excluded.
+The closed native stream/commands are unchanged. Checkpoints and terminal writes
+retain duration with the attempt, and reject changing/removing a recorded value.
+Saved views validate/project that scalar, so the renderer can display `Thinking`
+without an ellipsis, then `Thought for [time]`, including after restart. Older
+responses use `Thought` without inventing a missing measurement.
+
+Send, Stop, explicit retry, saved-history views and terminal states are wired in
+the explicit development build. Ordinary/demo generation remains disabled.
+The later startup-history PROCEED starts the protected utility-owned store when
+the development app opens, without a model import, runtime package installation
+or GPU preflight. History/drafts retain one owner through import, rejected load
+and Stop; Send/Retry still require the captured ready engine. Explicit load
+prepares the verified engine separately. No renderer/native IPC command is added
+or widened. Quit waits for pending startup/engine preparation and closes both
+retained owners; storage security and safe failure reporting remain unchanged.
+Full Quit closes Chat admission and storage while preserving owned runtime
+cleanup. Synthetic tests are distinct from the later real-model UI and four-slot resource
+checks. Manual native Computer Use remains unavailable; signed metadata was
+renewed under separate authorization and expiry remains enforced. Current startup and
+evidence limits are recorded in [local Chat development](../docs/local-generation.md).
+
+The later deletion PROCEED adds only `{action: 'deleteConversation',
+conversationId}` to that existing bridge. Sender/frame checks and caller binding
+remain unchanged. Block new same-chat commands during deletion, abort same-chat
+token preparation, cancel only matching caller-owned requests and await confirmed
+native settlement and durable terminal writes before deleting. Failed settlement
+or storage removal returns a closed safe error and retains history. Unloaded
+history can delete idle conversations directly; the store independently refuses
+active records. One reserved exclusive transaction removes the target draft,
+turns and attempts with their thinking/metrics, or rolls back entirely. Invalidate
+list cursors after success, including empty-chat replacement. Quit joins pending
+deletions. Schema 4, storage security, native generation commands and engine
+credentials remain unchanged; no file-path or generic deletion authority is added.
+
+The 2026-10-10 review-fix PROCEED extends caller-bound Stop to prompt preparation
+through `{action: 'cancelConversation', conversationId}`. It aborts matching
+preparation and cancels only that caller's matching queued/active request. Idle
+Stop is harmless; native settlement still governs active capacity. Preserve the
+unsent draft when preparation is stopped before native execution.
+
+`{action: 'search', query, cursor?}` returns the same bounded summary pages as
+list, matching saved titles, user messages and answer/partial text without
+requiring those chats to be opened. Queries are bounded Unicode strings with
+literal case-insensitive matching; no SQL or wildcard authority is added. Cursors
+are bound to both query and history revision. Summaries include the validated
+saved update timestamp for local-calendar grouping. New chat atomically reuses
+an untouched empty conversation, preserving all drafts and conversations with
+turns. No history schema, native command or inference setting changes.
+
+The subsequent PR-review corrections clear the persisted draft at Send admission
+only if it still matches the submitted text, within the same transaction as the
+new turn. A newer saved draft survives even if the renderer reloads before the
+Send reply. Copy/Delete feedback clears when live status changes or Send, Retry
+or Stop starts, including keyboard Send, so later status and errors are visible.
+These corrections add no command or saved-chat format change.

@@ -1,26 +1,37 @@
 # ModelLoom UI specification
 
-**Status:** Current renderer UI baseline fixed by the user; production integrations remain pending
-**Updated:** 2026-10-06
+**Status:** Approved screen compositions retained; Windows development local Chat/runtime and later Chat refinements implemented, other production integrations pending
+**Updated:** 2026-10-10
 **Related:** [product](PRODUCT-SPEC.md), [integration](INTEGRATION-SPEC.md), [security](SECURITY-SPEC.md)
 
 Runtime behavior follows [ADR-0002](decisions/0002-lm-studio-runtime-direction.md): LM Studio GUI/core/runtime direction, accepted grouped llama-server, independent upgrades, ordinary engine-crash isolation, and desktop-owned shutdown. The [runtime process screenshot](references/runtime/README.md) is lifecycle/presentation evidence, not an additional UI-screen design.
 
 ## Current UI baseline, 2026-10-05
 
+**Reconciled current state, 2026-10-10:** This heading retains the original
+baseline anchor. Its renderer-only table and unavailable-Send descriptions below
+record the October 5-6 milestone, superseded for the explicit development build
+by ADR-0005 and sections 10-12. Models import and Cluster load/Stop now connect
+the exact approved local runtime; Chat has durable startup history, Send/Stop/
+Retry, thinking, saved metrics/duration and confirmed deletion. The user removed
+thumbs-up/down. API and joining remain previews; Settings integration, attachments,
+downloads and worker networking remain unavailable. Startup still opens Models.
+See [current scope/evidence](../docs/local-generation.md). Earlier typography,
+layout and reference constraints continue to apply unless explicitly revised.
+
 The user asked to reconcile the specifications with the completed UI work and explicitly prohibited further UI changes. Preserve the current renderer layout, fonts, spacing, padding, colours, icons, control placement and navigation. This reconciliation changes documents only. Any later UI change requires separate explicit authorization; unresolved integration decisions do not authorize a redesign.
 
-The implemented baseline below supersedes conflicting descriptions in the original screenshots and older revision notes. It records the current UI milestone, not completion of the five-screen production product. The subsequent 2026-10-06 PROCEED adds the Settings UI preview described in section 8; unavailable controls remain unavailable.
+The historical renderer baseline below superseded conflicting descriptions in the original screenshots and earlier revision notes for that milestone. It does not report current development integration or completion of the five-screen product. The subsequent 2026-10-06 PROCEED added the Settings UI preview described in section 8; later Chat/runtime approvals are summarized above.
 
-| Area | Current presentation and working local behaviour | Integration still pending |
-| --- | --- | --- |
-| Shell/navigation | 44px title bar, 50px rail, 16px workspace radius; Demo data label and no bottom status bar. Order: Home opening Chat, Cluster, Models, API, disabled Storage, disabled Metrics, Settings, More. API uses the existing Server glyph; More contains Chat only. Startup opens Models. | Storage/Metrics destinations, production Settings behaviour, supported-platform release acceptance. |
-| Models | Single compact Name/Last used list; search, sample details, confirmed demo-entry removal and gear navigation. Retain the identifier and size/GGUF/quantization pills. Unknown last use is —. Header retains upload and compass. | Actual import/catalogue/download, parsed metadata/compatibility and recorded use. No two-column layout or Downloaded/Imported/Browse tabs are implemented. |
-| Model configuration | Six sections in a centred 800px column; per-model pending edits and saved defaults, validation, reset and Back to Models. Set in Cluster navigates; speculative decoding remains disabled Off. | Durable defaults, actual hardware limits/optimization and runtime application. |
-| Cluster | Reference device canvas, pan/zoom/fit, contextual floating panel, model/placement planning, validated simulated Run/Stop/restart/cancel, renaming, and session-only connection/request/sharing previews. | Real devices, discovery/enrollment/approval, model loading, memory preflight, optimization and inference. |
-| Chat | Rounded outer workspace, intermediate charcoal history sidebar and fine straight divider; history/search, New chat, per-chat drafts, copy and local feedback. No branding/right artifact panel/top-right toolbar. Send and attachments are unavailable. | Sending/generation/cancellation, persistent history, safe Markdown and attachment capabilities. |
-| API | Centred Server, Access, Integration and Server logs cards; example tabs/copy and Choose in Cluster. Stopped state, example endpoint, required-key label, unknown metrics and empty logs. | Server lifecycle, binding/exposure, credentials, live metrics/logs and finalized API contract. |
-| Settings | 240px category panel, search and session-retained category selection; centred 728px Appearance and Runtime previews, disabled settings controls and an empty runtime-inventory dialog. Network links to API. Other categories explain their pending integration. | App-wide appearance, persistence, runtime inventory/install/update/select, storage/network/diagnostic operations and remaining category layouts. |
+| Area                | Current presentation and working local behaviour                                                                                                                                                                                                                                   | Integration still pending                                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shell/navigation    | 44px title bar, 50px rail, 16px workspace radius; Demo data label and no bottom status bar. Order: Home opening Chat, Cluster, Models, API, disabled Storage, disabled Metrics, Settings, More. API uses the existing Server glyph; More contains Chat only. Startup opens Models. | Storage/Metrics destinations, production Settings behaviour, supported-platform release acceptance.                                                        |
+| Models              | Single compact Name/Last used list; search, sample details, confirmed demo-entry removal and gear navigation. Retain the identifier and size/GGUF/quantization pills. Unknown last use is —. Header retains upload and compass.                                                    | Actual import/catalogue/download, parsed metadata/compatibility and recorded use. No two-column layout or Downloaded/Imported/Browse tabs are implemented. |
+| Model configuration | Six sections in a centred 800px column; per-model pending edits and saved defaults, validation, reset and Back to Models. Set in Cluster navigates; speculative decoding remains disabled Off.                                                                                     | Durable defaults, actual hardware limits/optimization and runtime application.                                                                             |
+| Cluster             | Reference device canvas, pan/zoom/fit, contextual floating panel, model/placement planning, validated simulated Run/Stop/restart/cancel, renaming, and session-only connection/request/sharing previews.                                                                           | Real devices, discovery/enrollment/approval, model loading, memory preflight, optimization and inference.                                                  |
+| Chat                | Rounded outer workspace, intermediate charcoal history sidebar and fine straight divider; history/search, New chat, per-chat drafts, copy and local feedback. No branding/right artifact panel/top-right toolbar. Send and attachments are unavailable.                            | Sending/generation/cancellation, persistent history, safe Markdown and attachment capabilities.                                                            |
+| API                 | Centred Server, Access, Integration and Server logs cards; example tabs/copy and Choose in Cluster. Stopped state, example endpoint, required-key label, unknown metrics and empty logs.                                                                                           | Server lifecycle, binding/exposure, credentials, live metrics/logs and finalized API contract.                                                             |
+| Settings            | 240px category panel, search and session-retained category selection; centred 728px Appearance and Runtime previews, disabled settings controls and an empty runtime-inventory dialog. Network links to API. Other categories explain their pending integration.                   | App-wide appearance, persistence, runtime inventory/install/update/select, storage/network/diagnostic operations and remaining category layouts.           |
 
 Stateful demo data lives in renderer memory. Shared library/model selection, placement, configuration edits, conversation drafts/feedback and joining previews survive applicable screen navigation and reset on reload/full restart. Local page state such as search or selected example tab is not promised to survive navigation. Demo mode does not establish real serving or persistence; non-demo builds do not seed the sample model library or conversations.
 
@@ -79,7 +90,7 @@ Window controls must remain operable with the correct platform behavior. The tar
 | Section headings                                        | **16px**      | Popular-style heading; weight 500                                                                                    |
 | Dialog headings                                         | **18px**      | Desktop dialog heading; weight 500; separate from section headings                                                   |
 | Model names, device names, and card titles              | **14px**      | Standard plugin-card title role; weight 500; same size for active and inactive models                                |
-| Chat messages                                           | **14px**      | Implemented message/composer role; production content rendering remains pending                                            |
+| Chat messages                                           | **14px**      | Implemented message/composer role; production content rendering remains pending                                      |
 | Dialog body and explanatory text                        | **14px**      | Base body copy; weight 400                                                                                           |
 | Supporting card descriptions                            | **13px**      | Plugin-description role; weight 400, line height 1.625                                                               |
 | Buttons, menu options, and search/input text            | **13px**      | Desktop New/Add and toolbar search roles; weight 400; button line height 18px and search line height 20px            |
@@ -102,23 +113,23 @@ These are source-verified defaults, not a claim that the live reference app's fo
 
 Use shared semantic tokens. The values below are ModelLoom's dark-theme targets for visual review, not a claim that every ChatGPT component has these exact computed colours. The main reference background was sampled as `#181818`, and the user's hamburger reference as `#8b8b8b`; other neutral values define a consistent ModelLoom template. Existing status colours remain semantic accents.
 
-| Role                                             | Target colour             | Use                                                                            |
-| ------------------------------------------------ | ------------------------- | ------------------------------------------------------------------------------ |
-| Window chrome and navigation/sidebar surface     | `#212121`                 | Neutral surrounding shell and sidebars                                         |
-| Main content and Cluster canvas                  | `#181818`                 | Darker foreground content beside the sidebar                                   |
-| Cluster device cards                               | `#1f1f1f`                 | Cluster card separation; Models uses flat rows with #212121 hover/focus shading        |
-| Nested tiles, menus, dialogs, and floating panel | `#262626`                 | Raised surfaces; the Cluster overlay sits above its canvas without reflow      |
-| Search/input surface                             | `#1a1a1a`                 | Quiet field with a subtle outline                                              |
-| Charcoal utility button                          | `#303030`                 | Secondary actions with white text                                              |
-| Hover/selected shading for transparent controls  | `#2f2f2f`                 | Rounded background for navigation, view controls, and panel toggles            |
-| Subtle border                                    | `#383838`                 | Inputs, cards, and panels; avoid heavy outlines                                |
-| Main text                                        | `#f3f3f3`                 | Headings, labels, values, and enabled control text                             |
-| Supporting text                                  | `#ababab`                 | Metadata, descriptions, and placeholders                                       |
-| Muted toolbar icon                               | `#8b8b8b`                 | Unselected utility icons, including the hamburger                              |
-| White action surface / hover                     | `#ffffff` / `#e5e5e5`     | Prominent neutral action; dark text `#181818`                                  |
+| Role                                             | Target colour             | Use                                                                              |
+| ------------------------------------------------ | ------------------------- | -------------------------------------------------------------------------------- |
+| Window chrome and navigation/sidebar surface     | `#212121`                 | Neutral surrounding shell and sidebars                                           |
+| Main content and Cluster canvas                  | `#181818`                 | Darker foreground content beside the sidebar                                     |
+| Cluster device cards                             | `#1f1f1f`                 | Cluster card separation; Models uses flat rows with #212121 hover/focus shading  |
+| Nested tiles, menus, dialogs, and floating panel | `#262626`                 | Raised surfaces; the Cluster overlay sits above its canvas without reflow        |
+| Search/input surface                             | `#1a1a1a`                 | Quiet field with a subtle outline                                                |
+| Charcoal utility button                          | `#303030`                 | Secondary actions with white text                                                |
+| Hover/selected shading for transparent controls  | `#2f2f2f`                 | Rounded background for navigation, view controls, and panel toggles              |
+| Subtle border                                    | `#383838`                 | Inputs, cards, and panels; avoid heavy outlines                                  |
+| Main text                                        | `#f3f3f3`                 | Headings, labels, values, and enabled control text                               |
+| Supporting text                                  | `#ababab`                 | Metadata, descriptions, and placeholders                                         |
+| Muted toolbar icon                               | `#8b8b8b`                 | Unselected utility icons, including the hamburger                                |
+| White action surface / hover                     | `#ffffff` / `#e5e5e5`     | Prominent neutral action; dark text `#181818`                                    |
 | Blue graphic accent                              | Existing `#087dff` family | Dotted connections retain blue variants; current allocation bars use white fills |
-| Link and keyboard-focus accent                   | `#78baff`                 | Readable links and visible focus on dark surfaces                              |
-| Success/readiness                                | Existing `#26e0a0`        | Status text/icon, with readable status wording                                 |
+| Link and keyboard-focus accent                   | `#78baff`                 | Readable links and visible focus on dark surfaces                                |
+| Success/readiness                                | Existing `#26e0a0`        | Status text/icon, with readable status wording                                   |
 
 Keep the darker right-hand content surface above its sidebar as described in section 1. The lighter inset Cluster overlay is a separate floating surface, not a replacement for that sidebar/content relationship. Rounded corners and subtle separation communicate stacking; do not add a strong glow or flatten every surface to the same grey. Search and text-action controls use pill shapes; icon controls use circular or rounded shading. Preserve the typography and control heights in section 2.1 and the explicit Cluster toolbar exceptions.
 
@@ -128,15 +139,15 @@ The user's 2026-10-04 correction explicitly matches the Models foreground backgr
 
 Colour treatment and interaction state are separate decisions. A selected control is not automatically a primary action, and a blue element does not automatically mean the most important action.
 
-| Treatment                                | When to use it                                                       | ModelLoom application                                                                                                                        |
-| ---------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| White fill, dark text                    | Prominent action that advances or confirms the current task          | Add device; the main confirmation action in a dialog                                                                                         |
-| Charcoal fill, white text                | Supporting utility action                                            | Supporting placement-choice actions; secondary dialog actions                                                                                |
-| Transparent background, muted icon       | Quiet toolbar or navigation control                                  | Hamburger while closed, unselected view controls, filters, and overflow menus                                                                |
-| Charcoal shading for selected/open state | Show the current destination, view, tab, or open panel               | Selected navigation/view controls; hamburger while its panel is open                                                                         |
-| Subtle outline or quiet surface          | Selectable content or a field that should not compete with an action | Search fields, cards, and suggestions                                                                                                        |
+| Treatment                                | When to use it                                                       | ModelLoom application                                                                                                                  |
+| ---------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| White fill, dark text                    | Prominent action that advances or confirms the current task          | Add device; the main confirmation action in a dialog                                                                                   |
+| Charcoal fill, white text                | Supporting utility action                                            | Supporting placement-choice actions; secondary dialog actions                                                                          |
+| Transparent background, muted icon       | Quiet toolbar or navigation control                                  | Hamburger while closed, unselected view controls, filters, and overflow menus                                                          |
+| Charcoal shading for selected/open state | Show the current destination, view, tab, or open panel               | Selected navigation/view controls; hamburger while its panel is open                                                                   |
+| Subtle outline or quiet surface          | Selectable content or a field that should not compete with an action | Search fields, cards, and suggestions                                                                                                  |
 | Blue accent                              | An explicitly identified graphic, link, or focus affordance          | Dotted connections, links and keyboard focus; current allocation bars use white fills and hardware retains the scoped In use indicator |
-| Semantic status/error colour             | Communicate readiness, warning, failure, or destructive intent       | Retain green/amber/red meanings and accompany them with text or icons; never reuse blue to imply success                                     |
+| Semantic status/error colour             | Communicate readiness, warning, failure, or destructive intent       | Retain green/amber/red meanings and accompany them with text or icons; never reuse blue to imply success                               |
 
 Use one prominent white action per local task group where possible. Two independent groups may each have a white action; this is not a one-button limit for the whole screen. Do not make every clickable element white. Models uses utility icons; launch controls live in Cluster under the approved revisions below. New feature-specific blue buttons require an explicit documented purpose; blue Voice or download controls in the reference app do not authorize equivalent features or a general blue-button rule in ModelLoom.
 
@@ -402,14 +413,17 @@ The user's 2026-10-06 Chat-sidebar PROCEED reuses the finalized Settings panel t
 
 The subsequent gap-only PROCEED adds 19px above each later date group so the visible gap from the last Today entry to Yesterday matches New chat to Today with search collapsed. Preserve the heading-to-entry spacing, row padding, 1px inter-row gaps and first-group position. Expanded search retains its existing insertion behaviour.
 
-The remaining release requirements below are still future integration work. These demo interactions do not close persistence, runtime scheduling or full Markdown-rendering decisions.
+The requirements below remain release acceptance targets. U15-U16 now have
+partial Windows development storage/request evidence; demo interactions alone
+do not close production persistence, mixed Chat/API scheduling, other-platform
+or full Markdown-rendering acceptance.
 
 - U15 (P4): Create/select/search locally stored conversations. Keep draft, queued, generating, complete, cancelled, interrupted, and failed states distinct. Saved partial output retains its terminal status; a restart does not turn it into a completed answer.
 - U16 (P4, P8): Send validates the active model/session and settings, then reports queue/busy/progress. Provide a clear cancellation/stop action during generation and queued cancellation. Model selection cannot silently switch the globally active model.
 - U17 (P4): Generation settings are accessible from the shown controls and identify the current configured model/runtime/context/sampling state. Safe text/Markdown rendering and copy behavior follow the security specification.
-- U18 (P9): Response thumbs-up/down are stored locally against the response. Attachment formats/capabilities, plus, and overflow behavior still require D08. Do not invent multimodal support, executable tools, automatic retrieval, account synchronization, or remote feedback submission from these icons. Preserve their reference appearance; settle functional scope before release rather than shipping silent no-ops.
+- U18 (P9): The approved later revision removes response thumbs-up/down; retain Copy and live Retry, with recorded generation/prompt-processing rates inline as specified in section 10. Attachment formats/capabilities, plus, and remaining overflow behavior still require D08. Do not invent multimodal support, executable tools, automatic retrieval, account synchronization or remote feedback submission from these icons. Preserve other reference controls and separately approved amendments; settle functional scope before release rather than shipping silent no-ops.
 
-The sample conversation's claims about tensor/pipeline/data/hybrid parallelism are illustrative text, not approved supported features. Test fixtures may reproduce reference composition for visual review without presenting those claims as product documentation. The approved New chat button and per-chat session drafts are implemented as described above. Persistent conversation management, any future new-chat dropdown and runtime error recovery still require D08/D04 and the affected integration contracts.
+The sample conversation's claims about tensor/pipeline/data/hybrid parallelism are illustrative text, not approved supported features. Test fixtures may reproduce reference composition for visual review without presenting those claims as product documentation. New chat and per-chat saved drafts, startup history and confirmed deletion are implemented in the explicit development build. Any future new-chat dropdown, wider storage/platform behavior and complete runtime error recovery retain their affected review/acceptance gates.
 
 ## 7. API screen
 
@@ -473,3 +487,81 @@ J13-J15 separately cover GUI survival after ordinary engine crash, owned-process
 Real data replaces illustrative values without changing design. Security/behavior labels that must differ from the mock, navigation inconsistencies, unsupported reference actions, and missing assets go through D08 and the relevant product/security decision. They are not permission for arbitrary visual changes.
 
 Local browser captures, source/layout comparisons and packaged Windows UI checks have been performed for the current demo, including the separately authorized Settings preview; see TESTING-SPEC section 10. They do not establish pixel identity, production Settings behaviour, runtime accessibility or Linux/macOS acceptance. Historical documentation reconciliation alone did not authorize implementation; the later Settings PROCEED is recorded in section 8.
+
+## 10. Approved response speed row (2026-10-09)
+
+The user authorized removing Chat's thumbs-up/down controls and placing measured
+speeds after Copy and live Retry on the same row. Use `Generation: … tok/s` and
+`Prompt processing: … tok/s`, with no extra icons or dot separator. Use the existing
+12px metadata token, normal weight, muted `#ABABAB`, and 16px spacing. Allow wrapping
+when necessary to keep the row within the content viewport.
+
+Use native `predicted_per_second` and `prompt_per_second` diagnostics from the
+validated final stream. Generation includes thinking tokens. Hide missing,
+invalid or nonpositive rates, including a zero prefill rate for a cached prompt;
+do not invent rates for older responses or sample conversations. The user chose
+to save rates with each final response, so recorded rates remain visible after
+app restart when history is available.
+
+## 11. Approved thinking-duration row (2026-10-09)
+
+Keep the existing brain icon, chevron, font, color and expandable behavior. While
+thinking is active, show `Thinking` with no ellipsis. Once the answer starts or
+thinking stops, show `Thought for 12s`, `Thought for 9m 36s`, or hours when needed.
+Durations under a second use `Thought for <1s`. Time is measured from the first
+thinking text until the first answer text, or termination/cancellation if no
+answer starts; exclude waiting/prefill and later answer generation. Save that
+duration with the attempt so it survives app restart. Older responses without a
+recorded duration show `Thought`, with no invented historical time.
+
+## 12. Approved chat deletion and title overflow (2026-10-09)
+
+The user's later PROCEED selects Lucide `Trash2` for now: a 16px muted `#ABABAB`
+glyph in the existing 32px action target, fixed at the row's right edge. Show only
+that action on row hover or visible keyboard focus; touch surfaces keep it
+available. Preserve the 240px sidebar, row spacing and selection highlight.
+Selection and deletion are separate buttons with clear accessible names.
+
+Long titles fade across the final 24px instead of using an ellipsis. Hover or
+keyboard focus reserves space for the trash button. A 700ms animation delay plus
+the initial 15% hold of a minimum four-second leg means visible movement begins
+after at least 1.3 seconds; longer titles have a longer initial hold. Move
+the overflowing text left to reveal its ending and return it smoothly. Measure
+the actual overflow; short titles remain still. The trash button stays fixed and
+leaving the row resets the title. Reduced-motion preferences disable scrolling.
+
+Clicking trash opens the existing confirmation dialog with Cancel and Delete.
+Cancel/Escape preserve the chat. Confirmed deletion stops that chat's active
+response first and removes its saved messages, thinking, metrics and draft.
+Deletion remains available without loading a model. Failure keeps the chat/draft
+and reports an actionable notice. Deleting the selected chat opens an empty New
+chat and focuses the composer; deleting another chat keeps the current selection.
+
+The user's 2026-10-10 popup correction applies section 2.2's neutral treatment
+through the shared dialog defaults: `#262626` background, `#383838` border,
+`#F3F3F3` heading/enabled text and `#ABABAB` supporting text. Keep Segoe UI and
+the shared 18px/500 heading, 14px/400 body and 13px/500 dialog buttons. Footer
+actions use pills: charcoal `#303030` Cancel, white Delete with `#181818` text.
+Use neutral backdrop shading and the shared 32px close target. This corrects the
+old blue-grey defaults; confirmation, focus restoration and deletion behavior
+are unchanged.
+
+The 2026-10-10 review-fix PROCEED keeps this layout and corrects four live
+behaviors. Stop also cancels prompt preparation before generation starts and
+retains the unsent draft. Search finds saved titles, user messages and answer
+text in unopened chats, including after restart and without a loaded model.
+Show Searching while a changed query is pending. Group saved conversations by
+their last update date as Today, Yesterday or Older using the user's local
+calendar. Older uses the existing date-heading treatment and spacing. New chat
+reuses an untouched empty chat; existing drafts and conversations with messages
+are preserved. Thinking, measured speeds, deletion confirmation, Copy/Retry and
+the inference configuration keep their existing behavior.
+
+The subsequent 2026-10-10 PROCEED removes sample initialization from ordinary
+startup and rebuilding. Models shows only actual imported models; Cluster shows
+only detected/connected devices. Missing or disabled runtime integration shows
+an empty/unavailable state while retaining any detected local hardware. Sample
+models, devices and conversations remain opt-in test/demo fixtures only. The
+Windows development launcher prepares its existing approved core before opening
+the app, and a preparation failure stops startup instead of substituting samples.
+This preserves screen layouts, saved chats and existing runtime security gates.

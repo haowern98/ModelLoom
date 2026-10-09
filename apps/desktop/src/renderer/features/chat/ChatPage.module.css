@@ -75,6 +75,18 @@
 .history section + section {
   margin-top: 19px;
 }
+.conversationRow {
+  position: relative;
+  border-radius: 10px;
+}
+.conversationRow + .conversationRow {
+  margin-top: 1px;
+}
+.conversationRow:hover,
+.conversationRow:has(:focus-visible),
+.selectedRow {
+  background: #2f2f2f;
+}
 .conversationButton {
   display: block;
   width: 100%;
@@ -83,18 +95,65 @@
   border-radius: 10px;
   text-align: left;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-size-control);
   line-height: var(--line-height-control);
   background: transparent;
 }
-.conversationButton + .conversationButton {
-  margin-top: 1px;
+.titleViewport {
+  display: block;
+  overflow: hidden;
 }
-.conversationButton:hover,
-.conversationButton[aria-current='true'] {
-  background: #2f2f2f;
+.titleViewport[data-overflow='true'] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+.titleText {
+  display: inline-block;
+}
+.deleteChat {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+}
+.conversationRow:hover .deleteChat,
+.conversationRow:has(:focus-visible) .deleteChat {
+  opacity: 1;
+  pointer-events: auto;
+}
+.conversationRow:hover .titleViewport,
+.conversationRow:has(:focus-visible) .titleViewport {
+  margin-right: 28px;
+}
+.conversationRow:hover .titleViewport[data-overflow='true'] .titleText,
+.conversationRow:has(:focus-visible) .titleViewport[data-overflow='true'] .titleText {
+  animation: scrollTitle var(--title-duration) linear 700ms infinite alternate;
+}
+@keyframes scrollTitle {
+  0%,
+  15% {
+    transform: translateX(0);
+  }
+  80%,
+  100% {
+    transform: translateX(var(--title-scroll));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .conversationRow .titleViewport .titleText {
+    animation: none !important;
+  }
+}
+@media (hover: none) {
+  .deleteChat {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .titleViewport {
+    margin-right: 28px;
+  }
 }
 .emptyHistory {
   padding: 12px;
@@ -139,6 +198,28 @@
 .message p {
   white-space: pre-wrap;
 }
+.thinking {
+  margin-bottom: 12px;
+  color: var(--muted);
+}
+.thinking summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  cursor: pointer;
+  list-style: none;
+}
+.thinking summary::-webkit-details-marker {
+  display: none;
+}
+.thinking[open] .thinkingChevron {
+  transform: rotate(90deg);
+}
+.thinking p {
+  margin-top: 10px;
+  padding-left: 24px;
+}
 .user {
   display: flex;
   justify-content: flex-end;
@@ -151,12 +232,24 @@
 }
 .responseActions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 2px;
   margin-top: 10px;
 }
-.responseActions button[aria-pressed='true'] {
-  background: #2f2f2f;
-  color: var(--text);
+.speeds {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-left: 16px;
+  color: var(--muted);
+  font-size: var(--font-size-metadata);
+  font-weight: var(--font-weight-normal);
+  font-variant-numeric: tabular-nums;
+}
+.speeds span {
+  white-space: nowrap;
 }
 .emptyChat {
   padding-top: 70px;

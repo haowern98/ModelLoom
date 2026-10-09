@@ -3,6 +3,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: [
+      'src/hosts/chat-native.test.ts',
+      'src/history/windows-directory.test.ts',
       'src/hosts/windows-ownership.test.ts',
       'src/hosts/hosts.test.ts',
       'src/hosts/runtime-console.test.ts',

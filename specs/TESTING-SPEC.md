@@ -1,12 +1,30 @@
 # ModelLoom testing specification
 
-**Status:** Production acceptance draft; local and hosted desktop demo evidence is recorded below
+**Status:** Production acceptance draft; dated Windows runtime/local Chat and earlier hosted demo evidence recorded separately
 
-**Updated:** 2026-10-06
+**Updated:** 2026-10-10
 
 **Scope:** Product acceptance, contract validation, security, visual fidelity, runtime lifecycle, and inference correctness. This document does not authorize coding, workloads, process termination, or experiments.
 
 ## 1. Purpose and lecture basis
+
+**Current evidence summary, 2026-10-10:** The local development implementation
+has recorded real-model Chat, four-slot prefill/reuse, protected history/upgrades,
+startup-before-model, deletion/restart and neutral-popup evidence. The latest
+deletion suites passed 89 desktop/436 core/five Chat browser tests, seventeen
+native history cases and one isolated native Chat case. The popup correction
+passed eighteen selected browser checks and actual Electron appearance checks.
+The native Chat case first failed owned cleanup under concurrent checks; its
+unchanged isolated repeat passed. The cause remains unproven.
+
+Real-model Send/Stop/reopen passed before the startup-history change. The later
+generation attempt failed resource preflight before engine launch; newer deletion
+and popup UI checks used no loaded model. These results do not establish fresh
+real-model cancellation during deletion, manual native Computer Use, hosted CI
+for this local slice, full M1, distributed correctness or release/platform
+acceptance. This documentation reconciliation reruns no application tests or
+workloads. Dated details below and [local Chat development](../docs/local-generation.md)
+are the evidence record; older suite counts remain historical, not cumulative.
 
 Define what evidence establishes the requirements in [PRODUCT-SPEC.md](PRODUCT-SPEC.md), [TECHNICAL-SPEC.md](TECHNICAL-SPEC.md), [INTEGRATION-SPEC.md](INTEGRATION-SPEC.md), [SECURITY-SPEC.md](SECURITY-SPEC.md), and [UI-SPEC.md](UI-SPEC.md). Test-writing conventions, documentation comments, and contribution rules remain in [CODE-QUALITY.md](../docs/CODE-QUALITY.md). Concrete test files, commands, tool versions, and execution order belong in an approved subsystem plan and the verified development guide.
 
@@ -139,13 +157,13 @@ Final review was an author self-review because the subagent tool cannot select t
 
 [ADR-0004](decisions/0004-runtime-lifecycle-proposal.md) accepts a limited Windows development gate and the [fixture-backed core lifecycle plan](../plans/CORE-RUNTIME-LIFECYCLE-IMPLEMENTATION.md). Its planned tests cover malformed/oversized controls, stale operation identity, readiness/exit races, interrupted partial records, bounded graceful/forced cleanup and independent fixture instances. Planning and decision acceptance are not test results: no core source, process adapter, signing/verification implementation, live engine, GUI integration or new workload has been executed in this documentation step. J1/J6/J13-J15 and D01/D09/D11/D12 remain unpassed by these fixtures. Actual commands, counts and exits will be recorded after authorized execution.
 
-### Latest local UI evidence and reconciliation scope, 2026-10-05
+### Historical local UI evidence and reconciliation scope, 2026-10-05
 
 The fixed [current UI baseline](UI-SPEC.md#current-ui-baseline-2026-10-05) covers shell/navigation, Models/configuration, Cluster, Chat and API. The separately authorized 2026-10-06 Settings preview adds local category navigation/search and disabled Appearance/Runtime controls; its evidence is recorded below. Counts in earlier entries below describe those earlier revisions, including superseded controls, rather than the current implementation.
 
 The preceding API implementation observed 39 unit/component tests, 40 browser tests and one rebuilt packaged Windows smoke case passing after the API sidebar correction, together with typecheck, targeted lint/format checks and demo packaging. It checked direct API access after Models, no API entry in More, shared 20px rail icons/selection, API/configuration containment and scrollbar rules, placeholder example copying and disabled real-server controls. Native review found no renderer errors, confirmed the 800px API column and reachable empty logs, and compared exact copied text. This is prior local implementation evidence, not a new test run performed by the documentation reconciliation and not a hosted CI result for the current local changes. The later Settings run is recorded separately below.
 
-| Requirement area                          | Current partial evidence                                                                                          | Still required for production acceptance                                                                                                         |
+| Requirement area                          | Historical renderer-only evidence                                                                                 | Still required at that milestone for production acceptance                                                                                       |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | U01-U10 / Models/configuration/navigation | Browser geometry/font containment, local editor validation, menus/focus and explicit unavailable integrations.    | Actual metadata/import/download, durable defaults and runtime application.                                                                       |
 | U11-U14 / Cluster                         | Simulated placement/lifecycle validation, canvas/keyboard/panel interaction, cancellation and joining previews.   | Live hardware, networks/approval, real model preflight/loading and worker failure.                                                               |
@@ -610,3 +628,270 @@ The first targeted run failed because the new implementation modules did not exi
 | Desktop SHA-256 comparison and native process inspection | All 77 tracked desktop files are byte-identical to the prior baseline; no process under the owned `out/native` path remained.                                                                                                |
 
 The tests use synthetic memory reports and process fixtures; they do not validate Bonsai requirements or actual CUDA placement/activation. A reviewed exact device-to-launch mapping, signed runtime assets, approved production trust and configuration-specific resource evidence remain prerequisites for live loading. WDDM management data is not a reservation or proof of an allocatable Windows budget. Other platforms, packaged visual/grouping checks, hosted CI, real upstream cleanup and inference equivalence remain unverified. [Runtime activation](../docs/runtime-activation.md) records the fixed read-only query and error contract.
+
+### Local Chat wiring, 2026-10-09
+
+Local checks on `codex/local-generation` connect the real captured transport,
+utility-owned history/admission, closed main/preload bridge and existing Chat UI.
+The automated checks below use synthetic inference. They do not establish the
+requested live manual desktop test or inference equivalence.
+
+| Check                                                          | Inspected result                                                                                                                                                                 |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm test`                                                    | Exit 0: 69 desktop and 393 ordinary core tests.                                                                                                                                  |
+| `pnpm --filter @modelloom/core test:native`                    | Exit 0: 57 tests across seven suites, after native and host builds. Includes real Electron utility/protected SQLite save, Stop, full Quit and reopen with a synthetic transport. |
+| Chat browser regression suite                                  | Exit 0: three tests, including system/Arial fonts and 1280/1100/1000-pixel widths.                                                                                               |
+| `pnpm typecheck`, `pnpm lint`, core host build, renderer build | Exit 0.                                                                                                                                                                          |
+| `pnpm format:check`                                            | Exit 1 on five untouched CRLF files. Their LF-normalized contents exactly match Prettier; no unrelated edits were made.                                                          |
+
+Renderer/core tests cover retained partial output, explicit retry without a
+duplicate user turn, reload without replay, caller-specific Stop, navigation
+while another conversation runs, output-limit status, inert model text,
+coalesced durable drafts and a new draft typed during token preparation.
+Boundary tests cover wrong callers, forged chunk identities, exact reply
+shapes, bounded acknowledged progress, stale paging cursors and cleanup despite
+history-opening failure. Existing native tests retain ownership, directory
+identity, integrity and unrelated-deployment coverage.
+
+Computer Use now starts, navigates ModelLoom and opens its native model picker.
+The user authorized existing-key metadata renewal and four-slot validation.
+Renewal to version 2 passed against the existing verification state, preserving
+the root and inventory. The signed four-slot planner exited 0 with 30,720 total
+context; its GPU components rounded upward sum to 5,579 MiB. The guarded live
+diagnostic exited 1 before engine launch because available RAM was
+4,324,495,360 bytes, below its original 10 GiB startup floor. The retry replaces
+that arbitrary floor with a 7.715 GiB calibration guard derived from the observed
+one-slot peak, added slot reserves and headroom. Two standalone budget tests and
+lint pass. The subsequent live four-slot diagnostic exited 0: four concurrent
+7,500-token prefills, per-slot reuse, bounded RAM restoration and graceful owned
+exit. Its resident peak was 6,210,097,152 bytes; private-commit peak was
+8,852,537,344 bytes. Idle long prompts evicted the initial short-cache fixture;
+that failure is preserved separately, and the passing fixture replaces all
+four resident prompts first. No cache, context or precision setting changed.
+Desktop now selects the exact development four-slot report, retaining the older
+one-slot report. Admission reserves 7,524 MiB physical RAM and 5,579 MiB VRAM.
+The RAM reserve is conservative rather than a steady-state measurement.
+
+Command control of the existing Kryptex scheduled task verified both stop and
+SRBMiner restart with existing settings. Computer Use imported the approved
+model and reached Cluster's ready state, but Chat history failed to open. Windows
+package virtualization redirects the application-data directory to Codex's
+package cache; the native guard rejects the physical/logical path mismatch.
+That first attempt sent no live Chat message. Full Quit left no owned engine,
+and mining was restored. The user subsequently directed the storage fix to
+follow LM Studio's documented profile-root layout. Trusted main now selects
+`%USERPROFILE%\.modelloom`; native startup creates the final app directory
+with private permissions after locking its ancestors. Path equality, link
+rejection, retained identities, quotas and the writer lock remain unchanged.
+Renderer regressions cover typing while history is unavailable, first-conversation
+creation after startup recovers, draft transfer and a failed New chat's storage
+error. A native regression creates a missing private app root, persists/reopens
+its first draft and rejects a junction root without writing to its target.
+The ordinary suites pass 72 desktop/395 core tests, and all 60 native tests pass.
+Typechecking, host/native builds, lint and native static analysis pass.
+The rebuilt Electron desktop's automated check accepts typing before loading.
+The actual profile store also saves/reopens a synthetic draft. An earlier live
+load with mining stopped was correctly refused
+because available RAM was about 0.46 GiB below the validated reserve despite
+ample free VRAM. No resource requirement was weakened. Mining was restored,
+no owned engine remained, and manual Computer Use was unavailable on retry.
+
+Subsequent diagnosis reached HTTP 200 and reproduced `INVALID_STREAM` on Bonsai's
+string `reasoning_content` delta. After the user's thinking-support approval,
+regressions verified separate streams, combined quotas, strict Unicode/identity
+checks, acknowledged chunk bounds, saved/reopened thinking, Stop and unchanged
+native-template context. Migration tests verify exact-schema 1-to-2 preservation,
+post-ALTER rollback and unknown-schema refusal. The actual guarded profile
+upgrade preserved every original field by a before/after content checksum.
+
+The automated live Electron test passed: retained draft before loading, a complete
+`HELLO` answer with 670 thinking characters, collapsed/expanded thinking, Stop
+during a second request with 36 thinking characters retained, owned-engine stop
+and protected-history reopen. Mining was restored and SRBMiner verified. This
+does not complete the requested manual Computer Use test; the native pipe was
+unavailable. The ordinary suites passed 73 desktop/405 core tests and all 60
+native tests passed. A later ten-test Chat regression suite passed after clearing
+the stale Stop footer. Typechecking, lint, host and renderer builds passed.
+No worker/Tailscale
+integration, hosted CI, production activation or quality-equivalence result is
+claimed. [Local Chat development](../docs/local-generation.md) records current
+behavior and startup limits.
+
+### Saved response speeds, 2026-10-09
+
+After PROCEED for the response row and the explicit choice to save speeds with
+responses, regressions verify native final timing projection on finish or usage
+envelopes, omission of invalid/missing rates, a cached prompt's zero prefill rate,
+strict scalar IPC validation, settled response/metrics commit, idempotence and
+retry isolation. Exact schemas 1 and 2 upgrade transactionally to schema 3;
+tests preserve prior fields, reject unknown schemas and roll back injected
+post-ALTER failures. Renderer reload retains recorded rates.
+
+All 75 desktop, 419 core and 60 Windows native tests passed, as did four Chat
+browser checks, typechecking, lint, host build and renderer build. Browser fixtures
+verify 12px/400/#ABABAB labels, removal of thumbs-up/down, no horizontal overflow,
+and alignment after Copy/Retry at 1280, 1100 and 1000 CSS pixels. No dot or new
+speed icons are added.
+
+The actual guarded schema-2 to schema-3 profile upgrade preserved every original
+saved field, including thinking, across six conversations/thirteen attempts by
+matching SHA-256. The automated real-model Electron test completed at 11:46 UTC:
+Send returned `HELLO`, native rates were rendered, Stop retained partial thinking,
+owned-engine stop passed, and the same recorded rates appeared after a full app
+restart. Kryptex/SRBMiner was stopped before the GPU test and restored afterward.
+This is automated UI evidence, not manual Computer Use, throughput-target,
+quality-equivalence or cross-platform acceptance. Details and ignored evidence
+paths are recorded in [local Chat development](../docs/local-generation.md).
+
+### Thinking-duration row, 2026-10-09
+
+The user's PROCEED authorizes `Thinking` without an ellipsis while thinking is
+active, then `Thought for [time]`, preserving the existing icon/chevron/style.
+Tests cover monotonic phase timing, first-answer checkpointing, Stop/recovery,
+immutable saved duration, renderer reload and seconds/minutes/hours/sub-second
+formatting. Old responses without a measurement use `Thought` without an invented
+time. Exact schemas 1, 2 and 3 upgrade transactionally to schema 4; preservation,
+rollback and unknown-schema refusal are covered.
+
+All 81 desktop/423 core tests and 18 targeted native history/chat tests passed.
+Typechecking, lint, host/renderer builds and targeted source formatting passed.
+The actual schema-3 to schema-4 protected-profile upgrade preserved seven chats
+and eighteen attempts, including their existing speeds, by a matching checksum.
+The automated real-model test completed at 12:20 UTC: `Thinking` became `Thought
+for 3s` for a measured 3691 ms phase, Stop preserved a partial duration, expansion
+and owned-engine stop passed, and the recorded labels/speeds survived a full app
+restart. Kryptex/SRBMiner was stopped before the GPU test and restored afterward.
+The app was reopened. This is automated UI evidence; manual Computer Use,
+quality-equivalence and other-platform acceptance remain separate. Evidence
+paths are recorded in [local Chat development](../docs/local-generation.md).
+
+### Development history at startup, 2026-10-09
+
+The user approved separating history startup from model loading. Regressions
+cover history before import/resource admission, Send gating, one writer through
+import/rejected load/Stop, startup failure and Quit races with both preparations.
+Development-host checks cover retained core ownership without package or engine
+activation, rejected verification, late preparation on close, and binding/closing
+the admitted adapter. Existing storage identities, private permissions, quotas,
+writer locks, caller checks and engine gates are retained.
+
+The actual Electron check at 14:32 UTC restored eight existing conversations,
+including their thinking times/speeds, with no model imported or loaded. A new
+draft survived a full app restart; existing conversation checksums matched and
+Send remained disabled/denied. The additional generation check was rejected by
+resource preflight before engine launch, so this run supplies no new Send/Stop
+or quality evidence. Mining was restored and SRBMiner verified. Local evidence:
+`plans/startup-history-live.json`, `plans/startup-history-restarted.png`, and
+`plans/startup-generation-live.json` (all ignored). Manual Computer Use and
+other-platform/production acceptance remain separate.
+
+Local verification passed 86 desktop and 427 core tests, 39 targeted Windows
+history/ownership/utility tests, typechecking, lint, host/renderer builds and
+targeted formatting. Earlier automated live-generation evidence predates this
+startup change; it is not a substitute for the rejected new generation check.
+
+### Chat deletion and fading titles, 2026-10-09
+
+The later PROCEED authorizes Lucide trash, title fading/hover scrolling and
+confirmed saved-chat deletion. Store regressions verify target-only removal,
+retention of unrelated drafts/messages/thinking/metrics, active-record refusal,
+rollback after injected child-row deletion failure and stale empty-chat cursor
+invalidation. Service/controller tests verify caller binding, same-chat admission
+closure, cancellation settlement, pending-token-count abort, other-chat isolation,
+safe failure retention and deletion without a loaded model. Renderer tests cover
+Cancel, selected-chat replacement, failed deletion retaining the draft and
+deletion during preparation.
+
+All 89 desktop and 436 core tests passed, with five Chat browser checks,
+typechecking, lint and host/renderer builds. At 1280, 1100 and 1000 CSS pixels,
+browser checks verify the fade, hidden idle trash, visible hover/keyboard action,
+measured title movement, fixed trash position, reset on leave, confirmation and
+reduced-motion behavior. Seventeen native protected-history cases passed. The
+native chat test failed owned-process cleanup during concurrent checks; its
+isolated repeat passed unchanged. The initial failure's cause remains unproven.
+The isolated test uses synthetic transport and real protected-store/utility
+containment, retaining partial output and verifying deletion across reopen.
+
+The actual automated Electron UI test completed at 15:56 UTC with no model loaded.
+Cancel preserved the labelled synthetic chat, Delete opened an empty New chat,
+and deletion persisted across renderer reload and full app restart. SHA-256 checks
+confirmed that all eleven original chats remained unchanged; test-only records
+were cleaned up. Mining stayed running. Ignored evidence:
+`plans/chat-delete-live.json`, `plans/chat-delete-hover.png`, and
+`plans/chat-delete-restarted.png`. This supplies no new manual Computer Use,
+real-model cancellation-during-deletion, quality or cross-platform acceptance.
+
+### Shared popup styling correction, 2026-10-10
+
+The approved correction updates the shared dialog defaults to the existing
+neutral popup treatment. Eighteen browser checks passed across Chat, Models,
+Cluster launch and Settings. Targeted formatting and the renderer build passed.
+The automated Electron check at 00:39 Malaysia time compared Delete chat with
+Installed runtimes: both rendered the same neutral background, border, text,
+Segoe UI font stack, 18px/500 heading and 14px/400 body. Footer buttons rendered
+at 13px/500 and 36px height; Cancel was charcoal and Delete was white with dark
+text, without gradients. Cancel/Escape retained the original conversation list.
+Screenshots were visually inspected. No chat was deleted or model loaded;
+mining stayed running. Ignored evidence: `plans/neutral-dialog-live.json`,
+`plans/chat-delete-neutral-dialog.png`, and `plans/settings-neutral-dialog.png`.
+This is automated Windows UI evidence, not manual Computer Use or other-platform
+acceptance.
+
+### Four Chat review corrections, 2026-10-10
+
+The user authorized all four reviewed fixes. Regressions cover Stop before
+native admission with draft retention, caller rejection and other-chat isolation;
+saved Unicode/literal message search before opening a chat, bounded summary
+paging and wrong-query/revision cursor rejection; local calendar date groups;
+and concurrent empty-chat reuse with draft preservation. No schema migration or
+inference-setting change is involved.
+
+The complete ordinary rerun passed 93 desktop and 441 core tests. The first
+attempt had five existing UI timeouts during concurrent checks; the unchanged
+rerun passed with original assertions and deadlines, leaving the original cause
+unproven. Five Chat browser checks passed after two stale fixtures were given
+required update timestamps. Eighteen targeted Windows native history/Chat tests
+passed, with actual Electron IPC, protected-store reopen and synthetic transport.
+Typechecking, lint and host/renderer builds passed. No new GPU/model, manual
+Computer Use, hosted CI, quality-equivalence or release evidence is claimed.
+
+### Ordinary startup without samples, 2026-10-10
+
+The later PROCEED removes the implicit serve-mode sample flag and prepares the
+existing approved Windows development core in Forge before Electron opens.
+Regression tests first reproduced samples with no bridge/disabled core and the
+missing launch preparation. All 96 desktop tests passed, including build-before-
+enable ordering, failed-build startup refusal and explicit demo isolation.
+The browser run passed 47 of 48 checks; the existing long-title animation case
+timed out with ten workers. Its unchanged isolated repeat passed, without an
+assertion/deadline change. The original timeout cause remains unproven. The new
+ordinary-startup cases verify empty Models/Cluster without a bridge and one
+detected local device with no samples when the core is disabled. Fixture tests
+use explicit demo mode on port 5175; ordinary tests use port 5176.
+
+The actual automated Electron check through the normal Windows launcher passed:
+development output was restored after rebuilding, the live core reported enabled,
+five saved conversation summaries were accessible with no model loaded, Models
+contained no samples and Cluster contained only the detected local device. The
+owned test app exited gracefully and the app was reopened without the temporary
+debugger. Evidence: ignored `plans/ordinary-startup-live.json` and
+`plans/ordinary-startup-local-device.png`. Typechecking, lint correction and
+host/renderer builds passed. No GPU/model run or manual Computer Use is claimed;
+mining stayed running. This supplies no new release, networking or quality evidence.
+
+### PR #6 draft and notification corrections, 2026-10-10
+
+Regression tests reproduced a newer saved draft being cleared at Send admission
+and Copy/Delete feedback masking later live status. The draft test holds the Send
+reply, admits the original message after a newer draft is saved, then remounts the
+renderer without a loaded model and checks the newer draft survives without a
+second request. Store cases also check matching and empty drafts across store
+reconstruction. Presentation tests cover current errors, completion without stale
+feedback returning, Delete followed by Send, keyboard Send, Retry and Stop.
+
+After the two fixes, `pnpm test` passed all 103 desktop and 444 core tests;
+`pnpm typecheck`, `pnpm lint`, changed-file Prettier and `git diff --check` also
+exited 0. These are local SQLite/synthetic transport and DOM checks. No new
+native, real-model, manual UI or hosted CI evidence is claimed. Full-history
+paging performance is deferred. Hosted CI must be checked on PR #6's updated
+head after publication.

@@ -2,6 +2,14 @@
 
 The shared core contains a gated Windows x64 activation adapter and an explicit development desktop connection for the exact tested Bonsai configuration. Ordinary builds and packaged production activation remain closed. The independent headless fixture harness remains available; separate development CLI diagnostics exercise the real runtime. This work implements parts of ADR-0004 and S15-S17; release acceptance remains pending.
 
+**Reconciled 2026-10-10:** The development desktop also connects durable Chat
+and model-independent history startup under ADR-0005. The report catalogue now
+contains exact one-slot and four-slot development reports; the desktop selects
+four slots. The one-slot observations below retain their original configuration.
+The four-slot report, live Chat, later resource-preflight failure and evidence
+limits are recorded in [local Chat development](local-generation.md). No public
+API, workers, production trust, downloads/updates or release acceptance is added.
+
 ## Package authority
 
 `createRuntimeVerifier` loads only a public root whose asset name and SHA-256 are reviewed build inputs in `runtime-package/trust-policy.ts`. The root policy requires a 2-of-3 root role. That catalogue is empty, so production verification rejects with `MISSING_TRUST_ROOT`. There is no caller-selected root or unsigned fallback.
@@ -26,7 +34,17 @@ The configuration contract accepts exactly model SHA-256, per-slot context, slot
 
 `checkResources` validates a planner report against the exact model, artifact, backend and configuration. All memory amounts are bytes and include weights, KV cache, scratch allocations and a separate `serverCaches` allowance. The user selected prompt reuse enabled by default, then approved a smaller cache/checkpoint allowance for the 24 GB system on 2026-10-07. Fixed arguments now set a 768 MiB prompt-cache cap and two checkpoints per slot, superseding the earlier 8192 MiB/32 policy. Cache reports must match both limits and budget prompt reuse, checkpoints across the selected slots and cache overhead; omitted allocations fail closed. Limits are not eager RAM reservations. Unknown or uncertain requirements produce `NEEDS_RESOURCE_EVIDENCE`; a shortage produces `INSUFFICIENT_RESOURCES`. Only reviewed build inputs grant report authority. A shortage never silently changes caching, context or model settings.
 
-The production reviewed-report catalogue remains empty. One development report binds the exact Bonsai hash, CUDA artifact, physical UUID and selected settings: 6,618 MiB physical RAM and 4,365 MiB VRAM. It combines the pinned planner, cache allocation analysis and bounded resident observations; it is an admission estimate, not a native-allocation guarantee or a full-cache measurement. A development package capability and explicit development build are both required. The adapter supports only inspected upstream commit `4f31296a907d73f3409f720429bcf31111615d77`. CPU remains unprovisioned. CUDA requires exact placement and compatible driver. Fresh discovery immediately before creation rejects abort, expiry, shortage or uncertain requirements. See the [Bonsai evidence and limits](runtime-bonsai-validation.md).
+The production reviewed-report catalogue remains empty. Exact development reports
+bind the Bonsai hash, CUDA artifact, physical UUID and selected settings. The
+earlier one-slot report requires 6,618 MiB physical RAM and 4,365 MiB VRAM; the
+later four-slot report requires 7,524 MiB RAM and 5,579 MiB VRAM. These admission
+estimates combine pinned planning, cache bounds and bounded native observations;
+they are not allocation guarantees or measured steady-state RAM. Both require a
+development package capability and explicit development build. The adapter admits
+only inspected commit `4f31296a907d73f3409f720429bcf31111615d77`; CPU remains
+unprovisioned. Exact CUDA placement, compatible driver, fresh resource discovery
+and final expiry checks remain enforced. See the [one-slot Bonsai evidence](runtime-bonsai-validation.md)
+and [later four-slot/Chat evidence](local-generation.md).
 
 ### Read-only Windows resource discovery
 
