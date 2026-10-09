@@ -473,11 +473,12 @@ export class HistoryStore {
           .prepare('INSERT INTO user_turns VALUES(?,?,?,?,?)')
           .run(input.turnId, input.conversationId, ordinal, input.text, Date.now());
         const result = this.insertAttempt(input.attemptId, input.requestId, input.turnId, source);
+        // Admission may finish after the user has already saved their next message.
         this.database
           .prepare(
-            'UPDATE conversations SET draft=?,title=CASE WHEN title=? THEN ? ELSE title END WHERE id=?',
+            "UPDATE conversations SET draft=CASE WHEN draft=? THEN '' ELSE draft END,title=CASE WHEN title=? THEN ? ELSE title END WHERE id=?",
           )
-          .run('', 'New chat', input.text.slice(0, 80), input.conversationId);
+          .run(input.text, 'New chat', input.text.slice(0, 80), input.conversationId);
         this.bump(input.conversationId);
         return result;
       });
