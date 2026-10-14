@@ -19,6 +19,37 @@ const identity = {
   attemptId: 'attempt',
 };
 const messages = [{ role: 'user' as const, content: 'test' }];
+it('uses only the matching owner-confirmed engine exit to interrupt pending remote generation', async () => {
+  const chunks: unknown[] = [];
+  const remote = new UtilityChatTransport(selection, () => undefined);
+  const run = remote.start(identity, messages, (chunk) => {
+    chunks.push(chunk);
+  });
+  remote.receive({
+    type: 'generation-result',
+    id: 1,
+    result: 'chunk',
+    sequence: 1,
+    chunk: { type: 'reasoning', text: 'partial' },
+  });
+  let settled = false;
+  void run.settled.then(() => {
+    settled = true;
+  });
+  remote.engineExited({ ...selection, operationId: 'stale' });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  remote.engineExited(selection);
+  await expect(run.settled).resolves.toEqual({ status: 'interrupted', reason: 'ENGINE_EXITED' });
+  expect(chunks).toEqual([{ type: 'reasoning', text: 'partial' }]);
+  remote.receive({
+    type: 'generation-result',
+    id: 1,
+    result: 'settled',
+    outcome: { status: 'completed', reason: 'STOP' },
+  });
+  expect(() => remote.start(identity, messages, () => undefined)).toThrow('NOT_READY');
+});
 it('streams over the inherited channel with one acknowledged chunk and captured settlement', async () => {
   let settle!: (outcome: TerminalOutcome) => void;
   let cancel = 0;
