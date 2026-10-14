@@ -6,6 +6,9 @@ import { decodeChatReply } from '../../../shared/chat';
 
 const active = ['queued', 'running', 'cancelling'];
 const errors: Record<string, string> = {
+  SETTINGS_UNAVAILABLE:
+    'The original response settings are unavailable. Send a new message to use current settings.',
+  CONFIGURATION_UNAVAILABLE: 'Model settings could not be read. Stop the model and try again.',
   NOT_READY: 'Load a model before sending.',
   CONTEXT_FULL: 'This conversation exceeds the selected context. Start a new chat.',
   QUEUE_FULL: 'The request queue is full. Try again after a response finishes.',
