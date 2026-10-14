@@ -37,7 +37,12 @@ The configuration contract accepts exactly model SHA-256, per-slot context, slot
 The production reviewed-report catalogue remains empty. Exact development reports
 bind the Bonsai hash, CUDA artifact, physical UUID and selected settings. The
 earlier one-slot report requires 6,618 MiB physical RAM and 4,365 MiB VRAM; the
-later four-slot report requires 7,524 MiB RAM and 5,579 MiB VRAM. These admission
+later four-slot report requires 6,500 MiB RAM and 5,579 MiB VRAM. On October 14,
+the user requested lower RAM admission. The four-slot host allowance changed
+from 5 GiB to 4 GiB, retaining all cache/checkpoint reserves and model settings.
+The fresh four-slot run peaked at 6,186,299,392 resident bytes, restored prompt
+cache state and exited cleanly. The complete budget exceeds both recorded
+four-slot resident peaks by more than 512 MiB. These admission
 estimates combine pinned planning, cache bounds and bounded native observations;
 they are not allocation guarantees or measured steady-state RAM. Both require a
 development package capability and explicit development build. The adapter admits
@@ -60,17 +65,40 @@ Run `pnpm --filter @modelloom/core probe:resources` under the pinned host for a 
 
 The native broker atomically places the control helper in the deployment and nested engine jobs before resuming it. `ModelLoom-runtime-host.exe` creates a private hidden console, launches the server into the same containment and emits one fixed startup receipt. The broker captures that server's process handle after checking image, creation time and job membership. The environment includes only the verified dependency directory, Windows system directory and private temporary directory.
 
-Each launch uses a fresh private API credential in a restricted temporary key file. Credentials stay out of arguments, renderer state and diagnostics. Readiness requires an owned loopback listener, rejection of an unauthenticated request, and authenticated model-alias, per-slot context and slot-count responses. Port collision cannot attach to an unrelated server. Public health is not readiness proof.
+Each launch uses a fresh private engine credential delivered through an
+owner-bound local named pipe. The secret stays out of arguments, renderer state
+and diagnostics; only the pipe name enters the pinned server's key-file reader.
+The original server/helper filenames are retained. Readiness requires an owned
+loopback listener, rejection of an unauthenticated request, and authenticated
+model-alias, per-slot context and slot-count responses. Port collision cannot
+attach to an unrelated server. Public health is not readiness proof.
 
 After readiness, the helper accepts one inherited-pipe stop command and broadcasts Ctrl+C only in its private console. It uses a normal handler for its own survival, so the child does not inherit an ignore-Ctrl+C flag. The existing supervisor allows 180 seconds for startup, five seconds for graceful stop and two seconds for forced confirmation. Cancellation before readiness uses owned termination; it is not labelled proven upstream graceful cleanup. Force and abnormal-owner cleanup target retained jobs, never a process name or a later PID search.
 
-An exit receipt requires the captured helper to exit and the job to be empty. The broker releases package/model handles and removes the credential directory before resolving exit. Failed cleanup stays a failure. Native tests establish this mechanism using synthetic console handlers; two real calibration runs also exited 0 after private-console graceful shutdown. Packaged visual presentation and Task Manager grouping remain unverified. Diagnostic memory observations use retained ownership-checked process handles and the complete job's peak private commit; unknown attribution remains unknown.
+An exit receipt requires the captured helper to exit and the job to be empty.
+The broker releases package/model handles and the credential pipe before
+resolving exit. The separate bounded runtime cache contains no deliberate
+credential file and is retained. Failed cleanup stays a failure. Native and
+packaged startup pipe checks establish their stated contracts; earlier real
+calibrations predate the pipe change. Loaded-model acceptance remains open.
+The user accepts a separate runtime row outside the app group, so grouping is
+no longer a gate. Diagnostic memory observations use retained process handles
+and the complete job's peak private commit; unknown attribution remains unknown.
 
 ## Local validation and remaining inputs
 
 Use Node 24.21.0 and pnpm 11.19.0. Run `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm --filter @modelloom/core test:native` and `pnpm --filter @modelloom/core check:native`. The native suite builds with MSVC warnings treated as errors; static checks cover all four owned C++ sources. No model or GPU workload is needed for these tests.
 
-A signed development bundle and actual Bonsai calibration are available. The [bounded diagnostic and desktop evidence](runtime-bonsai-validation.md) records passed scenarios, failed attempts and remaining limits. Full cache saturation and 20 GiB of free RAM are not prerequisites. The development desktop uses existing Import GGUF, picker, Run, Cancel and Stop controls through a sandboxed preload bridge. Main checks sender/frame identity and accepts only closed commands and an opaque imported-model ID; paths, executable arguments, credentials, ports and native handles never become renderer authority. Quit closes admission and waits for preparation and owned exit. No CSS, font or layout changes are part of this connection. Chat generation, public API, custom configuration and persistent import remain unavailable. Production custody, other platforms, packaged presentation/grouping, scheduling, durable history, distributed workers and inference equivalence retain separate gates.
+A signed development bundle and actual Bonsai calibration are available. The
+[bounded diagnostic evidence](runtime-bonsai-validation.md) preserves the earlier
+activation slice. Later approvals add durable Chat, captured model defaults and
+a key-required loopback API, described in [the local API guide](LOCAL-API-DEVELOPMENT.md).
+Main keeps sender/frame checks and closed commands; private paths, executable
+arguments, engine credentials, ports and native handles never become renderer
+authority. Quit closes admission and joins preparation/owned exit. Model import
+remains session-only. The [current review](LOCAL-API-REVIEW-2026-10-14.md) records
+remaining packaged checks and publication blockers. Production custody, other
+platforms, distributed workers and inference equivalence retain separate gates.
 
 The 2026-10-07 startup correction exposes local hostname, OS, CPU and trusted role
 before importing or loading a model. Local identity remains visible with activation
