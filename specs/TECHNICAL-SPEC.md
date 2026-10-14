@@ -1,13 +1,13 @@
 # ModelLoom technical specification
 
-**Status:** Windows development runtime and durable local Chat implemented; production, API and distributed architecture retain their review/evidence gates
-**Updated:** 2026-10-10
+**Status:** Windows development runtime, Chat, model configuration and loopback API implemented; packaged, production and distributed acceptance remain open
+**Updated:** 2026-10-14
 
 **Product source:** [PRODUCT-SPEC.md](PRODUCT-SPEC.md)
 
 ## 1. Purpose and decision status
 
-### Current implementation, 2026-10-10
+### Current implementation, 2026-10-14
 
 [ADR-0005](decisions/0005-local-generation-development.md) and its later scoped
 approvals now connect the sandboxed desktop through a closed preload/main bridge
@@ -15,23 +15,27 @@ to one protected utility-owned history/admission core and a separately owned,
 verified llama-server. History starts before model loading. Explicit loading
 prepares the exact development CUDA adapter; Send/Retry require it to be ready.
 The core has four active/eight pending reservations, caller-owned cancellation,
-native slot settlement, schema-4 persistent history and confirmed deletion.
+native slot settlement, schema-5 persistent history and confirmed deletion.
 Thinking/answer, native final speeds and measured thinking duration are saved
 separately. No stored work is automatically replayed.
 
-This is the normally disabled Windows development path, not general production
-activation. API/settings/joining controls remain previews where unavailable;
+[ADR-0006](decisions/0006-model-configuration-and-local-api.md) adds separate
+protected configuration/key storage, captured immutable request settings and
+the key-required loopback API over the same admission queue. Explicit Windows
+development packaging stages the verified runtime, original server/helper names
+and private credential pipe. Ordinary/demo packages retain disabled authority.
+This is not production activation. Settings remain previews where unavailable;
 workers, network enrollment, model distribution, released runtime updates and
-other-platform acceptance remain pending. See [local Chat development](../docs/local-generation.md)
-for exact configuration, dated results and the latest resource-preflight failure.
-Earlier foundation/fixture descriptions below are scoped historical records;
-they do not describe the current development build.
+other-platform acceptance remain pending. See [the local API guide](../docs/LOCAL-API-DEVELOPMENT.md)
+and [current review](../docs/LOCAL-API-REVIEW-2026-10-14.md) for dated evidence and
+remaining packaged gates. Earlier foundation/fixture descriptions below are
+historical and do not describe the current development build.
 
 The later [ADR-0003](decisions/0003-lm-studio-behavior-reference.md) extends LM Studio's reference role to applicable non-networking architecture and behavior, including concurrency and runtime compatibility. Use documented/observed behavior first, preserve approved ModelLoom requirements, and record evidence-backed deviations. Networking remains under D02-D03; proprietary internals and signing mechanisms cannot be assumed.
 
 Translate P1-P9 into component responsibilities and non-functional requirements. Product behavior remains authoritative in the product specification. Contracts belong in [INTEGRATION-SPEC.md](INTEGRATION-SPEC.md), security in [SECURITY-SPEC.md](SECURITY-SPEC.md), and presentation in [UI-SPEC.md](UI-SPEC.md). Execution steps belong in [PLAN.md](../plans/PLAN.md).
 
-Electron, existing dense llama.cpp-compatible GGUFs, the three connection modes, independent runtime releases, and the product/UI baseline are established requirements. [ADR-0002](decisions/0002-lm-studio-runtime-direction.md) adds the accepted LM Studio hosting direction, grouped llama-server naming, crash isolation, shared headless core/runtime machinery, and owned shutdown. The desktop choices are now approved as recorded below; the remaining language/tooling and component proposals still need review. [ADR-0004](decisions/0004-runtime-lifecycle-proposal.md) accepts the initial Windows development exception and shared TypeScript hosting direction. D01 remains open overall; live package activation and release/platform evidence retain their gates. The explicit Windows development adapter now hosts the verified separate native runtime; production and other-platform acceptance remain open.
+Electron, existing dense llama.cpp-compatible GGUFs, the three connection modes, independent runtime releases, and the product/UI baseline are established requirements. [ADR-0002](decisions/0002-lm-studio-runtime-direction.md) adds the accepted LM Studio hosting direction, accepted original llama-server naming, crash isolation, shared headless core/runtime machinery, and owned shutdown. The desktop choices are now approved as recorded below; the remaining language/tooling and component proposals still need review. [ADR-0004](decisions/0004-runtime-lifecycle-proposal.md) accepts the initial Windows development exception and shared TypeScript hosting direction. D01 remains open overall; live package activation and release/platform evidence retain their gates. The explicit Windows development adapter now hosts the verified separate native runtime; production and other-platform acceptance remain open.
 
 On 2026-10-01 the user approved implementation of the desktop foundation: Electron, React, strict TypeScript, pnpm, Vite/Electron Forge, CSS Modules/shared tokens, ESLint/Prettier, Vitest/Testing Library and Playwright. `apps/desktop/` now implements the shared shell, compact Models library, session-only per-model configuration, Cluster planning/launch demo and session-only Chat presentation with explicitly marked demo data. The API screen now adds renderer-only server/access presentation, example tabs and an empty log viewer; Settings now adds a renderer-only Appearance/Runtime preview, category search/navigation and an empty runtime-inventory dialog; its controls remain unavailable and no theme, runtime, persistence or IPC integration is added. API lifecycle, exposure and credential controls are disabled, with no listener, key generation, log source, persistent state or new IPC. Integration snippets are illustrative placeholders, not finalized API-contract evidence. Chat keeps Send and attachments unavailable as selected by the user, with no generation, storage or IPC integration. Models row actions expose sample details, configuration and protected demo-entry removal, while launching remains in Cluster. Configuration holds separate pending/saved values in renderer memory, validates before saving, and executes neither templates nor arguments. It adds no persistent storage, IPC, engine or active-session configuration path. This settles D10's desktop choices only. Core TypeScript and the initial hosting direction are accepted under ADR-0004. Exact build/tool pins, supported platform floors, networking, bootstrap verification, signed updates and distributed correctness retain their affected review/evidence gates. That original renderer milestone deferred preload; later runtime/Chat approvals add closed sender-checked development bridges without weakening renderer isolation.
 
@@ -83,7 +87,7 @@ The subsequent authorized Windows fixture-host slice now exercises the shared su
 | Contracts                              | Logical messages, validation schemas, version rules, stable errors                                                                                   | Secret defaults, hidden fallback behavior, or an unreviewed wire protocol.                                  |
 | Networking integration                 | LAN reachability/discovery and the selected private-network component behind reviewed access restrictions                                            | Public raw RPC exposure or automatic API authorization.                                                     |
 
-These are ownership boundaries. D01 is the LM Studio architecture replication audit, and D02-D03 determine transport and pairing. Isolate native inference outside the GUI/main process; a library loaded into the GUI itself cannot satisfy ordinary native-crash isolation. ADR-0004 selects separate llama-server and the initial ownership direction from the existing Windows evidence. Remaining native/platform evidence continues under D01; exact proprietary internals are not a prerequisite for this limited slice. Windows app grouping, names, runtime/core survival, and absence of visible console windows need actual packaged-build verification. The accepted llama-server name does not finalize all helper/RPC names or establish macOS/Linux grouping.
+These are ownership boundaries. D01 is the LM Studio architecture replication audit, and D02-D03 determine transport and pairing. Isolate native inference outside the GUI/main process; a library loaded into the GUI itself cannot satisfy ordinary native-crash isolation. ADR-0004 selects separate llama-server and the initial ownership direction from the existing Windows evidence. Remaining native/platform evidence continues under D01; exact proprietary internals are not a prerequisite for this limited slice. Actual runtime names, runtime/core survival and absence of visible console windows need packaged-build verification. The 2026-10-14 decision permits llama-server.exe outside the app group and removes grouping as an acceptance gate. The accepted llama-server name does not finalize all helper/RPC names or establish macOS/Linux grouping.
 
 ## 4. Proposed source layout
 
@@ -135,21 +139,21 @@ The [2026-10-01 source investigation](../docs/research/NETWORKING-AND-RUNTIME-UP
 - T19 (P5): Runtime metadata includes source revision, build identity, platform/backend, and compatibility. D11 defines manifest schema and trust policy. D01 establishes LM Studio package layout/version selection and process presentation from actual evidence. Upstream shared-library support is a feasibility input, not an instruction to load llama.cpp into Electron. [llama.cpp build configuration](https://github.com/ggml-org/llama.cpp/blob/master/CMakeLists.txt).
 - T20 (P3, P8): Preserve weights, quantization, context semantics, and configured sampling. Do not accept a performance feature without the approved single-GPU quality/reference contract under D12. Only draft-free speculative methods may be considered, and they must have no quality loss.
 - T21 (P5-P6): Contain ordinary runtime termination/native crashes. Keep the GUI and unaffected core usable, invalidate the affected session, mark partial output interrupted/failed, resolve affected queued work, and offer bounded controlled restart/reload. Native-crash and simple process-termination tests are separate; neither proves protection from OS/GPU-driver failure.
-- T22 (P5): In normal Windows desktop operation, verify managed llama-server within ModelLoom's app group; the raw name and separate Details PID are allowed. Do not promise invisibility, infer grouping from parenthood alone, or require Windows presentation on macOS/Linux. Observe helper/RPC names and independently launched headless visibility under D01.
+- T22 (P5): In normal Windows desktop operation, retain the original managed llama-server.exe filename and verify its exact ownership. Its own Task Manager row outside ModelLoom and separate Details PID are allowed. Do not create renamed launch copies or promise invisibility on any OS. Observe helper/RPC names and independently launched headless visibility under D01.
 - T23 (P5-P6): Track ownership of desktop core/runtime/helpers. Full Quit stops admission, cancels/resolves work, requests graceful shutdown, escalates on a bounded deadline, and confirms all owned exits. Review abnormal-exit cleanup, hanging processes, startup/update/restart races, and process-handle/PID reuse under D01. Never terminate by name or kill unrelated independent headless/remote deployments. Release distributed assignments through a reviewed teardown policy.
 - T24 (P1, P5): Desktop and independent headless deployments use essentially the same core/runtime mechanisms for launch, version management, compatibility, recovery, and shutdown. Record deployment ownership explicitly; headless reuse is not merely duplicating a sidecar launcher. Use the accepted ADR-0004 Windows development exception; D01 remains open overall and live activation, trust and platform/release evidence remain separately gated.
 
 ## 9. Non-functional acceptance
 
-| Area                     | Required evidence                                                                                                                                                                                  |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reliability              | Cancellation, worker loss, model-load failure, stale state, quota exhaustion, restart, failed-update recovery, native engine crash and owned exit tests; J7-J11, J13-J15.                          |
-| Security/privacy         | Trust boundaries, forbidden peers/clients, malicious content, tampered packages, path escape, secret-free diagnostics, and owned-process/engine-endpoint checks; S01-S17.                          |
-| Usability/accessibility  | Reference comparison for all five screens, keyboard/focus/scaling/reduced-motion checks, readable error recovery; J12.                                                                             |
-| Portability              | Clean-install evidence, Windows app grouping, observed macOS/Linux names/tree, mixed-device multi-node journeys, CUDA/Metal reporting, headless reuse and OS-specific cleanup; J1-J4, J8, J13-J15. |
-| Maintainability          | Strict checking, consistent formatting, focused boundaries, documented contracts, pinned dependencies, tests linked to requirement IDs, and independent review where warranted.                    |
-| Offline behavior         | With app/runtime/GGUF present, local and LAN inference works offline and failed update checks do not block it; J1, J2.                                                                             |
-| Performance/resource use | Bounded queues/retries/cache limits and documented metric definitions. Numeric responsiveness, memory, and speed acceptance limits require reviewed evidence; none are invented here.              |
+| Area                     | Required evidence                                                                                                                                                                                                          |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reliability              | Cancellation, worker loss, model-load failure, stale state, quota exhaustion, restart, failed-update recovery, native engine crash and owned exit tests; J7-J11, J13-J15.                                                  |
+| Security/privacy         | Trust boundaries, forbidden peers/clients, malicious content, tampered packages, path escape, secret-free diagnostics, and owned-process/engine-endpoint checks; S01-S17.                                                  |
+| Usability/accessibility  | Reference comparison for all five screens, keyboard/focus/scaling/reduced-motion checks, readable error recovery; J12.                                                                                                     |
+| Portability              | Clean-install evidence, original Windows runtime names and ownership, observed macOS/Linux names/tree, mixed-device multi-node journeys, CUDA/Metal reporting, headless reuse and OS-specific cleanup; J1-J4, J8, J13-J15. |
+| Maintainability          | Strict checking, consistent formatting, focused boundaries, documented contracts, pinned dependencies, tests linked to requirement IDs, and independent review where warranted.                                            |
+| Offline behavior         | With app/runtime/GGUF present, local and LAN inference works offline and failed update checks do not block it; J1, J2.                                                                                                     |
+| Performance/resource use | Bounded queues/retries/cache limits and documented metric definitions. Numeric responsiveness, memory, and speed acceptance limits require reviewed evidence; none are invented here.                                      |
 
 An automated build is not platform GUI evidence, mock worker tests are not mixed-device acceptance, and product acceptance is not a speed benchmark. Record exact versions/configuration, results, and limitations in the plan's evidence log.
 

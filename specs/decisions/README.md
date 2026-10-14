@@ -1,10 +1,14 @@
 # Architecture and product decisions
 
-**Updated:** 2026-10-10. This register records decision status; it does not grant implementation permission.
+**Updated:** 2026-10-14. This register records decision status; it does not grant implementation permission.
 
 ## Recorded baseline
 
-[ADR-0001: product and UI baseline](0001-product-and-ui-baseline.md) records the initial agreed requirements. [ADR-0002: LM Studio runtime direction](0002-lm-studio-runtime-direction.md) records the later accepted reference/audit direction, grouped llama-server naming, crash isolation, independent upgrades, shared headless machinery, and shutdown ownership. ADR-0002 supersedes ADR-0001's earlier process-name prohibition. [ADR-0004](0004-runtime-lifecycle-proposal.md), accepted on 2026-10-06, records the shared TypeScript core, desktop utility/headless hosts, separate native engine, deployment ownership and initial Windows development exception. Subsequent scoped Windows runtime implementation is recorded below; remaining implementation needs its reviewed plan and authorization, and D01 stays open overall.
+The user authorized configuration/shared-generation and local API coding on 2026-10-13 and explicitly accepted [ADR-0006](0006-model-configuration-and-local-api.md). The existing configuration/API pages, protected configuration and keys, shared Chat/API queue and bounded loopback routes are implemented locally. [Development scope and evidence](../../docs/LOCAL-API-DEVELOPMENT.md) distinguish fixtures, dated real-model/package results and remaining acceptance gaps. The [current review](../../docs/LOCAL-API-REVIEW-2026-10-14.md) records the resolved findings, latest checks and remaining packaged acceptance limits. D04/D07 remain open overall, including independent full security and release/platform evidence.
+
+[API contract](../API-SPEC.md), initially proposed on 2026-10-10 and updated on 2026-10-13, combines dated official LM Studio documentation with bounded Bionic 1.1.7+7 evidence. The [staged implementation plan](../../plans/LOCAL-API-AND-MODEL-CONFIGURATION-IMPLEMENTATION.md) orders configuration, shared generation and the API. Scoped implementation was subsequently authorized and ADR-0006 accepted; these documents do not authorize publication, production deployment, new profiles or inference benchmarks.
+
+[ADR-0001: product and UI baseline](0001-product-and-ui-baseline.md) records the initial agreed requirements. [ADR-0002: LM Studio runtime direction](0002-lm-studio-runtime-direction.md) records the later accepted reference/audit direction, original llama-server naming (grouping waived by the user on 2026-10-14), crash isolation, independent upgrades, shared headless machinery, and shutdown ownership. ADR-0002 supersedes ADR-0001's earlier process-name prohibition. [ADR-0004](0004-runtime-lifecycle-proposal.md), accepted on 2026-10-06, records the shared TypeScript core, desktop utility/headless hosts, separate native engine, deployment ownership and initial Windows development exception. Subsequent scoped Windows runtime implementation is recorded below; remaining implementation needs its reviewed plan and authorization, and D01 stays open overall.
 
 ### Local generation development scope, 2026-10-09
 
