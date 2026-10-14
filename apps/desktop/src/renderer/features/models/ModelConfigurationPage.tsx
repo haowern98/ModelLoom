@@ -16,7 +16,13 @@ interface ModelConfigurationPageProps {
   model: DemoModel;
   configuration: DemoConfiguration;
   onChange: (draft: DemoModelDefaults) => void;
-  onSave: (draft: DemoModelDefaults) => void;
+  onSave: (draft: DemoModelDefaults) => void | Promise<void>;
+  live?: {
+    maxOutputTokens: number;
+    thinkingSupported: boolean;
+    pendingReload: boolean;
+    resetDefaults: DemoModelDefaults;
+  };
   onBack: () => void;
   onCluster: () => void;
 }
@@ -75,18 +81,21 @@ function Row({
   );
 }
 
-/** Session-only editor. Saving defaults never changes Cluster placement or an active session. */
+/** Shared preview/live editor. Core acknowledgement is required for a live Save success. */
 export function ModelConfigurationPage({
   model,
   configuration,
   onChange,
   onSave,
+  live,
   onBack,
   onCluster,
 }: ModelConfigurationPageProps) {
   const { draft, saved } = configuration;
   const heading = useRef<HTMLHeadingElement>(null);
   const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<NumericSetting, string>>>({});
   const changed = JSON.stringify(draft) !== JSON.stringify(saved);
   useEffect(() => {
@@ -107,16 +116,23 @@ export function ModelConfigurationPage({
       className={styles.checkbox}
       aria-label={`Enable ${numericSettings[key].label}`}
       checked={draft.enabled[key]}
+      disabled={Boolean(live && ['reasoningBudget', 'ropeBase', 'ropeScale'].includes(key))}
       onChange={(event) => patch({ enabled: { ...draft.enabled, [key]: event.target.checked } })}
     />
   );
-  const toggle = (id: string, checked: boolean, change: (checked: boolean) => void) => (
+  const toggle = (
+    id: string,
+    checked: boolean,
+    change: (checked: boolean) => void,
+    disabled = false,
+  ) => (
     <input
       id={id}
       type="checkbox"
       role="switch"
       className={styles.toggle}
       checked={checked}
+      disabled={disabled}
       onChange={(event) => change(event.target.checked)}
     />
   );
@@ -144,9 +160,19 @@ export function ModelConfigurationPage({
         label={rule.label}
         id={id}
         help={
-          key === 'contextLength'
-            ? 'The manual context value is retained while automatic optimization is selected. No hardware optimization runs in this demo.'
-            : 'This is a sample default. Runtime support and hardware limits are not checked in this demo.'
+          live
+            ? [
+                'contextLength',
+                'threads',
+                'evaluationBatch',
+                'physicalBatch',
+                'concurrency',
+              ].includes(key)
+              ? 'Load settings take effect after Stop and Run model. Only settings with verified resource requirements can load.'
+              : 'Saved generation defaults apply to new requests. ModelLoom checks supported values before saving.'
+            : key === 'contextLength'
+              ? 'The manual context value is retained while automatic optimization is selected. No hardware optimization runs in this demo.'
+              : 'This is a sample default. Runtime support and hardware limits are not checked in this demo.'
         }
         extra={
           <>
@@ -196,10 +222,11 @@ export function ModelConfigurationPage({
     );
   };
   const addStop = () => {
-    if (draft.stopInput && draft.stopStrings.length < 16)
+    if (draft.stopInput && draft.stopStrings.length < (live ? 4 : 16))
       patch({ stopStrings: [...new Set([...draft.stopStrings, draft.stopInput])], stopInput: '' });
   };
-  const save = () => {
+  const save = async () => {
+    if (saving) return;
     const next = draft.stopInput
       ? {
           ...draft,
@@ -208,6 +235,13 @@ export function ModelConfigurationPage({
         }
       : draft;
     const invalid = validateDemoDefaults(next);
+    if (live && next.numbers.threads === '') delete invalid.threads;
+    if (
+      live &&
+      next.enabled.responseLength &&
+      Number(next.numbers.responseLength) > live.maxOutputTokens
+    )
+      invalid.responseLength = `Use at most ${live.maxOutputTokens} output tokens with this model profile.`;
     setErrors(invalid);
     const first = (Object.keys(invalid) as NumericSetting[])[0];
     if (first) {
@@ -215,12 +249,41 @@ export function ModelConfigurationPage({
       document.getElementById(`config-${first}`)?.focus();
       return;
     }
-    if (next.stopStrings.length > 16) {
-      setMessage('Use no more than 16 stop strings in this demo.');
+    if (next.stopStrings.length > (live ? 4 : 16)) {
+      setSaveFailed(true);
+      setMessage(
+        live
+          ? 'Use no more than four stop strings.'
+          : 'Use no more than 16 stop strings in this demo.',
+      );
       return;
     }
-    onSave(next);
-    setMessage('Defaults saved for this demo session.');
+    setSaving(true);
+    setSaveFailed(false);
+    setMessage('Saving defaults…');
+    try {
+      await onSave(next);
+      setMessage(
+        live
+          ? 'Defaults saved. New requests will use these settings.'
+          : 'Defaults saved for this demo session.',
+      );
+    } catch (error) {
+      const messages: Record<string, string> = {
+        STALE_CONFIGURATION: 'These settings changed. Reopen configuration before saving again.',
+        INVALID_CONFIGURATION: 'Check the model settings and try again.',
+        UNSUPPORTED_SETTING: 'This setting is not available for the current model profile.',
+      };
+      setSaveFailed(true);
+      setMessage(
+        error instanceof Error
+          ? (messages[error.message] ??
+              'Settings could not be confirmed. Reopen to check saved defaults.')
+          : 'Settings could not be confirmed. Reopen to check saved defaults.',
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -245,7 +308,7 @@ export function ModelConfigurationPage({
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          save();
+          void save();
         }}
       >
         <Section title="Prompt">
@@ -254,7 +317,11 @@ export function ModelConfigurationPage({
               <label htmlFor="config-prompt">System Prompt</label>
               <Help
                 label="System Prompt"
-                text="A default instruction for this model. Saving it in this demo does not send any request."
+                text={
+                  live
+                    ? 'A default instruction for new requests. Saving does not send a request.'
+                    : 'A default instruction for this model. Saving it in this demo does not send any request.'
+                }
               />
             </div>
             <textarea
@@ -267,15 +334,33 @@ export function ModelConfigurationPage({
           </div>
         </Section>
         <Section title="Context and Performance">
+          {live && (
+            <p className={styles.description}>
+              This model currently supports the performance settings below. Other performance
+              settings are not available yet.
+            </p>
+          )}
           <Row
             label="Automatic Optimize Based on Hardware"
             id="config-auto"
-            help="The demo stores this preference only. It does not inspect hardware or compute optimized settings."
+            help={
+              live
+                ? 'Automatic optimisation is not available for this model profile.'
+                : 'The demo stores this preference only. It does not inspect hardware or compute optimized settings.'
+            }
             extra={<span className={styles.recommended}>Recommended</span>}
           >
-            {toggle('config-auto', draft.automatic, (automatic) => patch({ automatic }))}
+            {toggle(
+              'config-auto',
+              draft.automatic,
+              (automatic) => patch({ automatic }),
+              Boolean(live),
+            )}
           </Row>
-          {numeric('contextLength', { disabled: draft.automatic, inactive: 'Auto' })}
+          {numeric('contextLength', {
+            disabled: draft.automatic || Boolean(live),
+            ...(draft.automatic ? { inactive: 'Auto' } : {}),
+          })}
           <Row
             label="GPU Offload"
             id="config-offload"
@@ -290,17 +375,28 @@ export function ModelConfigurationPage({
               Set in Cluster
             </Button>
           </Row>
-          {numeric('threads', { slider: true })}
-          {numeric('evaluationBatch')}
-          {numeric('physicalBatch')}
-          {numeric('concurrency', { badge: 'Experimental' })}
+          {numeric('threads', {
+            slider: true,
+            disabled: Boolean(live),
+            ...(draft.numbers.threads === '' ? { inactive: 'Automatic' } : {}),
+          })}
+          {numeric('evaluationBatch', { disabled: Boolean(live) })}
+          {numeric('physicalBatch', { disabled: Boolean(live) })}
+          {numeric('concurrency', { badge: 'Experimental', disabled: Boolean(live) })}
           <Row
             label="Flash Attention"
             id="config-flash"
-            help="A stored preference; this demo does not verify backend support."
+            help={
+              live
+                ? 'Flash Attention is enabled in the supported performance profile.'
+                : 'A stored preference; this demo does not verify backend support.'
+            }
           >
-            {toggle('config-flash', draft.flashAttention, (flashAttention) =>
-              patch({ flashAttention }),
+            {toggle(
+              'config-flash',
+              draft.flashAttention,
+              (flashAttention) => patch({ flashAttention }),
+              Boolean(live),
             )}
           </Row>
         </Section>
@@ -315,6 +411,7 @@ export function ModelConfigurationPage({
               id="config-responseLength"
               type="number"
               min={1}
+              max={live?.maxOutputTokens}
               step="any"
               aria-label="Maximum Response Length"
               value={draft.numbers.responseLength}
@@ -332,10 +429,15 @@ export function ModelConfigurationPage({
           <Row
             label="Context Overflow"
             id="config-overflow"
-            help="Stores the default overflow choice. No context handling runs here."
+            help={
+              live
+                ? 'Requests that exceed context are rejected. Automatic truncation and rolling windows are not available.'
+                : 'Stores the default overflow choice. No context handling runs here.'
+            }
           >
             <select
               id="config-overflow"
+              disabled={Boolean(live)}
               value={draft.overflow}
               onChange={(event) => {
                 const overflow = event.target.value;
@@ -351,7 +453,11 @@ export function ModelConfigurationPage({
           <Row
             label="Stop Strings"
             id="config-stop"
-            help="Press Enter to add an exact string, including meaningful whitespace. Up to 16 strings are retained in this demo."
+            help={
+              live
+                ? 'Press Enter to add an exact string. Up to four strings of 256 UTF-8 bytes each are supported.'
+                : 'Press Enter to add an exact string, including meaningful whitespace. Up to 16 strings are retained in this demo.'
+            }
           >
             <div className={styles.stopStrings}>
               {draft.stopStrings.map((stop) => (
@@ -391,16 +497,29 @@ export function ModelConfigurationPage({
             id="config-thinking"
             description="For supported chat templates."
           >
-            {toggle('config-thinking', draft.thinking, (thinking) => patch({ thinking }))}
+            {toggle(
+              'config-thinking',
+              draft.thinking,
+              (thinking) => patch({ thinking }),
+              Boolean(live && !live.thinkingSupported),
+            )}
           </Row>
-          {numeric('reasoningBudget', { optional: 'reasoningBudget', disabled: !draft.thinking })}
+          {live && !live.thinkingSupported && (
+            <p className={styles.description}>
+              Thinking follows the model template. Changing its mode or budget is not available yet.
+            </p>
+          )}
+          {numeric('reasoningBudget', {
+            optional: 'reasoningBudget',
+            disabled: !draft.thinking || Boolean(live),
+          })}
           <Row label="Reasoning Budget Message" id="config-reasoning-message">
             <input
               className={styles.wideInput}
               id="config-reasoning-message"
               type="text"
               maxLength={2000}
-              disabled={!draft.thinking || !draft.enabled.reasoningBudget}
+              disabled={!draft.thinking || !draft.enabled.reasoningBudget || Boolean(live)}
               value={draft.reasoningMessage}
               onChange={(event) => patch({ reasoningMessage: event.target.value })}
             />
@@ -410,7 +529,11 @@ export function ModelConfigurationPage({
           <Row
             label="Method"
             id="config-speculative"
-            description="Speculative decoding is not connected in this demo."
+            description={
+              live
+                ? 'Speculative decoding is not available for this model profile.'
+                : 'Speculative decoding is not connected in this demo.'
+            }
             help="Only methods without draft models may be considered, after unchanged-quality validation. No such method is enabled here."
           >
             <select id="config-speculative" disabled value="off">
@@ -432,17 +555,25 @@ export function ModelConfigurationPage({
                 if (customTemplate !== draft.customTemplate) patch({ customTemplate });
               }}
             >
-              <summary>
+              <summary
+                aria-disabled={Boolean(live)}
+                onClick={(event) => {
+                  if (live) event.preventDefault();
+                }}
+              >
                 <span>Chat Template</span>
                 <span className={styles.templateValue}>
                   {draft.chatTemplate ? 'Custom' : 'Model default'}
                 </span>
               </summary>
               <p className={styles.description}>
-                Stored as text only. This demo does not render or execute templates.
+                {live
+                  ? 'Custom chat templates are not available for this model profile.'
+                  : 'Stored as text only. This demo does not render or execute templates.'}
               </p>
               <textarea
                 aria-label="Chat Template text"
+                disabled={Boolean(live)}
                 placeholder="Leave empty to use the model default"
                 maxLength={16000}
                 value={draft.chatTemplate}
@@ -450,16 +581,27 @@ export function ModelConfigurationPage({
               />
             </details>
           </div>
-          {numeric('ropeBase', { optional: 'ropeBase', inactive: 'Auto' })}
-          {numeric('ropeScale', { optional: 'ropeScale', inactive: 'Auto' })}
+          {numeric('ropeBase', { optional: 'ropeBase', inactive: 'Auto', disabled: Boolean(live) })}
+          {numeric('ropeScale', {
+            optional: 'ropeScale',
+            inactive: 'Auto',
+            disabled: Boolean(live),
+          })}
           {numeric('seed', { optional: 'seed', inactive: 'Random' })}
           <Row
             label="llama.cpp Arguments Override"
             id="config-arguments"
-            help="The demo stores text only; arguments are never parsed or executed."
+            help={
+              live
+                ? 'Runtime argument overrides are not available for this model profile.'
+                : 'The demo stores text only; arguments are never parsed or executed.'
+            }
           >
-            {toggle('config-arguments', draft.argumentsEnabled, (argumentsEnabled) =>
-              patch({ argumentsEnabled }),
+            {toggle(
+              'config-arguments',
+              draft.argumentsEnabled,
+              (argumentsEnabled) => patch({ argumentsEnabled }),
+              Boolean(live),
             )}
           </Row>
           {draft.argumentsEnabled && (
@@ -467,6 +609,7 @@ export function ModelConfigurationPage({
               <label htmlFor="config-arguments-text">Arguments</label>
               <textarea
                 id="config-arguments-text"
+                disabled={Boolean(live)}
                 maxLength={8000}
                 placeholder="Enter argument overrides…"
                 value={draft.argumentsText}
@@ -477,14 +620,29 @@ export function ModelConfigurationPage({
           )}
         </Section>
         <footer className={styles.footer}>
-          <Button className={styles.reset} onClick={() => patch(createDemoDefaults())}>
+          <Button
+            className={styles.reset}
+            onClick={() => patch(structuredClone(live?.resetDefaults ?? createDemoDefaults()))}
+          >
             <RotateCcw size={16} aria-hidden="true" />
             Reset defaults
           </Button>
-          <p className={styles.feedback} role={Object.keys(errors).length ? 'alert' : 'status'}>
-            {message || (changed ? 'Pending changes' : 'Defaults for this demo session')}
+          <p
+            className={styles.feedback}
+            role={Object.keys(errors).length || saveFailed ? 'alert' : 'status'}
+          >
+            {changed && message === 'Defaults saved. New requests will use these settings.'
+              ? 'Defaults saved. Further edits are pending.'
+              : message ||
+                (changed
+                  ? 'Pending changes'
+                  : live
+                    ? live.pendingReload
+                      ? 'Performance changes need a validated reload'
+                      : 'Saved model defaults'
+                    : 'Defaults for this demo session')}
           </p>
-          <Button type="submit" className={styles.save} disabled={!changed}>
+          <Button type="submit" className={styles.save} disabled={!changed || saving}>
             Save defaults
           </Button>
         </footer>
