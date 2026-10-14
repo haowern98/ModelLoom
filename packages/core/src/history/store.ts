@@ -1,4 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
+import { decodeResolvedRequestSettings } from '../model-configuration/contracts.js';
+import type { ResolvedRequestSettings } from '../model-configuration/contracts.js';
 import { randomUUID } from 'node:crypto';
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import { decodeOutcome, decodeSpeeds, GENERATION_LIMITS } from '../generation/contracts.js';
@@ -23,6 +25,7 @@ export interface Attempt {
   readonly state: string;
   readonly outcome: TerminalOutcome | null;
   readonly provenance: Provenance;
+  readonly settings?: ResolvedRequestSettings | null;
 }
 export interface Turn {
   readonly id: string;
@@ -44,6 +47,7 @@ export interface BeginTurn {
   readonly requestId: string;
   readonly text: string;
   readonly provenance: Provenance;
+  readonly settings?: ResolvedRequestSettings;
 }
 const active = ['queued', 'running', 'cancelling'];
 const legacyTables = {
@@ -71,12 +75,20 @@ const speedsTables = {
     ', speeds TEXT,UNIQUE(turn_id,ordinal)',
   ),
 };
-const tables = {
+const durationTables = {
   ...speedsTables,
   schema_version: 'CREATE TABLE schema_version(version INTEGER NOT NULL CHECK(version=4))',
   attempts: speedsTables.attempts.replace(
     ',UNIQUE(turn_id,ordinal)',
     ', thinking_ms INTEGER,UNIQUE(turn_id,ordinal)',
+  ),
+};
+const tables = {
+  ...durationTables,
+  schema_version: 'CREATE TABLE schema_version(version INTEGER NOT NULL CHECK(version=5))',
+  attempts: durationTables.attempts.replace(
+    ',UNIQUE(turn_id,ordinal)',
+    ', generation_settings TEXT,UNIQUE(turn_id,ordinal)',
   ),
 };
 const safeErrors = new Set([
@@ -190,13 +202,16 @@ function inspectSchema(database: DatabaseSync) {
           ? thinkingTables
           : versions[0]?.version === 3
             ? speedsTables
-            : tables;
+            : versions[0]?.version === 4
+              ? durationTables
+              : tables;
     if (
       versions.length !== 1 ||
       (versions[0]?.version !== 1 &&
         versions[0]?.version !== 2 &&
         versions[0]?.version !== 3 &&
-        versions[0]?.version !== 4) ||
+        versions[0]?.version !== 4 &&
+        versions[0]?.version !== 5) ||
       rows.length !== 4 ||
       rows.some(
         (row) =>
@@ -257,22 +272,23 @@ export class HistoryStore {
       if (!rows.length)
         this.transaction(() => {
           for (const sql of Object.values(tables)) database.exec(sql);
-          database.exec('INSERT INTO schema_version VALUES(4)');
+          database.exec('INSERT INTO schema_version VALUES(5)');
         });
       // Acquire and retain the exclusive SQLite lock even for an existing idle database.
       else
         this.transaction(() => {
           // Upgrade only preflight-verified schemas, atomically under the retained writer lock.
           const version = database.prepare('SELECT version FROM schema_version').get()?.version;
-          if (version === 1 || version === 2 || version === 3) {
+          if (version === 1 || version === 2 || version === 3 || version === 4) {
             if (version === 1)
               database.exec("ALTER TABLE attempts ADD COLUMN reasoning TEXT NOT NULL DEFAULT ''");
             if (version === 1 || version === 2)
               database.exec('ALTER TABLE attempts ADD COLUMN speeds TEXT');
-            database.exec('ALTER TABLE attempts ADD COLUMN thinking_ms INTEGER');
+            if (version !== 4) database.exec('ALTER TABLE attempts ADD COLUMN thinking_ms INTEGER');
+            database.exec('ALTER TABLE attempts ADD COLUMN generation_settings TEXT');
             database.exec('DROP TABLE schema_version');
             database.exec(tables.schema_version);
-            database.exec('INSERT INTO schema_version VALUES(4)');
+            database.exec('INSERT INTO schema_version VALUES(5)');
             inspectSchema(database);
           }
         });
@@ -332,7 +348,7 @@ export class HistoryStore {
       .prepare(
         `SELECT length(CAST(draft AS BLOB))+length(CAST(title AS BLOB))+
       COALESCE((SELECT SUM(length(CAST(text AS BLOB))) FROM user_turns WHERE conversation_id=c.id),0)+
-      COALESCE((SELECT SUM(length(CAST(a.text AS BLOB))+length(CAST(a.reasoning AS BLOB))) FROM attempts a JOIN user_turns u ON u.id=a.turn_id WHERE u.conversation_id=c.id),0) AS bytes FROM conversations c WHERE id=?`,
+      COALESCE((SELECT SUM(length(CAST(a.text AS BLOB))+length(CAST(a.reasoning AS BLOB))+COALESCE(length(CAST(a.generation_settings AS BLOB)),0)) FROM attempts a JOIN user_turns u ON u.id=a.turn_id WHERE u.conversation_id=c.id),0) AS bytes FROM conversations c WHERE id=?`,
       )
       .get(conversationId);
     if (!row || integer(row, 'bytes') > GENERATION_LIMITS.maxConversationBytes)
@@ -353,6 +369,7 @@ export class HistoryStore {
     requestId: string,
     turnId: string,
     source: Provenance,
+    settings?: ResolvedRequestSettings,
   ): Attempt {
     if (
       this.database
@@ -365,7 +382,7 @@ export class HistoryStore {
       .get(turnId)?.count;
     if (typeof ordinal !== 'number') throw new Error('INVALID_HISTORY');
     this.database
-      .prepare('INSERT INTO attempts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .prepare('INSERT INTO attempts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(
         attemptId,
         turnId,
@@ -380,6 +397,7 @@ export class HistoryStore {
         '',
         null,
         null,
+        settings === undefined ? null : JSON.stringify(decodeResolvedRequestSettings(settings)),
       );
     return {
       id: attemptId,
@@ -390,6 +408,7 @@ export class HistoryStore {
       state: 'queued',
       outcome: null,
       provenance: source,
+      settings: settings ?? null,
     };
   }
   newConversation(reuseEmpty = false): Promise<Conversation> {
@@ -453,7 +472,9 @@ export class HistoryStore {
     return this.run(() => {
       if (
         Object.keys(input).sort().join(',') !==
-        'attemptId,conversationId,provenance,requestId,text,turnId'
+        (input.settings === undefined
+          ? 'attemptId,conversationId,provenance,requestId,text,turnId'
+          : 'attemptId,conversationId,provenance,requestId,settings,text,turnId')
       )
         throw new Error('INVALID_HISTORY');
       for (const value of [input.conversationId, input.turnId, input.attemptId, input.requestId])
@@ -472,7 +493,13 @@ export class HistoryStore {
         this.database
           .prepare('INSERT INTO user_turns VALUES(?,?,?,?,?)')
           .run(input.turnId, input.conversationId, ordinal, input.text, Date.now());
-        const result = this.insertAttempt(input.attemptId, input.requestId, input.turnId, source);
+        const result = this.insertAttempt(
+          input.attemptId,
+          input.requestId,
+          input.turnId,
+          source,
+          input.settings,
+        );
         // Admission may finish after the user has already saved their next message.
         this.database
           .prepare(
@@ -489,6 +516,7 @@ export class HistoryStore {
     attemptId: string,
     requestId: string,
     source: Provenance,
+    settings?: ResolvedRequestSettings,
   ): Promise<Attempt> {
     return this.run(() => {
       id(previous);
@@ -500,7 +528,13 @@ export class HistoryStore {
           conversationId = field(row, 'conversation_id');
         if (active.includes(field(row, 'state'))) throw new Error('CONVERSATION_BUSY');
         this.idle(conversationId);
-        const result = this.insertAttempt(attemptId, requestId, field(row, 'turn_id'), exact);
+        const result = this.insertAttempt(
+          attemptId,
+          requestId,
+          field(row, 'turn_id'),
+          exact,
+          settings,
+        );
         this.bump(conversationId);
         return result;
       });
@@ -668,6 +702,12 @@ export class HistoryStore {
                   ? null
                   : outcome({ status: state, reason: attempt.reason }),
                 provenance: source,
+                settings:
+                  attempt.generation_settings === null
+                    ? null
+                    : decodeResolvedRequestSettings(
+                        JSON.parse(field(attempt, 'generation_settings')) as unknown,
+                      ),
               };
             }),
         }));
@@ -682,7 +722,12 @@ export class HistoryStore {
     });
   }
   /** Core-only retry resolution; never scan or return unrelated conversation bodies. */
-  retrySource(value: string): Promise<{ conversationId: string; turnId: string; text: string }> {
+  retrySource(value: string): Promise<{
+    conversationId: string;
+    turnId: string;
+    text: string;
+    settings: ResolvedRequestSettings | null;
+  }> {
     return this.run(() => {
       const attempt = this.attempt(value);
       const turn = this.database
@@ -693,6 +738,12 @@ export class HistoryStore {
         conversationId: field(attempt, 'conversation_id'),
         turnId: field(attempt, 'turn_id'),
         text: field(turn, 'text'),
+        settings:
+          attempt.generation_settings === null
+            ? null
+            : decodeResolvedRequestSettings(
+                JSON.parse(field(attempt, 'generation_settings')) as unknown,
+              ),
       };
     });
   }
