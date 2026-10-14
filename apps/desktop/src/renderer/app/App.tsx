@@ -5,6 +5,8 @@ import { ModelsPage } from '../features/models/ModelsPage';
 import { ModelConfigurationPage } from '../features/models/ModelConfigurationPage';
 import { createDemoDefaults } from '../features/models/configuration';
 import type { DemoConfiguration } from '../features/models/configuration';
+import { fromModelEditor, toModelEditor } from '../features/models/live-configuration';
+import type { ConfigurationReply } from '../../shared/model-configuration';
 import { ClusterPage } from '../features/cluster/ClusterPage';
 import { ChatPage } from '../features/chat/ChatPage';
 import { ApiPage } from '../features/api/ApiPage';
@@ -48,9 +50,11 @@ export function App() {
   const [modal, setModal] = useState<Modal | null>(null);
   const [configurationModelId, setConfigurationModelId] = useState<string | null>(null);
   const [configurations, setConfigurations] = useState<Record<string, DemoConfiguration>>({});
+  const [configurationReplies, setConfigurationReplies] = useState<
+    Record<string, Extract<ConfigurationReply, { ok: true }>>
+  >({});
+  const configurationOpen = useRef(0);
   const restoreConfigurationFocus = useRef<string | null>(null);
-  const configurationModel = library.models.find((model) => model.id === configurationModelId);
-  const configuration = configurationModel ? configurations[configurationModel.id] : undefined;
   const importedModel: DemoModel | undefined = runtime.view?.model
     ? {
         ...runtime.view.model,
@@ -70,6 +74,13 @@ export function App() {
         activeModelId: runtime.view?.phase === 'ready' ? (importedModel?.id ?? null) : null,
       }
     : library;
+  const configurationModel = displayLibrary.models.find(
+    (model) => model.id === configurationModelId,
+  );
+  const configuration = configurationModel ? configurations[configurationModel.id] : undefined;
+  const liveConfiguration = configurationModel
+    ? configurationReplies[configurationModel.id]
+    : undefined;
   const activeModel = displayLibrary.models.find(
     (model) => model.id === displayLibrary.activeModelId,
   );
@@ -86,6 +97,7 @@ export function App() {
   }, [destination, configurationModel]);
 
   const navigate = (next: Destination) => {
+    configurationOpen.current++;
     setConfigurationModelId(null);
     setDestination(next);
   };
@@ -131,12 +143,46 @@ export function App() {
                 : current;
             })
           }
-          onSave={(draft) =>
+          {...(live && liveConfiguration
+            ? {
+                live: {
+                  maxOutputTokens: liveConfiguration.maxOutputTokens,
+                  thinkingSupported: liveConfiguration.thinkingSupported,
+                  pendingReload: liveConfiguration.pendingReload,
+                  resetDefaults: toModelEditor(liveConfiguration.defaults),
+                },
+              }
+            : {})}
+          onSave={async (draft) => {
+            const modelId = configurationModel.id;
+            if (!live) {
+              setConfigurations((current) => ({ ...current, [modelId]: { saved: draft, draft } }));
+              return;
+            }
+            const bridge = window.modelLoomConfiguration;
+            if (!bridge || !liveConfiguration) throw Error('CONFIGURATION_UNAVAILABLE');
+            const previousDraft = configurations[modelId]?.draft;
+            const record = fromModelEditor(draft, liveConfiguration.record);
+            const reply = await bridge.command({
+              action: 'save',
+              modelId: record.modelId,
+              expectedRevision: record.revision,
+              record,
+            });
+            if (!reply.ok) throw Error(reply.error);
+            const saved = toModelEditor(reply.record);
+            setConfigurationReplies((current) => ({ ...current, [modelId]: reply }));
             setConfigurations((current) => ({
               ...current,
-              [configurationModel.id]: { saved: draft, draft },
-            }))
-          }
+              [modelId]: {
+                saved,
+                draft:
+                  JSON.stringify(current[modelId]?.draft) === JSON.stringify(previousDraft)
+                    ? saved
+                    : (current[modelId]?.draft ?? saved),
+              },
+            }));
+          }}
           onBack={() => {
             restoreConfigurationFocus.current = `Configure ${configurationModel.name}`;
             setConfigurationModelId(null);
@@ -166,11 +212,38 @@ export function App() {
           onDetails={(model) => setModal({ type: 'details', model })}
           onConfigure={(model) => {
             if (live) {
-              setModal({
-                type: 'info',
-                title: 'Model configuration',
-                text: 'This first connection uses the tested settings: 7,680 tokens per request, four slots, Q8_0 KV cache, full GPU offload, seed 7 and temperature 0.8. Custom settings are not connected yet.',
-              });
+              const operation = ++configurationOpen.current;
+              const bridge = window.modelLoomConfiguration;
+              void (async () => {
+                try {
+                  if (!bridge) throw Error('CONFIGURATION_UNAVAILABLE');
+                  const reply = await bridge.command({
+                    action: 'read',
+                    modelId: model.id.replace(/^model-/u, ''),
+                  });
+                  if (operation !== configurationOpen.current) return;
+                  if (!reply.ok) throw Error(reply.error);
+                  const saved = toModelEditor(reply.record);
+                  const preserve =
+                    configurationReplies[model.id]?.record.revision === reply.record.revision;
+                  setConfigurationReplies((current) => ({ ...current, [model.id]: reply }));
+                  setConfigurations((current) => ({
+                    ...current,
+                    [model.id]: {
+                      saved,
+                      draft: preserve ? (current[model.id]?.draft ?? saved) : saved,
+                    },
+                  }));
+                  setConfigurationModelId(model.id);
+                } catch {
+                  if (operation === configurationOpen.current)
+                    setModal({
+                      type: 'info',
+                      title: 'Model configuration',
+                      text: 'Saved settings are unavailable. Try opening model configuration again.',
+                    });
+                }
+              })();
               return;
             }
             setConfigurations((current) => {

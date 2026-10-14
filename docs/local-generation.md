@@ -1,11 +1,12 @@
 # Local Chat development
 
-**Status, 2026-10-10:** Implemented locally in the explicit Windows development
-build on `feat/local-generation`; the slice has focused local commits. Ordinary/demo builds
-keep generation disabled. This is a partial M1 development result, not production
-or cross-platform acceptance. The earlier documentation reconciliation changed
-Markdown only. The subsequent review-fix PROCEED authorizes the four Chat
-corrections below, without API, worker, signing or publication operations.
+**Status, 2026-10-14:** The Chat slice and review corrections were merged through
+PR #6 on October 10. The current checkout is `feat/local-api`, with locally recorded
+model configuration, shared Chat/API generation, schema-5 history and explicit
+Windows development packaging. See [the local API guide](LOCAL-API-DEVELOPMENT.md)
+and [current review](LOCAL-API-REVIEW-2026-10-14.md) for the latest results and
+remaining gates. Ordinary/demo packages keep generation disabled. M1 remains
+partial; production, cross-platform and distributed acceptance are open.
 
 The later demo-removal PROCEED makes ordinary startup/rebuild sample-free. Windows
 development starts rebuild and enable the existing approved core before opening;
@@ -13,6 +14,10 @@ preparation failure stops startup. Models/Cluster use actual imported models and
 detected devices or empty/unavailable states. Explicit tests retain their fixture
 mode. The underlying ordinary host build still resets development-only output,
 with production trust and live resource/verification checks unchanged.
+
+The following table preserves the October 10 Chat checkpoint. Its API-preview
+and schema-4 descriptions are historical; the current API/schema-5 status is
+linked above. Subsequent evidence below retains its dated scope.
 
 | Area                   | Current implementation and evidence                                                                                                                                                                                     | Remaining limit                                                                                                                                                       |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -37,13 +42,17 @@ The latest real-model UI receipts are `plans/chat-repair-live.json` and
 `plans/chat-delete-live.json` and `plans/neutral-dialog-live.json`.
 All are ignored local evidence, not hosted CI or published artifacts. Historical
 PR #5 evidence applies to the preceding runtime slice, not these local
-changes. A subsequent local code review found four Chat bugs; their fixes are
-authorized and implemented below. Independent review and publication remain pending.
+changes. The four Chat review corrections and later draft/status corrections
+were included in merged PR #6. The newer API/package slice is recorded in local
+commits on `feat/local-api`; no push or hosted CI is claimed for that slice.
 
-Next: checkpoint this local Chat slice after verification, then review the D07 contract before
-any API implementation. Follow M2 approved workers and M3 in-app private-network
-integration under [the delivery plan](../plans/PLAN.md). Existing Tailscale
-connectivity does not implement ModelLoom pairing, authorization or protected RPC.
+The three API/package review findings and the live Chat/loading-owner check are
+resolved. Next: review the committed slice for publication, preserving its wider
+acceptance limits. ADR-0006 accepts the limited local
+API contract; D07 remains open overall. Follow M2 approved workers and M3 in-app
+private-network integration under [the delivery plan](../plans/PLAN.md). Existing
+Tailscale connectivity does not implement ModelLoom pairing, authorization or
+protected RPC.
 
 The explicit Windows development build connects the existing Chat screen to the
 utility core and its captured llama-server transport. Send saves one user turn
@@ -200,12 +209,24 @@ before releasing its handle; the earlier cleanup race masked a cache-test failur
 
 The development catalogue retains the earlier one-slot report and adds the
 exact four-slot report. Desktop selects four slots. Its conservative physical
-RAM admission budget is 7,524 MiB (7.35 GiB), including full cache/checkpoint
+initial RAM admission budget was 7,524 MiB (7.35 GiB), including full cache/checkpoint
 reserves; it is not measured steady-state RAM or private commit. The GPU budget
 is 5,579 MiB. Production catalogues remain empty. New regression checks reject
 insufficient RAM/VRAM and changed settings and prevent desktop from selecting
 the older one-slot report. Local ordinary tests pass: 69 desktop and 395 core;
 all 58 native tests pass. Typechecking, host build and lint pass.
+
+On October 14 the user requested a lower RAM requirement. The four-slot host
+allowance was reduced from 5 GiB to 4 GiB; full cache/checkpoint reserves and
+all model, context, concurrency and sampling settings remain unchanged.
+Current four-slot admission is 6,500 MiB (6.35 GiB). The new boundary regression
+failed before the adjustment, then all 59 targeted resource/configuration tests
+passed. A fresh bounded four-slot validation passed the same long-prefill,
+reuse, RAM restoration and graceful-stop checks. Its resident peak was
+6,186,299,392 bytes (5.76 GiB), leaving over 512 MiB in the admission envelope.
+This supports the revised estimate; it does not guarantee every allocation
+or establish inference equivalence. The earlier evidence is preserved under
+`four-slots-20261009.json`/`.log`.
 
 Kryptex's existing `KryptexElevationV2` scheduled task can be stopped and started
 through commands. Each pause was verified by absence of Kryptex/SRBMiner;

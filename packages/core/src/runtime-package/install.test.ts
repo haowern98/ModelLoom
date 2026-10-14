@@ -1,6 +1,16 @@
 import { afterEach, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  link,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { repository } from '../../tests/package-repository.js';
@@ -45,6 +55,10 @@ it('copies checked dependencies into a new version and retains file locks during
   const { capability, bundle, root } = await setup();
   const installed = await installExpanded(capability, bundle, root);
   expect(await readFile(path.join(installed.directory, 'llama-server.exe'), 'utf8')).toBe('exe');
+  expect((await readdir(installed.directory)).sort()).toEqual([
+    'ModelLoom-runtime-host.exe',
+    'llama-server.exe',
+  ]);
   const locks = await revalidateInstalled(installed);
   try {
     await expect(
@@ -86,3 +100,32 @@ it('rejects post-install tampering and forged receipts', async () => {
   await expect(revalidateInstalled(installed)).rejects.toThrow('INSTALL_FAILED');
   await expect(revalidateInstalled({ ...installed })).rejects.toThrow('INSTALL_FAILED');
 });
+it.each(['llama-server.exe', 'ModelLoom-runtime-host.exe'])(
+  'refuses missing, changed and linked original %s',
+  async (name) => {
+    for (const mutation of ['missing', 'changed', 'symlink', 'hardlink']) {
+      const { capability, bundle, root } = await setup();
+      const installed = await installExpanded(capability, bundle, root);
+      const target = path.join(installed.directory, name);
+      if (mutation === 'changed') await writeFile(target, 'bad');
+      else {
+        await rm(target);
+        const original = path.join(bundle, name);
+        if (mutation === 'symlink') await symlink(original, target, 'file');
+        if (mutation === 'hardlink') await link(original, target);
+      }
+      await expect(revalidateInstalled(installed)).rejects.toThrow('INSTALL_FAILED');
+    }
+  },
+);
+it.each(['ModelLoom Development.exe', '.modelloom-launch-helper/ModelLoom Development.exe'])(
+  'rejects an undeclared launch copy at %s',
+  async (name) => {
+    const { capability, bundle, root } = await setup();
+    const installed = await installExpanded(capability, bundle, root);
+    const target = path.join(installed.directory, name);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, 'exe');
+    await expect(revalidateInstalled(installed)).rejects.toThrow('INSTALL_FAILED');
+  },
+);

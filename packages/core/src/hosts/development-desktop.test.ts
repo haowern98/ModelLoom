@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+import path from 'node:path';
 import { developmentDesktopDependencies } from './development-desktop.js';
 import type * as DevelopmentPolicy from '../runtime-package/development-policy.js';
 import type { DesktopDeployment } from './desktop.js';
@@ -14,6 +15,7 @@ const startup = vi.hoisted(() => ({
 vi.mock('./windows-ownership.js', () => ({
   ownershipBinding: () => ({
     createDeployment: () => ({}),
+    privateDirectory: () => undefined,
     admitCore: startup.admit,
     closeDeployment: startup.close,
     coresExited: () => true,
@@ -55,6 +57,34 @@ vi.mock('./resource-probe.js', () => ({
     }),
 }));
 beforeEach(() => vi.clearAllMocks());
+
+it('keeps writable verification and installations outside bundled bootstrap assets', async () => {
+  const bootstrap = path.resolve('fixture-package/bootstrap');
+  const state = path.resolve('fixture-runtime');
+  const deps = developmentDesktopDependencies(
+    () => {
+      throw new Error('UNEXPECTED_FORK');
+    },
+    bootstrap,
+    path.resolve('fixture-profile'),
+    'window',
+    state,
+  );
+  startup.verify.mockResolvedValueOnce('verified');
+  startup.install.mockRejectedValueOnce(new Error('INSTALL_FAILED'));
+  const host = await deps.createHistoryHost();
+  await expect(host.prepare('approved.gguf')).rejects.toThrow('INSTALL_FAILED');
+  expect(startup.verify).toHaveBeenCalledWith(
+    path.join(bootstrap, 'repository'),
+    path.join(state, 'desktop-verification'),
+  );
+  expect(startup.install).toHaveBeenCalledWith(
+    'verified',
+    path.join(bootstrap, 'candidate'),
+    path.join(state, 'installed'),
+  );
+  await host.close();
+});
 
 it('preflights desktop Chat against four slots rather than the older one-slot report', async () => {
   const dependencies = developmentDesktopDependencies(() => {

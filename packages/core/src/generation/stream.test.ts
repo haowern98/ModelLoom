@@ -37,7 +37,12 @@ describe('pinned text-only chat stream', () => {
       const last =
         where === 'finish'
           ? { ...finish, timings }
-          : { ...finish, choices: [], usage: { completion_tokens: 5 }, timings };
+          : {
+              ...finish,
+              choices: [],
+              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+              timings,
+            };
       const stream =
         frame({ reasoning_content: 'Consider' }) +
         frame({ content: 'Hello' }) +
@@ -47,6 +52,9 @@ describe('pinned text-only chat stream', () => {
       expect((await collect(stream)).at(-1)).toEqual({
         ...terminal,
         speeds: { generation: 24.8, prefill: 1420 },
+        ...(where === 'usage'
+          ? { usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }
+          : {}),
       });
     },
   );

@@ -10,6 +10,14 @@ import { UtilityChatTransport } from './chat-channel.js';
 import { openHistoryStore } from '../history/store.js';
 import type { HistoryStore, Provenance } from '../history/store.js';
 import { trustedHistoryRoot } from '../history/windows-directory.js';
+import { openModelConfigurationStore } from '../model-configuration/store.js';
+import { ConfigurationController } from '../model-configuration/controller.js';
+import { createConfigurationProfile } from '../model-configuration/development-profile.js';
+import type { ActiveLoadSnapshot } from '../model-configuration/contracts.js';
+import type { ConfigurationReply } from '../model-configuration/wire.js';
+import { ApiController } from '../local-api/controller.js';
+import { windowsApiKeyProtection } from '../model-configuration/windows-protection.js';
+import type { ApiOwnerReply } from '../local-api/wire.js';
 
 export interface UtilityChannel {
   send(text: string): void;
@@ -27,7 +35,12 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 /** Utility core host: lifecycle, protected history and admission; no engine credentials or renderer channel. */
-export function runUtility(channel: UtilityChannel, injectedHistory?: HistoryStore): void {
+export function runUtility(
+  channel: UtilityChannel,
+  injectedHistory?: HistoryStore,
+  injectedConfiguration?: ConfigurationController,
+  injectedApi?: ApiController,
+): void {
   let admitted = false;
   let scope = FIXTURE_SCOPE;
   let chat: ChatController | undefined, remote: UtilityChatTransport | undefined;
@@ -36,6 +49,14 @@ export function runUtility(channel: UtilityChannel, injectedHistory?: HistorySto
   let generationId = 0;
   let chatEpoch = 0;
   let provenance: Provenance | undefined;
+  let configuration = injectedConfiguration;
+  let api = injectedApi,
+    lastApi = 0;
+  let configurationOwner: ReturnType<typeof openModelConfigurationStore> | undefined;
+  let configurationPreparation: Promise<void> | undefined;
+  let activeLoad: ActiveLoadSnapshot | null = null;
+  const loadConfigurations = new Map<string, ActiveLoadSnapshot>();
+  let lastConfiguration = 0;
   let lastChat = 0,
     quitting = false,
     dirty = false;
@@ -82,8 +103,56 @@ export function runUtility(channel: UtilityChannel, injectedHistory?: HistorySto
     try {
       if (typeof input !== 'string') throw new Error('INVALID_CONTROL');
       const envelope = decodeObject(input);
+      if (envelope.type === 'api-command') {
+        exact(envelope, ['type', 'id', 'caller', 'command']);
+        if (
+          !admitted ||
+          typeof envelope.id !== 'number' ||
+          !Number.isSafeInteger(envelope.id) ||
+          envelope.id <= lastApi ||
+          typeof envelope.caller !== 'string' ||
+          envelope.caller.length > 128
+        )
+          throw new Error('INVALID_CONTROL');
+        lastApi = envelope.id;
+        const caller = envelope.caller;
+        void (configurationPreparation ?? Promise.resolve())
+          .catch(() => undefined)
+          .then((): Promise<ApiOwnerReply> | ApiOwnerReply =>
+            !quitting && api
+              ? api.command(caller, envelope.command)
+              : { ok: false, error: quitting ? 'NOT_READY' : 'API_UNAVAILABLE' },
+          )
+          .then((reply) => send({ type: 'api-reply', id: envelope.id, reply }))
+          .catch(() => channel.exit(1));
+        return;
+      }
       if (envelope.type === 'generation-result') {
         remote?.receive(envelope);
+        return;
+      }
+      if (envelope.type === 'configuration-command') {
+        exact(envelope, ['type', 'id', 'caller', 'command']);
+        if (
+          !admitted ||
+          typeof envelope.id !== 'number' ||
+          !Number.isSafeInteger(envelope.id) ||
+          envelope.id <= lastConfiguration ||
+          typeof envelope.caller !== 'string' ||
+          envelope.caller.length > 128
+        )
+          throw new Error('INVALID_CONTROL');
+        lastConfiguration = envelope.id;
+        const caller = envelope.caller;
+        void (configurationPreparation ?? Promise.resolve())
+          .catch(() => undefined)
+          .then(async (): Promise<ConfigurationReply> =>
+            !quitting && configuration
+              ? configuration.command(caller, envelope.command)
+              : { ok: false, error: quitting ? 'NOT_READY' : 'CONFIGURATION_UNAVAILABLE' },
+          )
+          .then((reply) => send({ type: 'configuration-reply', id: envelope.id, reply }))
+          .catch(() => channel.exit(1));
         return;
       }
       if (envelope.type === 'chat-command') {
@@ -165,6 +234,39 @@ export function runUtility(channel: UtilityChannel, injectedHistory?: HistorySto
           provenance = setup.provenance as Provenance;
           const caller = setup.caller,
             applicationData = setup.applicationData;
+          if (
+            !injectedConfiguration &&
+            provenance.upstreamCommit === '4f31296a907d73f3409f720429bcf31111615d77' &&
+            /^[a-f0-9]{64}$/u.test(scope.modelId)
+          ) {
+            configurationPreparation = Promise.resolve().then(() => {
+              const profile = createConfigurationProfile(provenance!);
+              configurationOwner = openModelConfigurationStore(
+                trustedHistoryRoot(applicationData),
+                (modelId) => modelId === scope.modelId,
+                profile.capabilities,
+                profile.load,
+              );
+              configuration = new ConfigurationController(
+                configurationOwner.store,
+                caller,
+                profile.capabilities,
+                profile.load,
+                () => activeLoad,
+              );
+              if (!injectedApi)
+                api = new ApiController(
+                  configurationOwner.store,
+                  caller,
+                  scope.modelId,
+                  profile.capabilities,
+                  windowsApiKeyProtection,
+                  () => activeLoad !== null && session.core.snapshot().phase === 'ready',
+                  () => chat,
+                );
+            });
+            void configurationPreparation.catch(() => undefined);
+          }
           chatPreparation = (async () => {
             if (!injectedHistory)
               historyOwner = await openHistoryStore(trustedHistoryRoot(applicationData));
@@ -231,6 +333,7 @@ export function runUtility(channel: UtilityChannel, injectedHistory?: HistorySto
                 entry.ready.resolve();
                 return;
               }
+              activeLoad = loadConfigurations.get(selectionKey(entry.selection)) ?? null;
               if (chat && provenance) {
                 remote = new UtilityChatTransport(entry.selection, send, () => ++generationId);
                 try {
@@ -242,6 +345,19 @@ export function runUtility(channel: UtilityChannel, injectedHistory?: HistorySto
                     },
                     provenance,
                     transport: remote,
+                    ...(provenance.upstreamCommit === '4f31296a907d73f3409f720429bcf31111615d77'
+                      ? {
+                          configuration: {
+                            capabilities: createConfigurationProfile(provenance).capabilities,
+                            capture: async (overrides) => {
+                              await configurationPreparation;
+                              if (!configuration || !activeLoad)
+                                throw new Error('CONFIGURATION_UNAVAILABLE');
+                              return configuration.resolve(activeLoad, overrides);
+                            },
+                          },
+                        }
+                      : {}),
                     cleanup: () => {
                       send({ type: 'broker', action: 'stop', selection: entry.selection });
                       return Promise.resolve();
@@ -256,14 +372,17 @@ export function runUtility(channel: UtilityChannel, injectedHistory?: HistorySto
             break;
           }
           case 'exited':
+            activeLoad = null;
+            loadConfigurations.delete(selectionKey(event.selection));
             chatEpoch++;
-            remote?.close();
+            remote?.engineExited(event.selection);
             void chat?.bind(null).catch(() => channel.exit(1));
             entry.ready.reject(new Error('ENGINE_EXITED'));
             entry.exited.resolve({ code: event.code, signal: null });
             entries.delete(selectionKey(event.selection));
             break;
           case 'failed':
+            loadConfigurations.delete(selectionKey(event.selection));
             entry.captured.reject(new Error('START_FAILED'));
             entry.ready.reject(new Error('START_FAILED'));
             entries.delete(selectionKey(event.selection));
@@ -279,11 +398,39 @@ export function runUtility(channel: UtilityChannel, injectedHistory?: HistorySto
       const handle = async () => {
         if (command.action === 'quit') quitting = true;
         if (command.action === 'quit' || command.action === 'stop') chatEpoch++;
+        if (command.action === 'quit' || command.action === 'stop') activeLoad = null;
+        if (command.action === 'quit' || command.action === 'stop') loadConfigurations.clear();
         await chatPreparation?.catch(() => undefined);
+        if (command.action === 'quit') {
+          await configurationPreparation?.catch(() => undefined);
+          await api?.close().catch(() => undefined);
+        }
         if (command.action === 'quit' || command.action === 'stop') await chat?.bind(null);
+        if (command.action === 'load' && (configuration || configurationPreparation)) {
+          try {
+            await configurationPreparation;
+            if (quitting || !configuration) throw new Error('NOT_READY');
+            const selection = selectionFrom(command.selection, scope);
+            const snapshot = await configuration.captureLoad(scope.modelId);
+            if (quitting) throw new Error('NOT_READY');
+            loadConfigurations.set(selectionKey(selection), snapshot);
+          } catch {
+            return { reply: { id: command.id, error: 'NOT_READY' }, quit: false };
+          }
+        }
         const reply = await session.handle(envelope.text as string);
+        if (command.action === 'load' && reply.reply.error) {
+          try {
+            loadConfigurations.delete(selectionKey(selectionFrom(command.selection, scope)));
+          } catch {
+            /* Invalid controls never acquired a load snapshot. */
+          }
+        }
         if (reply.quit) {
           await chat?.close();
+          await configurationPreparation?.catch(() => undefined);
+          await configuration?.close();
+          configurationOwner?.close();
           remote?.close();
           historyOwner?.close();
         }

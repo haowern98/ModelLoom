@@ -15,7 +15,7 @@ import { confirmExit, ownershipBinding } from './windows-ownership.js';
 import { realEngineAdapter } from './real-engine.js';
 import { createDesktopEngineHost } from './desktop.js';
 import type { UtilityFork } from './desktop.js';
-/** Explicit Windows development deployment. Trusted main selects this fixed workspace asset;
+/** Explicit Windows development deployment. Trusted main selects fixed build assets and state;
  * renderer commands cannot choose a repository, verifier, report, executable or arguments.
  * Ordinary builds keep the development verifier closed. Production packaging is separate.
  */
@@ -24,6 +24,7 @@ export function developmentDesktopDependencies(
   base: string,
   applicationData?: string,
   caller?: string,
+  stateBase: string = base,
 ) {
   const report = DEVELOPMENT_MEMORY_REPORTS.find((entry) => entry.configuration.slots === 4);
   if (!DEVELOPMENT_BUILD || !report) throw new Error('DEVELOPMENT_BUILD_REQUIRED');
@@ -66,14 +67,15 @@ export function developmentDesktopDependencies(
           await adapter?.close();
           adapter = undefined;
           preparedFile = undefined;
+          native.privateDirectory(path.resolve(stateBase));
           const capability = await createDevelopmentRuntimeVerifier().verify(
             path.join(base, 'repository'),
-            path.join(base, 'desktop-verification'),
+            path.join(stateBase, 'desktop-verification'),
           );
           const installed = await installExpanded(
             capability,
             path.join(base, 'candidate'),
-            path.join(base, 'installed'),
+            path.join(stateBase, 'installed'),
           );
           if (closed) throw new Error('CORE_EXITED');
           adapter = realEngineAdapter(installed, file, configuration, 18478);

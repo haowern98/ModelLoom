@@ -3,6 +3,8 @@ import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { createOwnedChatTransport } from './chat-transport.js';
 import { OwnedSlotMonitor } from './slot-monitor.js';
+import { capabilities, record } from '../model-configuration/test-fixtures.js';
+import { resolveRequestSettings } from '../model-configuration/resolve.js';
 import type { GenerationChunk } from '../generation/contracts.js';
 
 const servers: Server[] = [];
@@ -71,11 +73,16 @@ async function fixture(
   if (!address || typeof address === 'string') throw new Error('FIXTURE');
   let task = 0;
   let cleanup = 0;
+  let owns = true;
+  let confirmExit!: () => void;
+  const exited = new Promise<void>((resolve) => {
+    confirmExit = resolve;
+  });
   const monitor = new OwnedSlotMonitor(
     1,
     () => Promise.resolve([{ id: 0, processing: false, task: task || null }]),
-    () => true,
-    new Promise(() => undefined),
+    () => owns,
+    exited,
     () => {
       cleanup++;
     },
@@ -86,18 +93,99 @@ async function fixture(
     key: 'test-key',
     alias: 'private-model',
     session: identity,
-    owns: () => true,
+    owns: () => owns,
     monitor,
+    exited,
+    configuration: { capabilities, modelId: record().modelId, contextLength: 7680 },
   });
   return {
     transport,
     requests,
     cleanup: () => cleanup,
+    loseListener: () => {
+      owns = false;
+    },
+    confirmExit,
     release: () => {
       task++;
     },
   };
 }
+it('uses the captured closed settings for template accounting and native generation', async () => {
+  const f = await fixture();
+  const settings = resolveRequestSettings(
+    record(),
+    {
+      modelId: record().modelId,
+      revision: 1,
+      profileId: capabilities.profileId,
+      load: record().load,
+    },
+    { temperature: 0.2, max_tokens: 128 },
+    capabilities,
+  );
+  const context = [{ role: 'system' as const, content: 'Instruction' }, ...messages];
+  await f.transport.tokenCount(context, new AbortController().signal, settings);
+  const run = f.transport.start(identity, context, () => undefined, settings);
+  await new Promise<void>((yes) => setTimeout(yes, 150));
+  f.release();
+  await run.settled;
+  expect(f.requests[0]!.body).toEqual({
+    model: 'private-model',
+    messages: context,
+    ...settings.parameters,
+  });
+  expect(f.requests[1]!.body).toEqual({
+    ...f.requests[0]!.body,
+    stream: true,
+    stream_options: { include_usage: true },
+    n: 1,
+    id_slot: 0,
+  });
+  expect(() =>
+    f.transport.start(identity, context, () => undefined, { ...settings, modelId: 'f'.repeat(64) }),
+  ).toThrow('INVALID_CONTROL');
+  expect(f.requests).toHaveLength(2);
+});
+it('waits for captured engine exit when listener loss rejects slot proof first', async () => {
+  const f = await fixture();
+  const run = f.transport.start(identity, messages, () => undefined);
+  let settled = false;
+  const result = run.settled.then(
+    (value) => {
+      settled = true;
+      return value;
+    },
+    (error: unknown) => {
+      settled = true;
+      throw error;
+    },
+  );
+  void result.catch(() => undefined);
+  try {
+    f.loseListener();
+    await new Promise<void>((resolve) => setTimeout(resolve, 200));
+    expect(f.cleanup()).toBe(1);
+    expect(settled).toBe(false);
+    f.confirmExit();
+    await expect(result).resolves.toEqual({ status: 'interrupted', reason: 'ENGINE_EXITED' });
+  } finally {
+    f.confirmExit();
+  }
+});
+it('does not turn listener loss without confirmed disposal into an interruption receipt', async () => {
+  const f = await fixture();
+  const run = f.transport.start(identity, messages, () => undefined);
+  f.loseListener();
+  const began = Date.now();
+  try {
+    await expect(run.settled).rejects.toThrow('STATUS_UNCONFIRMED');
+    expect(Date.now() - began).toBeGreaterThanOrEqual(5000);
+    expect(f.cleanup()).toBe(1);
+  } finally {
+    f.confirmExit();
+  }
+}, 10_000);
 it('counts with the matching Chat template endpoint and no sampling overrides', async () => {
   const f = await fixture();
   expect(await f.transport.tokenCount(messages, new AbortController().signal)).toBe(9);

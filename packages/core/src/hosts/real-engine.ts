@@ -18,7 +18,6 @@ import { inspectGGUF } from '../runtime/gguf.js';
 import { decodeEvent } from '../runtime/contracts.js';
 import { isDeepStrictEqual } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { confirmExit, ownershipBinding } from './windows-ownership.js';
 import { fixedArguments } from './runtime-arguments.js';
@@ -26,6 +25,7 @@ import { checkOwnedReadiness } from './readiness.js';
 import { readOwnedSlots } from './slot-status.js';
 import { OwnedSlotMonitor } from './slot-monitor.js';
 import { createOwnedChatTransport } from './chat-transport.js';
+import { createConfigurationProfile } from '../model-configuration/development-profile.js';
 import type { ChatTransport } from '../generation/service.js';
 
 export interface RealEngineAdapter extends EngineAdapter {
@@ -107,7 +107,7 @@ export function realEngineAdapter(
         throw new Error('START_FAILED');
       launching = true;
       let packageLock: Awaited<ReturnType<typeof revalidateInstalled>> | undefined;
-      let modelLock: object | undefined, credentialDirectory: string | undefined;
+      let modelLock: object | undefined, credential: object | undefined;
       try {
         requireInstalledLive(installed);
         packageLock = await revalidateInstalled(installed);
@@ -118,13 +118,12 @@ export function realEngineAdapter(
         if (signal.aborted || closed) throw new Error('START_FAILED');
         const secret = randomBytes(32).toString('base64url'),
           alias = `model-${randomUUID()}`;
-        credentialDirectory = path.join(
-          path.dirname(installed.directory),
-          `credential-${randomUUID()}`,
-        );
-        native.privateDirectory(credentialDirectory);
-        const keyFile = path.join(credentialDirectory, 'key');
-        await writeFile(keyFile, `${secret}\n`, { flag: 'wx', mode: 0o600 });
+        credential = native.createCredential(root, randomUUID(), secret);
+        const keyFile = native.credentialPath(credential);
+        // This durable bounded cache contains no credential. Reusing it avoids
+        // per-load directories whose deletion depends on main surviving.
+        const cacheDirectory = path.join(path.dirname(installed.directory), 'runtime-cache');
+        native.privateDirectory(cacheDirectory);
         if (signal.aborted || closed) throw new Error('START_FAILED');
         // Metadata may expire while a large GGUF is hashed. Recheck immediately before creation.
         requireInstalledLive(installed);
@@ -148,16 +147,17 @@ export function realEngineAdapter(
         const helper = path.join(installed.directory, inventory.helper);
         const args = [server, ...fixedArguments(model, cfg, port, keyFile, alias)];
         const child = cfg.gpuDevice
-          ? native.launchCudaConsole(root, helper, args, credentialDirectory, cfg.gpuDevice)
-          : native.launchConsole(root, helper, args, credentialDirectory);
+          ? native.launchCudaConsole(root, helper, args, cacheDirectory, cfg.gpuDevice)
+          : native.launchConsole(root, helper, args, cacheDirectory);
         const files = packageLock,
           selectedModel = modelLock,
-          credentials = credentialDirectory;
+          credentials = credential;
         packageLock = undefined;
         modelLock = undefined;
-        credentialDirectory = undefined;
+        credential = undefined;
         let ended = false,
           finishing = false,
+          credentialDelivered = false,
           captured = false,
           ready = false,
           line = '';
@@ -182,7 +182,9 @@ export function realEngineAdapter(
             const observation = native.observe(child);
             if (observation.pid && !ownedPids.includes(observation.pid))
               ownedPids.push(observation.pid);
-            if (!captured) {
+            // A rejected startup capture can terminate the server before its receipt is admitted.
+            // Confirm the empty exited job before trying to capture that dead PID again.
+            if (!captured && observation.exitCode === -1) {
               line += observation.output;
               const newline = line.indexOf('\n');
               if (line.length > 65536) throw new Error('INVALID_CONTROL');
@@ -195,6 +197,8 @@ export function realEngineAdapter(
                 line = '';
               }
             }
+            if (captured && observation.exitCode === -1 && !credentialDelivered)
+              credentialDelivered = native.deliverCredential(credentials, child);
             // Runtime output is drained and discarded, never exposed as credential-bearing diagnostics.
             if (observation.exitCode !== -1 && observation.activeProcesses === 0) {
               ended = true;
@@ -203,14 +207,10 @@ export function realEngineAdapter(
               native.release(child);
               files.release();
               native.releaseFiles(selectedModel);
-              void rm(credentials, { recursive: true }).then(
-                () => {
-                  active.delete(child);
-                  pids.delete(child);
-                  resolveExit({ code: observation.exitCode, signal: null });
-                },
-                () => rejectExit(new Error('CLEANUP_FAILED')),
-              );
+              native.releaseCredential(credentials);
+              active.delete(child);
+              pids.delete(child);
+              resolveExit({ code: observation.exitCode, signal: null });
             }
           } catch {
             try {
@@ -268,8 +268,23 @@ export function realEngineAdapter(
                       session: event.selection,
                       owns: () => !ended && !finishing && native.ownedListener(child, port),
                       monitor,
+                      exited: exited.then(() => undefined),
+                      ...(inventory.packageId === 'llama-cuda-development' && cfg.slots === 4
+                        ? {
+                            configuration: {
+                              capabilities: createConfigurationProfile({
+                                packageId: inventory.packageId,
+                                upstreamCommit: inventory.upstreamCommit,
+                                configuration: cfg,
+                              }).capabilities,
+                              modelId: cfg.modelSha256,
+                              contextLength: cfg.contextPerSlot,
+                            },
+                          }
+                        : {}),
                     }),
                   );
+                  native.releaseCredential(credentials);
                   ready = true;
                   return;
                 } catch {
@@ -300,7 +315,7 @@ export function realEngineAdapter(
         launching = false;
         packageLock?.release();
         if (modelLock) native.releaseFiles(modelLock);
-        if (credentialDirectory) await rm(credentialDirectory, { recursive: true, force: true });
+        if (credential) native.releaseCredential(credential);
       }
     },
     async close() {

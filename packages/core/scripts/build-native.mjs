@@ -60,14 +60,19 @@ if (options[0] === '--check') {
     path.join(root, 'tests/native/console-fixture.cc'),
   ];
   const llvm = path.join(installation, 'VC/Tools/Llvm/bin');
-  execFileSync(path.join(llvm, 'clang-format.exe'), ['--dry-run', '--Werror', ...sources], {
-    env,
-    stdio: 'inherit',
-  });
+  execFileSync(
+    path.join(llvm, 'clang-format.exe'),
+    ['--dry-run', '--Werror', ...sources, path.join(root, 'native/engine-credential.h')],
+    {
+      env,
+      stdio: 'inherit',
+    },
+  );
   execFileSync(
     path.join(llvm, 'clang-tidy.exe'),
     [
       ...sources,
+      '--header-filter=[/\\\\]native[/\\\\].*',
       '--warnings-as-errors=*',
       '--',
       '-std=c++17',
@@ -162,6 +167,7 @@ execFileSync(
     path.join(headers, 'x64/node.lib'),
     'delayimp.lib',
     'advapi32.lib',
+    'crypt32.lib',
     '/DELAYLOAD:node.exe',
     `/OUT:${path.join(output, 'history.node')}`,
   ],

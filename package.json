@@ -11,6 +11,7 @@
     "build": "pnpm --filter @modelloom/desktop build",
     "build:demo": "pnpm --filter @modelloom/desktop build:demo",
     "package": "pnpm --filter @modelloom/desktop package",
+    "package:development": "pnpm --filter @modelloom/desktop package:development",
     "package:demo": "pnpm --filter @modelloom/desktop package:demo",
     "make": "pnpm --filter @modelloom/desktop make",
     "typecheck": "pnpm --filter @modelloom/desktop typecheck && pnpm --filter @modelloom/core typecheck",

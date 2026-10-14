@@ -25,7 +25,8 @@ export function installedRealm(installed: InstalledPackage): 'live' | 'developme
   return realm;
 }
 async function inspect(directory: string, inventory: Inventory): Promise<void> {
-  const expected = new Set(inventory.files.map((file) => file.path));
+  const files = inventory.files;
+  const expected = new Set(files.map((file) => file.path));
   let entries = 0;
   async function scan(relative: string) {
     const current = path.join(directory, relative);
@@ -42,7 +43,7 @@ async function inspect(directory: string, inventory: Inventory): Promise<void> {
   }
   await scan('');
   if (expected.size) throw new Error('MISSING_FILE');
-  for (const file of inventory.files) {
+  for (const file of files) {
     const current = path.join(directory, file.path),
       stat = await lstat(current);
     if (stat.size !== file.length) throw new Error('FILE_MISMATCH');
@@ -96,25 +97,24 @@ export async function revalidateInstalled(
   installed: InstalledPackage,
 ): Promise<{ release(): void }> {
   const native = ownershipBinding();
-  let files: object | undefined;
+  const files: object[] = [];
   try {
     const capability = installedPackages.get(installed);
     if (!capability) throw new Error('UNVERIFIED_PACKAGE');
     const { inventory } = packageEvidence(capability);
-    files = native.sealFiles(
-      inventory.files.map((file) => path.join(installed.directory, file.path)),
+    files.push(
+      native.sealFiles(inventory.files.map((file) => path.join(installed.directory, file.path))),
     );
     await inspect(installed.directory, inventory);
-    const captured = files;
-    files = undefined;
+    const captured = files.splice(0);
     return Object.freeze({
       release() {
-        native.releaseFiles(captured);
+        for (const lock of captured) native.releaseFiles(lock);
       },
     });
   } catch {
     throw new Error('INSTALL_FAILED');
   } finally {
-    if (files) native.releaseFiles(files);
+    for (const lock of files) native.releaseFiles(lock);
   }
 }

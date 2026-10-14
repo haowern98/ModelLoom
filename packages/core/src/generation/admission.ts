@@ -1,6 +1,12 @@
 import type { Identity } from '../runtime/contracts.js';
-import { decodeOutcome, decodeRequestIdentity, GENERATION_POLICY } from './contracts.js';
+import {
+  decodeOutcome,
+  decodeRequestIdentity,
+  decodeExecutionIdentity,
+  GENERATION_POLICY,
+} from './contracts.js';
 import type {
+  ExecutionIdentity,
   GenerationPolicy,
   InterruptionReason,
   RequestIdentity,
@@ -14,20 +20,20 @@ export interface GenerationExecution {
   readonly settled: Promise<TerminalOutcome>;
   cancel(): void | Promise<void>;
 }
-export interface GenerationExecutor {
+export interface GenerationExecutor<T extends ExecutionIdentity = RequestIdentity> {
   /** A synchronous throw guarantees no work was created; otherwise return its captured capability. */
-  start(identity: RequestIdentity): GenerationExecution;
+  start(identity: T): GenerationExecution;
 }
-export interface RequestView {
-  readonly identity: RequestIdentity;
+export interface RequestView<T extends ExecutionIdentity = RequestIdentity> {
+  readonly identity: T;
   readonly state: 'queued' | 'running' | 'cancelling';
   readonly outcome?: TerminalOutcome;
 }
-export type AdmissionResult =
+export type AdmissionResult<T extends ExecutionIdentity = RequestIdentity> =
   | {
       readonly accepted: true;
-      readonly identity: RequestIdentity;
-      readonly state: RequestView['state'];
+      readonly identity: T;
+      readonly state: RequestView<T>['state'];
       readonly done: Promise<TerminalOutcome>;
     }
   | {
@@ -36,9 +42,9 @@ export type AdmissionResult =
     };
 export type CancelResult = 'requested' | 'already-terminal' | 'denied';
 
-interface Entry {
-  readonly identity: RequestIdentity;
-  state: RequestView['state'];
+interface Entry<T extends ExecutionIdentity> {
+  readonly identity: T;
+  state: RequestView<T>['state'];
   readonly resolve: (outcome: TerminalOutcome) => void;
   execution?: GenerationExecution;
   timer?: ReturnType<typeof setTimeout>;
@@ -52,16 +58,16 @@ interface Entry {
  * Completed records belong in HistoryStore, not an unbounded in-memory terminal list.
  * The service must persist/reject replayed attempts before submitting fresh core-generated IDs.
  */
-export class GenerationAdmission {
+export class GenerationAdmission<T extends ExecutionIdentity = RequestIdentity> {
   private readonly session: Identity;
-  private readonly entries = new Map<string, Entry>();
+  private readonly entries = new Map<string, Entry<T>>();
   private closed = false;
   private unsafe = false;
   private readonly policy: GenerationPolicy;
 
   constructor(
     session: Identity,
-    private readonly executor: GenerationExecutor,
+    private readonly executor: GenerationExecutor<T>,
     policy: GenerationPolicy = GENERATION_POLICY,
   ) {
     const checked = decodeRequestIdentity({
@@ -92,11 +98,11 @@ export class GenerationAdmission {
     return this.unsafe;
   }
 
-  submit(input: RequestIdentity): AdmissionResult {
+  submit(input: T): AdmissionResult<T> {
     if (this.closed) return Object.freeze({ accepted: false, code: 'NOT_READY' });
-    let identity: RequestIdentity;
+    let identity: T;
     try {
-      identity = decodeRequestIdentity(input);
+      identity = decodeExecutionIdentity(input) as T;
     } catch {
       return Object.freeze({ accepted: false, code: 'INVALID_CONTROL' });
     }
@@ -110,7 +116,10 @@ export class GenerationAdmission {
       return Object.freeze({ accepted: false, code: 'INVALID_CONTROL' });
     if (
       [...this.entries.values()].some(
-        (entry) => entry.identity.conversationId === identity.conversationId,
+        (entry) =>
+          'conversationId' in identity &&
+          'conversationId' in entry.identity &&
+          entry.identity.conversationId === identity.conversationId,
       )
     )
       return Object.freeze({ accepted: false, code: 'CONVERSATION_BUSY' });
@@ -124,7 +133,7 @@ export class GenerationAdmission {
     const done = new Promise<TerminalOutcome>((finish) => {
       resolve = finish;
     });
-    const entry: Entry = { identity, state: 'queued', resolve, cancelSent: false };
+    const entry: Entry<T> = { identity, state: 'queued', resolve, cancelSent: false };
     this.entries.set(identity.requestId, entry);
     if (running < this.policy.activeLimit) this.start(entry);
     else
@@ -154,7 +163,7 @@ export class GenerationAdmission {
   }
 
   /** At most twelve outstanding reservations; uncertain native work stays visible. */
-  snapshot(): readonly RequestView[] {
+  snapshot(): readonly RequestView<T>[] {
     return Object.freeze(
       [...this.entries.values()].map((entry) =>
         Object.freeze({
@@ -170,7 +179,7 @@ export class GenerationAdmission {
     return [...this.entries.values()].filter((entry) => entry.state !== 'queued').length;
   }
 
-  private start(entry: Entry): void {
+  private start(entry: Entry<T>): void {
     clearTimeout(entry.timer);
     delete entry.timer;
     entry.state = 'running';
@@ -202,7 +211,7 @@ export class GenerationAdmission {
     if (entry.cancelOutcome) this.sendCancel(entry);
   }
 
-  private cancelEntry(entry: Entry, outcome: TerminalOutcome): void {
+  private cancelEntry(entry: Entry<T>, outcome: TerminalOutcome): void {
     if (this.entries.get(entry.identity.requestId) !== entry || entry.cancelOutcome) return;
     if (entry.state === 'queued') {
       this.finish(entry, outcome, true);
@@ -218,7 +227,7 @@ export class GenerationAdmission {
     this.sendCancel(entry);
   }
 
-  private sendCancel(entry: Entry): void {
+  private sendCancel(entry: Entry<T>): void {
     if (!entry.execution || entry.cancelSent) return;
     entry.cancelSent = true;
     try {
@@ -232,14 +241,14 @@ export class GenerationAdmission {
     }
   }
 
-  private unconfirmed(entry: Entry, reason: 'CANCEL_UNCONFIRMED' | 'EXECUTION_FAILED'): void {
+  private unconfirmed(entry: Entry<T>, reason: 'CANCEL_UNCONFIRMED' | 'EXECUTION_FAILED'): void {
     if (this.entries.get(entry.identity.requestId) !== entry) return;
     this.unsafe = true;
     this.finish(entry, { status: 'failed', reason }, false);
     this.close('ENGINE_EXITED');
   }
 
-  private finish(entry: Entry, outcome: TerminalOutcome, confirmed: boolean): void {
+  private finish(entry: Entry<T>, outcome: TerminalOutcome, confirmed: boolean): void {
     if (this.entries.get(entry.identity.requestId) !== entry) return;
     clearTimeout(entry.timer);
     clearTimeout(entry.cancellationTimer);

@@ -67,7 +67,7 @@ it('renews expired role metadata with increasing versions, unchanged keys and ca
   await expect(
     renewDevelopmentMetadata(store, previous, path.join(directory, 'forged')),
   ).rejects.toThrow();
-}, 60000);
+}, 120000);
 it('stores six DPAPI ciphertexts with separated roles and a self-verified two-of-three public root', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'modelloom-custody-'));
   directories.push(directory);

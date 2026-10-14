@@ -93,14 +93,18 @@ export function ModelsPage({
                 ? 'No models found'
                 : demo
                   ? 'Your demo library is empty'
-                  : 'No runtime connected'}
+                  : onImport
+                    ? 'No models imported'
+                    : 'No runtime connected'}
             </h2>
             <p>
               {query.trim()
                 ? 'Try another model name or clear your search.'
                 : demo
                   ? 'Restart this demo to restore the sample entries.'
-                  : 'Model management becomes available after runtime integration.'}
+                  : onImport
+                    ? 'Import a GGUF model to get started.'
+                    : 'Model management becomes available after runtime integration.'}
             </p>
             {query.trim() && <Button onClick={() => setQuery('')}>Clear search</Button>}
           </div>

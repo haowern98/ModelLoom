@@ -50,3 +50,13 @@ const response = await client.chat.completions.create({
 });
 console.log(response.choices[0].message.content);`,
 };
+/** Actual public identifiers only. The key placeholder is never replaced with a credential. */
+export function apiExample(
+  language: ExampleLanguage,
+  endpoint: string,
+  modelId: string | undefined,
+): string {
+  return apiExamples[language]
+    .replaceAll('http://127.0.0.1:8000/v1', endpoint)
+    .replaceAll('YOUR_MODEL_ID', modelId ?? 'YOUR_MODEL_ID');
+}

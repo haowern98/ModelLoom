@@ -1,8 +1,13 @@
 import type { ChatTransport } from '../generation/service.js';
+import { decodeResolvedRequestSettings } from '../model-configuration/contracts.js';
 import type { Selection } from '../runtime/contracts.js';
 import type { GenerationExecution } from '../generation/admission.js';
 import type { GenerationChunk, TerminalOutcome } from '../generation/contracts.js';
-import { decodeOutcome, decodeRequestIdentity, decodeProgress } from '../generation/contracts.js';
+import {
+  decodeOutcome,
+  decodeExecutionIdentity,
+  decodeGenerationChunk,
+} from '../generation/contracts.js';
 import { decodeObject, exact } from './control.js';
 import { selectionKey, selectionFrom } from './broker-protocol.js';
 function object(input: unknown): Record<string, unknown> {
@@ -23,7 +28,7 @@ function checkedMessages(input: unknown): Parameters<ChatTransport['tokenCount']
       ...(value.reasoning_content === undefined ? [] : ['reasoning_content']),
     ]);
     if (
-      (value.role !== 'user' && value.role !== 'assistant') ||
+      (value.role !== 'user' && value.role !== 'assistant' && value.role !== 'system') ||
       typeof value.content !== 'string' ||
       /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(
         value.content,
@@ -107,6 +112,7 @@ export class OwnerChatChannel {
         'id',
         'selection',
         'messages',
+        ...(Object.hasOwn(value, 'settings') ? ['settings'] : []),
         ...(value.action === 'start' ? ['identity'] : []),
       ]);
       if (id <= this.last || this.entries.size >= 12) throw new Error('INVALID_CONTROL');
@@ -116,6 +122,9 @@ export class OwnerChatChannel {
       if (selectionKey(selected) !== selectionKey(captured.selection))
         throw new Error('INVALID_CONTROL');
       const messages = checkedMessages(value.messages);
+      const settings = Object.hasOwn(value, 'settings')
+        ? decodeResolvedRequestSettings(value.settings)
+        : undefined;
       const entry: OwnerEntry = { abort: new AbortController(), sequence: 0 };
       this.entries.set(id, entry);
       const result = (extra: Record<string, unknown>) => {
@@ -123,7 +132,7 @@ export class OwnerChatChannel {
       };
       if (value.action === 'count') {
         void captured.transport
-          .tokenCount(messages, entry.abort.signal)
+          .tokenCount(messages, entry.abort.signal, settings)
           .then(
             (tokens) => result({ result: 'count', tokens }),
             () => result({ result: 'failed' }),
@@ -131,7 +140,7 @@ export class OwnerChatChannel {
           .finally(() => this.entries.delete(id))
           .catch(() => this.cleanup());
       } else {
-        const identity = decodeRequestIdentity(value.identity);
+        const identity = decodeExecutionIdentity(value.identity);
         if (
           identity.deploymentId !== selected.deploymentId ||
           identity.sessionId !== selected.sessionId ||
@@ -150,20 +159,25 @@ export class OwnerChatChannel {
           result({ result: 'chunk', sequence, chunk });
           return done.promise;
         };
-        entry.execution = captured.transport.start(identity, messages, async (chunk) => {
-          if (chunk.type === 'terminal') {
-            await publish(chunk);
-            return;
-          }
-          // Reserve envelope space for JSON escaping and captured identities in the utility.
-          for (let offset = 0; offset < chunk.text.length;) {
-            let end = Math.min(offset + 4000, chunk.text.length);
-            if (end < chunk.text.length && /[\uD800-\uDBFF]/u.test(chunk.text.charAt(end - 1)))
-              end--;
-            await publish({ type: chunk.type, text: chunk.text.slice(offset, end) });
-            offset = end;
-          }
-        });
+        entry.execution = captured.transport.start(
+          identity,
+          messages,
+          async (chunk) => {
+            if (chunk.type === 'terminal') {
+              await publish(chunk);
+              return;
+            }
+            // Reserve envelope space for JSON escaping and captured identities in the utility.
+            for (let offset = 0; offset < chunk.text.length;) {
+              let end = Math.min(offset + 4000, chunk.text.length);
+              if (end < chunk.text.length && /[\uD800-\uDBFF]/u.test(chunk.text.charAt(end - 1)))
+                end--;
+              await publish({ type: chunk.type, text: chunk.text.slice(offset, end) });
+              offset = end;
+            }
+          },
+          settings,
+        );
         void entry.execution.settled
           .then(
             (outcome) => result({ result: 'settled', outcome: decodeOutcome(outcome) }),
@@ -222,7 +236,7 @@ export class UtilityChatTransport implements ChatTransport {
     private readonly send: (value: unknown) => void,
     private readonly allocate: () => number = () => ++this.next,
   ) {}
-  tokenCount: ChatTransport['tokenCount'] = (messages, signal) => {
+  tokenCount: ChatTransport['tokenCount'] = (messages, signal, settings) => {
     if (this.closed || signal.aborted || this.entries.size >= 12)
       return Promise.reject(new Error('TOKEN_COUNT_FAILED'));
     const id = this.allocate(),
@@ -243,19 +257,26 @@ export class UtilityChatTransport implements ChatTransport {
         signal.removeEventListener('abort', abort);
       },
     });
-    this.send({ type: 'generation', action: 'count', id, selection: this.selection, messages });
+    this.send({
+      type: 'generation',
+      action: 'count',
+      id,
+      selection: this.selection,
+      messages,
+      ...(settings ? { settings: decodeResolvedRequestSettings(settings) } : {}),
+    });
     return count.promise.finally(() => {
       clearTimeout(timer);
       signal.removeEventListener('abort', abort);
     });
   };
-  start: ChatTransport['start'] = (identity, messages, progress) => {
+  start: ChatTransport['start'] = (identity, messages, progress, settings) => {
     if (this.closed || this.entries.size >= 12) throw new Error('NOT_READY');
     const id = this.allocate(),
       settled = deferred<TerminalOutcome>();
     this.entries.set(id, {
       kind: 'start',
-      identity: decodeRequestIdentity(identity),
+      identity: decodeExecutionIdentity(identity),
       progress,
       settled,
       sequence: 0,
@@ -267,6 +288,7 @@ export class UtilityChatTransport implements ChatTransport {
       selection: this.selection,
       identity,
       messages,
+      ...(settings ? { settings: decodeResolvedRequestSettings(settings) } : {}),
     });
     return {
       settled: settled.promise,
@@ -290,20 +312,15 @@ export class UtilityChatTransport implements ChatTransport {
         exact(
           projected,
           projected.type === 'terminal'
-            ? ['type', 'outcome', ...(Object.hasOwn(projected, 'speeds') ? ['speeds'] : [])]
+            ? [
+                'type',
+                'outcome',
+                ...(Object.hasOwn(projected, 'speeds') ? ['speeds'] : []),
+                ...(Object.hasOwn(projected, 'usage') ? ['usage'] : []),
+              ]
             : ['type', 'text'],
         );
-        const event = decodeProgress(
-          JSON.stringify({ ...projected, ...entry.identity, sequence: value.sequence }),
-        );
-        const chunk: GenerationChunk =
-          event.type === 'terminal'
-            ? {
-                type: 'terminal',
-                outcome: event.outcome,
-                ...(event.speeds ? { speeds: event.speeds } : {}),
-              }
-            : { type: event.type, text: event.text };
+        const chunk = decodeGenerationChunk(projected);
         entry.sequence++;
         void Promise.resolve(entry.progress?.(chunk)).then(
           () => this.send({ type: 'generation', action: 'ack', id, sequence: value.sequence }),
@@ -337,11 +354,20 @@ export class UtilityChatTransport implements ChatTransport {
     }
   }
   close(): void {
+    this.dispose(false);
+  }
+  /** Only the validated main-owned exit event may settle this captured engine's pending work. */
+  engineExited(selection: Selection): void {
+    if (selectionKey(selection) !== selectionKey(this.selection)) return;
+    this.dispose(true);
+  }
+  private dispose(engineExited: boolean): void {
     this.closed = true;
     for (const entry of this.entries.values()) {
       entry.dispose?.();
       entry.count?.reject(new Error('TOKEN_COUNT_FAILED'));
-      entry.settled?.reject(new Error('EXECUTION_FAILED'));
+      if (engineExited) entry.settled?.resolve({ status: 'interrupted', reason: 'ENGINE_EXITED' });
+      else entry.settled?.reject(new Error('EXECUTION_FAILED'));
     }
     this.entries.clear();
   }

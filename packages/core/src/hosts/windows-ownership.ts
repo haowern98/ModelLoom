@@ -12,6 +12,13 @@ interface Observation {
   readonly peakJobCommit: number;
 }
 interface Binding {
+  /** Private one-use engine credential; only a captured server in this deployment may read it. */
+  createCredential(root: object, nonce: string, secret: string): object;
+  credentialPath(credential: object): string;
+  /** Non-blocking connect/write polling; no byte is sent before retained server identity matches. */
+  deliverCredential(credential: object, child: object): boolean;
+  /** Cancels pending I/O and clears the native buffer; safe before readiness or after owner loss. */
+  releaseCredential(credential: object): void;
   privateDirectory(directory: string): void;
   sealFiles(files: readonly string[]): object;
   releaseFiles(files: object): void;
@@ -46,6 +53,10 @@ interface Binding {
   coresExited(root: object): boolean;
 }
 const operations = [
+  'createCredential',
+  'credentialPath',
+  'deliverCredential',
+  'releaseCredential',
   'privateDirectory',
   'sealFiles',
   'releaseFiles',

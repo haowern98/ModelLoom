@@ -1,5 +1,10 @@
-import { GENERATION_LIMITS } from './contracts.js';
-import type { GenerationChunk, GenerationSpeeds, TerminalOutcome } from './contracts.js';
+import { GENERATION_LIMITS, decodeUsage } from './contracts.js';
+import type {
+  GenerationChunk,
+  GenerationSpeeds,
+  GenerationUsage,
+  TerminalOutcome,
+} from './contracts.js';
 
 type StreamFault = 'INVALID_STREAM' | 'RESPONSE_TOO_LARGE' | 'GENERATION_CANCELLED';
 class StreamError extends Error {
@@ -15,6 +20,7 @@ interface StreamState {
   responseBytes: number;
   usageSeen: boolean;
   speeds?: GenerationSpeeds | undefined;
+  usage?: GenerationUsage;
 }
 
 /** Parses the pinned single-choice internal chat SSE response.
@@ -73,6 +79,7 @@ export async function* parseGenerationStream(
       type: 'terminal',
       outcome: state.terminal,
       ...(state.speeds ? { speeds: state.speeds } : {}),
+      ...(state.usage ? { usage: state.usage } : {}),
     });
   } catch (error: unknown) {
     if (signal.aborted) fault('GENERATION_CANCELLED');
@@ -120,7 +127,7 @@ function parseFrame(data: string, state: StreamState): readonly GenerationChunk[
   const choices: unknown[] = envelope.choices;
   if (!choices.length) {
     if (!state.terminal || state.usageSeen || !envelope.usage) fault('INVALID_STREAM');
-    record(envelope.usage);
+    state.usage = nativeUsage(envelope.usage);
     state.usageSeen = true;
     if (Object.hasOwn(envelope, 'timings')) state.speeds = nativeSpeeds(envelope.timings);
     return [];
@@ -161,6 +168,22 @@ function parseFrame(data: string, state: StreamState): readonly GenerationChunk[
   if (state.terminal && Object.hasOwn(envelope, 'timings'))
     state.speeds = nativeSpeeds(envelope.timings);
   return result;
+}
+
+function nativeUsage(input: unknown): GenerationUsage {
+  const value = record(input);
+  const details =
+    value.completion_tokens_details === undefined
+      ? undefined
+      : record(value.completion_tokens_details);
+  return decodeUsage({
+    prompt_tokens: value.prompt_tokens,
+    completion_tokens: value.completion_tokens,
+    total_tokens: value.total_tokens,
+    ...(details && Object.hasOwn(details, 'reasoning_tokens')
+      ? { completion_tokens_details: { reasoning_tokens: details.reasoning_tokens } }
+      : {}),
+  });
 }
 
 // Optional diagnostics must not turn an otherwise valid answer into a stream failure.

@@ -50,6 +50,8 @@ export function decodeChatReply(input: unknown): ChatReply {
         'HISTORY_UNAVAILABLE',
         'NEEDS_RESOURCE_EVIDENCE',
         'TOKEN_COUNT_FAILED',
+        'SETTINGS_UNAVAILABLE',
+        'CONFIGURATION_UNAVAILABLE',
       ].includes(value.error)
     )
       return invalid();

@@ -12,6 +12,7 @@
     "build": "vite build --config vite.renderer.config.ts",
     "build:demo": "vite build --config vite.renderer.config.ts --mode demo",
     "package": "electron-forge package",
+    "package:development": "node scripts/package-development.mjs",
     "package:demo": "node scripts/package-demo.mjs",
     "make": "electron-forge make",
     "typecheck": "tsc --noEmit",

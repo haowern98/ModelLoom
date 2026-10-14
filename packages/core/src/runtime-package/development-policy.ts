@@ -8,9 +8,9 @@ export const DEVELOPMENT_ROOT = Object.freeze({
 /** Exact development envelopes: pinned planner, source cache bounds and bounded native runs.
  * See docs/runtime-bonsai-validation.md and docs/local-generation.md.
  * Estimates do not guarantee native allocation.
- * This is a physical RAM admission estimate, not a private-commit limit. The runtime,
- * host weights and transient allowance together exceed the observed resident peak;
- * cache payload capacity and two rounded-up active checkpoints are reserved separately.
+ * This is a physical RAM admission estimate, not a private-commit limit. Host loading
+ * and cache growth have separate envelopes; full prompt capacity and two rounded-up
+ * checkpoints per slot remain reserved. Each complete envelope exceeds its observed peak.
  */
 export const DEVELOPMENT_MEMORY_REPORTS: readonly PlannerReport[] = Object.freeze([
   Object.freeze({
@@ -46,9 +46,9 @@ export const DEVELOPMENT_MEMORY_REPORTS: readonly PlannerReport[] = Object.freez
     ]),
   }),
   // Oct 9 four-slot run: 6,210,097,152 resident peak bytes, four 7,500-token
-  // prefills, per-slot reuse, RAM restoration and graceful exit. The 5 GiB
-  // allowance plus separate full cache reserves is deliberately conservative;
-  // it is not the measured steady-state RAM or the private-commit peak.
+  // prefills, per-slot reuse, RAM restoration and graceful exit. A 4 GiB host
+  // allowance plus host weights covers the 3.86 GiB loading peak. Full cache
+  // reserves bring admission to 6.35 GiB, over 512 MiB above the exercised peak.
   Object.freeze({
     modelSha256: '71d6871836886267f39f1ac69b1b1dd8a783970708d7a189960112ed02978901',
     artifact: 'b11306-cuda12.4-msvc14.44-dev1',
@@ -67,7 +67,7 @@ export const DEVELOPMENT_MEMORY_REPORTS: readonly PlannerReport[] = Object.freez
     contextLimit: 262144,
     weights: Object.freeze({ ram: 171 * 1048576, vram: 3447 * 1048576 }),
     kv: Object.freeze({ ram: 1048576, vram: 1619 * 1048576 }),
-    scratch: Object.freeze({ ram: 5 * 2 ** 30, vram: 513 * 1048576 }),
+    scratch: Object.freeze({ ram: 4 * 2 ** 30, vram: 513 * 1048576 }),
     serverCaches: Object.freeze({
       promptCacheMiB: 768,
       contextCheckpoints: 2,

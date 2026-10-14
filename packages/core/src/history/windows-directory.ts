@@ -15,6 +15,7 @@ export interface HistoryDirectoryGuard {
 const trusted = new WeakSet<TrustedHistoryRoot>();
 interface Binding {
   open(root: string): object;
+  openConfiguration(root: string): object;
   reserve(guard: object): void;
   close(guard: object): void;
 }
@@ -39,6 +40,13 @@ export function trustedHistoryRoot(applicationData: string): TrustedHistoryRoot 
 }
 /** Hold native identities throughout SQLite's lifetime; fail closed without a path-only fallback. */
 export function openHistoryDirectory(root: TrustedHistoryRoot): HistoryDirectoryGuard {
+  return openDirectory(root, false);
+}
+/** Separate fixed settings directory under the same retained app root; no caller-selected suffix. */
+export function openConfigurationDirectory(root: TrustedHistoryRoot): HistoryDirectoryGuard {
+  return openDirectory(root, true);
+}
+function openDirectory(root: TrustedHistoryRoot, configuration: boolean): HistoryDirectoryGuard {
   if (!trusted.has(root)) throw new Error('INVALID_HISTORY_ROOT');
   try {
     const loaded: unknown = createRequire(import.meta.url)(
@@ -47,18 +55,24 @@ export function openHistoryDirectory(root: TrustedHistoryRoot): HistoryDirectory
     if (
       !loaded ||
       typeof loaded !== 'object' ||
-      !['open', 'reserve', 'close'].every((key) => typeof Reflect.get(loaded, key) === 'function')
+      !['open', 'reserve', 'close', ...(configuration ? ['openConfiguration'] : [])].every(
+        (key) => typeof Reflect.get(loaded, key) === 'function',
+      )
     )
       throw new Error('INVALID_NATIVE_BINDING');
     // Fixed private module's complete operation table was checked above.
     const native = loaded as Binding,
-      captured = native.open(root.applicationData);
+      captured = configuration
+        ? native.openConfiguration(root.applicationData)
+        : native.open(root.applicationData);
+    const directory = configuration ? 'configuration/settings.sqlite' : 'chat/history.sqlite';
     let closed = false;
     return Object.freeze({
-      database: path.join(root.applicationData, 'chat/history.sqlite'),
-      journal: path.join(root.applicationData, 'chat/history.sqlite-journal'),
+      database: path.join(root.applicationData, directory),
+      journal: path.join(root.applicationData, `${directory}-journal`),
       reserveJournal() {
-        if (closed) throw new Error('HISTORY_UNAVAILABLE');
+        if (closed)
+          throw new Error(configuration ? 'CONFIGURATION_UNAVAILABLE' : 'HISTORY_UNAVAILABLE');
         native.reserve(captured);
       },
       close() {
@@ -69,6 +83,6 @@ export function openHistoryDirectory(root: TrustedHistoryRoot): HistoryDirectory
       },
     });
   } catch {
-    throw new Error('HISTORY_UNAVAILABLE');
+    throw new Error(configuration ? 'CONFIGURATION_UNAVAILABLE' : 'HISTORY_UNAVAILABLE');
   }
 }
