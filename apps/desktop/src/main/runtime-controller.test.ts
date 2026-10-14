@@ -98,6 +98,19 @@ it('denies paths and mismatched GGUFs without forwarding them to a host', async 
   expect((await controller.command({ action: 'import' })).error).toContain('Bonsai');
   expect(deps.createHost).not.toHaveBeenCalled();
 });
+it('explains rejected model file ownership without disclosing its path or starting an engine', async () => {
+  const { controller, deps } = setup();
+  deps.inspect.mockRejectedValueOnce(new Error('OWNERSHIP_FAILED'));
+
+  const rejected = await controller.command({ action: 'import' });
+
+  expect(rejected.phase).toBe('failed');
+  expect(rejected.model).toBeNull();
+  expect(rejected.error).toContain('standalone copy');
+  expect(JSON.stringify(rejected)).not.toContain('private/path');
+  expect(deps.preflight).not.toHaveBeenCalled();
+  expect(deps.createHost).not.toHaveBeenCalled();
+});
 it('keeps a rejected retry visible even when an existing core is stopped', async () => {
   const { controller, deps } = setup();
   const imported = await controller.command({ action: 'import' });
@@ -143,4 +156,48 @@ it('waits for preparation on Quit and never loads after admission closes', async
   expect(host.command.mock.calls.some(([text]) => text.includes('"action":"load"'))).toBe(false);
   expect(host.close).toHaveBeenCalledTimes(1);
   expect((await controller.command({ action: 'snapshot' })).phase).toBe('stopped');
+});
+
+it('joins owner confirmation before Quit completes when the core has exited', async () => {
+  const { controller, host } = setup();
+  const imported = await controller.command({ action: 'import' });
+  await controller.command({ action: 'load', modelId: imported.model!.id });
+  host.command.mockRejectedValueOnce(new Error('CORE_EXITED'));
+  let confirm!: () => void;
+  host.close.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        confirm = resolve;
+      }),
+  );
+  let settled = false;
+  const outcome = controller.quit().then(
+    () => {
+      settled = true;
+    },
+    (error: unknown) => error,
+  );
+  await vi.waitFor(() => expect(host.close).toHaveBeenCalledTimes(1));
+  expect(settled).toBe(false);
+  confirm();
+  await expect(outcome).resolves.toBeUndefined();
+  expect(settled).toBe(true);
+});
+
+it('rejects Quit after core exit when owner cleanup cannot be confirmed', async () => {
+  const { controller, host } = setup();
+  const imported = await controller.command({ action: 'import' });
+  await controller.command({ action: 'load', modelId: imported.model!.id });
+  host.command.mockRejectedValueOnce(new Error('CORE_EXITED'));
+  host.close.mockRejectedValueOnce(new Error('CLEANUP_FAILED'));
+  await expect(controller.quit()).rejects.toThrow('CLEANUP_FAILED');
+});
+
+it('does not turn other broker failures into successful Quit', async () => {
+  const { controller, host } = setup();
+  const imported = await controller.command({ action: 'import' });
+  await controller.command({ action: 'load', modelId: imported.model!.id });
+  host.command.mockRejectedValueOnce(new Error('INVALID_CONTROL'));
+  await expect(controller.quit()).rejects.toThrow('INVALID_CONTROL');
+  expect(host.close).not.toHaveBeenCalled();
 });
