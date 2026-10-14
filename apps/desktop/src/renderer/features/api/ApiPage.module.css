@@ -195,6 +195,11 @@
   align-items: stretch;
   gap: 8px;
 }
+.keyControls .field > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .keyControls > button {
   align-self: flex-end;
 }
