@@ -42,6 +42,17 @@ it('shows an unloaded local worker before any model import, without requiring GP
   expect(screen.getAllByText('This device', { selector: 'dd' })).toHaveLength(2);
 });
 
+it('offers import for an empty connected runtime without reporting that the runtime is missing', async () => {
+  window.modelLoomRuntime = {
+    command: () => Promise.resolve({ enabled: true, model: null, phase: 'stopped', error: null }),
+  };
+  render(<App />);
+
+  expect(await screen.findByRole('heading', { name: 'No models imported' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Import GGUF' })).toBeEnabled();
+  expect(screen.queryByRole('heading', { name: 'No runtime connected' })).not.toBeInTheDocument();
+});
+
 it('displays the detected GPU model beside the observed VRAM without loading a model', async () => {
   const user = userEvent.setup();
   window.modelLoomRuntime = {
