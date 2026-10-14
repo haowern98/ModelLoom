@@ -1,6 +1,7 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <aclapi.h>
+#include <atomic>
 #include <cstdint>
 #include <iphlpapi.h>
 #include <memory>
@@ -14,6 +15,7 @@
 #include <winsock2.h>
 
 namespace {
+std::atomic<uint64_t> next_identity{1};
 struct Handle {
   HANDLE value = nullptr;
   Handle() = default;
@@ -28,6 +30,7 @@ struct Handle {
   }
 };
 struct Deployment {
+  uint64_t identity = next_identity.fetch_add(1);
   Handle job;
   std::vector<HANDLE> cores;
   ~Deployment() {
@@ -36,6 +39,7 @@ struct Deployment {
   }
 };
 struct Child {
+  uint64_t identity = next_identity.fetch_add(1), deployment_identity = 0;
   Handle job, process, input, output, server;
   DWORD pid = 0;
   DWORD server_pid = 0;
@@ -194,6 +198,8 @@ bool wide(napi_env env, napi_value value, std::wstring &result) {
     result.push_back(static_cast<wchar_t>(buffer[i]));
   return result.find(L'\0') == std::wstring::npos;
 }
+#include "engine-credential.h"
+
 /** Deny file replacement/write and ancestor rename while the verifier hashes
  * and launches. */
 napi_value seal_files(napi_env env, napi_callback_info info) {
@@ -305,7 +311,8 @@ napi_value launch_mode(napi_env env, napi_callback_info info, bool console,
   if (!root || !root->job.value || !wide(env, values[1], executable) ||
       napi_is_array(env, values[2], &array) != napi_ok || !array ||
       napi_get_array_length(env, values[2], &length) != napi_ok ||
-      length > 64 || (console && !wide(env, values[3], temporary)))
+      length > 64 ||
+      (console && (length == 0 || !wide(env, values[3], temporary))))
     return fail(env, "INVALID_CONTROL");
   // Full physical UUID only. No ordinals, abbreviated UUIDs, MIG or environment
   // maps cross this launch boundary; CUDA remaps the sole visible device to 0.
@@ -323,6 +330,7 @@ napi_value launch_mode(napi_env env, napi_callback_info info, bool console,
     }
   }
   command = quote(executable);
+  std::wstring server_image;
   for (uint32_t i = 0; i < length; ++i) {
     napi_value value;
     std::wstring item;
@@ -330,10 +338,13 @@ napi_value launch_mode(napi_env env, napi_callback_info info, bool console,
         !wide(env, value, item))
       return fail(env, "INVALID_CONTROL");
     command += L" " + quote(item);
+    if (console && i == 0)
+      server_image = item;
   }
   if (command.size() > 32700)
     return fail(env, "INVALID_CONTROL");
   auto child = std::make_unique<Child>();
+  child->deployment_identity = root->identity;
   child->job.reset(job());
   if (!child->job.value)
     return fail(env, "OWNERSHIP_FAILED");
@@ -378,8 +389,16 @@ napi_value launch_mode(napi_env env, napi_callback_info info, bool console,
                UpdateProcThreadAttribute(
                    startup.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_JOB_LIST,
                    containment, sizeof(containment), nullptr, nullptr) != FALSE;
+  // Keep DLL discovery and cwd anchored to the trusted server directory.
+  if (console && (server_image.size() < 4 || server_image[1] != L':' ||
+                  (server_image[2] != L'\\' && server_image[2] != L'/') ||
+                  server_image.find(L':', 2) != std::wstring::npos)) {
+    DeleteProcThreadAttributeList(startup.lpAttributeList);
+    return fail(env, "INVALID_CONTROL");
+  }
+  const auto &runtime_image = console ? server_image : executable;
   std::wstring directory =
-      executable.substr(0, executable.find_last_of(L"\\/"));
+      runtime_image.substr(0, runtime_image.find_last_of(L"\\/"));
   wchar_t windows[32768];
   if (console && !GetWindowsDirectoryW(windows, 32768)) {
     DeleteProcThreadAttributeList(startup.lpAttributeList);
@@ -391,6 +410,7 @@ napi_value launch_mode(napi_env env, napi_callback_info info, bool console,
   if (console) {
     for (const auto &item : std::vector<std::wstring>{
              L"CUDA_CACHE_PATH=" + temporary, L"CUDA_VISIBLE_DEVICES=" + gpu,
+             L"CUDA_CACHE_MAXSIZE=268435456",
              L"PATH=" + directory + L";" + windows + L"\\System32",
              L"SystemRoot=" + std::wstring(windows), L"TEMP=" + temporary,
              L"TMP=" + temporary}) {
@@ -759,6 +779,14 @@ napi_value checked(napi_env env, napi_callback_info info) noexcept {
  * utility IPC. */
 NAPI_MODULE_INIT() {
   const napi_property_descriptor properties[] = {
+      {"createCredential", nullptr, checked<create_credential>, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"credentialPath", nullptr, checked<credential_path>, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"deliverCredential", nullptr, checked<deliver_credential>, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"releaseCredential", nullptr, checked<release_credential>, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
       {"captureServer", nullptr, checked<capture_server>, nullptr, nullptr,
        nullptr, napi_default, nullptr},
       {"ownedListener", nullptr, checked<owned_listener>, nullptr, nullptr,
