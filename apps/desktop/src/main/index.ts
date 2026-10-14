@@ -1,7 +1,10 @@
-import { app, BrowserWindow, session, dialog, ipcMain, utilityProcess } from 'electron';
+import { app, BrowserWindow, session, dialog, ipcMain, utilityProcess, clipboard } from 'electron';
+import { createApiManagementHandler } from './api-management';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { runtimePaths } from './runtime-paths';
 import { createRuntimeController } from './runtime-controller';
 import type { RuntimeDependencies } from './runtime-controller';
 import { localDeviceSnapshot } from './local-device';
@@ -10,6 +13,31 @@ import type { developmentDesktopDependencies } from '../../../../packages/core/s
 let controller: ReturnType<typeof createRuntimeController> | undefined;
 let quitting = false,
   quitConfirmed = false;
+
+const locations = runtimePaths({
+  packaged: app.isPackaged,
+  development: PACKAGED_DEVELOPMENT,
+  resources: process.resourcesPath,
+  workspaceCore: path.resolve(__dirname, '../../../../packages/core'),
+  localData: process.env.LOCALAPPDATA ?? '',
+  home: app.getPath('home'),
+});
+if (locations?.chromium) {
+  app.setName('ModelLoom Development');
+  mkdirSync(locations.chromium, { recursive: true });
+  app.setPath('userData', locations.chromium);
+  app.setPath('sessionData', locations.chromium);
+}
+const duplicateDevelopment = !!locations?.chromium && !app.requestSingleInstanceLock();
+if (duplicateDevelopment) {
+  app.exit(0);
+} else if (locations?.chromium) {
+  app.on('second-instance', () => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (window?.isMinimized()) window.restore();
+    window?.focus();
+  });
+}
 
 /** Creates the sandboxed renderer and sender-checked device/runtime bridge. */
 async function createWindow(): Promise<void> {
@@ -43,9 +71,9 @@ async function createWindow(): Promise<void> {
     enabled: false,
     device: () => Promise.resolve(localDeviceSnapshot()),
   };
-  // A packaged/ordinary build never discovers a developer runtime from ambient paths or env.
-  if (!app.isPackaged) {
-    const coreRoot = path.resolve(__dirname, '../../../../packages/core');
+  // Only the explicit compiled development profile can select packaged resources.
+  if (locations) {
+    const coreRoot = locations.core;
     try {
       const module: unknown = await import(
         pathToFileURL(path.join(coreRoot, 'out/hosts/development-desktop.js')).href
@@ -62,10 +90,11 @@ async function createWindow(): Promise<void> {
       const development = createDependencies(
         (entry) =>
           utilityProcess.fork(entry, [], { serviceName: 'ModelLoom Core', stdio: 'ignore' }),
-        path.join(coreRoot, 'out/activation/b11306'),
+        locations.bootstrap,
         // Follow LM Studio's profile-root storage, separate from Chromium's AppData cache.
-        path.join(app.getPath('home'), '.modelloom'),
+        locations.profile,
         chatCaller,
+        locations.state,
       );
       dependencies = {
         ...development,
@@ -87,11 +116,25 @@ async function createWindow(): Promise<void> {
         },
       };
     } catch {
-      /* Missing explicit development assets keep the ordinary preview closed. */
+      if (app.isPackaged && PACKAGED_DEVELOPMENT)
+        dialog.showErrorBox(
+          'Development runtime unavailable',
+          'The bundled development core could not be loaded. Rebuild the development package; no workspace fallback is used.',
+        );
     }
   }
   const windowController = createRuntimeController(dependencies, chatCaller);
   controller = windowController;
+  ipcMain.handle(
+    'modelloom:api',
+    createApiManagementHandler({
+      sender: window.webContents,
+      frame: () => window.webContents.mainFrame,
+      closing: () => quitting || window.isDestroyed(),
+      command: (input) => windowController.api(input),
+      copy: (secret) => clipboard.writeText(secret),
+    }),
+  );
   ipcMain.handle('modelloom:runtime', async (event, input: unknown) => {
     if (
       event.sender !== window.webContents ||
@@ -109,6 +152,15 @@ async function createWindow(): Promise<void> {
     )
       throw new Error('INVALID_CONTROL');
     return windowController.chat(input);
+  });
+  ipcMain.handle('modelloom:configuration', async (event, input: unknown) => {
+    if (
+      event.sender !== window.webContents ||
+      event.senderFrame !== window.webContents.mainFrame ||
+      quitting
+    )
+      throw new Error('INVALID_CONTROL');
+    return windowController.configuration(input);
   });
   windowController.subscribeChat(() => {
     if (!quitting && !window.webContents.isDestroyed())
@@ -128,19 +180,20 @@ async function createWindow(): Promise<void> {
   }
 }
 
-void app
-  .whenReady()
-  .then(async () => {
-    session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) =>
-      callback(false),
-    );
-    session.defaultSession.setPermissionCheckHandler(() => false);
-    await createWindow();
-  })
-  .catch((error: unknown) => {
-    console.error('ModelLoom could not open its desktop window:', error);
-    app.quit();
-  });
+if (!duplicateDevelopment)
+  void app
+    .whenReady()
+    .then(async () => {
+      session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) =>
+        callback(false),
+      );
+      session.defaultSession.setPermissionCheckHandler(() => false);
+      await createWindow();
+    })
+    .catch((error: unknown) => {
+      console.error('ModelLoom could not open its desktop window:', error);
+      app.quit();
+    });
 
 // Full Quit waits for core policy and confirmed owned-engine exit before main releases ownership.
 app.on('before-quit', (event) => {
