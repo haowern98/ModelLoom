@@ -13,6 +13,13 @@ import type { ChatTransport } from '../generation/service.js';
 import type { Provenance } from '../history/store.js';
 import type { ChatReply } from '../generation/chat-wire.js';
 import { decodeChatCommand, decodeChatReply } from '../generation/chat-wire.js';
+import {
+  decodeConfigurationCommand,
+  decodeConfigurationReply,
+} from '../model-configuration/wire.js';
+import type { ConfigurationReply } from '../model-configuration/wire.js';
+import { decodeApiOwnerCommand, decodeApiOwnerReply } from '../local-api/wire.js';
+import type { ApiOwnerCommand, ApiOwnerReply } from '../local-api/wire.js';
 
 /** Captured Electron utility child. This capability is constructed by trusted main, never IPC. */
 export interface UtilityChild {
@@ -26,6 +33,8 @@ export interface DesktopFixtureHost {
   command(text: string): Promise<Record<string, unknown>>;
   close(): Promise<void>;
   chat?(caller: string, command: unknown): Promise<ChatReply>;
+  configuration?(caller: string, command: unknown): Promise<ConfigurationReply>;
+  api?(caller: string, command: unknown): Promise<ApiOwnerReply>;
   changed?(listener: () => void): () => void;
 }
 /** Trusted main supplies instance capabilities. No renderer-provided entry point or launcher. */
@@ -80,6 +89,25 @@ export async function createDesktopEngineHost(
     }
   >();
   const observers = new Set<() => void>();
+  let configurationId = 0;
+  let apiId = 0;
+  const apiPending = new Map<
+    number,
+    {
+      command: ApiOwnerCommand;
+      resolve: (reply: ApiOwnerReply) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  const configurationPending = new Map<
+    number,
+    {
+      resolve: (reply: ConfigurationReply) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
   let chatId = 0;
   const chatChannel = new OwnerChatChannel(
     (value) => send(value),
@@ -128,6 +156,16 @@ export async function createDesktopEngineHost(
         item.reject(new Error('CORE_EXITED'));
       }
       chatPending.clear();
+      for (const item of configurationPending.values()) {
+        clearTimeout(item.timer);
+        item.reject(new Error('CORE_EXITED'));
+      }
+      configurationPending.clear();
+      for (const item of apiPending.values()) {
+        clearTimeout(item.timer);
+        item.reject(new Error('CORE_EXITED'));
+      }
+      apiPending.clear();
       void close().then(resolve, resolve);
     }),
   );
@@ -138,6 +176,30 @@ export async function createDesktopEngineHost(
     void (async () => {
       if (typeof input !== 'string') throw new Error('INVALID_CONTROL');
       const envelope = decodeObject(input);
+      if (envelope.type === 'api-reply') {
+        exact(envelope, ['type', 'id', 'reply']);
+        if (typeof envelope.id !== 'number' || Buffer.byteLength(input) > 131072)
+          throw new Error('INVALID_CONTROL');
+        const item = apiPending.get(envelope.id);
+        if (!item) return;
+        const reply = decodeApiOwnerReply(envelope.reply, item.command);
+        clearTimeout(item.timer);
+        apiPending.delete(envelope.id);
+        item.resolve(reply);
+        return;
+      }
+      if (envelope.type === 'configuration-reply') {
+        exact(envelope, ['type', 'id', 'reply']);
+        if (typeof envelope.id !== 'number' || Buffer.byteLength(input) > 131072)
+          throw new Error('INVALID_CONTROL');
+        const reply = decodeConfigurationReply(envelope.reply),
+          item = configurationPending.get(envelope.id);
+        if (!item) return;
+        clearTimeout(item.timer);
+        configurationPending.delete(envelope.id);
+        item.resolve(reply);
+        return;
+      }
       if (envelope.type === 'generation') {
         await chatChannel.receive(envelope);
         return;
@@ -273,6 +335,58 @@ export async function createDesktopEngineHost(
   }
   return {
     close,
+    api(caller, input) {
+      if (
+        !alive ||
+        closing ||
+        !deployment.chatSetup ||
+        caller !== deployment.chatSetup.caller ||
+        apiPending.size >= 16
+      )
+        return Promise.resolve({ ok: false, error: 'NOT_READY' });
+      const command = decodeApiOwnerCommand(input),
+        id = ++apiId;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          apiPending.delete(id);
+          reject(new Error('CORE_TIMEOUT'));
+        }, 30000);
+        apiPending.set(id, { command, resolve, reject, timer });
+        try {
+          send({ type: 'api-command', id, caller, command });
+        } catch {
+          clearTimeout(timer);
+          apiPending.delete(id);
+          reject(new Error('CORE_EXITED'));
+        }
+      });
+    },
+    configuration(caller, input) {
+      if (
+        !alive ||
+        closing ||
+        !deployment.chatSetup ||
+        caller !== deployment.chatSetup.caller ||
+        configurationPending.size >= 16
+      )
+        return Promise.resolve({ ok: false, error: 'NOT_READY' });
+      const command = decodeConfigurationCommand(input),
+        id = ++configurationId;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          configurationPending.delete(id);
+          reject(new Error('CORE_TIMEOUT'));
+        }, 15000);
+        configurationPending.set(id, { resolve, reject, timer });
+        try {
+          send({ type: 'configuration-command', id, caller, command });
+        } catch {
+          clearTimeout(timer);
+          configurationPending.delete(id);
+          reject(new Error('CORE_EXITED'));
+        }
+      });
+    },
     changed(listener) {
       observers.add(listener);
       return () => observers.delete(listener);
