@@ -7,6 +7,15 @@ module.exports = {
   packagerConfig: { asar: true, name: 'ModelLoom', executableName: 'ModelLoom' },
   makers: [new MakerZIP({}, ['win32', 'darwin', 'linux'])],
   hooks: {
+    prePackage: () => {
+      // Reset workspace policy for every ordinary/demo package, independently of earlier development runs.
+      const coreRoot = path.resolve(__dirname, '../../packages/core');
+      childProcess.execFileSync(
+        process.execPath,
+        [require.resolve('typescript/bin/tsc'), '-p', path.join(coreRoot, 'tsconfig.build.json')],
+        { cwd: coreRoot, stdio: 'inherit', windowsHide: true },
+      );
+    },
     preStart: () => {
       if (process.platform !== 'win32' || process.env.MODELLOOM_DEMO === '1') return;
       const coreRoot = path.resolve(__dirname, '../../packages/core');
