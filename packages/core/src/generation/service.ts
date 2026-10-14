@@ -1,4 +1,13 @@
 import { randomUUID } from 'node:crypto';
+import { ApiGeneration } from './api-execution.js';
+import type { ApiGenerationInput, ApiGenerationHandle } from './api-execution.js';
+import type { ApiCaller } from './api-authority.js';
+import { decodeResolvedRequestSettings } from '../model-configuration/contracts.js';
+import type {
+  ResolvedRequestSettings,
+  RuntimeSettingCapabilities,
+  GenerationOverrides,
+} from '../model-configuration/contracts.js';
 import type { Identity } from '../runtime/contracts.js';
 import type { HistoryStore, Provenance, Conversation } from '../history/store.js';
 import { GenerationAdmission } from './admission.js';
@@ -6,12 +15,14 @@ import type { GenerationExecution } from './admission.js';
 import {
   decodeOutcome,
   decodeSpeeds,
+  decodeUsage,
   decodeRequestIdentity,
   decodeSend,
   GENERATION_LIMITS,
 } from './contracts.js';
 import type {
   GenerationChunk,
+  ExecutionIdentity,
   GenerationSpeeds,
   ProgressEvent,
   RequestIdentity,
@@ -19,7 +30,7 @@ import type {
   TerminalOutcome,
 } from './contracts.js';
 export interface ChatMessage {
-  readonly role: 'user' | 'assistant';
+  readonly role: 'user' | 'assistant' | 'system';
   readonly content: string;
   readonly reasoning_content?: string;
 }
@@ -27,11 +38,16 @@ export interface ChatMessage {
  * native capacity release even on malformed output. Aborting its reader is never that receipt.
  */
 export interface ChatTransport {
-  tokenCount(messages: readonly ChatMessage[], signal: AbortSignal): Promise<number>;
+  tokenCount(
+    messages: readonly ChatMessage[],
+    signal: AbortSignal,
+    settings?: ResolvedRequestSettings,
+  ): Promise<number>;
   start(
-    identity: RequestIdentity,
+    identity: ExecutionIdentity,
     messages: readonly ChatMessage[],
     progress: (chunk: GenerationChunk) => void | Promise<void>,
+    settings?: ResolvedRequestSettings,
   ): GenerationExecution;
 }
 export interface ServiceDependencies {
@@ -40,8 +56,13 @@ export interface ServiceDependencies {
   readonly history: HistoryStore;
   readonly transport: ChatTransport;
   readonly cleanup: () => Promise<void>;
+  readonly configuration?: {
+    readonly capabilities: RuntimeSettingCapabilities;
+    readonly capture: (overrides?: GenerationOverrides) => Promise<ResolvedRequestSettings>;
+  };
 }
 interface Entry {
+  settings?: ResolvedRequestSettings;
   identity: RequestIdentity;
   messages: readonly ChatMessage[];
   text: string;
@@ -66,7 +87,8 @@ const stopped: TerminalOutcome = { status: 'interrupted', reason: 'SESSION_STOPP
  */
 export class GenerationService {
   private readonly deps: ServiceDependencies;
-  private readonly admission: GenerationAdmission;
+  private readonly admission: GenerationAdmission<ExecutionIdentity>;
+  private readonly api: ApiGeneration;
   private readonly entries = new Map<string, Entry>();
   private readonly preparing = new Map<
     string,
@@ -93,9 +115,32 @@ export class GenerationService {
       session: Object.freeze({ ...deps.session }),
       provenance: structuredClone(deps.provenance),
     };
-    this.admission = new GenerationAdmission(this.deps.session, {
+    this.admission = new GenerationAdmission<ExecutionIdentity>(this.deps.session, {
       start: (identity) => this.start(identity),
     });
+    this.api = new ApiGeneration(
+      this.deps,
+      this.admission,
+      () =>
+        this.shutdown.signal.aborted
+          ? 'NOT_READY'
+          : this.preparing.size + this.entries.size + this.api.pending >= 12
+            ? 'QUEUE_FULL'
+            : null,
+      (messages, signal, settings) =>
+        this.count(messages, AbortSignal.any([signal, this.shutdown.signal]), settings),
+      () => {
+        this.shutdown.abort();
+        return this.cleanupOwned();
+      },
+    );
+  }
+  generateApi(
+    caller: ApiCaller,
+    input: ApiGenerationInput,
+    progress: (chunk: GenerationChunk) => void | Promise<void>,
+  ): ApiGenerationHandle {
+    return this.api.generate(caller, input, progress);
   }
   send(caller: string, input: SendInput): Promise<RequestIdentity> {
     return this.track(this.prepare(caller, input));
@@ -109,7 +154,7 @@ export class GenerationService {
         return this.prepare(
           caller,
           { conversationId: source.conversationId, text: source.text },
-          { attemptId, turnId: source.turnId },
+          { attemptId, turnId: source.turnId, settings: source.settings },
         );
       }),
     );
@@ -125,7 +170,7 @@ export class GenerationService {
   private async prepare(
     caller: string,
     input: SendInput,
-    retry?: { attemptId: string; turnId: string },
+    retry?: { attemptId: string; turnId: string; settings: ResolvedRequestSettings | null },
   ): Promise<RequestIdentity> {
     if (this.shutdown.signal.aborted) throw new Error('NOT_READY');
     const decoded = decodeSend(input),
@@ -144,7 +189,8 @@ export class GenerationService {
       )
     )
       throw new Error('CONVERSATION_BUSY');
-    if (this.preparing.size + this.entries.size >= 12) throw new Error('QUEUE_FULL');
+    if (this.preparing.size + this.entries.size + this.api.pending >= 12)
+      throw new Error('QUEUE_FULL');
     const abort = new AbortController();
     const signal = AbortSignal.any([this.shutdown.signal, abort.signal]);
     let prepared!: () => void;
@@ -155,11 +201,35 @@ export class GenerationService {
     let persisted = false;
     try {
       const conversation = await this.deps.history.readConversation(identity.conversationId);
-      const messages = this.context(conversation, decoded.text, retry?.turnId);
-      const tokens = await this.count(messages, signal);
+      let settings: ResolvedRequestSettings | undefined;
+      if (this.deps.configuration) {
+        const current = decodeResolvedRequestSettings(
+          await this.deps.configuration.capture(),
+          this.deps.configuration.capabilities,
+        );
+        if (retry && !retry.settings) throw new Error('SETTINGS_UNAVAILABLE');
+        settings = retry
+          ? decodeResolvedRequestSettings(retry.settings, this.deps.configuration.capabilities)
+          : current;
+        if (
+          settings.modelId !== current.modelId ||
+          settings.profileId !== current.profileId ||
+          settings.contextLength !== current.contextLength ||
+          settings.modelId !== this.deps.provenance.configuration.modelSha256
+        )
+          throw new Error('SETTINGS_UNAVAILABLE');
+      }
+      const context = this.context(conversation, decoded.text, retry?.turnId);
+      const messages = settings?.systemPrompt
+        ? Object.freeze([
+            Object.freeze({ role: 'system' as const, content: settings.systemPrompt }),
+            ...context,
+          ])
+        : context;
+      const tokens = await this.count(messages, signal, settings);
       if (!Number.isSafeInteger(tokens) || tokens < 0) throw new Error('INVALID_TOKEN_COUNT');
       if (
-        tokens + GENERATION_LIMITS.maxOutputTokens >
+        tokens + (settings?.parameters.max_tokens ?? GENERATION_LIMITS.maxOutputTokens) >
         this.deps.provenance.configuration.contextPerSlot
       )
         throw new Error('CONTEXT_FULL');
@@ -170,6 +240,7 @@ export class GenerationService {
           identity.attemptId,
           identity.requestId,
           this.deps.provenance,
+          settings,
         );
       else
         await this.deps.history.beginTurn({
@@ -179,6 +250,7 @@ export class GenerationService {
           requestId: identity.requestId,
           text: decoded.text,
           provenance: this.deps.provenance,
+          ...(settings ? { settings } : {}),
         });
       persisted = true;
       if (signal.aborted) {
@@ -193,6 +265,7 @@ export class GenerationService {
       }
       const entry: Entry = {
         identity,
+        ...(settings ? { settings } : {}),
         messages,
         text: '',
         reasoning: '',
@@ -251,7 +324,11 @@ export class GenerationService {
     messages.push({ role: 'user', content });
     return Object.freeze(messages.map((message) => Object.freeze(message)));
   }
-  private count(messages: readonly ChatMessage[], signal: AbortSignal): Promise<number> {
+  private count(
+    messages: readonly ChatMessage[],
+    signal: AbortSignal,
+    settings?: ResolvedRequestSettings,
+  ): Promise<number> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         detach();
@@ -271,7 +348,7 @@ export class GenerationService {
         return;
       }
       void Promise.resolve()
-        .then(() => this.deps.transport.tokenCount(messages, signal))
+        .then(() => this.deps.transport.tokenCount(messages, signal, settings))
         .then(
           (value) => {
             detach();
@@ -284,7 +361,8 @@ export class GenerationService {
         );
     });
   }
-  private start(identity: RequestIdentity): GenerationExecution {
+  private start(identity: ExecutionIdentity): GenerationExecution {
+    if ('kind' in identity) return this.api.start(identity);
     const entry = this.entries.get(identity.requestId);
     if (!entry) throw new Error('INVALID_CONTROL');
     entry.state = 'running';
@@ -293,8 +371,11 @@ export class GenerationService {
         await this.deps.history.checkpoint(identity.attemptId, entry.text, 'running');
         if (entry.cancelled || this.shutdown.signal.aborted)
           return entry.cancelled ? { status: 'cancelled', reason: 'USER_CANCELLED' } : stopped;
-        entry.native = this.deps.transport.start(identity, entry.messages, (chunk) =>
-          this.progress(entry, chunk),
+        entry.native = this.deps.transport.start(
+          identity,
+          entry.messages,
+          (chunk) => this.progress(entry, chunk),
+          entry.settings,
         );
         const result = decodeOutcome(await entry.native.settled);
         if (result.status === 'completed' || result.status === 'limit-reached') {
@@ -330,10 +411,18 @@ export class GenerationService {
         if (
           entry.terminal ||
           Object.keys(chunk).sort().join(',') !==
-            (Object.hasOwn(chunk, 'speeds') ? 'outcome,speeds,type' : 'outcome,type')
+            [
+              'outcome',
+              'type',
+              ...(Object.hasOwn(chunk, 'speeds') ? ['speeds'] : []),
+              ...(Object.hasOwn(chunk, 'usage') ? ['usage'] : []),
+            ]
+              .sort()
+              .join(',')
         )
           throw new Error('INVALID_STREAM');
         if (Object.hasOwn(chunk, 'speeds')) entry.speeds = decodeSpeeds(chunk.speeds);
+        if (Object.hasOwn(chunk, 'usage')) decodeUsage(chunk.usage);
         entry.terminal = decodeOutcome(chunk.outcome);
         this.finishThinking(entry);
         return;
@@ -546,9 +635,11 @@ export class GenerationService {
     if (!this.closing) {
       this.shutdown.abort();
       this.admission.close('SESSION_STOPPED');
+      const apiClosed = this.api.close();
       this.closing = Promise.allSettled([...this.preparations]).then(async () => {
         await Promise.all([...this.entries.values()].map((entry) => entry.finished));
         await Promise.allSettled([...this.deletions]);
+        await apiClosed;
       });
       this.observers.clear();
     }

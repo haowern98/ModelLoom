@@ -3,6 +3,9 @@ import type { ChatReply } from './chat-wire.js';
 import { decodeChatCommand } from './chat-wire.js';
 import { GenerationService } from './service.js';
 import type { ServiceDependencies } from './service.js';
+import type { ApiCaller } from './api-authority.js';
+import type { ApiGenerationHandle, ApiGenerationInput } from './api-execution.js';
+import type { GenerationChunk } from './contracts.js';
 import { randomUUID } from 'node:crypto';
 interface Cursor {
   readonly target: string;
@@ -13,6 +16,15 @@ interface Cursor {
  * Main supplies the captured caller, not renderer data. Replies contain no provenance/settings.
  */
 export class ChatController {
+  /** Trusted local listener only; the renderer command table cannot invoke stateless generation. */
+  generateApi(
+    caller: ApiCaller,
+    input: ApiGenerationInput,
+    progress: (chunk: GenerationChunk) => void | Promise<void>,
+  ): ApiGenerationHandle {
+    if (this.closed || !this.service) throw new Error('NOT_READY');
+    return this.service.generateApi(caller, input, progress);
+  }
   private readonly cursors = new Map<string, Cursor>();
   private readonly deleting = new Set<string>();
   private readonly deletions = new Set<Promise<void>>();
@@ -194,6 +206,8 @@ export class ChatController {
           'HISTORY_UNAVAILABLE',
           'NEEDS_RESOURCE_EVIDENCE',
           'TOKEN_COUNT_FAILED',
+          'SETTINGS_UNAVAILABLE',
+          'CONFIGURATION_UNAVAILABLE',
         ].includes(error.message)
           ? error.message
           : 'HISTORY_UNAVAILABLE';
