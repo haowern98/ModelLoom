@@ -30,7 +30,9 @@ test('API exposes four sections while server, credentials and logs stay unavaila
   ]) {
     await expect(page.getByRole('button', { name, exact: true })).toBeDisabled();
   }
-  await expect(page.getByText('No key created')).toBeAttached();
+  await expect(page.getByRole('group', { name: 'API key status', exact: true })).toHaveText(
+    'Unavailable',
+  );
   await expect(page.getByText('No server logs yet.')).toBeAttached();
   await expect(page.getByText('Qwen3.8-27B (demo)', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Choose in Cluster' }).click();
