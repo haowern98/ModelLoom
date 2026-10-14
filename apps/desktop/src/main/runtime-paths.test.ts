@@ -19,6 +19,7 @@ afterEach(() => {
 const version = 'llama-cuda-development-test-00000000-0000-0000-0000-000000000000';
 function testInstall() {
   const parent = path.resolve(__dirname, '../../out');
+  mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(path.join(parent, 'runtime-cleanup-'));
   if (!root.startsWith(parent + path.sep)) throw Error('UNSAFE_TEST_ROOT');
   roots.push(root);
