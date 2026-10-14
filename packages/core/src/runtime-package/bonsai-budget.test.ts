@@ -36,7 +36,14 @@ it('admits four unchanged slots only when both physical RAM and GPU budgets fit'
   const report = DEVELOPMENT_MEMORY_REPORTS.find((entry) => entry.configuration.slots === 4);
   expect(report).toBeDefined();
   if (!report) throw new Error('MISSING_FOUR_SLOT_REPORT');
-  const available = { ram: 7524 * 1048576, vram: 5579 * 1048576 };
+  const available = { ram: 6500 * 1048576, vram: 5579 * 1048576 };
+  // The retained four-slot resident peak includes exercised checkpoints and prompt reuse.
+  expect(available.ram).toBeGreaterThanOrEqual(6210097152 + 512 * 1048576);
+  expect(report.serverCaches).toEqual({
+    promptCacheMiB: 768,
+    contextCheckpoints: 2,
+    ram: (768 + 4 * 2 * 151 + 256) * 1048576,
+  });
   expect(
     checkResources(report.configuration, report.artifact, 'cuda', report, available),
   ).toMatchObject({
