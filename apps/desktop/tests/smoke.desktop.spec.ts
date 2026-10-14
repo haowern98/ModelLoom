@@ -150,6 +150,8 @@ test('packaged demo opens safely, navigates, and exits its owned app', async () 
       }));
     // Fractional Windows scaling quantizes the CSS hairline into whole device pixels.
     expect(Math.round(divider.width * divider.scale)).toBe(Math.max(1, Math.floor(divider.scale)));
+    await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.focus());
+    await expect.poll(() => window.evaluate(() => document.hasFocus())).toBe(true);
     await window.getByRole('button', { name: 'Copy response 2' }).click();
     await expect(window.getByRole('status')).toHaveText('Response copied');
     const response = await window
