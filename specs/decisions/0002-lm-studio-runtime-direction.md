@@ -19,7 +19,7 @@ Official sources establish GUI-independent llmster/core operation and separately
 
 1. LM Studio's current llama.cpp hosting path is the reference architecture. Complete and review the replication audit before selecting ModelLoom-specific boundaries/protocols/hosting. Any necessary parity deviation must be documented against technical evidence and the product/security constraints.
 2. Separate GUI, core, and runtime responsibilities. Do not load crash-prone native inference into the GUI/main process merely to remove a process entry. The precise process-versus-library/worker arrangement remains part of D01.
-3. A separate `llama-server`/`llama-server.exe` is acceptable inside the expanded ModelLoom app group in Windows Task Manager, with separate PIDs in Details. Grouping must be verified in the packaged app; no invisibility or cross-OS grouping promise. Other helper/RPC presentation is not settled by this name acceptance.
+3. Updated by the user's 2026-10-14 decision: keep the original `llama-server.exe` filename. Its own Task Manager row outside ModelLoom and separate PIDs are acceptable. Remove renamed launch copies; app grouping is no longer an acceptance requirement. Preserve verified assets, crash isolation, owned shutdown and absence of a visible console. Other helper/RPC presentation is not settled by this name acceptance.
 4. Ordinary runtime termination/native crashes must be contained so the GUI and unaffected core machinery remain usable, affected requests are interrupted/failed honestly, and bounded recovery is possible. Do not claim this protects against every OS/driver/resource failure.
 5. Independently install/select/update verified platform/backend runtimes and roll back between sessions without an Electron rebuild/reinstall or end-user compilation. Check coordinator/worker compatibility and preserve model/chat/placement state. 'Easy update' means a supported app/headless-core operation, not manual binary replacement.
 6. Desktop and independent headless operation reuse essentially the same core/runtime management machinery. Do not create a divergent headless engine manager merely because there is no GUI.
@@ -37,6 +37,6 @@ The runtime audit must record whether LM Studio provides rollback/cleanup/crash 
 
 ## Acceptance and authorization
 
-Add actual grouped-process checks to J1, update/rollback to J6/J15, ordinary native-crash isolation to J13, and owned shutdown/abnormal exit to J14. Exercise supported Windows/Linux/macOS and independent headless ownership separately. Screenshots, successful builds, and parent/child relationships alone do not establish these behaviors.
+Add original process-name and ownership checks to J1, update/rollback to J6/J15, ordinary native-crash isolation to J13, and owned shutdown/abnormal exit to J14. Exercise supported Windows/Linux/macOS and independent headless ownership separately. Screenshots, successful builds, and parent/child relationships alone do not establish these behaviors.
 
 The user authorized updating specifications and Markdown guides. No audit execution, installation, native spike, application coding, dependency installation, build, or workload is authorized by this ADR. Do not mark D01 complete from this documentation update.
