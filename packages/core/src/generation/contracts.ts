@@ -26,6 +26,54 @@ export interface RequestIdentity extends Identity {
   readonly conversationId: string;
   readonly attemptId: string;
 }
+/** Stateless native execution. No conversation or durable attempt is invented for HTTP. */
+export interface ApiRequestIdentity extends Identity {
+  readonly kind: 'api';
+  readonly requestId: string;
+  readonly callerId: string;
+}
+export type ExecutionIdentity = RequestIdentity | ApiRequestIdentity;
+
+/** Internal data hygiene only; caller authority is separately captured by the service. */
+export function decodeExecutionIdentity(input: unknown): ExecutionIdentity {
+  return safely(() => {
+    const value = object(input);
+    if (value.kind !== 'api') return decodeRequestIdentity(input);
+    exact(value, ['kind', 'deploymentId', 'sessionId', 'operationId', 'requestId', 'callerId']);
+    return Object.freeze({
+      kind: 'api',
+      deploymentId: identifier(value.deploymentId),
+      sessionId: identifier(value.sessionId),
+      operationId: identifier(value.operationId),
+      requestId: identifier(value.requestId),
+      callerId: identifier(value.callerId),
+    });
+  });
+}
+
+/** Validate a private chunk without projecting a stateless identity into Chat events. */
+export function decodeGenerationChunk(input: unknown): GenerationChunk {
+  return safely(() => {
+    const value = object(input);
+    if (value.type === 'text' || value.type === 'reasoning') {
+      exact(value, ['type', 'text']);
+      return Object.freeze({ type: value.type, text: unicode(value.text) });
+    }
+    if (value.type !== 'terminal') return invalid();
+    exact(value, [
+      'type',
+      'outcome',
+      ...(Object.hasOwn(value, 'speeds') ? ['speeds'] : []),
+      ...(Object.hasOwn(value, 'usage') ? ['usage'] : []),
+    ]);
+    return Object.freeze({
+      type: 'terminal',
+      outcome: decodeOutcome(value.outcome),
+      ...(Object.hasOwn(value, 'speeds') ? { speeds: decodeSpeeds(value.speeds) } : {}),
+      ...(Object.hasOwn(value, 'usage') ? { usage: decodeUsage(value.usage) } : {}),
+    });
+  });
+}
 export interface SendInput {
   readonly conversationId: string;
   readonly text: string;
@@ -51,12 +99,20 @@ export interface GenerationSpeeds {
   readonly generation: number | null;
   readonly prefill: number | null;
 }
+/** Actual native accounting. Reasoning is included in completion tokens. */
+export interface GenerationUsage {
+  readonly prompt_tokens: number;
+  readonly completion_tokens: number;
+  readonly total_tokens: number;
+  readonly completion_tokens_details?: { readonly reasoning_tokens: number };
+}
 export type GenerationChunk =
   | { readonly type: 'text' | 'reasoning'; readonly text: string }
   | {
       readonly type: 'terminal';
       readonly outcome: TerminalOutcome;
       readonly speeds?: GenerationSpeeds;
+      readonly usage?: GenerationUsage;
     };
 export type ProgressEvent = (RequestIdentity & { readonly sequence: number }) & GenerationChunk;
 
@@ -125,6 +181,7 @@ export function decodeProgress(input: string): ProgressEvent {
         'sequence',
         'outcome',
         ...(Object.hasOwn(value, 'speeds') ? ['speeds'] : []),
+        ...(Object.hasOwn(value, 'usage') ? ['usage'] : []),
       ]);
       return Object.freeze({
         ...identity(value),
@@ -132,9 +189,49 @@ export function decodeProgress(input: string): ProgressEvent {
         type: 'terminal',
         outcome: decodeOutcome(value.outcome),
         ...(Object.hasOwn(value, 'speeds') ? { speeds: decodeSpeeds(value.speeds) } : {}),
+        ...(Object.hasOwn(value, 'usage') ? { usage: decodeUsage(value.usage) } : {}),
       });
     }
     return invalid();
+  });
+}
+
+/** Closed scalar projection for a terminal result; unavailable counts are never invented. */
+export function decodeUsage(input: unknown): GenerationUsage {
+  return safely(() => {
+    const value = object(input);
+    exact(value, [
+      'prompt_tokens',
+      'completion_tokens',
+      'total_tokens',
+      ...(Object.hasOwn(value, 'completion_tokens_details') ? ['completion_tokens_details'] : []),
+    ]);
+    const count = (input: unknown): number => {
+      if (typeof input !== 'number' || !Number.isSafeInteger(input) || input < 0) return invalid();
+      return input;
+    };
+    const prompt_tokens = count(value.prompt_tokens),
+      completion_tokens = count(value.completion_tokens),
+      total_tokens = count(value.total_tokens);
+    if (
+      !Number.isSafeInteger(prompt_tokens + completion_tokens) ||
+      total_tokens !== prompt_tokens + completion_tokens
+    )
+      return invalid();
+    let details: { readonly reasoning_tokens: number } | undefined;
+    if (Object.hasOwn(value, 'completion_tokens_details')) {
+      const nested = object(value.completion_tokens_details);
+      exact(nested, ['reasoning_tokens']);
+      const reasoning_tokens = count(nested.reasoning_tokens);
+      if (reasoning_tokens > completion_tokens) return invalid();
+      details = Object.freeze({ reasoning_tokens });
+    }
+    return Object.freeze({
+      prompt_tokens,
+      completion_tokens,
+      total_tokens,
+      ...(details ? { completion_tokens_details: details } : {}),
+    });
   });
 }
 
