@@ -1,12 +1,23 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { decodeRuntimeCommand } from '../shared/runtime';
 import type { RuntimeView, RuntimeDevice } from '../shared/runtime';
 import { decodeChatCommand } from '../shared/chat';
 import type { ChatReply } from '../shared/chat';
+import {
+  decodeConfigurationCommand,
+  decodeConfigurationReply,
+} from '../shared/model-configuration';
+import type { ConfigurationReply } from '../shared/model-configuration';
+import { decodeApiManagementCommand, decodeApiManagementReply } from '../shared/local-api';
+import type { ApiManagementReply } from '../shared/local-api';
+import type { ApiOwnerReply } from '../../../../packages/core/src/local-api/wire';
 interface Host {
   command(text: string): Promise<Record<string, unknown>>;
   close(): Promise<void>;
   chat?(caller: string, input: unknown): Promise<ChatReply>;
+  configuration?(caller: string, input: unknown): Promise<ConfigurationReply>;
+  api?(caller: string, input: unknown): Promise<ApiOwnerReply>;
   changed?(listener: () => void): () => void;
   /** Trusted main prepares a verified engine only after model/resource admission. */
   prepare?(file: string): Promise<void>;
@@ -42,6 +53,10 @@ const messages: Record<string, string> = {
   INVALID_MODEL_ID: 'Select the imported Bonsai model.',
   BUSY: 'Stop the current model before importing or loading another model.',
   CLEANUP_FAILED: 'Owned runtime exit could not be confirmed. Loading is blocked.',
+  CONFIGURATION_UNAVAILABLE:
+    'Saved model settings could not be confirmed. Reopen configuration and try again.',
+  MODEL_FILE_UNAVAILABLE:
+    'This model file could not be safely opened. Choose a standalone copy of the GGUF, not a hard link or shortcut, and try again.',
 };
 /** Session-only import/load bridge. Fresh preflight precedes each load; host owns runtime cleanup.
  * Quit closes admission immediately and waits for in-flight preparation and owned exit.
@@ -125,6 +140,34 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       view.error = messages.CLEANUP_FAILED!;
   };
   return {
+    async api(input: unknown): Promise<ApiManagementReply> {
+      const command = decodeApiManagementCommand(input);
+      if (quitting || !deps.enabled) return { ok: false, error: 'NOT_READY' };
+      try {
+        if (preparation) await preparation;
+        if (quitting || !host?.api) return { ok: false, error: 'API_UNAVAILABLE' };
+        return decodeApiManagementReply(
+          await host.api(caller, command),
+          command.action === 'copyKey' || command.action === 'revealKey',
+        );
+      } catch {
+        return { ok: false, error: 'API_UNAVAILABLE' };
+      }
+    },
+    async configuration(input: unknown): Promise<ConfigurationReply> {
+      const command = decodeConfigurationCommand(input);
+      if (quitting || !deps.enabled || !file || !view.model)
+        return { ok: false, error: 'NOT_READY' };
+      if (command.modelId !== deps.expectedHash) return { ok: false, error: 'UNKNOWN_MODEL' };
+      try {
+        if (preparation) await preparation;
+        if (quitting || !host?.configuration)
+          return { ok: false, error: 'CONFIGURATION_UNAVAILABLE' };
+        return decodeConfigurationReply(await host.configuration(caller, command));
+      } catch {
+        return { ok: false, error: 'CONFIGURATION_UNAVAILABLE' };
+      }
+    },
     async chat(input: unknown): Promise<ChatReply> {
       const command = decodeChatCommand(input);
       if (quitting || !deps.enabled) return { ok: false, error: 'NOT_READY' };
@@ -160,9 +203,15 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           try {
             const selected = await deps.pick();
             if (selected === null || quitting) return result();
-            const info = await deps.inspect(selected);
+            const info = await deps.inspect(selected).catch((error: unknown) => {
+              if (error instanceof Error && error.message === 'OWNERSHIP_FAILED')
+                throw new Error('MODEL_FILE_UNAVAILABLE');
+              throw error;
+            });
+            const importedAt = Math.floor(Date.now() / 1000);
             if (info.sha256 !== deps.expectedHash) throw new Error('UNSUPPORTED_MODEL');
             if (quitting) return result();
+            if (deps.createHistoryHost && preparation) await preparation;
             await observeDevice();
             if (host && deps.createHistoryHost) {
               await send('stop');
@@ -172,10 +221,19 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
               await host.close();
               host = undefined;
             }
+            if (host?.api) {
+              const registered = await host.api(caller, {
+                action: 'registerImport',
+                modelId: info.sha256,
+                created: importedAt,
+              });
+              if (!registered.ok || !('registered' in registered))
+                throw new Error('CONFIGURATION_UNAVAILABLE');
+            }
             file = selected;
             view = {
               ...view,
-              model: { id: `model-${randomUUID()}`, name: 'Bonsai 27B', size: info.size },
+              model: { id: `model-${info.sha256}`, name: 'Bonsai 27B', size: info.size },
               phase: 'stopped',
               error: null,
             };
@@ -192,9 +250,18 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           if (!['stopped', 'failed'].includes(view.phase)) throw new Error('BUSY');
           const operation = ++epoch;
           view = { ...view, phase: 'starting', error: null };
-          await deps.preflight();
-          if (operation !== epoch || quitting) return result();
           if (deps.createHistoryHost && preparation) await preparation;
+          if (operation !== epoch || quitting) return result();
+          if (host?.configuration) {
+            const settings = await host.configuration(caller, {
+              action: 'read',
+              modelId: deps.expectedHash,
+            });
+            if (!settings.ok) throw new Error('CONFIGURATION_UNAVAILABLE');
+            if (!isDeepStrictEqual(settings.record.load, settings.defaults.load))
+              throw new Error('NEEDS_RESOURCE_EVIDENCE');
+          }
+          await deps.preflight();
           if (operation !== epoch || quitting) return result();
           if (!host) {
             preparation = deps.createHost(file);
@@ -249,7 +316,12 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
         }
       }
       if (host) {
-        await send('quit');
+        try {
+          await send('quit');
+        } catch (error: unknown) {
+          if (!(error instanceof Error) || error.message !== 'CORE_EXITED') throw error;
+          // A dead core cannot acknowledge Quit; retained main ownership still confirms every exit.
+        }
         await host.close();
       }
       view = { ...view, phase: 'stopped' };
