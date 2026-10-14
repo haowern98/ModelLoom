@@ -1,8 +1,8 @@
 # ModelLoom integration specification
 
-**Status:** Closed Windows development runtime/Chat contracts implemented; public API and worker/network contracts remain under review
+**Status:** Closed Windows development runtime/Chat/configuration and loopback API contracts implemented; full packaged, security and worker/network acceptance remain open
 
-**Updated:** 2026-10-10
+**Updated:** 2026-10-14
 
 **Sources:** [product](PRODUCT-SPEC.md), [technical](TECHNICAL-SPEC.md), [security](SECURITY-SPEC.md)
 
@@ -11,17 +11,21 @@
 The current accepted development bridge is described in the dated local Chat
 amendment below and [ADR-0005](decisions/0005-local-generation-development.md).
 Runtime/Chat main/preload/utility controls, authenticated captured-engine
-transport, native settlement and schema-4 history are implemented locally.
+transport, native settlement and schema-5 history are implemented locally.
 Commands include model-independent history/drafts/deletion, plus ready-engine
 Send/Retry and caller-bound cancellation. Replies/notifications remain bounded
-and closed; no renderer path, endpoint, credential or native receipt authority
-is introduced. D07 public API and D02-D03 worker communication are still open.
-See [current development evidence](../docs/local-generation.md).
+and closed; renderer-supplied paths, endpoints, engine credentials and native
+receipts have no authority. Accepted ADR-0006 adds closed configuration/key
+management and the key-required loopback API. Explicit public-key Reveal is a
+transient management action, separate from private engine credentials; Copy is
+performed in main. D07 remains open overall, and D02-D03 worker communication
+remains unimplemented. See [current development evidence](../docs/LOCAL-API-DEVELOPMENT.md).
 
 The foundation/configuration/demo descriptions below are historical scope;
-the unavailable public API controls still describe current behavior. Earlier
-fixture evidence alone did not prove real inference; subsequent dated live
-results are recorded separately and do not imply production acceptance.
+their unavailable API controls do not describe the connected development API.
+Earlier fixture evidence alone did not prove real inference; dated live results
+are separate and do not imply production acceptance. Current review and remaining
+packaged checks are recorded in [the follow-up review](../docs/LOCAL-API-REVIEW-2026-10-14.md).
 
 Define what components exchange and the externally visible outcomes. GUI -> ModelLoom Core -> independently versioned runtime is the accepted functional direction under [ADR-0002](decisions/0002-lm-studio-runtime-direction.md). These logical contracts constrain later schemas without assuming IPC channel names, binary encoding, local ports, library, database, or engine ABI. [ADR-0004](decisions/0004-runtime-lifecycle-proposal.md) accepts the initial Windows development exception and hosting/communication direction. D01 remains open overall; the first fixture-backed plan does not introduce live IPC, sockets or native activation. D02-D04, D06-D07, and D09-D11 settle other details before implementation.
 
@@ -122,7 +126,7 @@ Generation emits text/progress until one terminal outcome: completed, cancelled,
 
 ### Runtime crash and owned shutdown
 
-An ordinary llama-server termination/native crash emits a correlated runtime-exit/failure outcome with non-sensitive cause/package/session context. The core stops admission to the affected session, resolves affected queue work under D09, preserves partial output as interrupted/failed, and keeps the GUI/unaffected core alive. Restart/reload is bounded and cannot silently replay an uncertain generation or resume admission during shutdown. Windows grouping is a presentation check, not a message or permission boundary.
+An ordinary llama-server termination/native crash emits a correlated runtime-exit/failure outcome with non-sensitive cause/package/session context. The core stops admission to the affected session, resolves affected queue work under D09, preserves partial output as interrupted/failed, and keeps the GUI/unaffected core alive. Restart/reload is bounded and cannot silently replay an uncertain generation or resume admission during shutdown. The original llama-server.exe name and a separate Task Manager row are accepted by the 2026-10-14 decision. Grouping is not an acceptance gate or a message/permission boundary.
 
 Full desktop Quit must have explicit ordered lifecycle semantics: close admission, cancel/resolve queued and active work, request graceful owned-runtime teardown, escalate if the bounded deadline expires, wait for verified engine/helper exit, then complete the desktop-owned core/GUI shutdown. The reviewed protocol defines acknowledgement versus actual exit, cancellation races, stream terminal behavior, and handling of a hung/unreachable core. Do not assume that terminating a parent automatically terminates all descendants.
 

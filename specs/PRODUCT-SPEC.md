@@ -1,8 +1,8 @@
 # ModelLoom product requirements
 
-**Status:** Product requirements with Windows development runtime/local Chat evidence; full M1, distributed and release acceptance remain pending
+**Status:** Windows development runtime, Chat, model configuration and local API implemented; full M1, distributed and release acceptance remain pending
 
-**Updated:** 2026-10-10
+**Updated:** 2026-10-14
 
 **Scope:** The install-to-chat product experience. Inference speed research remains a separate workstream governed by `AGENTS.md` and the user's later benchmark clarifications.
 
@@ -10,7 +10,7 @@ This is the authoritative product specification, moved from `ModelLoom-Project P
 
 Related specifications: [technical](TECHNICAL-SPEC.md), [integration](INTEGRATION-SPEC.md), [security](SECURITY-SPEC.md), and [UI](UI-SPEC.md). Specifications define behavior and constraints; execution work belongs in [plans](../plans/PLAN.md).
 
-## Current delivery scope, 2026-10-10
+## Current delivery scope, 2026-10-14
 
 The explicitly enabled Windows development build supports verified local Bonsai
 loading and real Chat Send/Stop/Retry, durable history available before loading,
@@ -19,12 +19,15 @@ deletion. The later user approval removes thumbs-up/down and replaces the earlie
 feedback-control default. The supplied screen composition and approved later
 visual refinements remain authoritative; no unrelated redesign is authorized.
 
-This is partial M1 development evidence. The API is still a preview, attachments
-remain unavailable, and worker pairing/discovery/authorization, distributed
-inference and in-app Tailscale/Headscale are unimplemented. M1-M5 and J1-J15 are
-acceptance targets, not completed milestones. See [local Chat development](../docs/local-generation.md)
-for exact scope, dated failures/successes and remaining validation. Existing
-Tailscale on the two desktops supplies connectivity only, not ModelLoom workers.
+The later accepted [ADR-0006](decisions/0006-model-configuration-and-local-api.md)
+adds protected per-model settings, captured request defaults and a key-required
+loopback API sharing Chat admission. An explicit Windows development package is
+implemented locally. This is partial M1 evidence; current review and packaged
+acceptance gaps are recorded in [the local API guide](../docs/LOCAL-API-DEVELOPMENT.md).
+Attachments remain unavailable. Worker pairing/discovery/authorization,
+distributed inference and in-app Tailscale/Headscale are unimplemented. M1-M5
+and J1-J15 remain acceptance targets. Existing Tailscale supplies connectivity
+only, not ModelLoom workers.
 
 ### Historical renderer-only delivery scope, 2026-10-06
 
@@ -86,7 +89,7 @@ Ship a platform-appropriate single app installer/package for Windows, Linux, and
 1. App releases and inference runtime releases are independent. Users can inspect installed runtimes, install an update, select a version, and roll back without reinstalling ModelLoom.
 2. Runtime packages are versioned for operating system and compute backend and record their llama.cpp source revision, ModelLoom build identity, and compatibility metadata. Runtime downloads use a signed manifest and verified package before activation. The app retains the previous working version until the new one is verified.
 3. A runtime switch occurs between sessions. The app checks coordinator/worker compatibility before launch and offers a coordinated update or rollback when versions cannot work together.
-4. The user never has to launch `llama-server`, `ggml-rpc-server`, or a shell script. During normal Windows desktop use, the managed inference process is presented within ModelLoom's app group. `llama-server`/`llama-server.exe` is acceptable when the group is expanded, and separate PIDs in Details are acceptable. Verify grouping in the packaged app; an unrelated standalone app entry is not the intended presentation. Exact other worker/helper names await D01. No visible console window appears during normal desktop use; a Console Window Host entry alone is not evidence of a visible window. macOS/Linux process visibility is observed and documented without assuming Windows grouping there.
+4. The user never has to launch `llama-server`, `ggml-rpc-server`, or a shell script. The 2026-10-14 decision preserves the original `llama-server.exe` filename and allows the managed engine outside ModelLoom's Task Manager app group. Do not rename launch copies for grouping. Separate PIDs are acceptable; verify actual runtime identities and owned cleanup in the packaged app. Exact other worker/helper names await D01. No visible console window appears during normal desktop use; a Console Window Host entry alone is not evidence of a visible window. macOS/Linux process visibility is observed and documented without assuming Windows grouping there.
 5. Replicate LM Studio's GUI/core/versioned-runtime hosting architecture as closely as technically possible. GUI and core are separate concerns; the same core/runtime machinery operates headlessly; llama.cpp remains an engine underneath the product. Follow the accepted [ADR-0004](decisions/0004-runtime-lifecycle-proposal.md) initial Windows development exception. Continue the [runtime-hosting audit](../plans/LM-STUDIO-RUNTIME-AUDIT.md) for remaining platform, lifecycle, update and release evidence; no live activation or acceptance is implied. Runtime native code must be isolated from the GUI/main process, and ordinary runtime crashes must not terminate the GUI. The user's grouped-process screenshot is evidence of presentation, not proof of the full internal process tree or protocol.
 6. Make llama.cpp upgrades a normal Settings -> Runtime operation: install/select/update a verified platform/backend runtime, check cluster compatibility, activate between sessions, and retain the working version for rollback. No Electron rebuild/reinstall, end-user compilation, or manual engine launch is required. The same runtime-management capabilities are available to independently launched headless cores.
 7. Full desktop Quit stops admission, cancels/resolves queued and active work, requests graceful shutdown of its owned core/runtime/helpers, escalates after a bounded deadline if necessary, and confirms their exit. Abnormal exit cleanup must prevent orphan desktop-owned runtimes. Independently launched headless deployments have separate ownership and lifecycle; do not terminate unrelated local deployments or remote worker services on desktop Quit. Window X performs full Quit, while minimize is distinct; precise cleanup mechanisms must be reviewed before implementation.
@@ -138,7 +141,7 @@ Upstream llama.cpp [describes its RPC backend as a fragile, insecure proof of co
 
 ## 5. Release acceptance journeys
 
-1. **Clean install:** On supported Windows, Linux, and Apple Silicon macOS devices, install ModelLoom and reach a first local response without separately installing llama.cpp or using a terminal. In normal Windows desktop use, inspect the packaged app's Task Manager presentation and confirm the managed engine belongs to the ModelLoom app group; llama-server beneath the expanded group and separate PIDs in Details are allowed. Record names/tree on macOS/Linux and the headless deployment separately. Confirm no visible desktop console window.
+1. **Clean install:** On supported Windows, Linux, and Apple Silicon macOS devices, install ModelLoom and reach a first local response without separately installing llama.cpp or using a terminal. In normal Windows desktop use, inspect the packaged app's process presentation and confirm the managed engine retains its original llama-server.exe name; its own Task Manager row outside ModelLoom and separate PIDs are allowed. Record names/tree on macOS/Linux and the headless deployment separately. Confirm no visible desktop console window.
    A first-time user can find the next action from the interface without a tour, manual, or mandatory wizard.
 2. **Two-device LAN:** Discover or enter a second device, approve it, import a GGUF, accept a suggested split, and complete a chat. The UI shows both devices participating.
 3. **Private-network cluster:** Repeat across a Tailscale network and an existing Headscale network. The app verifies the selected path and does not expose RPC publicly. Connection failure produces a specific recovery instruction.
