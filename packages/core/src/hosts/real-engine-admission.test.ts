@@ -81,6 +81,10 @@ vi.mock('./windows-ownership.js', () => ({
   confirmExit: () => Promise.resolve(),
   ownershipBinding: () => ({
     createDeployment: () => ({}),
+    createCredential: () => ({}),
+    credentialPath: () => '\\\\.\\pipe\\ModelLoom-fixture',
+    deliverCredential: () => true,
+    releaseCredential: vi.fn(),
     sealFiles: () => ({}),
     releaseFiles: vi.fn(),
     privateDirectory: (directory: string) => mkdirSync(directory, { recursive: true }),
