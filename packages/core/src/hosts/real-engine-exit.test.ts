@@ -83,6 +83,7 @@ vi.mock('./windows-ownership.js', () => ({
 }));
 
 it('confirms failed startup exit after rejecting a capture instead of retrying the dead receipt forever', async () => {
+  mkdirSync(path.resolve('out'), { recursive: true });
   const directory = await mkdtemp(path.resolve('out/failed-capture-'));
   if (!directory.startsWith(path.resolve('out') + path.sep)) throw new Error('Unsafe test cleanup');
   const report = DEVELOPMENT_MEMORY_REPORTS.find((entry) => entry.configuration.slots === 4)!;

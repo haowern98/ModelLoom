@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+import path from 'node:path';
 import { developmentDesktopDependencies } from './development-desktop.js';
 import type * as DevelopmentPolicy from '../runtime-package/development-policy.js';
 import type { DesktopDeployment } from './desktop.js';
@@ -58,27 +59,29 @@ vi.mock('./resource-probe.js', () => ({
 beforeEach(() => vi.clearAllMocks());
 
 it('keeps writable verification and installations outside bundled bootstrap assets', async () => {
+  const bootstrap = path.resolve('fixture-package/bootstrap');
+  const state = path.resolve('fixture-runtime');
   const deps = developmentDesktopDependencies(
     () => {
       throw new Error('UNEXPECTED_FORK');
     },
-    'E:\\Package\\bootstrap',
-    'C:\\TestProfile',
+    bootstrap,
+    path.resolve('fixture-profile'),
     'window',
-    'C:\\TestRuntime',
+    state,
   );
   startup.verify.mockResolvedValueOnce('verified');
   startup.install.mockRejectedValueOnce(new Error('INSTALL_FAILED'));
   const host = await deps.createHistoryHost();
   await expect(host.prepare('approved.gguf')).rejects.toThrow('INSTALL_FAILED');
   expect(startup.verify).toHaveBeenCalledWith(
-    'E:\\Package\\bootstrap\\repository',
-    'C:\\TestRuntime\\desktop-verification',
+    path.join(bootstrap, 'repository'),
+    path.join(state, 'desktop-verification'),
   );
   expect(startup.install).toHaveBeenCalledWith(
     'verified',
-    'E:\\Package\\bootstrap\\candidate',
-    'C:\\TestRuntime\\installed',
+    path.join(bootstrap, 'candidate'),
+    path.join(state, 'installed'),
   );
   await host.close();
 });
