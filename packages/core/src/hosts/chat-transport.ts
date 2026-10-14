@@ -1,9 +1,14 @@
 import type { ChatTransport, ChatMessage } from '../generation/service.js';
 import type { Identity } from '../runtime/contracts.js';
 import type { OwnedSlotMonitor } from './slot-monitor.js';
+import { decodeResolvedRequestSettings } from '../model-configuration/contracts.js';
+import type {
+  ResolvedRequestSettings,
+  RuntimeSettingCapabilities,
+} from '../model-configuration/contracts.js';
 import { request } from 'node:http';
 import type { IncomingMessage } from 'node:http';
-import { decodeRequestIdentity } from '../generation/contracts.js';
+import { decodeExecutionIdentity } from '../generation/contracts.js';
 import type { TerminalOutcome } from '../generation/contracts.js';
 import { parseGenerationStream } from '../generation/stream.js';
 export interface OwnedChatOptions {
@@ -13,6 +18,13 @@ export interface OwnedChatOptions {
   readonly session: Identity;
   readonly owns: () => boolean;
   readonly monitor: OwnedSlotMonitor;
+  /** Captured owner exit, including job and credential cleanup; listener loss alone is insufficient. */
+  readonly exited: Promise<void>;
+  readonly configuration?: {
+    readonly capabilities: RuntimeSettingCapabilities;
+    readonly modelId: string;
+    readonly contextLength: number;
+  };
 }
 /** Only trusted owner construction supplies endpoint, credential and slot monitor. */
 export function createOwnedChatTransport(options: OwnedChatOptions): ChatTransport {
@@ -30,7 +42,21 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
     !/^[a-zA-Z0-9_-]{1,128}$/u.test(alias)
   )
     throw new Error('INVALID_CONTROL');
-  function body(messages: Parameters<ChatTransport['tokenCount']>[0], slot?: number): string {
+  function body(
+    messages: Parameters<ChatTransport['tokenCount']>[0],
+    slot?: number,
+    input?: ResolvedRequestSettings,
+  ): string {
+    let settings: ResolvedRequestSettings | undefined;
+    if (input !== undefined) {
+      if (!options.configuration) throw new Error('INVALID_CONTROL');
+      settings = decodeResolvedRequestSettings(input, options.configuration.capabilities);
+      if (
+        settings.modelId !== options.configuration.modelId ||
+        settings.contextLength !== options.configuration.contextLength
+      )
+        throw new Error('INVALID_CONTROL');
+    }
     if (
       !Array.isArray(messages) ||
       !messages.length ||
@@ -41,7 +67,7 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
             (m.reasoning_content === undefined
               ? 'content,role'
               : 'content,reasoning_content,role') ||
-          (m.role !== 'user' && m.role !== 'assistant') ||
+          (m.role !== 'user' && m.role !== 'assistant' && m.role !== 'system') ||
           typeof m.content !== 'string' ||
           /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(
             m.content,
@@ -58,7 +84,18 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
     const value = JSON.stringify({
       model: alias,
       messages,
-      ...(slot === undefined ? {} : { stream: true, max_tokens: 512, n: 1, id_slot: slot }),
+      ...(settings ? settings.parameters : {}),
+      ...(settings?.thinking === null || settings === undefined
+        ? {}
+        : { chat_template_kwargs: { enable_thinking: settings.thinking } }),
+      ...(slot === undefined
+        ? {}
+        : {
+            stream: true,
+            ...(settings ? { stream_options: { include_usage: true } } : { max_tokens: 512 }),
+            n: 1,
+            id_slot: slot,
+          }),
     });
     if (Buffer.byteLength(value) > 1048576) throw new Error('INVALID_CONTROL');
     return value;
@@ -97,7 +134,7 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
     });
   }
   return {
-    async tokenCount(messages, signal) {
+    async tokenCount(messages, signal, settings) {
       try {
         const abort = new AbortController();
         const cancel = () => abort.abort();
@@ -107,7 +144,7 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
         try {
           const response = await post(
             '/v1/chat/completions/input_tokens',
-            body(messages),
+            body(messages, undefined, settings),
             abort.signal,
           );
           let size = 0;
@@ -144,8 +181,8 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
         throw new Error('TOKEN_COUNT_FAILED');
       }
     },
-    start(input, messages, progress) {
-      const identity = decodeRequestIdentity(input);
+    start(input, messages, progress, settings) {
+      const identity = decodeExecutionIdentity(input);
       if (
         !owns() ||
         identity.deploymentId !== session.deploymentId ||
@@ -153,13 +190,17 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
         identity.operationId !== session.operationId
       )
         throw new Error('NOT_READY');
-      body(messages, 0); // Validate before any native reservation or request exists.
+      body(messages, 0, settings); // Validate before any native reservation or request exists.
       const abort = new AbortController();
       let outcome: TerminalOutcome = { status: 'failed', reason: 'EXECUTION_FAILED' };
       const release = monitor.start(async (slot) => {
         let response: IncomingMessage | undefined;
         try {
-          response = await post('/v1/chat/completions', body(messages, slot), abort.signal);
+          response = await post(
+            '/v1/chat/completions',
+            body(messages, slot, settings),
+            abort.signal,
+          );
           for await (const chunk of parseGenerationStream(response, abort.signal)) {
             if (chunk.type === 'terminal') outcome = chunk.outcome;
             await progress(chunk);
@@ -176,10 +217,30 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
         }
       });
       return {
-        settled: release.then((receipt) =>
-          receipt === 'engine-exited'
-            ? { status: 'interrupted', reason: 'ENGINE_EXITED' }
-            : outcome,
+        settled: release.then(
+          (receipt) =>
+            receipt === 'engine-exited'
+              ? { status: 'interrupted', reason: 'ENGINE_EXITED' }
+              : outcome,
+          async (error: unknown) => {
+            if (owns()) throw error;
+            // A dead listener can precede the broker's exit receipt. Keep capacity held until proof.
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+              await Promise.race([
+                options.exited,
+                new Promise<never>((_resolve, reject) => {
+                  timer = setTimeout(
+                    () => reject(error instanceof Error ? error : new Error('STATUS_UNCONFIRMED')),
+                    5000,
+                  );
+                }),
+              ]);
+              return { status: 'interrupted', reason: 'ENGINE_EXITED' } as const;
+            } finally {
+              if (timer) clearTimeout(timer);
+            }
+          },
         ),
         cancel() {
           abort.abort();
