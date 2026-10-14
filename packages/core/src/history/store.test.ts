@@ -305,15 +305,28 @@ function speedsDatabase() {
   );
   return db;
 }
-it.each([1, 2, 3])(
+function durationDatabase() {
+  const db = speedsDatabase();
+  db.exec(
+    'ALTER TABLE attempts ADD COLUMN thinking_ms INTEGER; DROP TABLE schema_version; CREATE TABLE schema_version(version INTEGER NOT NULL CHECK(version=4)); INSERT INTO schema_version VALUES(4);',
+  );
+  return db;
+}
+it.each([1, 2, 3, 4])(
   'upgrades only the exact version-%i schema and preserves every saved field',
   async (version) => {
     const db =
-      version === 1 ? legacyDatabase() : version === 2 ? thinkingDatabase() : speedsDatabase();
+      version === 1
+        ? legacyDatabase()
+        : version === 2
+          ? thinkingDatabase()
+          : version === 3
+            ? speedsDatabase()
+            : durationDatabase();
     const before = db.prepare('SELECT * FROM attempts').all();
     const store = new HistoryStore(db);
     stores.push(store);
-    expect(db.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 4 });
+    expect(db.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 5 });
     expect(db.prepare('SELECT * FROM attempts').all()).toMatchObject(before);
     expect(await store.readConversation('old')).toMatchObject({
       title: 'Saved title',
@@ -329,13 +342,14 @@ it.each([1, 2, 3])(
               reasoning: version === 1 ? '' : 'Saved thinking',
               state: 'completed',
               provenance,
+              settings: null,
             },
           ],
         },
       ],
     });
     expect((await store.readConversation('old')).turns[0]?.attempts[0]?.speeds).toEqual(
-      version === 3 ? { generation: 24.8, prefill: 1420 } : undefined,
+      version >= 3 ? { generation: 24.8, prefill: 1420 } : undefined,
     );
     expect((await store.readConversation('old')).turns[0]?.attempts[0]?.thinkingMs).toBeUndefined();
     // A second open must recognize the upgraded schema without applying another migration.

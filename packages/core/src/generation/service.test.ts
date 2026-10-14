@@ -45,6 +45,7 @@ function setup(tokens = 10, unconfirmed = false, count?: ChatTransport['tokenCou
   const transport: ChatTransport = {
     tokenCount: count ?? (() => Promise.resolve(tokens)),
     start(identity, messages, emit) {
+      if ('kind' in identity) throw new Error('Unexpected stateless execution in Chat fixture');
       let finish!: (value: TerminalOutcome) => void;
       const settled = new Promise<TerminalOutcome>((resolve) => {
         finish = resolve;
