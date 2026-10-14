@@ -1003,3 +1003,28 @@ recorded global CRLF warnings or turn local results into hosted CI evidence.
 The actual packaged live result above retains its tested artifact identity.
 Research/reference assets, browser snapshots and local plans stay outside the
 commits. No push, PR, signing or deployment is part of this checkpoint.
+
+### PR #7 hosted test corrections, 2026-10-14
+
+The user subsequently authorized push and PR creation, then corrections to the
+failed checks. [Run 38582469564](https://github.com/haowern98/ModelLoom/actions/runs/38582469564)
+at `7eb45c58e30db442015236ccc1badeba879c9921` passed Security and Windows desktop.
+Quality failed two core cases: a fixture expected Windows separators on Ubuntu,
+and another called `mkdtemp` before its output parent existed. Browser passed 47
+cases and failed one outdated key-state assertion.
+
+The corrections are test-only. The mocked development paths now use native
+absolute fixture roots and exact joined child-path assertions. The failed-capture
+fixture creates its output parent while retaining its cleanup containment guard.
+The disconnected API preview asserts `Unavailable` within the key-status group,
+retaining every disabled-control assertion. No product behavior, assertion
+deadline, security control or resource requirement changed.
+
+Fresh local checks passed all seven focused core cases, all 537 core tests,
+all 48 browser cases with `CI=true` and one worker, full typechecking, changed-file
+lint/format and diff whitespace checks. An absent scratch-parent setup check
+passed. The browser failure was reproduced locally at the same stale assertion
+before correction; an earlier cold-start attempt timed out before reaching that
+assertion, with no deadline change. Ubuntu execution awaits the new hosted run;
+local Windows success alone does not prove those hosted checks passed. No new
+GPU, packaged-app, manual Computer Use or inference-equivalence run is claimed.
