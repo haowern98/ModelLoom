@@ -61,7 +61,7 @@ For each affected behavior, choose applicable ordinary, boundary, ambiguous, fai
 
 | Journey                     | Minimum observable checks                                                                                                                                                                                                   |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| J1: Clean install           | First local response through the installed app without manual engine setup; discoverable controls; packaged Windows app grouping; no visible console; actual platform process identities.                                   |
+| J1: Clean install           | First local response through the installed app without manual engine setup; discoverable controls; original packaged Windows runtime names and owned cleanup; no visible console; actual platform process identities.       |
 | J2: LAN                     | Explicit approval, two real participating devices, actual placement, and a completed response.                                                                                                                              |
 | J3: Private networks        | Tailscale and existing Headscale exercised separately; enrollment/reconnect failures; approved-peer restriction; actual path or an honest unknown state; no public raw RPC.                                                 |
 | J4: Placement               | Valid manual split accepted; invalid or unsupported assignment rejected before generation; actual placement reported.                                                                                                       |
@@ -669,8 +669,13 @@ exit. Its resident peak was 6,210,097,152 bytes; private-commit peak was
 that failure is preserved separately, and the passing fixture replaces all
 four resident prompts first. No cache, context or precision setting changed.
 Desktop now selects the exact development four-slot report, retaining the older
-one-slot report. Admission reserves 7,524 MiB physical RAM and 5,579 MiB VRAM.
-The RAM reserve is conservative rather than a steady-state measurement.
+one-slot report. Initial admission reserved 7,524 MiB physical RAM and 5,579 MiB VRAM.
+The user's October 14 RAM-reduction request revised the four-slot physical RAM
+envelope to 6,500 MiB, retaining the same VRAM, configuration and full cache
+reserves. Boundary rejection tests passed after an observed failing test; the
+fresh four-slot run passed with a 6,186,299,392-byte resident peak, cache
+restoration and clean owned exit. The RAM reserve remains an estimate rather
+than a steady-state measurement or an allocation guarantee.
 
 Command control of the existing Kryptex scheduled task verified both stop and
 SRBMiner restart with existing settings. Computer Use imported the approved
@@ -895,3 +900,106 @@ exited 0. These are local SQLite/synthetic transport and DOM checks. No new
 native, real-model, manual UI or hosted CI evidence is claimed. Full-history
 paging performance is deferred. Hosted CI must be checked on PR #6's updated
 head after publication.
+
+### Local API/package follow-up review, 2026-10-14
+
+PR #6 is merged at `2ca5d791858b80d72a0737e286621ed827ba86df`. At review time,
+the `feat/local-api` changes were uncommitted and had no hosted CI evidence.
+The later local-commit checkpoint below supersedes the commit status.
+[The follow-up review](../docs/LOCAL-API-REVIEW-2026-10-14.md) records the current
+findings, exact commands and evidence limits.
+
+Fresh results: 126 desktop tests passed sequentially, 537 core tests passed,
+81 native tests passed after rebuilding native/host output, and three staging
+tests passed with development preparation followed by ordinary-output restoration.
+Five actual packaged checks passed for original-server private-stream EOF,
+startup owner death, duplicate launch, version reporting and ordinary-package
+authority rejection. Typechecking and native static checks passed. Full lint
+fails on a staging-test `finally` throw. Raw formatting warns on 106 CRLF files;
+all 202 tracked format-supported files pass after in-memory newline normalization.
+The initial parallel desktop run had three five-second timeouts; sequential
+success with unchanged deadlines does not establish their cause.
+
+The real-model original-path test failed after 56.1 seconds. Its cleanup rejects
+the new `runtime-cache` directory and masks any earlier failure; its installed
+entry-count assertions also need to distinguish versions from the cache. No
+latest loaded-model generation or owner-death acceptance is claimed. Mining was
+stopped before the check and SRBMiner was observed running after Kryptex restart.
+All 61 staged resource hashes and four original protected-profile hashes matched;
+the ordinary workspace development flag was restored to false.
+
+The private pipe supersedes the former temporary credential-file gap. Separate
+original process rows are accepted by the user, so grouping is no longer a
+failure. First-run/P06 reconciliation retains the continuation's test-host and
+verification-floor qualifications. Ordinary native-fault, full loaded-model,
+independent full security, release/platform and inference-quality gates remain
+open. Older successful real-model results retain their original scope.
+
+### Authorized API/package review fixes, 2026-10-14
+
+The user authorized all three review fixes. The staging containment guard now
+runs before `try/finally`. Test cleanup validates all installed entries before
+deleting version copies, preserves the separate normal cache and rejects
+unexpected/linked entries. Cleanup failure retains the primary failure as the
+displayed cause. Live numeric-setting help explains saved generation defaults
+and load settings requiring Stop/Run and verified resources; values and controls
+are unchanged.
+
+Three new filesystem regressions reproduced the old cleanup failures and pass
+after the fix. Fresh checks passed eight focused tests, 129 desktop tests in 23
+files sequentially, 537 core tests in 52 files, all three staging tests, full lint,
+typechecking and the development package rebuild. Ordinary host output was
+restored after development preparation. All 61 rebuilt resource hashes and four
+original protected-profile hashes matched. The development archive is
+`71a42493fb2c58742f4ec51dc004b923a8b39ed310896300634a3e51b3d99308`.
+
+The first rebuilt-package live run failed at import with a generic runtime
+error. Separate file/host registration and normal-profile import diagnostics
+passed; the first failure's cause is not established. The second unchanged live
+run imported Bonsai, then the memory preflight rejected loading. Both primary
+failures survived cleanup. Captured app processes exited and mining was restored;
+SRBMiner was observed running afterwards. Model/settings/resource guards were
+unchanged. Generation and loading-owner-death acceptance remain open. Evidence
+and commands are in [the review](../docs/LOCAL-API-REVIEW-2026-10-14.md) and its
+ignored `review-fixes` evidence folder. The earlier review's native/static and
+five packaged startup checks retain their original dated scope. No commit,
+publication, signing, other-platform or inference-equivalence result is claimed.
+
+### Packaged live generation after freeing memory, 2026-10-14
+
+The first run with sufficient memory loaded Bonsai, completed real Chat and
+unloaded normally. Its forced-close step incorrectly used Playwright's process
+PID, which an isolated diagnostic identified as `cmd.exe`. The actual Electron
+owner remained alive, so captured-process and runtime-file cleanup failed. Both
+errors were preserved. The test now gets `process.pid` from Electron main,
+matching existing lifecycle/private-stream checks; no product behavior, model,
+settings, assertion, deadline or ownership guard changed.
+
+The corrected actual packaged test exited 0 in 2.2 minutes. It verified original
+server/helper names and paths, real Chat completion, graceful unload, reload,
+forced main exit during loading, every captured process exited and the temporary
+runtime version removed. Its separate `runtime-cache` and verification floors
+were retained. Post-run audit passed all 61 resource hashes and four original
+protected-profile hashes; ordinary compiled development authority stayed false.
+Targeted lint/format and desktop typechecking passed. Mining was restarted and
+SRBMiner observed running; no test app/helper/server remained.
+
+The passing receipt and audit are under ignored
+`packages/core/out/activation/b11306/evidence/packaged-development-20261014/review-fixes/live-ram-retry/correct-owner`.
+This supersedes the previous paragraph's generation/loading-owner gap. It is
+automated Electron UI evidence, not manual Computer Use, ordinary native-fault,
+full API/security, hosted CI, platform/release or inference-equivalence acceptance.
+No commit, signing or publication occurred during that live check.
+
+### Local API commit checkpoint, 2026-10-14
+
+The user subsequently authorized local commits. Feature and test groups are
+recorded through `28d344d` in 68 focused commits with at most two explicitly
+staged files each. Documentation and build tooling follow in separate groups.
+Fresh pre-commit verification passed 129 desktop tests sequentially, 537 core
+tests, full lint and typechecking. All 141 format-supported scoped files passed
+an in-memory LF-normalized formatting check. This does not remove the previously
+recorded global CRLF warnings or turn local results into hosted CI evidence.
+The actual packaged live result above retains its tested artifact identity.
+Research/reference assets, browser snapshots and local plans stay outside the
+commits. No push, PR, signing or deployment is part of this checkpoint.
