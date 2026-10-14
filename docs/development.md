@@ -1,16 +1,20 @@
 # ModelLoom development guide
 
-**Status:** Windows development runtime and durable local Chat implemented; API, distributed and production/release integration pending
-**Updated:** 2026-10-10
+**Status:** Windows development runtime, durable Chat, model configuration and the initial loopback API implemented; distributed and production/release integration pending
+**Updated:** 2026-10-14
 
 ## 1. Current workspace state
 
 The workspace is `E:\ModelLoom-Project`. It contains specifications, guides, plans, agent instructions, six preserved UI-reference images, and the later Bionic Task Manager runtime-reference image. The reference images, ADRs, research notes, and local-only guides are not part of this desktop-foundation publication. The original `ModelLoom-Project Prd.md` has been moved to `specs/PRODUCT-SPEC.md`; that is the single authoritative product document.
 
-The current checkout is `feat/local-generation`, based on `4a02cf2`, the PR #5
-runtime-lifecycle merge. The local Chat/startup/deletion/popup and sample-free
-startup slice is recorded in focused local commits; no hosted CI or publication
-is claimed for it. Earlier publications
+The current checkout is `feat/local-api`, based on PR #6's merge at
+`2ca5d791858b80d72a0737e286621ed827ba86df`. The Chat/startup/deletion/popup and
+sample-free startup slice is merged. This branch records configuration, the shared
+Chat/API queue and development packaging, including the authorized October 14
+review fixes. The source/test commit checkpoint is `28d344d`; documentation and
+build-tooling commits follow separately. No push or hosted CI is claimed for this
+local slice.
+Earlier publications
 include [PR #2](https://github.com/haowern98/ModelLoom/pull/2) (desktop foundation),
 [PR #3](https://github.com/haowern98/ModelLoom/pull/3) (Settings/Chat preview),
 [PR #4](https://github.com/haowern98/ModelLoom/pull/4) (dependency fix), and
@@ -20,10 +24,12 @@ Their dated hosted results do not verify this local slice.
 The explicitly enabled Windows development build now imports the approved local
 GGUF, loads/stops the verified owned CUDA engine and supports durable Chat through
 the protected utility core. Ordinary/demo generation remains disabled. Settings
-and the public API retain their unavailable preview controls; workers, networking,
-production runtime/update trust, installers and other-platform acceptance remain
-pending. See [local Chat development](local-generation.md) for current behavior,
-exact inputs, saved schema, test evidence and outstanding validation limits.
+and the public API are connected under accepted ADR-0006 for the approved Windows
+development profile. Workers, networking, production runtime/update trust,
+installers and other-platform acceptance remain pending. See
+[local Chat development](local-generation.md) and
+[local API development](LOCAL-API-DEVELOPMENT.md) for current behavior, inputs,
+saved schemas and validation limits.
 
 The user's 2026-10-01 **PROCEED** authorized the shared desktop shell and Models milestone. It does not close the core/runtime/network/update audit gates or authorize GPU experiments. The user subsequently authorized publishing the foundation, tests, tooling, updated specifications, development guide, and CI workflow. The 2026-10-03 **PROCEED** initially authorized the Cluster screen with clearly labelled demo data and local validation; later separate publication approvals covered the merged PRs above. `AGENTS.md`, `docs/CODE-QUALITY.md`, and `plans/` remain ignored and uncommitted.
 
@@ -36,16 +42,17 @@ The 2026-10-05 reconciliation was documentation-only and prohibited UI changes. 
 Current development Chat supports Send/Stop/Retry, startup history without a model,
 per-chat saved drafts, separate thinking/answer, saved native rates and measured
 thinking duration, and confirmed deletion. The user removed thumbs-up/down;
-Copy/Retry remain. Responses render as inert plain text. Attachments, API
-server/key/exposure/log actions, catalogue/download and deferred destinations
-remain unavailable. Configuration/defaults and joining previews still use session
-state where labelled. Settings category navigation/search and its inventory
+Copy/Retry remain. Responses render as inert plain text. Model defaults now use
+protected core storage for the imported development model; demo defaults and
+joining previews still use session state where labelled. Attachments,
+network exposure, catalogue/download and deferred destinations remain unavailable.
+Settings category navigation/search and its inventory
 dialog work, while appearance/runtime operations remain unavailable. Preserve
 the existing Models layout and tags. TESTING-SPEC and local-generation.md record
 dated local checks separately from historical hosted runs; no latest-slice CI,
 full M1 or release acceptance is implied.
 
-The 2026-10-05 API PROCEED authorizes the reviewed centred column with Server, Access, Integration and Server logs cards, matching Model configuration's shared fonts, spacing and outer scrollbar margins. API is a direct sidebar destination after Models, using the same 20px icon and 36px button as the other destinations; its More menu entry is removed. Start/exposure/key/log mutation controls are unavailable; examples and endpoint are explicitly illustrative, statistics are unavailable and logs are empty. Language tabs, explicit example copy with feedback, and Choose in Cluster work locally. Clipboard copy reuses Chat's existing sandbox-compatible fallback without new permissions. No API listener, key material, real logs/metrics, persistent state or IPC is added; D07 remains open.
+The 2026-10-05 API PROCEED established the reviewed centred column with Server, Access, Integration and Server logs cards, matching Model configuration's shared fonts, spacing and outer scrollbar margins. API remains directly after Models in the sidebar. The later 2026-10-13 authorization and accepted ADR-0006 connect its existing controls to a key-required loopback listener, protected keys, actual status/metrics, safe service events and current endpoint/model examples. Network serving remains unavailable. Key Copy uses the sender-checked main operation; other text copy retains the existing sandbox-compatible helper. See [local API development](LOCAL-API-DEVELOPMENT.md) for exact scope and validation limits. D07 remains open overall.
 
 The historical 2026-10-05 Chat PROCEED authorized the two-column layout and
 session-only renderer interactions, with Send unavailable at that time. Later
@@ -111,9 +118,10 @@ Run these from `E:\ModelLoom-Project`. The current privileged/headless developme
 | `pnpm package:demo`              | Explicit unsigned Windows demo package under `apps/desktop/out/ModelLoom-win32-x64/`; no installer or updater is produced.                                                                                                                                                 |
 | `pnpm test:desktop`              | Launch the packaged demo, check renderer Node isolation/sandbox, exercise Models/configuration/Cluster/Chat/API navigation and supported demo controls, capture views, and confirm the owned app exits. Requires `pnpm package:demo` first.                                |
 
-`pnpm package` is the ordinary non-demo package command; packaged Windows evidence
-belongs to the preceding demo/runtime slices, not the current local Chat
-slice. The October 10 PROCEED removes automatic samples from ordinary serving
+`pnpm package` is the ordinary non-demo package command with runtime authority
+disabled. `pnpm package:development` builds the separately approved Windows
+development artifact; its evidence and limits are in
+[the local API guide](LOCAL-API-DEVELOPMENT.md). The October 10 PROCEED removes automatic samples from ordinary serving
 and rebuilding. Demo state requires explicit `--mode demo` or scoped
 `MODELLOOM_DEMO=1` test/preview packaging; unit tests opt in separately. Browser
 checks serve explicit fixtures on port 5175 and ordinary startup on port 5176,
@@ -132,7 +140,14 @@ Window X performs full Quit, joining history/request preparation and stopping
 the app's owned core/runtime helpers; no independent deployment is terminated.
 Current-slice packaged acceptance and wider crash/platform journeys remain open.
 
-Browser and packaged Windows checks now have both local and hosted evidence. Linux/macOS native desktop acceptance, engine crashes, process grouping with llama-server, worker security, performance and unchanged inference quality remain unverified. Hosted Ubuntu browser checks do not establish Linux native desktop support. Icons/model marks are reconstructed presentation assets, and font/asset/pixel identity still needs visual review.
+Browser and packaged Windows checks have dated local/hosted evidence. PR #6's
+checks apply to the merged Chat slice, not the local API/package commits.
+The original `llama-server.exe` may appear outside the app group under the user's
+October 14 decision. Linux/macOS native acceptance, ordinary native faults,
+worker security, performance and unchanged inference quality remain unverified.
+Hosted Ubuntu browser checks do not establish Linux native desktop support.
+Icons/model marks are reconstructed assets; font/asset/pixel identity still needs
+visual review.
 
 Development fixtures must be small and non-sensitive. Actual models, chats, caches, credentials, signing keys, diagnostic dumps, and generated build packages are outside tracked source. `.gitignore` now excludes dependencies/builds/test artifacts as well as the user-requested local instructions, code-quality guide, and plans.
 
@@ -179,3 +194,16 @@ The later PROCEED adds the implementation described in [runtime activation](runt
 Record revision, platform, runtime/model identity, configuration, scenario, command/test exit status, relevant redacted logs, result, and limitations. Mark not-run checks plainly. Mocked worker tests, CPU-only/native builds, and CI cannot stand in for mixed-GPU, real network, GUI, or headless acceptance.
 
 Never claim a network option is a performance guarantee, a UI mock is a working service, or a faster inference result preserves quality without the approved comparison evidence. Product milestones and separately authorized inference research have different acceptance gates.
+
+# Local API development
+
+The existing configuration and API pages are connected for the initial Windows development profile. See [model configuration and the local API](LOCAL-API-DEVELOPMENT.md) for protected keys, supported routes, settings/reload behaviour, limits, pinned client checks and validation boundaries.
+
+Staging tests require development host output. Build hosts, run
+`node packages/core/scripts/build-development.mjs`, then run
+`node --test scripts/stage-development.test.mjs` from `apps/desktop`. Afterwards,
+run `pnpm --filter @modelloom/core build:hosts` to restore ordinary disabled
+output, even if a test fails. An ordinary host build correctly rejects the two
+staging mutation cases before their intended assertions with
+`DEVELOPMENT_BUILD_REQUIRED`; that is a setup failure, not tamper-test evidence.
+These tests verify existing signed inputs and do not renew or sign metadata.
