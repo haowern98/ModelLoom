@@ -11,6 +11,7 @@ export interface DemoModel {
   readonly parameters: string;
   readonly context: string;
   readonly ready: boolean;
+  readonly lastUsedAt?: number;
 }
 
 /** Renderer-only state: the active ID denotes a simulation, not an engine session. */

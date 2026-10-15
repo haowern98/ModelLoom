@@ -11,6 +11,8 @@ export interface RuntimeModel {
   quantization?: string;
   parameters?: string;
   unavailable?: boolean;
+  /** Last trusted request dispatch, in milliseconds since the Unix epoch. */
+  lastUsedAt?: number;
 }
 export interface RuntimeDevice {
   name: string;
