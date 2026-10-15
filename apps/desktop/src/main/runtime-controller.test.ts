@@ -157,12 +157,15 @@ it('imports an opaque model, rejects forged IDs, and reports readiness only afte
 it('publishes an indexing filename while inspection runs and restores the saved library unloaded', async () => {
   const modelId = 'a'.repeat(64);
   let source: ModelSource | null = null;
+  let lastUsedAt: number | null = null;
   let release!: (info: { sha256: string; size: string }) => void;
   const host = {
     command: vi.fn(() => Promise.resolve({ snapshot: { phase: 'stopped' } })),
     close: vi.fn(() => Promise.resolve()),
     api: vi.fn((_caller: string, input: unknown) => {
       const command = input as { action: string; source?: typeof source };
+      if (command.action === 'readModelUsage')
+        return Promise.resolve({ ok: true as const, lastUsedAt });
       if (command.action === 'readImportSource')
         return Promise.resolve({ ok: true as const, source });
       source = command.source ?? null;
@@ -192,7 +195,13 @@ it('publishes an indexing filename while inspection runs and restores the saved 
   expect(pending.indexing).toBe('filename.gguf');
   expect(JSON.stringify(pending)).not.toContain('E:\\Models');
   release({ sha256: modelId, size: '4 GB' });
-  expect((await importing).model?.name).toBe('filename.gguf');
+  const imported = await importing;
+  expect(imported.model?.name).toBe('filename.gguf');
+  expect(imported.model?.lastUsedAt).toBeUndefined();
+  lastUsedAt = Date.now();
+  const used = await controller.command({ action: 'snapshot' });
+  expect(used.model?.lastUsedAt).toBe(lastUsedAt);
+  expect(used.models?.[0]?.lastUsedAt).toBe(lastUsedAt);
   expect(source).not.toBeNull();
   await controller.quit();
   const reopened = module.createRuntimeController(deps, 'window');
@@ -203,6 +212,7 @@ it('publishes an indexing filename while inspection runs and restores the saved 
   expect(restored.model?.id).toBe(`model-${modelId}`);
   expect(restored.phase).toBe('stopped');
   expect(restored.model?.unavailable).toBe(false);
+  expect(restored.model?.lastUsedAt).toBe(lastUsedAt);
   expect(deps.inspect).toHaveBeenCalledTimes(1);
   expect(deps.preflight).not.toHaveBeenCalled();
   expect(deps.createHost).not.toHaveBeenCalled();
