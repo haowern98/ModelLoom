@@ -67,6 +67,31 @@ it('keeps API management caller-bound and registers an import independently of p
     registered: true,
   });
   expect(await store.readImport(record().modelId)).toBe(123);
+  const source = {
+    modelId: record().modelId,
+    file: 'E:\\Models\\model.gguf',
+    name: 'Indexed model',
+    size: '1 GB',
+    sizeBytes: 100,
+    modifiedMs: 1234,
+    architecture: 'llama',
+    contextLimit: 4096,
+    quantization: 'Unknown',
+    parameters: 'Unknown',
+  };
+  expect(
+    await api.command('window', {
+      action: 'registerImport',
+      modelId: source.modelId,
+      created: 456,
+      source,
+    }),
+  ).toEqual({ ok: true, registered: true });
+  expect(await api.command('window', { action: 'readImportSource' })).toEqual({ ok: true, source });
+  expect(await api.command('forged', { action: 'readImportSource' })).toEqual({
+    ok: false,
+    error: 'NOT_READY',
+  });
   receive(JSON.stringify({ type: 'command', text: JSON.stringify({ id: 1, action: 'quit' }) }));
   await new Promise<void>((resolve) => setImmediate(resolve));
   expect(await api.command('window', { action: 'status' })).toEqual({

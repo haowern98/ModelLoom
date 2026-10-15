@@ -27,7 +27,10 @@ vi.mock('./windows-ownership.js', () => ({
 vi.mock('../runtime-package/verifier.js', () => ({
   createDevelopmentRuntimeVerifier: () => ({ verify: startup.verify }),
 }));
-vi.mock('../runtime-package/install.js', () => ({ installExpanded: startup.install }));
+vi.mock('../runtime-package/install.js', () => ({
+  installExpanded: startup.install,
+  requireInstalledLive: () => ({ backend: 'cuda', version: 'observed-version' }),
+}));
 vi.mock('./real-engine.js', () => ({ realEngineAdapter: startup.adapter }));
 vi.mock('./desktop.js', () => ({
   createDesktopEngineHost: (_fork: unknown, deployment: DesktopDeployment) => {
@@ -104,6 +107,7 @@ it('starts an owned history core without package verification, installation or e
   );
   const host = await deps.createHistoryHost();
   expect(startup.verify).not.toHaveBeenCalled();
+  expect(deps.runtimeBackends()).toBeUndefined();
   expect(startup.install).not.toHaveBeenCalled();
   expect(startup.adapter).not.toHaveBeenCalled();
   const deployment = startup.deployment!;
@@ -207,6 +211,7 @@ it('binds the admitted engine after verification and closes it with the history 
   startup.install.mockResolvedValueOnce(installed);
   startup.adapter.mockReturnValueOnce(adapter);
   await host.prepare('approved.gguf');
+  expect(deps.runtimeBackends()).toEqual(['cuda (observed-version)']);
   expect(startup.install).toHaveBeenCalledWith(
     'verified-capability',
     expect.any(String),
