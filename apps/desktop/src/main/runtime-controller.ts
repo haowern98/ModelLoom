@@ -13,6 +13,7 @@ import type { ConfigurationReply } from '../shared/model-configuration';
 import { decodeApiManagementCommand, decodeApiManagementReply } from '../shared/local-api';
 import type { ApiManagementReply } from '../shared/local-api';
 import type { ApiOwnerReply } from '../../../../packages/core/src/local-api/wire';
+import { decodeApiOwnerReply } from '../../../../packages/core/src/local-api/wire';
 import { decodeModelSource } from '../../../../packages/core/src/model-configuration/model-source';
 import type { ModelSource } from '../../../../packages/core/src/model-configuration/model-source';
 import type { RuntimeModel } from '../shared/runtime';
@@ -92,6 +93,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
   let deviceCleanupFailed = false;
   let deviceGeneration = 0;
   let unsubscribe: (() => void) | undefined;
+  let usageProbe: Promise<void> | undefined;
   const chatListeners = new Set<() => void>();
   const observeChat = (created: Host) => {
     if (!quitting)
@@ -125,6 +127,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
         file = source.file;
         const model = modelView(source, unavailable);
         view = { ...view, model, models: [model] };
+        await observeModelUse();
       })
       .catch(() => {
         if (!quitting) view = { ...view, error: messages.LIBRARY_UNAVAILABLE! };
@@ -145,6 +148,31 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       parameters: source.parameters,
       unavailable,
     };
+  }
+  async function observeModelUse(): Promise<void> {
+    if (quitting || !host?.api || !view.model) return;
+    if (usageProbe) return usageProbe;
+    const operation = epoch;
+    const modelId = view.model.id;
+    const owner = host;
+    const work = (async () => {
+      const command = { action: 'readModelUsage' as const };
+      const reply = decodeApiOwnerReply(await owner.api!(caller, command), command);
+      if (!reply.ok || !('lastUsedAt' in reply)) return;
+      if (quitting || operation !== epoch || view.model?.id !== modelId) return;
+      const updated = { ...view.model };
+      if (reply.lastUsedAt === null) delete updated.lastUsedAt;
+      else updated.lastUsedAt = reply.lastUsedAt;
+      view = { ...view, model: updated, models: [updated] };
+    })().catch(() => {
+      console.error('Model last-use time could not be read.');
+    });
+    usageProbe = work;
+    try {
+      await work;
+    } finally {
+      if (usageProbe === work) usageProbe = undefined;
+    }
   }
   const observeDevice = async () => {
     if (deviceCleanupFailed) throw new Error('QUERY_CLEANUP_FAILED');
@@ -274,6 +302,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           // Keep a rejected admission visible until an explicit stop/retry. A stopped core
           // has no knowledge of main's preflight failure and must not erase that evidence.
           if (host && view.phase !== 'failed') await send('snapshot');
+          await observeModelUse();
         } else if (command.action === 'import') {
           if (importing || !['stopped', 'failed'].includes(view.phase)) throw new Error('BUSY');
           importing = true;
@@ -334,6 +363,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
               phase: 'stopped',
               error: null,
             };
+            await observeModelUse();
           })();
           importPreparation = work.then(() => undefined);
           try {
@@ -423,6 +453,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       const pendingDevice = deviceProbe;
       // A pending picker owns no model handles; only selected-file indexing must settle.
       await Promise.allSettled([restoration, view.indexing ? importPreparation : undefined]);
+      await usageProbe;
       if (preparation) {
         try {
           host = await preparation;

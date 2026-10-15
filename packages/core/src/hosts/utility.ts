@@ -7,6 +7,7 @@ import { FIXTURE_SCOPE } from './broker-protocol.js';
 import { fixtureSession } from './session.js';
 import { ChatController } from '../generation/chat-controller.js';
 import { UtilityChatTransport } from './chat-channel.js';
+import { trackModelUse } from '../generation/model-use-transport.js';
 import { openHistoryStore } from '../history/store.js';
 import type { HistoryStore, Provenance } from '../history/store.js';
 import { trustedHistoryRoot } from '../history/windows-directory.js';
@@ -344,7 +345,11 @@ export function runUtility(
                       operationId: entry.selection.operationId,
                     },
                     provenance,
-                    transport: remote,
+                    transport: trackModelUse(remote, async (usedAt) => {
+                      await configurationPreparation;
+                      if (configurationOwner)
+                        await configurationOwner.store.recordUse(entry.selection.modelId, usedAt);
+                    }),
                     ...(provenance.upstreamCommit === '4f31296a907d73f3409f720429bcf31111615d77'
                       ? {
                           configuration: {
