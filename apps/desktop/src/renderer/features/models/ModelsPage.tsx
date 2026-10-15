@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Upload, Compass, Box } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { SearchField } from '../../components/SearchField';
@@ -30,6 +30,11 @@ export function ModelsPage({
   restoring = false,
 }: ModelsPageProps) {
   const [query, setQuery] = useState('');
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const filtered = library.models.filter((model) =>
     `${model.name} ${model.description} ${model.architecture}`
       .toLowerCase()
@@ -113,6 +118,7 @@ export function ModelsPage({
         {models.map((model) => (
           <ModelRow
             key={model.id}
+            now={now}
             model={model}
             active={model.id === library.activeModelId}
             unavailable={!demo && !model.ready}
