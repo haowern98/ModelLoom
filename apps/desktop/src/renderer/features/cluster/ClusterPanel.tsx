@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef } from 'react';
 import type { RefObject } from 'react';
-import { ArrowLeft, Pencil, X } from 'lucide-react';
+import { ArrowLeft } from '@phosphor-icons/react/dist/csr/ArrowLeft';
+import { Pencil } from '@phosphor-icons/react/dist/csr/Pencil';
+import { X } from '@phosphor-icons/react/dist/csr/X';
 import { validSampleRange } from '../../mocks/cluster';
 import type { DemoDevice, DemoHardware, LayerInput, SampleRange } from '../../mocks/cluster';
 import type { DemoModel } from '../../mocks/modelLibrary';
