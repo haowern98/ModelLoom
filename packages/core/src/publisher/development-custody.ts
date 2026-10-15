@@ -113,7 +113,8 @@ async function writeDevelopmentMetadata(
   repository = path.resolve(repository);
   ownershipBinding().privateDirectory(repository);
   if ((await readdir(repository)).length) throw new Error('REPOSITORY_ALREADY_EXISTS');
-  const expires = (days: number) => new Date(Date.now() + days * 86400000).toISOString();
+  // Development metadata stays usable for a month; signature and file checks still apply.
+  const expires = new Date(Date.now() + 30 * 86400000).toISOString();
   const signedBytes = async (
     metadata: Metadata<Targets | Snapshot | Timestamp>,
   ): Promise<Buffer> => {
@@ -139,7 +140,7 @@ async function writeDevelopmentMetadata(
       new Targets({
         specVersion: '1.0.31',
         version: versions.targets,
-        expires: expires(7),
+        expires,
         targets: {
           'inventory.json': new TargetFile({
             path: 'inventory.json',
@@ -157,7 +158,7 @@ async function writeDevelopmentMetadata(
       new Snapshot({
         specVersion: '1.0.31',
         version: versions.snapshot,
-        expires: expires(2),
+        expires,
         meta: { 'targets.json': meta(targets, versions.targets) },
       }),
     ),
@@ -167,7 +168,7 @@ async function writeDevelopmentMetadata(
       new Timestamp({
         specVersion: '1.0.31',
         version: versions.timestamp,
-        expires: expires(1),
+        expires,
         snapshotMeta: meta(snapshot, versions.snapshot),
       }),
     ),
