@@ -1,0 +1,152 @@
+.page {
+  height: 100%;
+  min-width: 0;
+  overflow: auto;
+  padding: 28px 32px;
+  background: #181818;
+  color: var(--neutral-text);
+}
+.settingsPage {
+  height: 100%;
+  scrollbar-gutter: stable;
+  color: var(--neutral-text);
+}
+.settingsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.header h1 {
+  font-size: var(--font-size-page-title);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-page-title);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.actions button {
+  min-height: var(--control-height-search);
+  padding: 1px 14px;
+  border: 0;
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-control);
+}
+.description {
+  color: var(--neutral-muted);
+  font-size: var(--font-size-description);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+.intro {
+  line-height: var(--line-height-description);
+  margin-bottom: 14px;
+}
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.settingsPage .identity h2 {
+  margin: 0;
+  font-size: var(--font-size-section-heading);
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+.badge {
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: #303030;
+  font-size: var(--font-size-metadata);
+}
+.inventory {
+  margin: 0;
+}
+.inventory .inventoryRow {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr);
+}
+.inventoryRow dt,
+.inventoryRow dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.inventoryRow dd {
+  margin: 0;
+  color: var(--neutral-muted);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+  text-align: right;
+}
+.inventoryNote {
+  margin-top: 10px;
+}
+.settingsPage .connection {
+  display: flex;
+  align-items: center;
+  gap: 12px 24px;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+.settingsPage .connection + .connection {
+  border-top: 1px solid var(--neutral-border);
+}
+.settingsPage .connection:hover {
+  background: #2c2c2c;
+}
+.connection svg {
+  flex-shrink: 0;
+}
+.connectionIdentity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.connection strong {
+  font-size: var(--font-size-card-title);
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+.connection small {
+  display: block;
+  color: var(--neutral-muted);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+  margin-top: 4px;
+}
+.latency {
+  margin-left: auto;
+  color: var(--neutral-muted);
+  font-size: var(--font-size-description);
+  white-space: nowrap;
+}
+.joining {
+  max-width: 800px;
+}
+@media (max-width: 1100px) {
+  .page {
+    padding: 24px;
+  }
+  .connection {
+    flex-wrap: wrap;
+  }
+}
