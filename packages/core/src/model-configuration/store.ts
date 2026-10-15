@@ -20,12 +20,19 @@ const oldTables = {
   model_imports:
     'CREATE TABLE model_imports(model_id TEXT PRIMARY KEY NOT NULL,created INTEGER NOT NULL CHECK(created>0))',
 };
-const tables = {
+const indexTables = {
   ...oldTables,
   configuration_schema:
     'CREATE TABLE configuration_schema(version INTEGER NOT NULL CHECK(version=2))',
   model_sources:
     'CREATE TABLE model_sources(model_id TEXT PRIMARY KEY NOT NULL,record TEXT NOT NULL)',
+};
+const tables = {
+  ...indexTables,
+  configuration_schema:
+    'CREATE TABLE configuration_schema(version INTEGER NOT NULL CHECK(version=3))',
+  model_usage:
+    'CREATE TABLE model_usage(model_id TEXT PRIMARY KEY NOT NULL,last_used INTEGER NOT NULL CHECK(last_used>0))',
 };
 const safeErrors = new Set([
   'UNKNOWN_MODEL',
@@ -104,7 +111,8 @@ export class ModelConfigurationStore {
         .prepare("SELECT name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'")
         .all();
       if (schema.length) {
-        const expected = schema.length === 4 ? oldTables : tables;
+        const expected =
+          schema.length === 4 ? oldTables : schema.length === 5 ? indexTables : tables;
         if (
           schema.length !== Object.keys(expected).length ||
           schema.some(
@@ -118,7 +126,7 @@ export class ModelConfigurationStore {
         const versions = database.prepare('SELECT version FROM configuration_schema').all();
         if (
           versions.length !== 1 ||
-          versions[0]?.version !== (schema.length === 4 ? 1 : 2) ||
+          versions[0]?.version !== (schema.length === 4 ? 1 : schema.length === 5 ? 2 : 3) ||
           database
             .prepare('PRAGMA integrity_check')
             .all()
@@ -134,12 +142,13 @@ export class ModelConfigurationStore {
       this.transaction(() => {
         if (!schema.length) {
           for (const sql of Object.values(tables)) database.exec(sql);
-          database.exec('INSERT INTO configuration_schema VALUES(2)');
-        } else if (schema.length === 4) {
+          database.exec('INSERT INTO configuration_schema VALUES(3)');
+        } else if (schema.length === 4 || schema.length === 5) {
           database.exec('DROP TABLE configuration_schema');
           database.exec(tables.configuration_schema);
-          database.exec('INSERT INTO configuration_schema VALUES(2)');
-          database.exec(tables.model_sources);
+          database.exec('INSERT INTO configuration_schema VALUES(3)');
+          if (schema.length === 4) database.exec(tables.model_sources);
+          database.exec(tables.model_usage);
         }
       });
     });
@@ -154,6 +163,42 @@ export class ModelConfigurationStore {
       this.safe(() => {
         this.checkModel(modelId);
         return this.readImportNow(modelId);
+      }),
+    );
+  }
+  /** Trusted dispatch time only. Concurrent completion cannot move usage backwards. */
+  recordUse(modelId: string, usedAt: number): Promise<void> {
+    return Promise.resolve().then(() =>
+      this.safe(() => {
+        this.checkModel(modelId);
+        if (!Number.isSafeInteger(usedAt) || usedAt < 1 || usedAt > Date.now() + 30000)
+          throw new Error('INVALID_CONFIGURATION');
+        this.transaction(() => {
+          this.database
+            .prepare(
+              'INSERT INTO model_usage VALUES(?,?) ON CONFLICT(model_id) DO UPDATE SET last_used=MAX(model_usage.last_used,excluded.last_used)',
+            )
+            .run(modelId, usedAt);
+        });
+      }),
+    );
+  }
+  /** Retained independently of imports, loading and chat-history deletion. */
+  readUse(modelId: string): Promise<number | null> {
+    return Promise.resolve().then(() =>
+      this.safe(() => {
+        this.checkModel(modelId);
+        const row = this.database
+          .prepare('SELECT last_used FROM model_usage WHERE model_id=?')
+          .get(modelId);
+        if (!row) return null;
+        if (
+          typeof row.last_used !== 'number' ||
+          !Number.isSafeInteger(row.last_used) ||
+          row.last_used < 1
+        )
+          throw new Error('UNSUPPORTED_CONFIGURATION');
+        return row.last_used;
       }),
     );
   }
