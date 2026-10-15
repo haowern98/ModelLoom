@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
-import { ModelLogo } from '../../components/Brand';
+import { CaretDown as ChevronDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import type { DemoModel } from '../../mocks/modelLibrary';
 import styles from './ClusterPage.module.css';
 
@@ -102,7 +101,6 @@ export function ClusterModelPicker({
                 onChoose(model);
               }}
             >
-              <ModelLogo family={model.family} />
               <span>
                 <strong>{model.name}</strong>
                 <small>
