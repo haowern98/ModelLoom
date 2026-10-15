@@ -7,7 +7,7 @@ import {
   DEVELOPMENT_MEMORY_REPORTS,
 } from '../runtime-package/development-policy.js';
 import { createDevelopmentRuntimeVerifier } from '../runtime-package/verifier.js';
-import { installExpanded } from '../runtime-package/install.js';
+import { installExpanded, requireInstalledLive } from '../runtime-package/install.js';
 import { inspectGGUF } from '../runtime/gguf.js';
 import { checkCudaResources } from '../runtime/gpu-resources.js';
 import { discoverResources } from './resource-probe.js';
@@ -15,6 +15,7 @@ import { confirmExit, ownershipBinding } from './windows-ownership.js';
 import { realEngineAdapter } from './real-engine.js';
 import { createDesktopEngineHost } from './desktop.js';
 import type { UtilityFork } from './desktop.js';
+import type { ModelSource } from '../model-configuration/model-source.js';
 /** Explicit Windows development deployment. Trusted main selects fixed build assets and state;
  * renderer commands cannot choose a repository, verifier, report, executable or arguments.
  * Ordinary builds keep the development verifier closed. Production packaging is separate.
@@ -31,6 +32,7 @@ export function developmentDesktopDependencies(
   const configuration = report.configuration,
     modelSha256 = report.modelSha256;
   const deploymentId = `desktop-development-${randomUUID()}`;
+  let verifiedBackends: readonly string[] | undefined;
   /** History has its own retained core containment, independent of verified engine assets.
    * The engine adapter is prepared only by trusted main after import/resource admission.
    * Both owners close on core failure or Quit; no synthetic engine is supplied at startup.
@@ -77,6 +79,8 @@ export function developmentDesktopDependencies(
             path.join(base, 'candidate'),
             path.join(stateBase, 'installed'),
           );
+          const inventory = requireInstalledLive(installed);
+          verifiedBackends = [`${inventory.backend} (${inventory.version})`];
           if (closed) throw new Error('CORE_EXITED');
           adapter = realEngineAdapter(installed, file, configuration, 18478);
           preparedFile = file;
@@ -127,6 +131,8 @@ export function developmentDesktopDependencies(
     }
   }
   return {
+    /** Installed and verifier-accepted inventory only; hardware brands do not imply backend support. */
+    runtimeBackends: () => verifiedBackends,
     enabled: true as const,
     expectedHash: report.modelSha256,
     packageId: 'llama-cuda-development',
@@ -141,10 +147,31 @@ export function developmentDesktopDependencies(
           info.contextLimit < report.configuration.contextPerSlot
         )
           throw new Error('UNSUPPORTED_MODEL');
-        const size = (await lstat(file)).size;
-        return { sha256: info.sha256, size: `${(size / 1e9).toFixed(2)} GB` };
+        const stat = await lstat(file);
+        return {
+          ...info,
+          size: `${(stat.size / 1e9).toFixed(2)} GB`,
+          sizeBytes: stat.size,
+          modifiedMs: stat.mtimeMs,
+        };
       } finally {
         native.releaseFiles(lock);
+      }
+    },
+    /** Reconcile a saved source without hashing/loading a large model during startup. */
+    async available(source: ModelSource): Promise<boolean> {
+      const native = ownershipBinding();
+      let lock: ReturnType<typeof native.sealFiles> | undefined;
+      try {
+        lock = native.sealFiles([source.file]);
+        const stat = await lstat(source.file);
+        return (
+          stat.isFile() && stat.size === source.sizeBytes && stat.mtimeMs === source.modifiedMs
+        );
+      } catch {
+        return false;
+      } finally {
+        if (lock) native.releaseFiles(lock);
       }
     },
     async device() {
