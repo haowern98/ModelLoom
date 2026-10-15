@@ -98,7 +98,7 @@
 }
 .section h2 {
   margin-bottom: 14px;
-  font-size: var(--font-size-heading);
+  font-size: var(--font-size-section-heading);
   font-weight: var(--font-weight-medium);
 }
 .group {
