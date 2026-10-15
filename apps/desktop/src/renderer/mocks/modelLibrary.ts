@@ -4,7 +4,7 @@ export interface DemoModel {
   readonly name: string;
   readonly identifier: string;
   readonly description: string;
-  readonly family: 'qwen' | 'llama' | 'mistral' | 'phi' | 'gemma';
+  readonly family: 'qwen' | 'llama' | 'mistral' | 'phi' | 'gemma' | 'unknown';
   readonly quantization: string;
   readonly size: string;
   readonly architecture: string;
