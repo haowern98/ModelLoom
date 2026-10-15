@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import * as module from './runtime-controller';
+import type { ModelSource } from '../../../../packages/core/src/model-configuration/model-source';
 const localDevice = {
   name: 'local-pc',
   os: 'Windows',
@@ -57,6 +58,85 @@ it('retries unavailable device information without reporting a model failure', a
   expect((await controller.command({ action: 'snapshot' })).device).toEqual(localDevice);
   expect(deps.createHost).not.toHaveBeenCalled();
 });
+it('refreshes expired memory observations without starting a model', async () => {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(10000);
+  try {
+    const { controller, deps } = setup(false);
+    await controller.command({ action: 'snapshot' });
+    clock.mockReturnValue(20001);
+    deps.device.mockResolvedValueOnce({ ...localDevice, name: 'updated-host' });
+    expect((await controller.command({ action: 'snapshot' })).device?.name).toBe('updated-host');
+    expect(deps.device).toHaveBeenCalledTimes(2);
+    expect(deps.createHost).not.toHaveBeenCalled();
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+it('waits for an in-flight hardware query on Quit without starting an engine', async () => {
+  const { controller, deps } = setup(false);
+  let release!: (device: typeof localDevice) => void;
+  deps.device.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const observing = controller.command({ action: 'snapshot' });
+  await vi.waitFor(() => expect(deps.device).toHaveBeenCalledTimes(1));
+  let closed = false;
+  const closing = controller.quit().then(() => {
+    closed = true;
+  });
+  await Promise.resolve();
+  expect(closed).toBe(false);
+  release(localDevice);
+  await Promise.all([observing, closing]);
+  expect(closed).toBe(true);
+  expect(deps.createHost).not.toHaveBeenCalled();
+});
+
+it('refreshes immediately after a device-change notification despite the ten-second cache', async () => {
+  const { controller, deps } = setup(false);
+  await controller.command({ action: 'snapshot' });
+  deps.device.mockResolvedValueOnce({ ...localDevice, name: 'GPU-disabled' });
+  await controller.deviceChanged();
+  expect((await controller.command({ action: 'snapshot' })).device?.name).toBe('GPU-disabled');
+  expect(deps.device).toHaveBeenCalledTimes(2);
+  expect(deps.createHost).not.toHaveBeenCalled();
+  await controller.quit();
+  await controller.deviceChanged();
+  expect(deps.device).toHaveBeenCalledTimes(2);
+});
+
+it('discards a stale hardware scan and coalesces changes during it into one fresh scan', async () => {
+  const { controller, deps } = setup(false);
+  let release!: (device: typeof localDevice) => void;
+  deps.device.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const before = controller.command({ action: 'snapshot' });
+  await vi.waitFor(() => expect(deps.device).toHaveBeenCalledTimes(1));
+  deps.device.mockResolvedValueOnce({ ...localDevice, name: 'new-hardware' });
+  const firstChange = controller.deviceChanged();
+  const secondChange = controller.deviceChanged();
+  expect(deps.device).toHaveBeenCalledTimes(1);
+  release(localDevice);
+  await Promise.all([before, firstChange, secondChange]);
+  expect((await controller.command({ action: 'snapshot' })).device?.name).toBe('new-hardware');
+  expect(deps.device).toHaveBeenCalledTimes(2);
+  await controller.quit();
+});
+
+it('does not confirm Quit if diagnostic child cleanup could not be confirmed', async () => {
+  const { controller, deps } = setup(false);
+  deps.device.mockRejectedValueOnce(new Error('QUERY_CLEANUP_FAILED'));
+  await expect(controller.command({ action: 'snapshot' })).rejects.toThrow('QUERY_CLEANUP_FAILED');
+  await expect(controller.quit()).rejects.toThrow('QUERY_CLEANUP_FAILED');
+});
 it('imports an opaque model, rejects forged IDs, and reports readiness only after the host confirms it', async () => {
   const { controller, deps } = setup();
   expect(controller).toBeDefined();
@@ -71,6 +151,172 @@ it('imports an opaque model, rejects forged IDs, and reports readiness only afte
     'ready',
   );
   expect((await controller.command({ action: 'stop' })).phase).toBe('stopped');
+  await controller.quit();
+});
+
+it('publishes an indexing filename while inspection runs and restores the saved library unloaded', async () => {
+  const modelId = 'a'.repeat(64);
+  let source: ModelSource | null = null;
+  let release!: (info: { sha256: string; size: string }) => void;
+  const host = {
+    command: vi.fn(() => Promise.resolve({ snapshot: { phase: 'stopped' } })),
+    close: vi.fn(() => Promise.resolve()),
+    api: vi.fn((_caller: string, input: unknown) => {
+      const command = input as { action: string; source?: typeof source };
+      if (command.action === 'readImportSource')
+        return Promise.resolve({ ok: true as const, source });
+      source = command.source ?? null;
+      return Promise.resolve({ ok: true as const, registered: true as const });
+    }),
+  };
+  const deps = {
+    enabled: true as const,
+    expectedHash: modelId,
+    packageId: 'package',
+    pick: vi.fn(() => Promise.resolve('E:\\Models\\filename.gguf')),
+    inspect: vi.fn(
+      () =>
+        new Promise<{ sha256: string; size: string }>((resolve) => {
+          release = resolve;
+        }),
+    ),
+    preflight: vi.fn(),
+    createHost: vi.fn(),
+    createHistoryHost: vi.fn(() => Promise.resolve(host)),
+    available: vi.fn(() => Promise.resolve(true)),
+  };
+  const controller = module.createRuntimeController(deps, 'window');
+  const importing = controller.command({ action: 'import' });
+  await vi.waitFor(() => expect(deps.inspect).toHaveBeenCalledTimes(1));
+  const pending = await controller.command({ action: 'snapshot' });
+  expect(pending.indexing).toBe('filename.gguf');
+  expect(JSON.stringify(pending)).not.toContain('E:\\Models');
+  release({ sha256: modelId, size: '4 GB' });
+  expect((await importing).model?.name).toBe('filename.gguf');
+  expect(source).not.toBeNull();
+  await controller.quit();
+  const reopened = module.createRuntimeController(deps, 'window');
+  await vi.waitFor(async () =>
+    expect((await reopened.command({ action: 'snapshot' })).restoring).toBe(false),
+  );
+  const restored = await reopened.command({ action: 'snapshot' });
+  expect(restored.model?.id).toBe(`model-${modelId}`);
+  expect(restored.phase).toBe('stopped');
+  expect(restored.model?.unavailable).toBe(false);
+  expect(deps.inspect).toHaveBeenCalledTimes(1);
+  expect(deps.preflight).not.toHaveBeenCalled();
+  expect(deps.createHost).not.toHaveBeenCalled();
+  expect(JSON.stringify(restored)).not.toContain('E:\\Models');
+  await reopened.quit();
+  deps.available.mockResolvedValueOnce(false);
+  const missing = module.createRuntimeController(deps, 'window');
+  await vi.waitFor(async () =>
+    expect((await missing.command({ action: 'snapshot' })).restoring).toBe(false),
+  );
+  expect((await missing.command({ action: 'snapshot' })).model?.unavailable).toBe(true);
+  await missing.quit();
+});
+
+it('rechecks imported content before loading instead of trusting cached identity', async () => {
+  const { controller, deps } = setup();
+  const imported = await controller.command({ action: 'import' });
+  deps.inspect.mockResolvedValueOnce({ sha256: 'changed', size: '3.80 GB' });
+  const result = await controller.command({ action: 'load', modelId: imported.model!.id });
+  expect(result.phase).toBe('failed');
+  expect(result.model?.unavailable).toBe(true);
+  expect(result.models?.[0]?.id).toBe(imported.model!.id);
+  expect(deps.preflight).not.toHaveBeenCalled();
+  expect(deps.createHost).not.toHaveBeenCalled();
+  await controller.quit();
+});
+
+it('blocks loading an old library entry while a replacement import is indexing', async () => {
+  const { controller, deps } = setup();
+  const initial = await controller.command({ action: 'import' });
+  let release!: (info: { sha256: string; size: string }) => void;
+  deps.inspect.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const importing = controller.command({ action: 'import' });
+  await vi.waitFor(() => expect(deps.inspect).toHaveBeenCalledTimes(2));
+  const loading = await controller.command({ action: 'load', modelId: initial.model!.id });
+  expect(loading.error).toContain('Stop the current model');
+  expect(loading.phase).toBe('stopped');
+  expect(deps.createHost).not.toHaveBeenCalled();
+  release({ sha256: 'approved', size: '3.80 GB' });
+  expect((await importing).phase).toBe('stopped');
+  await controller.quit();
+});
+
+it('waits for indexing cleanup on Quit and never publishes its unfinished import', async () => {
+  const { controller, deps } = setup();
+  let release!: (info: { sha256: string; size: string }) => void;
+  deps.inspect.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const importing = controller.command({ action: 'import' });
+  await vi.waitFor(() => expect(deps.inspect).toHaveBeenCalledTimes(1));
+  let closed = false;
+  const closing = controller.quit().then(() => {
+    closed = true;
+  });
+  await Promise.resolve();
+  expect(closed).toBe(false);
+  release({ sha256: 'approved', size: '3.80 GB' });
+  await Promise.all([importing, closing]);
+  expect((await controller.command({ action: 'snapshot' })).model).toBeNull();
+  expect(deps.createHost).not.toHaveBeenCalled();
+});
+
+it('can quit before file selection without waiting for the picker or starting inspection', async () => {
+  const { controller, deps } = setup();
+  let choose!: (file: string) => void;
+  deps.pick.mockImplementationOnce(
+    () =>
+      new Promise<string>((resolve) => {
+        choose = resolve;
+      }),
+  );
+  const importing = controller.command({ action: 'import' });
+  await vi.waitFor(() => expect(deps.pick).toHaveBeenCalled());
+  let closed = false;
+  const closing = controller.quit().then(() => {
+    closed = true;
+  });
+  try {
+    await vi.waitFor(() => expect(closed).toBe(true));
+  } finally {
+    choose('private/path.gguf');
+    await Promise.all([importing, closing]);
+  }
+  expect(deps.inspect).not.toHaveBeenCalled();
+});
+
+it('does not let a cancelled load inspection invalidate a newer imported entry', async () => {
+  const { controller, deps } = setup();
+  const initial = await controller.command({ action: 'import' });
+  let reject!: (error: Error) => void;
+  deps.inspect.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, rejectInspection) => {
+        reject = rejectInspection;
+      }),
+  );
+  const loading = controller.command({ action: 'load', modelId: initial.model!.id });
+  await vi.waitFor(() => expect(deps.inspect).toHaveBeenCalledTimes(2));
+  await controller.command({ action: 'stop' });
+  await controller.command({ action: 'import' });
+  reject(new Error('OLD_FILE_UNAVAILABLE'));
+  const result = await loading;
+  expect(result.phase).toBe('stopped');
+  expect(result.model?.unavailable).toBe(false);
+  expect(deps.createHost).not.toHaveBeenCalled();
   await controller.quit();
 });
 it('keeps resource rejection honest, launches nothing, and allows an explicit retry', async () => {
