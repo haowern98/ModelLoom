@@ -1,5 +1,10 @@
 import { useRef, useState } from 'react';
-import { Cpu, Gpu, Apple, Pencil, EllipsisVertical, Plus } from 'lucide-react';
+import { Cpu } from '@phosphor-icons/react/dist/csr/Cpu';
+import { GraphicsCard as Gpu } from '@phosphor-icons/react/dist/csr/GraphicsCard';
+import { AppleLogo as Apple } from '@phosphor-icons/react/dist/csr/AppleLogo';
+import { Pencil } from '@phosphor-icons/react/dist/csr/Pencil';
+import { DotsThreeVertical as EllipsisVertical } from '@phosphor-icons/react/dist/csr/DotsThreeVertical';
+import { Plus } from '@phosphor-icons/react/dist/csr/Plus';
 import type { DemoDevice, SampleRange } from '../../mocks/cluster';
 import { Button } from '../../components/Button';
 import styles from './ClusterPage.module.css';
