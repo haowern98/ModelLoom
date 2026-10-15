@@ -1,3 +1,4 @@
+import type { DeviceInventory } from '../../shared/runtime';
 /** Screen-reference fixtures only; no values represent discovered hardware or valid GGUF placement. */
 export interface DemoHardware {
   readonly id: string;
@@ -15,6 +16,7 @@ export interface DemoDevice {
   readonly os: string;
   readonly address: string;
   readonly hardware: readonly DemoHardware[];
+  readonly inventory?: DeviceInventory;
 }
 
 export const demoDevices: readonly DemoDevice[] = [
