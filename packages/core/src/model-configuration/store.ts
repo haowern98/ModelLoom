@@ -2,13 +2,15 @@ import { DatabaseSync } from 'node:sqlite';
 import { openConfigurationDirectory } from '../history/windows-directory.js';
 import type { TrustedHistoryRoot } from '../history/windows-directory.js';
 import { createModelConfiguration, decodeModelConfiguration } from './contracts.js';
+import { decodeModelSource } from './model-source.js';
+import type { ModelSource } from './model-source.js';
 import type {
   LoadDefaults,
   ModelConfigurationRecord,
   RuntimeSettingCapabilities,
 } from './contracts.js';
 
-const tables = {
+const oldTables = {
   configuration_schema:
     'CREATE TABLE configuration_schema(version INTEGER NOT NULL CHECK(version=1))',
   model_configurations:
@@ -17,6 +19,13 @@ const tables = {
     'CREATE TABLE api_credential(id INTEGER PRIMARY KEY CHECK(id=1),generation INTEGER NOT NULL CHECK(generation>0),protected BLOB NOT NULL)',
   model_imports:
     'CREATE TABLE model_imports(model_id TEXT PRIMARY KEY NOT NULL,created INTEGER NOT NULL CHECK(created>0))',
+};
+const tables = {
+  ...oldTables,
+  configuration_schema:
+    'CREATE TABLE configuration_schema(version INTEGER NOT NULL CHECK(version=2))',
+  model_sources:
+    'CREATE TABLE model_sources(model_id TEXT PRIMARY KEY NOT NULL,record TEXT NOT NULL)',
 };
 const safeErrors = new Set([
   'UNKNOWN_MODEL',
@@ -95,20 +104,21 @@ export class ModelConfigurationStore {
         .prepare("SELECT name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'")
         .all();
       if (schema.length) {
+        const expected = schema.length === 4 ? oldTables : tables;
         if (
-          schema.length !== 4 ||
+          schema.length !== Object.keys(expected).length ||
           schema.some(
             (row) =>
               typeof row.name !== 'string' ||
-              !Object.hasOwn(tables, row.name) ||
-              Reflect.get(tables, row.name) !== row.sql,
+              !Object.hasOwn(expected, row.name) ||
+              Reflect.get(expected, row.name) !== row.sql,
           )
         )
           throw new Error('UNSUPPORTED_CONFIGURATION');
         const versions = database.prepare('SELECT version FROM configuration_schema').all();
         if (
           versions.length !== 1 ||
-          versions[0]?.version !== 1 ||
+          versions[0]?.version !== (schema.length === 4 ? 1 : 2) ||
           database
             .prepare('PRAGMA integrity_check')
             .all()
@@ -124,7 +134,12 @@ export class ModelConfigurationStore {
       this.transaction(() => {
         if (!schema.length) {
           for (const sql of Object.values(tables)) database.exec(sql);
-          database.exec('INSERT INTO configuration_schema VALUES(1)');
+          database.exec('INSERT INTO configuration_schema VALUES(2)');
+        } else if (schema.length === 4) {
+          database.exec('DROP TABLE configuration_schema');
+          database.exec(tables.configuration_schema);
+          database.exec('INSERT INTO configuration_schema VALUES(2)');
+          database.exec(tables.model_sources);
         }
       });
     });
@@ -152,10 +167,12 @@ export class ModelConfigurationStore {
     return row.created;
   }
   /** Main supplies the actual verified import time, retained across same-content reimports. */
-  recordImport(modelId: string, created: number): Promise<number> {
+  recordImport(modelId: string, created: number, source?: ModelSource): Promise<number> {
     return Promise.resolve().then(() =>
       this.safe(() => {
         this.checkModel(modelId);
+        const decoded = source === undefined ? undefined : decodeModelSource(source);
+        if (decoded && decoded.modelId !== modelId) throw new Error('INVALID_CONFIGURATION');
         if (
           !Number.isSafeInteger(created) ||
           created < 1 ||
@@ -168,8 +185,33 @@ export class ModelConfigurationStore {
             .run(modelId, created);
           const stored = this.readImportNow(modelId);
           if (stored === null) throw new Error('UNSUPPORTED_CONFIGURATION');
+          if (decoded)
+            this.database
+              .prepare(
+                'INSERT INTO model_sources VALUES(?,?) ON CONFLICT(model_id) DO UPDATE SET record=excluded.record',
+              )
+              .run(modelId, JSON.stringify(decoded));
           return stored;
         });
+      }),
+    );
+  }
+
+  /** Restore the indexed source without opening or loading the referenced model. */
+  readImportSource(modelId: string): Promise<ModelSource | null> {
+    return Promise.resolve().then(() =>
+      this.safe(() => {
+        this.checkModel(modelId);
+        const row = this.database
+          .prepare('SELECT record FROM model_sources WHERE model_id=?')
+          .get(modelId);
+        if (!row) return null;
+        if (typeof row.record !== 'string' || Buffer.byteLength(row.record) > 131072)
+          throw new Error('UNSUPPORTED_CONFIGURATION');
+        const source = decodeModelSource(JSON.parse(row.record));
+        if (source.modelId !== modelId || this.readImportNow(modelId) === null)
+          throw new Error('UNSUPPORTED_CONFIGURATION');
+        return source;
       }),
     );
   }
