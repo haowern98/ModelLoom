@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import path from 'node:path';
 import { decodeRuntimeCommand } from '../shared/runtime';
 import type { RuntimeView, RuntimeDevice } from '../shared/runtime';
 import { decodeChatCommand } from '../shared/chat';
@@ -12,6 +13,9 @@ import type { ConfigurationReply } from '../shared/model-configuration';
 import { decodeApiManagementCommand, decodeApiManagementReply } from '../shared/local-api';
 import type { ApiManagementReply } from '../shared/local-api';
 import type { ApiOwnerReply } from '../../../../packages/core/src/local-api/wire';
+import { decodeModelSource } from '../../../../packages/core/src/model-configuration/model-source';
+import type { ModelSource } from '../../../../packages/core/src/model-configuration/model-source';
+import type { RuntimeModel } from '../shared/runtime';
 interface Host {
   command(text: string): Promise<Record<string, unknown>>;
   close(): Promise<void>;
@@ -29,7 +33,12 @@ interface ActivationDependencies {
   packageId: string;
   deploymentId?: string;
   pick(): Promise<string | null>;
-  inspect(file: string): Promise<{ sha256: string; size: string }>;
+  inspect(
+    file: string,
+  ): Promise<
+    { sha256: string; size: string } & Partial<Omit<ModelSource, 'modelId' | 'file' | 'size'>>
+  >;
+  available?(source: ModelSource): Promise<boolean>;
   preflight(): Promise<void>;
   createHost(file: string): Promise<Host>;
   /** Model-independent utility/history startup; retains the same owner across model loads. */
@@ -57,8 +66,11 @@ const messages: Record<string, string> = {
     'Saved model settings could not be confirmed. Reopen configuration and try again.',
   MODEL_FILE_UNAVAILABLE:
     'This model file could not be safely opened. Choose a standalone copy of the GGUF, not a hard link or shortcut, and try again.',
+  LIBRARY_UNAVAILABLE:
+    'The saved model library could not be opened. Restart the app and try again.',
+  INVALID_GGUF: 'This file could not be indexed as a supported GGUF model.',
 };
-/** Session-only import/load bridge. Fresh preflight precedes each load; host owns runtime cleanup.
+/** Saved library and session-only loading bridge. Fresh verification precedes each load.
  * Quit closes admission immediately and waits for in-flight preparation and owned exit.
  * Returned data never contains paths, native handles, ports or raw exception text.
  */
@@ -72,8 +84,13 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     importing = false;
   let preparation: Promise<Host> | undefined;
   let enginePreparation: Promise<void> | undefined;
+  let restoration: Promise<void> | undefined;
+  let importPreparation: Promise<void> | undefined;
   let historyFailed = false;
   let deviceProbe: Promise<void> | undefined;
+  let deviceObservedAt = 0;
+  let deviceCleanupFailed = false;
+  let deviceGeneration = 0;
   let unsubscribe: (() => void) | undefined;
   const chatListeners = new Set<() => void>();
   const observeChat = (created: Host) => {
@@ -84,6 +101,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     return created;
   };
   if (deps.enabled && deps.createHistoryHost) {
+    view = { ...view, restoring: true, models: [] };
     preparation = Promise.resolve()
       .then(() => deps.createHistoryHost!())
       .then((created) => {
@@ -93,19 +111,69 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     void preparation.catch(() => {
       historyFailed = true;
     });
-  }
-  const observeDevice = async () => {
-    if (!deps.device || view.device || quitting) return;
-    deviceProbe ??= deps
-      .device()
-      .then((device) => {
-        if (!quitting) view = { ...view, device };
+    const expectedHash = deps.expectedHash;
+    restoration = preparation
+      .then(async () => {
+        if (quitting || !host?.api) return;
+        const reply = await host.api(caller, { action: 'readImportSource' });
+        if (!reply.ok || !('source' in reply)) throw new Error('LIBRARY_UNAVAILABLE');
+        if (reply.source === null) return;
+        const source = decodeModelSource(reply.source);
+        if (source.modelId !== expectedHash) throw new Error('LIBRARY_UNAVAILABLE');
+        const unavailable = deps.available ? !(await deps.available(source)) : true;
+        if (quitting) return;
+        file = source.file;
+        const model = modelView(source, unavailable);
+        view = { ...view, model, models: [model] };
       })
       .catch(() => {
-        // Hardware visibility is independent of model admission; retry a failed observation.
-        deviceProbe = undefined;
+        if (!quitting) view = { ...view, error: messages.LIBRARY_UNAVAILABLE! };
+      })
+      .finally(() => {
+        view = { ...view, restoring: false };
       });
-    await deviceProbe;
+  }
+  function modelView(source: ModelSource, unavailable = false): RuntimeModel {
+    return {
+      id: `model-${source.modelId}`,
+      name: source.name,
+      filename: path.win32.basename(source.file),
+      size: source.size,
+      architecture: source.architecture,
+      contextLimit: source.contextLimit,
+      quantization: source.quantization,
+      parameters: source.parameters,
+      unavailable,
+    };
+  }
+  const observeDevice = async () => {
+    if (deviceCleanupFailed) throw new Error('QUERY_CLEANUP_FAILED');
+    if (!deps.device || quitting || (view.device && Date.now() - deviceObservedAt < 10000)) return;
+    const generation = deviceGeneration;
+    deviceProbe ??= Promise.resolve()
+      .then(() => (quitting ? undefined : deps.device!()))
+      .then((device) => {
+        if (!quitting && device && generation === deviceGeneration) {
+          view = { ...view, device };
+          deviceObservedAt = Date.now();
+        }
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.message === 'QUERY_CLEANUP_FAILED') {
+          deviceCleanupFailed = true;
+          throw error;
+        }
+        // Hardware visibility is independent of model admission; retry a failed observation.
+        if (generation === deviceGeneration) deviceObservedAt = Date.now();
+      });
+    const pending = deviceProbe;
+    try {
+      await pending;
+    } finally {
+      if (deviceProbe === pending) deviceProbe = undefined;
+    }
+    // A notification during the scan invalidates its result, without overlapping native queries.
+    if (!quitting && generation !== deviceGeneration) await observeDevice();
   };
   const result = () => structuredClone(view);
   const send = async (action: string, selection?: Record<string, string>) => {
@@ -140,6 +208,13 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       view.error = messages.CLEANUP_FAILED!;
   };
   return {
+    /** Trusted native device-change notification; bypasses the telemetry cache, never admission. */
+    async deviceChanged(): Promise<void> {
+      if (quitting) return;
+      ++deviceGeneration;
+      deviceObservedAt = Number.NEGATIVE_INFINITY;
+      await observeDevice();
+    },
     async api(input: unknown): Promise<ApiManagementReply> {
       const command = decodeApiManagementCommand(input);
       if (quitting || !deps.enabled) return { ok: false, error: 'NOT_READY' };
@@ -190,8 +265,10 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     async command(input: unknown): Promise<RuntimeView> {
       const command = decodeRuntimeCommand(input);
       if (quitting) return result();
+      if (command.action === 'snapshot' && (importing || view.restoring)) return result();
       if (command.action === 'snapshot') await observeDevice();
       if (!deps.enabled || quitting) return result();
+      let loadingEpoch: number | undefined;
       try {
         if (command.action === 'snapshot') {
           // Keep a rejected admission visible until an explicit stop/retry. A stopped core
@@ -200,9 +277,13 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
         } else if (command.action === 'import') {
           if (importing || !['stopped', 'failed'].includes(view.phase)) throw new Error('BUSY');
           importing = true;
-          try {
+          ++epoch;
+          const work = (async () => {
+            if (restoration) await restoration;
+            if (quitting) return;
             const selected = await deps.pick();
             if (selected === null || quitting) return result();
+            view = { ...view, indexing: path.win32.basename(selected), error: null };
             const info = await deps.inspect(selected).catch((error: unknown) => {
               if (error instanceof Error && error.message === 'OWNERSHIP_FAILED')
                 throw new Error('MODEL_FILE_UNAVAILABLE');
@@ -211,6 +292,18 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
             const importedAt = Math.floor(Date.now() / 1000);
             if (info.sha256 !== deps.expectedHash) throw new Error('UNSUPPORTED_MODEL');
             if (quitting) return result();
+            const source: ModelSource = {
+              modelId: info.sha256,
+              file: path.resolve(selected),
+              name: info.name ?? path.win32.basename(selected),
+              size: info.size,
+              sizeBytes: info.sizeBytes ?? 0,
+              modifiedMs: info.modifiedMs ?? 0,
+              architecture: info.architecture ?? 'Unknown',
+              contextLimit: info.contextLimit ?? 0,
+              quantization: info.quantization ?? 'Unknown',
+              parameters: info.parameters ?? 'Unknown',
+            };
             if (deps.createHistoryHost && preparation) await preparation;
             await observeDevice();
             if (host && deps.createHistoryHost) {
@@ -226,31 +319,56 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
                 action: 'registerImport',
                 modelId: info.sha256,
                 created: importedAt,
+                source,
               });
               if (!registered.ok || !('registered' in registered))
                 throw new Error('CONFIGURATION_UNAVAILABLE');
             }
+            if (quitting) return;
             file = selected;
+            const model = modelView(source);
             view = {
               ...view,
-              model: { id: `model-${info.sha256}`, name: 'Bonsai 27B', size: info.size },
+              model,
+              models: [model],
               phase: 'stopped',
               error: null,
             };
+          })();
+          importPreparation = work.then(() => undefined);
+          try {
+            await importPreparation;
           } finally {
+            importPreparation = undefined;
             importing = false;
+            view = { ...view, indexing: null };
           }
         } else if (command.action === 'stop') {
           ++epoch;
           if (host) await send('stop');
           else view = { ...view, phase: 'stopped', error: null };
         } else if (command.action === 'load') {
+          if (importing || view.restoring) throw new Error('BUSY');
           if (!file || !view.model || command.modelId !== view.model.id)
             throw new Error('INVALID_MODEL_ID');
           if (!['stopped', 'failed'].includes(view.phase)) throw new Error('BUSY');
+          if (view.model.unavailable) throw new Error('MODEL_FILE_UNAVAILABLE');
           const operation = ++epoch;
+          loadingEpoch = operation;
           view = { ...view, phase: 'starting', error: null };
           if (deps.createHistoryHost && preparation) await preparation;
+          if (operation !== epoch || quitting) return result();
+          await deps
+            .inspect(file)
+            .then((inspected) => {
+              if (inspected.sha256 !== deps.expectedHash) throw new Error('UNSUPPORTED_MODEL');
+            })
+            .catch(() => {
+              if (operation !== epoch || quitting) return;
+              const model = view.model ? { ...view.model, unavailable: true } : null;
+              view = { ...view, model, models: model ? [model] : [] };
+              throw new Error('MODEL_FILE_UNAVAILABLE');
+            });
           if (operation !== epoch || quitting) return result();
           if (host?.configuration) {
             const settings = await host.configuration(caller, {
@@ -282,6 +400,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           });
         }
       } catch (error: unknown) {
+        if (loadingEpoch !== undefined && (loadingEpoch !== epoch || quitting)) return result();
         const rejected =
           error instanceof Error && ['BUSY', 'INVALID_MODEL_ID'].includes(error.message);
         view = {
@@ -301,6 +420,9 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       unsubscribe?.();
       chatListeners.clear();
       ++epoch;
+      const pendingDevice = deviceProbe;
+      // A pending picker owns no model handles; only selected-file indexing must settle.
+      await Promise.allSettled([restoration, view.indexing ? importPreparation : undefined]);
       if (preparation) {
         try {
           host = await preparation;
@@ -324,7 +446,13 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
         }
         await host.close();
       }
+      // Do not delay engine shutdown; diagnostic children still settle before main exits.
+      if (pendingDevice)
+        await pendingDevice.catch(() => {
+          deviceCleanupFailed = true;
+        });
       view = { ...view, phase: 'stopped' };
+      if (deviceCleanupFailed) throw new Error('QUERY_CLEANUP_FAILED');
     },
   };
 }

@@ -1,22 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RuntimeCommand, RuntimeView } from '../../shared/runtime';
-/** Session-only public state. Old poll/load replies cannot overwrite a newer stop or import. */
+/** Public snapshots include persisted library metadata and transient indexing progress. */
 export function useRuntime() {
   const [view, setView] = useState<RuntimeView | null>(null);
   const [loading, setLoading] = useState(false);
   const generation = useRef(0),
-    busy = useRef(false);
+    busy = useRef(false),
+    importing = useRef(false);
   useEffect(() => {
     const bridge = window.modelLoomRuntime;
     if (!bridge) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
-      if (!busy.current) {
+      if (!busy.current || importing.current) {
         const current = generation.current;
         try {
           const next = await bridge.command({ action: 'snapshot' });
-          if (alive && current === generation.current && !busy.current) setView(next);
+          if (alive && current === generation.current && (!busy.current || importing.current))
+            setView(next);
         } catch {
           /* Main's Quit gate closes the bridge before the window disappears. */
         }
@@ -37,6 +39,7 @@ export function useRuntime() {
     if (!bridge) return;
     const current = ++generation.current;
     busy.current = true;
+    importing.current = command.action === 'import';
     setLoading(command.action === 'load');
     try {
       const next = await bridge.command(command);
@@ -50,7 +53,9 @@ export function useRuntime() {
         );
     } finally {
       if (current === generation.current) {
+        ++generation.current;
         busy.current = false;
+        importing.current = false;
         setLoading(false);
       }
     }
