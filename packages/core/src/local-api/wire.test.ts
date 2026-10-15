@@ -5,6 +5,22 @@ import {
   decodeApiManagementReply,
   decodeApiOwnerReply,
 } from './wire.js';
+it('reads usage through the fixed owner only and rejects forged or malformed timestamps', () => {
+  const command = { action: 'readModelUsage' as const };
+  expect(decodeApiOwnerCommand(command)).toEqual(command);
+  expect(() => decodeApiManagementCommand(command)).toThrow('INVALID_CONTROL');
+  expect(() => decodeApiOwnerCommand({ ...command, modelId: 'a'.repeat(64) })).toThrow(
+    'INVALID_CONTROL',
+  );
+  for (const lastUsedAt of [null, 123456789])
+    expect(decodeApiOwnerReply({ ok: true, lastUsedAt }, command)).toEqual({
+      ok: true,
+      lastUsedAt,
+    });
+  for (const lastUsedAt of [0, -1, 1.5, NaN, Infinity, '123'])
+    expect(() => decodeApiOwnerReply({ ok: true, lastUsedAt }, command)).toThrow('INVALID_CONTROL');
+  expect(() => decodeApiManagementReply({ ok: true, lastUsedAt: 123 })).toThrow('INVALID_CONTROL');
+});
 it('separates public UI management from main-only verified import registration', () => {
   expect(decodeApiManagementCommand({ action: 'start' })).toEqual({ action: 'start' });
   const imported = { action: 'registerImport', modelId: 'a'.repeat(64), created: 123 };

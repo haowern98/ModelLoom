@@ -88,6 +88,20 @@ it('keeps API management caller-bound and registers an import independently of p
     }),
   ).toEqual({ ok: true, registered: true });
   expect(await api.command('window', { action: 'readImportSource' })).toEqual({ ok: true, source });
+  expect(await api.command('window', { action: 'readModelUsage' })).toEqual({
+    ok: true,
+    lastUsedAt: null,
+  });
+  const timestamp = Date.now();
+  await store.recordUse(record().modelId, timestamp);
+  expect(await api.command('window', { action: 'readModelUsage' })).toEqual({
+    ok: true,
+    lastUsedAt: timestamp,
+  });
+  expect(await api.command('forged', { action: 'readModelUsage' })).toEqual({
+    ok: false,
+    error: 'NOT_READY',
+  });
   expect(await api.command('forged', { action: 'readImportSource' })).toEqual({
     ok: false,
     error: 'NOT_READY',
