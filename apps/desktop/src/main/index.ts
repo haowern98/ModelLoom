@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { runtimePaths } from './runtime-paths';
 import { createRuntimeController } from './runtime-controller';
+import { watchDeviceChanges } from './device-changes';
 import type { RuntimeDependencies } from './runtime-controller';
 import { localDeviceSnapshot } from './local-device';
 import type { developmentDesktopDependencies } from '../../../../packages/core/src/hosts/development-desktop.js';
@@ -69,7 +70,7 @@ async function createWindow(): Promise<void> {
 
   let dependencies: RuntimeDependencies = {
     enabled: false,
-    device: () => Promise.resolve(localDeviceSnapshot()),
+    device: () => localDeviceSnapshot(),
   };
   // Only the explicit compiled development profile can select packaged resources.
   if (locations) {
@@ -99,12 +100,12 @@ async function createWindow(): Promise<void> {
       dependencies = {
         ...development,
         device: async () => {
-          const local = localDeviceSnapshot();
-          try {
-            return { ...local, ...(await development.device()) };
-          } catch {
-            return local;
-          }
+          const local = await localDeviceSnapshot();
+          const runtimeBackends = development.runtimeBackends?.();
+          return {
+            ...local,
+            inventory: { ...local.inventory, ...(runtimeBackends ? { runtimeBackends } : {}) },
+          };
         },
         pick: async () => {
           const selected = await dialog.showOpenDialog(window, {
@@ -125,6 +126,11 @@ async function createWindow(): Promise<void> {
   }
   const windowController = createRuntimeController(dependencies, chatCaller);
   controller = windowController;
+  watchDeviceChanges(window, () => {
+    void windowController.deviceChanged().catch(() => {
+      console.error('Hardware refresh could not be completed.');
+    });
+  });
   ipcMain.handle(
     'modelloom:api',
     createApiManagementHandler({
