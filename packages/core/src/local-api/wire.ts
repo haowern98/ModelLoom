@@ -1,4 +1,6 @@
 import type { ApiServerStatus } from './server.js';
+import { decodeModelSource } from '../model-configuration/model-source.js';
+import type { ModelSource } from '../model-configuration/model-source.js';
 const actions = [
   'status',
   'start',
@@ -11,7 +13,13 @@ const actions = [
 export type ApiManagementCommand = { readonly action: (typeof actions)[number] };
 export type ApiOwnerCommand =
   | ApiManagementCommand
-  | { readonly action: 'registerImport'; readonly modelId: string; readonly created: number };
+  | {
+      readonly action: 'registerImport';
+      readonly modelId: string;
+      readonly created: number;
+      readonly source?: ModelSource;
+    }
+  | { readonly action: 'readImportSource' };
 export type ApiManagementStatus = ApiServerStatus & {
   readonly keyPresent: boolean;
   readonly keyGeneration: number;
@@ -32,10 +40,21 @@ export type ApiManagementReply =
 export interface ApiManagementBridge {
   command(input: ApiManagementCommand): Promise<ApiManagementReply>;
 }
-export type ApiOwnerReply = ApiManagementReply | { readonly ok: true; readonly registered: true };
+export type ApiOwnerReply =
+  | ApiManagementReply
+  | { readonly ok: true; readonly registered: true }
+  | { readonly ok: true; readonly source: ModelSource | null };
 export function decodeApiOwnerReply(input: unknown, command: ApiOwnerCommand): ApiOwnerReply {
   if (input && typeof input === 'object' && Reflect.get(input, 'ok') === false)
     return decodeApiManagementReply(input);
+  if (command.action === 'readImportSource') {
+    const value = object(input, ['ok', 'source']);
+    if (value.ok !== true) return invalid();
+    return Object.freeze({
+      ok: true,
+      source: value.source === null ? null : decodeModelSource(value.source),
+    });
+  }
   if (command.action === 'registerImport') {
     const value = object(input, ['ok', 'registered']);
     if (value.ok !== true || value.registered !== true) return invalid();
@@ -76,18 +95,31 @@ export function decodeApiManagementCommand(input: unknown): ApiManagementCommand
 }
 /** Main-only import data is not admitted by the renderer bridge decoder. */
 export function decodeApiOwnerCommand(input: unknown): ApiOwnerCommand {
+  if (input && typeof input === 'object' && Reflect.get(input, 'action') === 'readImportSource') {
+    object(input, ['action']);
+    return Object.freeze({ action: 'readImportSource' });
+  }
   if (input && typeof input === 'object' && Reflect.get(input, 'action') === 'registerImport') {
-    const value = object(input, ['action', 'modelId', 'created']);
+    const withSource = Object.hasOwn(input, 'source');
+    const value = object(input, [
+      'action',
+      'modelId',
+      'created',
+      ...(withSource ? ['source'] : []),
+    ]);
     if (
       typeof value.modelId !== 'string' ||
       !/^[a-f0-9]{64}$/u.test(value.modelId) ||
       integer(value.created) < 1
     )
       return invalid();
+    const source = withSource ? decodeModelSource(value.source) : undefined;
+    if (source && source.modelId !== value.modelId) return invalid();
     return Object.freeze({
       action: 'registerImport',
       modelId: value.modelId,
       created: integer(value.created),
+      ...(source ? { source } : {}),
     });
   }
   return decodeApiManagementCommand(input);
