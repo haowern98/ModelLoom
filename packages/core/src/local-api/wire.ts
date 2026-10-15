@@ -19,7 +19,7 @@ export type ApiOwnerCommand =
       readonly created: number;
       readonly source?: ModelSource;
     }
-  | { readonly action: 'readImportSource' };
+  | { readonly action: 'readImportSource' | 'readModelUsage' };
 export type ApiManagementStatus = ApiServerStatus & {
   readonly keyPresent: boolean;
   readonly keyGeneration: number;
@@ -43,10 +43,20 @@ export interface ApiManagementBridge {
 export type ApiOwnerReply =
   | ApiManagementReply
   | { readonly ok: true; readonly registered: true }
-  | { readonly ok: true; readonly source: ModelSource | null };
+  | { readonly ok: true; readonly source: ModelSource | null }
+  | { readonly ok: true; readonly lastUsedAt: number | null };
 export function decodeApiOwnerReply(input: unknown, command: ApiOwnerCommand): ApiOwnerReply {
   if (input && typeof input === 'object' && Reflect.get(input, 'ok') === false)
     return decodeApiManagementReply(input);
+  if (command.action === 'readModelUsage') {
+    const value = object(input, ['ok', 'lastUsedAt']);
+    if (value.ok !== true || (value.lastUsedAt !== null && integer(value.lastUsedAt) < 1))
+      return invalid();
+    return Object.freeze({
+      ok: true,
+      lastUsedAt: value.lastUsedAt === null ? null : integer(value.lastUsedAt),
+    });
+  }
   if (command.action === 'readImportSource') {
     const value = object(input, ['ok', 'source']);
     if (value.ok !== true) return invalid();
@@ -95,6 +105,10 @@ export function decodeApiManagementCommand(input: unknown): ApiManagementCommand
 }
 /** Main-only import data is not admitted by the renderer bridge decoder. */
 export function decodeApiOwnerCommand(input: unknown): ApiOwnerCommand {
+  if (input && typeof input === 'object' && Reflect.get(input, 'action') === 'readModelUsage') {
+    object(input, ['action']);
+    return Object.freeze({ action: 'readModelUsage' });
+  }
   if (input && typeof input === 'object' && Reflect.get(input, 'action') === 'readImportSource') {
     object(input, ['action']);
     return Object.freeze({ action: 'readImportSource' });

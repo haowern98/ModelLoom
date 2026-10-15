@@ -62,6 +62,8 @@ export class ApiController {
   private async handle(input: unknown): Promise<ApiOwnerReply> {
     try {
       const command = decodeApiOwnerCommand(input);
+      if (command.action === 'readModelUsage')
+        return { ok: true, lastUsedAt: await this.store.readUse(this.modelId) };
       if (command.action === 'readImportSource')
         return { ok: true, source: await this.store.readImportSource(this.modelId) };
       if (command.action === 'registerImport') {
