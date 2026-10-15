@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Ellipsis, Settings } from 'lucide-react';
 import type { DemoModel } from '../../mocks/modelLibrary';
 import styles from './ModelRow.module.css';
+import { formatLastUsed, lastUsedTooltip } from './last-used';
 
 interface ModelRowProps {
   model: DemoModel;
@@ -11,6 +12,7 @@ interface ModelRowProps {
   onConfigure: () => void;
   indexing?: boolean;
   unavailable?: boolean;
+  now?: number;
 }
 
 export function ModelRow({
@@ -21,7 +23,10 @@ export function ModelRow({
   onConfigure,
   indexing = false,
   unavailable = false,
+  now,
 }: ModelRowProps) {
+  const [initialNow] = useState(Date.now);
+  const lastUsed = formatLastUsed(model.lastUsedAt, now ?? initialNow);
   const [menuOpen, setMenuOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -71,10 +76,10 @@ export function ModelRow({
       {!indexing && (
         <span
           className={styles.lastUsed}
-          aria-label="Last used: unknown"
-          title="Last use is not recorded in this demo"
+          aria-label={`Last used: ${lastUsed === '—' ? 'unknown' : lastUsed}`}
+          title={lastUsedTooltip(model.lastUsedAt)}
         >
-          —
+          {lastUsed}
         </span>
       )}
       {!indexing && (
