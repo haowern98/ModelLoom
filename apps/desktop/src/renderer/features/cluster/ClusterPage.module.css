@@ -11,10 +11,54 @@
   --cluster-control-hover: #2f2f2f;
   height: 100%;
   min-height: 0;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  background: var(--surface);
+}
+.main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: var(--surface);
+  padding: 20px 26px 12px 27px;
+}
+.detailsMain {
+  padding: 0;
+  gap: 0;
+}
+.overview {
+  position: absolute;
+  inset: 0;
+}
+.overview[hidden] {
+  display: none;
+}
+.actionCapsule {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border-radius: 999px;
+  background: #2c2c2c;
+}
+.candidateGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 16px;
+}
+.candidateGrid .candidateRow {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #262626;
+}
+.candidateGrid .candidateRow button {
+  align-self: flex-start;
 }
 .page button {
   background: #303030;
@@ -284,6 +328,9 @@
   background: transparent;
   border-radius: 50%;
 }
+.page .panelToggle {
+  background: #2c2c2c;
+}
 .runIcon,
 .panelToggle {
   color: #8b8b8b;
@@ -410,6 +457,14 @@
   column-gap: 64px;
   row-gap: 24px;
   align-items: start;
+}
+.singleDeviceCanvas {
+  width: 498px;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+.singleDeviceCanvas .device {
+  margin-top: 0;
 }
 .canvasControls {
   position: absolute;
@@ -594,7 +649,7 @@
   line-height: var(--line-height-body);
 }
 .hardwareText p {
-  font-size: var(--font-size-description);
+  font-size: var(--font-size-metadata);
   font-weight: var(--font-weight-normal);
   color: var(--muted);
   line-height: var(--line-height-description);
@@ -992,11 +1047,6 @@
 .page .modelOption:hover,
 .page .modelOption[aria-current='true'] {
   background: #2f2f2f;
-}
-.modelOption > svg {
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
 }
 .modelOption > span {
   flex: 1;

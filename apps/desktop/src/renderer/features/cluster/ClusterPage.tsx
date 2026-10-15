@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { Dispatch } from 'react';
-import { Network, Menu, Play, Square, RotateCw, LoaderCircle } from 'lucide-react';
+import { Network } from '@phosphor-icons/react/dist/csr/Network';
+import { SidebarSimple } from '@phosphor-icons/react/dist/csr/SidebarSimple';
+import { PlayCircle as Play } from '@phosphor-icons/react/dist/csr/PlayCircle';
+import { Stop as Square } from '@phosphor-icons/react/dist/csr/Stop';
+import { ArrowClockwise as RotateCw } from '@phosphor-icons/react/dist/csr/ArrowClockwise';
+import { Spinner as LoaderCircle } from '@phosphor-icons/react/dist/csr/Spinner';
 import { Button } from '../../components/Button';
-import { SearchField } from '../../components/SearchField';
 import { Dialog } from '../../components/Dialog';
 import { Toast } from '../../components/Toast';
 import type { ToastMessage } from '../../components/Toast';
@@ -20,7 +24,9 @@ import { DeviceCard } from './DeviceCard';
 import { ClusterCanvas } from './ClusterCanvas';
 import { ClusterPanel } from './ClusterPanel';
 import { ClusterModelPicker } from './ClusterModelPicker';
-import { ClusterConnectionMenu } from './ClusterConnectionMenu';
+import { ClusterSidebar } from './ClusterSidebar';
+import type { ClusterView } from './ClusterSidebar';
+import { ClusterViews } from './ClusterViews';
 import { incomingExamples } from '../../mocks/clusterJoining';
 import type { JoiningProps } from './ClusterJoiningPanel';
 import type { ClusterSelection } from './ClusterPanel';
@@ -40,7 +46,7 @@ interface ClusterPageProps extends JoiningProps {
   localRuntime?: { loading: boolean; onChoose(model: DemoModel): void; onRun(): void };
 }
 
-/** A renderer-only visual demo. No discovery, optimization, runtime launch, or network call occurs. */
+/** Cluster presentation delegates local runtime actions; networking previews remain session-only. */
 export function ClusterPage({
   demo,
   joining,
@@ -54,7 +60,7 @@ export function ClusterPage({
   onStop,
   localRuntime,
 }: ClusterPageProps) {
-  const [query, setQuery] = useState('');
+  const [view, setView] = useState<ClusterView>('overview');
   const [panelOpen, setPanelOpen] = useState(false);
   const panelId = useId();
   const panelToggle = useRef<HTMLButtonElement>(null);
@@ -96,6 +102,15 @@ export function ClusterPage({
   };
   const [modal, setModal] = useState<Modal | null>(null);
   const devices = demo || localRuntime ? availableDevices : [];
+  const navigate = (next: ClusterView) => {
+    setView(next);
+    setPanelOpen(false);
+    setSelection({ type: 'overview' });
+  };
+  const inspectDevice = (device: DemoDevice) => {
+    setView('overview');
+    showPanel({ type: 'device', device });
+  };
   const pendingRequests = demo
     ? incomingExamples.filter((request) => !joining.decisions[request.id]).length
     : 0;
@@ -106,22 +121,10 @@ export function ClusterPage({
           device: devices.find((device) => device.id === selection.device.id) ?? selection.device,
         }
       : selection;
-  const filtered = devices.filter((device) =>
-    [
-      device.name,
-      device.role,
-      device.os,
-      device.address,
-      ...device.hardware.map((hardware) => `${hardware.label} ${hardware.name} ${hardware.detail}`),
-    ]
-      .join(' ')
-      .toLowerCase()
-      .includes(query.trim().toLowerCase()),
-  );
   const links = demoLinks.filter(
     (link) =>
-      filtered.some((device) => device.id === link.from) &&
-      filtered.some((device) => device.id === link.to),
+      devices.some((device) => device.id === link.from) &&
+      devices.some((device) => device.id === link.to),
   );
   const selectedModel = models.find((model) => model.id === placement.modelId);
   const layerCount = demoLayerCount(selectedModel?.id ?? 'qwen');
@@ -192,208 +195,228 @@ export function ClusterPage({
         }
       }}
     >
-      <header className={styles.header}>
-        <div className={styles.heading}>
-          <h1 id="cluster-heading">Cluster</h1>
-          <ClusterModelPicker
-            local={Boolean(localRuntime)}
-            models={models}
-            selectedModel={selectedModel}
-            activeModelId={activeModel?.id}
-            disabled={(!demo && !localRuntime) || loading}
-            onChoose={(model) =>
-              localRuntime ? localRuntime.onChoose(model) : setModal({ type: 'placement', model })
-            }
+      <ClusterSidebar
+        view={view}
+        onNavigate={navigate}
+        devices={devices}
+        selectedDeviceId={selection.type === 'device' ? selection.device.id : undefined}
+        onSelect={inspectDevice}
+        pendingRequests={pendingRequests}
+        local={Boolean(localRuntime)}
+      />
+      <div
+        className={`${styles.main} ${['devices', 'connections', 'requests'].includes(view) ? styles.detailsMain : ''}`}
+      >
+        {notification && (
+          <Toast
+            key={notification.id}
+            notification={notification}
+            fallbackRef={panelToggle}
+            onDismiss={dismissNotification}
           />
-          <button
-            type="button"
-            className={styles.runIcon}
-            aria-label={runAction}
-            title={`${runAction}${loading && !localRuntime ? ' · simulated loading' : ''}`}
-            disabled={(!demo && !localRuntime) || !selectedModel || !devices.length}
-            onClick={() => {
-              if (localRuntime) {
-                if (loading || selectedIsActive) onStop();
-                else localRuntime.onRun();
-                return;
-              }
-              if (loading) {
-                dispatch({ type: 'cancel' });
-                notify('information', 'Demo loading cancelled · previous session unchanged');
-              } else if (selectedIsActive && !changed) {
-                onStop();
-                notify('information', 'Demo model stopped · no process was running');
-              } else run();
-            }}
-          >
-            <RunIcon size={16} aria-hidden="true" />
-          </button>
-          <span className={styles.srOnly} aria-live="polite">
-            {loading
-              ? localRuntime
-                ? 'Loading local model'
-                : 'Loading demo model · no engine is started'
-              : selectedIsActive
-                ? localRuntime
-                  ? 'Local model ready'
-                  : 'Demo model ready'
-                : 'Selected model not loaded'}
-          </span>
-        </div>
-        <div className={styles.toolbar} role="group" aria-label="Cluster actions">
-          <SearchField label="Find devices" value={query} onChange={setQuery} />
-          <ClusterConnectionMenu onChoose={(action) => showPanel({ type: action })} />
-          <button
-            type="button"
-            ref={panelToggle}
-            className={styles.panelToggle}
-            aria-label="Cluster panel"
-            aria-expanded={panelOpen}
-            aria-controls={panelId}
-            title={panelOpen ? 'Hide cluster panel' : 'Show cluster panel'}
-            onClick={() => {
-              if (panelOpen) closePanel();
-              else showPanel(pendingRequests ? { type: 'overview' } : selection);
-            }}
-          >
-            <Menu size={16} aria-hidden="true" />
-            {pendingRequests > 0 && (
-              <span
-                className={styles.pendingBadge}
-                aria-label={`${pendingRequests} pending request${pendingRequests === 1 ? '' : 's'}`}
-              >
-                {pendingRequests}
+        )}
+        <div hidden={view !== 'overview'}>
+          <header className={styles.header}>
+            <div className={styles.heading}>
+              <ClusterModelPicker
+                local={Boolean(localRuntime)}
+                models={models}
+                selectedModel={selectedModel}
+                activeModelId={activeModel?.id}
+                disabled={(!demo && !localRuntime) || loading}
+                onChoose={(model) =>
+                  localRuntime
+                    ? localRuntime.onChoose(model)
+                    : setModal({ type: 'placement', model })
+                }
+              />
+              <div className={styles.actionCapsule} role="group" aria-label="Cluster actions">
+                <button
+                  type="button"
+                  className={styles.runIcon}
+                  aria-label={runAction}
+                  title={`${runAction}${loading && !localRuntime ? ' · simulated loading' : ''}`}
+                  disabled={(!demo && !localRuntime) || !selectedModel || !devices.length}
+                  onClick={() => {
+                    if (localRuntime) {
+                      if (loading || selectedIsActive) onStop();
+                      else localRuntime.onRun();
+                      return;
+                    }
+                    if (loading) {
+                      dispatch({ type: 'cancel' });
+                      notify('information', 'Demo loading cancelled · previous session unchanged');
+                    } else if (selectedIsActive && !changed) {
+                      onStop();
+                      notify('information', 'Demo model stopped · no process was running');
+                    } else run();
+                  }}
+                >
+                  <RunIcon size={16} weight="regular" aria-hidden="true" />
+                </button>
+              </div>
+              <span className={styles.srOnly} aria-live="polite">
+                {loading
+                  ? localRuntime
+                    ? 'Loading local model'
+                    : 'Loading demo model · no engine is started'
+                  : selectedIsActive
+                    ? localRuntime
+                      ? 'Local model ready'
+                      : 'Demo model ready'
+                    : 'Selected model not loaded'}
               </span>
-            )}
-          </button>
-        </div>
-      </header>
-      {notification && (
-        <Toast
-          key={notification.id}
-          notification={notification}
-          fallbackRef={panelToggle}
-          onDismiss={dismissNotification}
-        />
-      )}
-      <div className={styles.workspace}>
-        {filtered.length ? (
-          <ClusterCanvas
-            onClear={() => {
-              setSelection({ type: 'overview' });
-            }}
-          >
-            <svg
-              className={styles.connections}
-              viewBox="0 0 100 100"
-              preserveAspectRatio="none"
-              aria-hidden="true"
+            </div>
+            <button
+              type="button"
+              ref={panelToggle}
+              className={styles.panelToggle}
+              aria-label="Cluster panel"
+              aria-expanded={panelOpen}
+              aria-controls={panelId}
+              title={panelOpen ? 'Hide details' : 'Show details'}
+              onClick={() => {
+                if (panelOpen) closePanel();
+                else showPanel(selection);
+              }}
             >
-              {links.map((link) => (
-                <path key={`${link.from}-${link.to}`} d={link.path} />
-              ))}
-            </svg>
-            {links.map((link) => (
-              <button
-                type="button"
-                key={`${link.from}-${link.to}`}
-                className={styles.latency}
-                style={{ left: `${link.x}%`, top: `${link.y}%` }}
-                aria-label={`Sample connection ${link.from} to ${link.to}: ${link.latencyMs} ms`}
-                onClick={() => showPanel({ type: 'link', link })}
-              >
-                {link.latencyMs} ms
-              </button>
-            ))}
-            {filtered.map((device) => (
-              <div
-                key={device.id}
-                className={styles.deviceSlot}
-                style={{
-                  gridColumn:
-                    device.role === 'Coordinator'
-                      ? '1 / -1'
-                      : device.id === 'workstation'
-                        ? '1'
-                        : device.id === 'mac'
-                          ? '2'
-                          : '3',
-                  gridRow: device.role === 'Coordinator' ? '1' : '2',
+              <SidebarSimple size={16} aria-hidden="true" />
+            </button>
+          </header>
+        </div>
+        <div className={styles.workspace}>
+          <div className={styles.overview} hidden={view !== 'overview'}>
+            {devices.length ? (
+              <ClusterCanvas
+                singleDevice={devices.length === 1}
+                panelId={devices.length === 1 && panelOpen ? panelId : undefined}
+                onClear={() => {
+                  setSelection({ type: 'overview' });
                 }}
               >
-                <DeviceCard
-                  device={device}
-                  ranges={ranges}
-                  appliedRanges={activeModel ? placement.applied : []}
-                  layerCount={layerCount}
-                  proposed={!selectedIsActive || changed || loading}
-                  loading={loading}
-                  active={canPlace}
-                  localReady={Boolean(localRuntime && activeModel)}
-                  onDetails={(device) => showPanel({ type: 'device', device })}
-                  onRename={(device) => showPanel({ type: 'device', device, renaming: true })}
-                  selected={selection.type === 'device' && selection.device.id === device.id}
-                  alwaysShowAdd={devices.length === 1}
-                  onAdd={() => showPanel({ type: 'add' })}
-                  onEdit={(hardwareId) => showPanel({ type: 'device', device, hardwareId })}
-                />
+                <svg
+                  className={styles.connections}
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  {links.map((link) => (
+                    <path key={`${link.from}-${link.to}`} d={link.path} />
+                  ))}
+                </svg>
+                {links.map((link) => (
+                  <button
+                    type="button"
+                    key={`${link.from}-${link.to}`}
+                    className={styles.latency}
+                    style={{ left: `${link.x}%`, top: `${link.y}%` }}
+                    aria-label={`Sample connection ${link.from} to ${link.to}: ${link.latencyMs} ms`}
+                    onClick={() => showPanel({ type: 'link', link })}
+                  >
+                    {link.latencyMs} ms
+                  </button>
+                ))}
+                {devices.map((device) => (
+                  <div
+                    key={device.id}
+                    className={styles.deviceSlot}
+                    style={{
+                      gridColumn:
+                        devices.length === 1
+                          ? '1'
+                          : device.role === 'Coordinator'
+                            ? '1 / -1'
+                            : device.id === 'workstation'
+                              ? '1'
+                              : device.id === 'mac'
+                                ? '2'
+                                : '3',
+                      gridRow: devices.length === 1 || device.role === 'Coordinator' ? '1' : '2',
+                    }}
+                  >
+                    <DeviceCard
+                      device={device}
+                      ranges={ranges}
+                      appliedRanges={activeModel ? placement.applied : []}
+                      layerCount={layerCount}
+                      proposed={!selectedIsActive || changed || loading}
+                      loading={loading}
+                      active={canPlace}
+                      localReady={Boolean(localRuntime && activeModel)}
+                      onDetails={(device) => showPanel({ type: 'device', device })}
+                      onRename={(device) => showPanel({ type: 'device', device, renaming: true })}
+                      selected={selection.type === 'device' && selection.device.id === device.id}
+                      alwaysShowAdd={devices.length === 1}
+                      onAdd={() => showPanel({ type: 'add' })}
+                      onEdit={(hardwareId) => showPanel({ type: 'device', device, hardwareId })}
+                    />
+                  </div>
+                ))}
+              </ClusterCanvas>
+            ) : (
+              <div className={styles.empty}>
+                <Network size={34} />
+                <h2>No devices connected</h2>
+                <p>Device discovery becomes available with networking integration.</p>
               </div>
-            ))}
-          </ClusterCanvas>
-        ) : (
-          <div className={styles.empty}>
-            <Network size={34} />
-            <h2>{query.trim() ? 'No devices found' : 'No devices connected'}</h2>
-            <p>
-              {query.trim()
-                ? 'Try a device name, address, OS, or hardware model.'
-                : 'Device discovery becomes available with networking integration.'}
-            </p>
-            {query.trim() && <Button onClick={() => setQuery('')}>Clear search</Button>}
+            )}
           </div>
-        )}
-        {panelOpen && (
-          <ClusterPanel
-            id={panelId}
-            demo={demo}
-            local={Boolean(localRuntime)}
-            joining={joining}
-            onJoining={onJoining}
-            selection={currentSelection}
-            devices={devices}
-            activeModel={activeModel}
-            selectedModel={selectedModel}
-            loading={loading}
-            inputs={placement.inputs}
-            layerCount={layerCount}
-            ranges={ranges}
-            canPlace={canPlace}
-            closeRef={panelClose}
-            onClose={closePanel}
-            onOverview={() => setSelection({ type: 'overview' })}
-            onSelect={(device) => showPanel({ type: 'device', device })}
-            onEdit={(input) => dispatch({ type: 'edit', input })}
-            onStartRename={() => {
-              if (currentSelection.type === 'device')
-                setSelection({ type: 'device', device: currentSelection.device, renaming: true });
-            }}
-            onCancelRename={() => {
-              if (currentSelection.type === 'device')
+          {view !== 'overview' && (
+            <ClusterViews
+              view={view}
+              demo={demo}
+              local={Boolean(localRuntime)}
+              joining={joining}
+              onJoining={onJoining}
+              devices={devices}
+              links={demo ? demoLinks : []}
+              onLink={(link) => showPanel({ type: 'link', link })}
+              onConnectionAction={navigate}
+            />
+          )}
+          {panelOpen && (
+            <ClusterPanel
+              id={panelId}
+              demo={demo}
+              local={Boolean(localRuntime)}
+              joining={joining}
+              onJoining={onJoining}
+              selection={currentSelection}
+              devices={devices}
+              activeModel={activeModel}
+              selectedModel={selectedModel}
+              loading={loading}
+              inputs={placement.inputs}
+              layerCount={layerCount}
+              ranges={ranges}
+              canPlace={canPlace}
+              closeRef={panelClose}
+              onClose={closePanel}
+              onOverview={() => setSelection({ type: 'overview' })}
+              onSelect={(device) => showPanel({ type: 'device', device })}
+              onEdit={(input) => dispatch({ type: 'edit', input })}
+              onStartRename={() => {
+                if (currentSelection.type === 'device')
+                  setSelection({ type: 'device', device: currentSelection.device, renaming: true });
+              }}
+              onCancelRename={() => {
+                if (currentSelection.type === 'device')
+                  setSelection({ ...currentSelection, renaming: false });
+              }}
+              onRename={(name) => {
+                if (currentSelection.type !== 'device') return;
+                onRenameDevice(currentSelection.device.id, name);
                 setSelection({ ...currentSelection, renaming: false });
-            }}
-            onRename={(name) => {
-              if (currentSelection.type !== 'device') return;
-              onRenameDevice(currentSelection.device.id, name);
-              setSelection({ ...currentSelection, renaming: false });
-              notify('success', 'Device renamed');
-            }}
-            hasChanges={canPlace && changed && !loading}
-            onDiscard={() => {
-              dispatch({ type: 'discard' });
-              notify('information', 'Changes discarded');
-            }}
-          />
-        )}
+                notify('success', 'Device renamed');
+              }}
+              hasChanges={canPlace && changed && !loading}
+              onDiscard={() => {
+                dispatch({ type: 'discard' });
+                notify('information', 'Changes discarded');
+              }}
+            />
+          )}
+        </div>
       </div>
       {modal && (
         <Dialog title={title} onClose={close}>
