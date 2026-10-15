@@ -40,8 +40,7 @@ describe('Cluster demo', () => {
     ).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
-    await user.type(screen.getByRole('searchbox', { name: 'Find devices' }), 'office-node');
-    expect(screen.getAllByRole('article')).toHaveLength(1);
+    expect(screen.getAllByRole('article')).toHaveLength(4);
     expect(screen.getByRole('article', { name: 'office-node' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Actions for office-node' }));
     await user.click(screen.getByRole('button', { name: 'Rename device' }));
@@ -109,19 +108,12 @@ describe('Cluster demo', () => {
     ).toBeVisible();
   });
 
-  it('filters devices by hardware and recovers from an empty search', async () => {
+  it('shows all devices without a device search field', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
-    const search = screen.getByRole('searchbox', { name: 'Find devices' });
-    await user.type(search, 'M2 ULTRA');
-    expect(screen.getAllByRole('article')).toHaveLength(1);
+    expect(screen.queryByRole('searchbox', { name: 'Find devices' })).not.toBeInTheDocument();
     expect(screen.getByRole('article', { name: 'mac-studio' })).toBeVisible();
-    await user.clear(search);
-    await user.type(search, '<script>missing</script>');
-    expect(screen.queryByRole('article')).not.toBeInTheDocument();
-    expect(screen.getByText('No devices found')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Clear search' }));
     expect(screen.getAllByRole('article')).toHaveLength(4);
   });
 
@@ -198,17 +190,18 @@ describe('Cluster demo', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
-    await user.click(screen.getByRole('button', { name: 'Add' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Add device' }));
-    const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+    const navigation = within(screen.getByRole('navigation', { name: 'Cluster navigation' }));
+    await user.click(navigation.getByRole('button', { name: 'Add device' }));
+    const panel = screen.getByRole('region', { name: 'Add device' });
     expect(within(panel).getByRole('heading', { name: 'Add device' })).toBeVisible();
+    await user.click(within(panel).getByRole('button', { name: 'Connect manually' }));
     for (const mode of ['LAN', 'Tailscale', 'Headscale']) {
       await user.click(within(panel).getByRole('button', { name: mode }));
       expect(
         within(panel).getByText(/No discovery, request delivery or pairing occurs/),
       ).toBeVisible();
     }
-    await user.click(screen.getByRole('button', { name: 'Close cluster panel' }));
+    await user.click(navigation.getByRole('button', { name: 'Overview' }));
     await user.click(screen.getByRole('button', { name: 'Add device near studio-desktop' }));
     expect(
       within(screen.getByRole('complementary', { name: 'Cluster panel' })).getByRole('heading', {
