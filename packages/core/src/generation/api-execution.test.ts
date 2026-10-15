@@ -8,10 +8,12 @@ import { HistoryStore } from '../history/store.js';
 import { capabilities, record } from '../model-configuration/test-fixtures.js';
 import { resolveRequestSettings } from '../model-configuration/resolve.js';
 import { OwnerChatChannel, UtilityChatTransport } from '../hosts/chat-channel.js';
+import { trackModelUse } from './model-use-transport.js';
 
 it('runs stateless API on the Chat queue, revokes queued callers and never writes API history', async () => {
   const history = new HistoryStore(new DatabaseSync(':memory:'));
   const scope = new ApiCallerScope();
+  const usage: number[] = [];
   const runs: {
     identity: ExecutionIdentity;
     emit: (chunk: GenerationChunk) => void | Promise<void>;
@@ -46,17 +48,26 @@ it('runs stateless API on the Chat queue, revokes queued callers and never write
         Promise.resolve(resolveRequestSettings(record(), active, overrides, capabilities)),
     },
     cleanup: () => Promise.resolve(),
-    transport: {
-      tokenCount: () => Promise.resolve(10),
-      start: (identity, _messages, emit) => {
-        let finish!: (outcome: TerminalOutcome) => void;
-        const settled = new Promise<TerminalOutcome>((resolve) => {
-          finish = resolve;
-        });
-        runs.push({ identity, emit, finish });
-        return { settled, cancel: () => finish({ status: 'cancelled', reason: 'USER_CANCELLED' }) };
+    transport: trackModelUse(
+      {
+        tokenCount: () => Promise.resolve(10),
+        start: (identity, _messages, emit) => {
+          let finish!: (outcome: TerminalOutcome) => void;
+          const settled = new Promise<TerminalOutcome>((resolve) => {
+            finish = resolve;
+          });
+          runs.push({ identity, emit, finish });
+          return {
+            settled,
+            cancel: () => finish({ status: 'cancelled', reason: 'USER_CANCELLED' }),
+          };
+        },
       },
-    },
+      (usedAt) => {
+        usage.push(usedAt);
+        return Promise.resolve();
+      },
+    ),
   });
   try {
     const c = await history.newConversation();
@@ -69,6 +80,7 @@ it('runs stateless API on the Chat queue, revokes queued callers and never write
     );
     for (let i = 0; i < 30; i++) await Promise.resolve();
     expect(runs).toHaveLength(2);
+    expect(usage).toHaveLength(2);
     expect(runs[1]!.identity).toMatchObject({ kind: 'api' });
     expect(runs[1]!.identity).not.toHaveProperty('conversationId');
     await runs[1]!.emit({ type: 'reasoning', text: 'Thinking' });
@@ -93,6 +105,7 @@ it('runs stateless API on the Chat queue, revokes queued callers and never write
         () => undefined,
       ).done,
     ).rejects.toThrow('DENIED');
+    expect(usage).toHaveLength(2);
     const pending = Array.from({ length: 4 }, () =>
       service.generateApi(
         scope.issue(),
@@ -102,10 +115,12 @@ it('runs stateless API on the Chat queue, revokes queued callers and never write
     );
     for (let i = 0; i < 30; i++) await Promise.resolve();
     expect(runs).toHaveLength(5);
+    expect(usage).toHaveLength(5);
     scope.close();
     runs[2]!.finish({ status: 'cancelled', reason: 'USER_CANCELLED' });
     expect((await pending[3]!.done).outcome.status).toBe('failed');
     expect(runs).toHaveLength(5);
+    expect(usage).toHaveLength(5);
     for (const task of pending) task.cancel();
     await Promise.all(pending.map((task) => task.done));
     expect(runs[0]!.identity.requestId).toBe(chat.requestId);
