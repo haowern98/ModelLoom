@@ -70,6 +70,17 @@ it('displays the detected GPU model beside the observed VRAM without loading a m
           role: 'Coordinator',
           gpuMemoryGiB: 16,
           gpuName: 'NVIDIA GeForce RTX 4060 Ti',
+          inventory: {
+            sampledAt: Date.now(),
+            gpus: [
+              {
+                id: 'gpu-0',
+                name: 'NVIDIA GeForce RTX 4060 Ti',
+                pciVendorId: '10de',
+                totalMemoryBytes: 16 * 2 ** 30,
+              },
+            ],
+          },
         },
       }),
   };
@@ -77,7 +88,8 @@ it('displays the detected GPU model beside the observed VRAM without loading a m
   await user.click(screen.getByRole('button', { name: 'Cluster' }));
   const device = within(await screen.findByRole('article', { name: 'own-gpu-pc' }));
   expect(device.getByText('NVIDIA GeForce RTX 4060 Ti')).toBeVisible();
-  expect(device.getByText('16.0 GiB VRAM')).toBeVisible();
+  expect(device.getByText('16.0 GiB dedicated memory')).toBeVisible();
+  expect(device.getByRole('heading', { name: 'GPU' })).toBeVisible();
   expect(device.queryByText('NVIDIA GPU')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Run model' })).toBeDisabled();
 });
