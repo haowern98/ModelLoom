@@ -134,31 +134,37 @@ test('model menu supports keyboard choices, cancellation and removed library ent
   await expect(page.getByRole('menu')).toHaveCount(0);
 });
 
-test('model name truncation and circular launch control keep the header contained at desktop sizes', async ({
+test('compact cluster toolbar stays contained without repeating the sidebar heading', async ({
   page,
 }) => {
   await page.goto('/');
+  await page.getByRole('button', { name: 'Models', exact: true }).click();
+  const compassBounds = await page.getByRole('button', { name: 'Explore models' }).boundingBox();
+  const modelsWorkspace = await page
+    .getByRole('region', { name: 'ModelLoom workspace' })
+    .boundingBox();
+  if (!compassBounds || !modelsWorkspace) throw new Error('Missing Models toolbar geometry');
+  const rightGap =
+    modelsWorkspace.x + modelsWorkspace.width - compassBounds.x - compassBounds.width;
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
   const selector = page.getByRole('button', { name: 'Selected demo model: Qwen3.8-27B' });
   const run = page.getByRole('button', { name: 'Stop model' });
   const toggle = page.getByRole('button', { name: 'Cluster panel', exact: true });
-  const add = page.getByRole('button', { name: 'Add', exact: true });
-  const addStyle = await add.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return { fontSize: style.fontSize, lineHeight: style.lineHeight, padding: style.padding };
-  });
-  await expect(selector).toHaveCSS('font-size', addStyle.fontSize);
-  await expect(selector).toHaveCSS('padding', addStyle.padding);
-  await expect(selector).toHaveCSS('line-height', addStyle.lineHeight);
-  await page.mouse.move(0, 0);
+  const capsule = page.getByRole('group', { name: 'Cluster actions', exact: true });
+  await expect(capsule.getByRole('button')).toHaveCount(1);
+  await expect(capsule.getByRole('button', { name: 'Stop model' })).toBeVisible();
+  await expect(capsule.getByRole('button', { name: 'Cluster panel', exact: true })).toHaveCount(0);
+  await expect(toggle).toBeVisible();
+  await expect(capsule).toHaveCSS('border-radius', '999px');
+  await expect(selector).toHaveCSS('font-size', '13px');
   await expect(selector).toHaveCSS('border-width', '0px');
   await expect(selector).toHaveCSS('box-shadow', 'none');
-  await expect(run).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(run).toHaveCSS('border-radius', '50%');
-  await expect(run).toHaveCSS('border-width', '0px');
-  await run.hover();
-  await expect(run).toHaveCSS('background-color', 'rgb(47, 47, 47)');
   await expect(run).toHaveAttribute('title', 'Stop model');
+  const header = selector.locator('xpath=ancestor::header');
+  await expect(header.getByRole('heading')).toHaveCount(0);
+  await expect(header.getByRole('searchbox')).toHaveCount(0);
+  await expect(header.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Cluster', exact: true })).toHaveCount(1);
   for (const font of ['system', 'Arial']) {
     if (font === 'Arial')
       await page.addStyleTag({ content: ':root { font-family: Arial, sans-serif; }' });
@@ -167,40 +173,33 @@ test('model name truncation and circular launch control keep the header containe
       const modelBounds = await selector.boundingBox();
       const runBounds = await run.boundingBox();
       const toggleBounds = await toggle.boundingBox();
-      const titleBounds = await page
-        .getByRole('heading', { name: 'Cluster', exact: true })
-        .boundingBox();
-      const mainBounds = await page.getByRole('main').boundingBox();
-      const addBounds = await add.boundingBox();
-      const searchBounds = await page
-        .getByRole('searchbox', { name: 'Find devices' })
-        .boundingBox();
-      if (
-        !modelBounds ||
-        !runBounds ||
-        !toggleBounds ||
-        !searchBounds ||
-        !titleBounds ||
-        !mainBounds ||
-        !addBounds
-      )
+      const capsuleBounds = await capsule.boundingBox();
+      if (!modelBounds || !runBounds || !toggleBounds || !capsuleBounds)
         throw new Error('Missing toolbar controls');
-      expect(titleBounds.x - mainBounds.x).toBeCloseTo(47, 1);
-      const centreY = titleBounds.y + titleBounds.height / 2;
-      for (const bounds of [modelBounds, runBounds, toggleBounds, searchBounds, addBounds])
+      expect(capsuleBounds.width).toBe(32);
+      expect(capsuleBounds.height).toBe(32);
+      expect(toggleBounds.width).toBe(32);
+      expect(toggleBounds.height).toBe(32);
+      const centreY = modelBounds.y + modelBounds.height / 2;
+      for (const bounds of [runBounds, toggleBounds])
         expect(bounds.y + bounds.height / 2).toBeCloseTo(centreY, 1);
       expect(modelBounds.width).toBeLessThanOrEqual(180);
-      expect(runBounds.width).toBe(32);
-      expect(runBounds.height).toBe(32);
-      expect(runBounds.x - (modelBounds.x + modelBounds.width)).toBeCloseTo(8, 1);
-      expect(searchBounds.x).toBeGreaterThan(runBounds.x + runBounds.width);
-      expect(toggleBounds.x + toggleBounds.width).toBeLessThan(width);
+      expect(capsuleBounds.x - (modelBounds.x + modelBounds.width)).toBeCloseTo(8, 1);
+      expect(runBounds.x).toBeGreaterThanOrEqual(capsuleBounds.x);
+      const workspace = await page
+        .getByRole('region', { name: 'ModelLoom workspace' })
+        .boundingBox();
+      if (!workspace) throw new Error('Missing Cluster workspace geometry');
+      expect(workspace.x + workspace.width - toggleBounds.x - toggleBounds.width).toBeCloseTo(
+        rightGap,
+        1,
+      );
+      expect(capsuleBounds.x + capsuleBounds.width).toBeLessThan(width);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
     }
   }
-  // Stress only the rendered text slot; state/tooltip retention is covered by the component test.
   const label = selector.locator('span');
   await label.evaluate((element) => {
     element.textContent = 'A very long model name that must never push away the Run icon';
