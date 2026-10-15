@@ -1028,3 +1028,73 @@ before correction; an earlier cold-start attempt timed out before reaching that
 assertion, with no deadline change. Ubuntu execution awaits the new hosted run;
 local Windows success alone does not prove those hosted checks passed. No new
 GPU, packaged-app, manual Computer Use or inference-equivalence run is claimed.
+
+## Cluster sidebar evidence, 2026-10-15
+
+The user-approved renderer revision on `codex/cluster-sidebar` adds the Settings-style
+Cluster sidebar, independent destination views and compact model/action toolbar.
+Networking and real request approval remain unavailable outside labelled demo fixtures.
+
+- Desktop unit tests: 134 passed in 24 files with `vitest run --maxWorkers=1`.
+  Concurrent validation had timeout-only failures in two existing interaction tests;
+  the serial run passed with their original timeouts and assertions unchanged.
+- Browser coverage: the 49-case suite produced 47 passes, one cold-load timeout
+  in the API setup hook and one obsolete 24px Cluster-heading expectation.
+  After correcting the heading expectation to the approved 18px sidebar value,
+  both affected cases passed against warmed preview servers. The other 47 results
+  are retained for the same renderer implementation; this is combined evidence,
+  not a claim that the original suite run was fully green.
+- Desktop typechecking, changed-source/test ESLint, changed-file Prettier,
+  `git diff --check` and the normal renderer production build passed.
+- New navigation regressions verify distinct destinations, simulated request
+  decisions, normal-build refusal of sample peers, shared multi-field search and
+  retention of the same canvas/control elements after zero-result search.
+- Source comparison confirmed `ClusterCanvas.tsx` and all eight zoom/Fit control
+  CSS rules are unchanged. Browser cases cover their pan/zoom/fit behavior,
+  typography, bounds and retention across destination changes.
+- Visual inspection covered the Overview and Add device previews at 1280px;
+  browser geometry checks also exercised 1000px layouts and font fallbacks.
+  Captures are local under `apps/desktop/out/cluster-sidebar-*.png`.
+
+An independent read-only subagent review identified inconsistent search matching;
+the shared matcher correction was reviewed and its regression passed. Validation
+also found that notifications could cover Run; positioning them below the toolbar
+resolved the browser regression. No new native/package, GPU, inference-equivalence,
+worker-network or hosted-CI acceptance is claimed by this renderer evidence.
+
+The later 2026-10-15 refinement removes Cluster device search and uses Phosphor
+Regular PlusCircle for sidebar Add device. Search-dependent checks now cover
+unfiltered devices, sidebar navigation and keyboard focus. The affected 19 unit
+cases and 17 Cluster browser cases pass, as do desktop typechecking, changed-source
+ESLint and formatting. Live browser inspection confirms no sidebar search input
+and the circled-plus SVG. The full desktop suite and production build were not
+rerun for this refinement; the preceding evidence describes the earlier revision.
+
+The subsequent approved viewport refinement starts at 100%, preserves zoom on
+resize and centers one device within the space left beside the details panel.
+The user's higher-card reference supersedes exact vertical midpoint alignment:
+startup, resize and Fit to view use the same raised visual center above the zoom
+bar. The 26 Cluster browser cases pass, including new startup, single-device,
+panel-open, resize, retained custom zoom and narrow-space Fit coverage. Existing
+diagram interaction cases explicitly use Fit instead of relying on automatic
+startup fitting. The affected 19 unit cases passed, and final desktop typechecking
+and changed-source ESLint passed. Native minimize/restore was not manually checked.
+
+For the subsequent Settings-format revision, nine affected Cluster page/joining
+unit cases pass, along with desktop typechecking, changed-source ESLint and the
+normal renderer build. In-app browser comparison at 1280px confirms identical
+728px columns, title coordinates, 24px headings, group colors/radii and row padding
+against Settings. All three destinations have no horizontal overflow or clipped
+buttons at 1000px; Devices also passes at 800px. Device details, connection details,
+Join cluster navigation and both simulated request decisions were exercised.
+Visual captures and the appended QA report are local; the full suite was not rerun.
+
+The later Devices inventory redesign passes 12 affected unit cases, including
+new coverage of all supplied devices, removal of inventory actions/icons, honest
+unknown specifications and no duplicated Apple unified-memory VRAM. Typechecking,
+changed-source/test ESLint, formatting and renderer build pass. In-app browser
+inspection finds four sample articles, zero inventory buttons/icons and a 728px
+column at 1280px, with no overflow or clipped rows at 800px. The apple-design review
+identified repeated unknown rows as clutter; the repaired version consolidates
+those into a per-device note. No additional hardware detection or networking was
+implemented or claimed. Full-suite and native desktop checks were not rerun.

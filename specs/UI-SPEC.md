@@ -23,19 +23,19 @@ The user asked to reconcile the specifications with the completed UI work and ex
 
 The historical renderer baseline below superseded conflicting descriptions in the original screenshots and earlier revision notes for that milestone. It does not report current development integration or completion of the five-screen product. The subsequent 2026-10-06 PROCEED added the Settings UI preview described in section 8; later Chat/runtime approvals are summarized above.
 
-| Area                | Current presentation and working local behaviour                                                                                                                                                                                                                                   | Integration still pending                                                                                                                                  |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Shell/navigation    | 44px title bar, 50px rail, 16px workspace radius; Demo data label and no bottom status bar. Order: Home opening Chat, Cluster, Models, API, disabled Storage, disabled Metrics, Settings, More. API uses the existing Server glyph; More contains Chat only. Startup opens Models. | Storage/Metrics destinations, production Settings behaviour, supported-platform release acceptance.                                                        |
-| Models              | Single compact Name/Last used list; search, sample details, confirmed demo-entry removal and gear navigation. Retain the identifier and size/GGUF/quantization pills. Unknown last use is —. Header retains upload and compass.                                                    | Actual import/catalogue/download, parsed metadata/compatibility and recorded use. No two-column layout or Downloaded/Imported/Browse tabs are implemented. |
-| Model configuration | Six sections in a centred 800px column; per-model pending edits and saved defaults, validation, reset and Back to Models. Set in Cluster navigates; speculative decoding remains disabled Off.                                                                                     | Durable defaults, actual hardware limits/optimization and runtime application.                                                                             |
-| Cluster             | Reference device canvas, pan/zoom/fit, contextual floating panel, model/placement planning, validated simulated Run/Stop/restart/cancel, renaming, and session-only connection/request/sharing previews.                                                                           | Real devices, discovery/enrollment/approval, model loading, memory preflight, optimization and inference.                                                  |
-| Chat                | Rounded outer workspace, intermediate charcoal history sidebar and fine straight divider; history/search, New chat, per-chat drafts, copy and local feedback. No branding/right artifact panel/top-right toolbar. Send and attachments are unavailable.                            | Sending/generation/cancellation, persistent history, safe Markdown and attachment capabilities.                                                            |
-| API                 | Centred Server, Access, Integration and Server logs cards; example tabs/copy and Choose in Cluster. Stopped state, example endpoint, required-key label, unknown metrics and empty logs.                                                                                           | Server lifecycle, binding/exposure, credentials, live metrics/logs and finalized API contract.                                                             |
-| Settings            | 240px category panel, search and session-retained category selection; centred 728px Appearance and Runtime previews, disabled settings controls and an empty runtime-inventory dialog. Network links to API. Other categories explain their pending integration.                   | App-wide appearance, persistence, runtime inventory/install/update/select, storage/network/diagnostic operations and remaining category layouts.           |
+| Area                | Current presentation and working local behaviour                                                                                                                                                                                                                 | Integration still pending                                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shell/navigation    | 44px title bar, 50px rail, 16px workspace radius; Demo data label and no bottom status bar. Order: Home opening Chat, Cluster, Models, API, Settings, More. API uses Phosphor HardDrives; More contains Chat only. Startup opens Models.                         | Storage/Metrics destinations, production Settings behaviour, supported-platform release acceptance.                                                        |
+| Models              | Single compact Name/Last used list; search, sample details, confirmed demo-entry removal and gear navigation. Retain the identifier and size/GGUF/quantization pills. Unknown last use is —. Header retains upload and compass.                                  | Actual import/catalogue/download, parsed metadata/compatibility and recorded use. No two-column layout or Downloaded/Imported/Browse tabs are implemented. |
+| Model configuration | Six sections in a centred 800px column; per-model pending edits and saved defaults, validation, reset and Back to Models. Set in Cluster navigates; speculative decoding remains disabled Off.                                                                   | Durable defaults, actual hardware limits/optimization and runtime application.                                                                             |
+| Cluster             | Reference device canvas, pan/zoom/fit, contextual floating panel, model/placement planning, validated simulated Run/Stop/restart/cancel, renaming, and session-only connection/request/sharing previews.                                                         | Real devices, discovery/enrollment/approval, model loading, memory preflight, optimization and inference.                                                  |
+| Chat                | Rounded outer workspace, intermediate charcoal history sidebar and fine straight divider; history/search, New chat, per-chat drafts, copy and local feedback. No branding/right artifact panel/top-right toolbar. Send and attachments are unavailable.          | Sending/generation/cancellation, persistent history, safe Markdown and attachment capabilities.                                                            |
+| API                 | Centred Server, Access, Integration and Server logs cards; example tabs/copy and Choose in Cluster. Stopped state, example endpoint, required-key label, unknown metrics and empty logs.                                                                         | Server lifecycle, binding/exposure, credentials, live metrics/logs and finalized API contract.                                                             |
+| Settings            | 240px category panel, search and session-retained category selection; centred 728px Appearance and Runtime previews, disabled settings controls and an empty runtime-inventory dialog. Network links to API. Other categories explain their pending integration. | App-wide appearance, persistence, runtime inventory/install/update/select, storage/network/diagnostic operations and remaining category layouts.           |
 
 Stateful demo data lives in renderer memory. Shared library/model selection, placement, configuration edits, conversation drafts/feedback and joining previews survive applicable screen navigation and reset on reload/full restart. Local page state such as search or selected example tab is not promised to survive navigation. Demo mode does not establish real serving or persistence; non-demo builds do not seed the sample model library or conversations.
 
-The shared main-page title is 24px; section/conversation headings are 16px; library model names, device names, messages and body text are 14px; controls/search/descriptions are 13px; metadata/group/status labels are 12px. Rail icons are 20px with 1.75 strokes in 36px buttons. Search, Models header actions and Cluster launch/hamburger icons are 16px in 32px controls. Library row ellipsis/gear remain the approved 18px exception. The Models title and Name label share the left edge; the Models and Cluster header rows have 10px top padding and their left heading groups have the approved 20px inset. Each right toolbar stays vertically centred with its title. Moving the left Cluster group did not shift the right search/Add/hamburger group horizontally. Only Models Import has a 2px right visual offset; search and compass remain anchored.
+The shared main-page title is 24px; Settings-style section headings are 14px medium; other section/conversation headings are 16px; library model names, device names, messages and body text are 14px; controls/search/descriptions are 13px; metadata/group/status labels are 12px. Rail icons are 20px with 1.75 strokes in 36px buttons. Search, Models header actions and Cluster launch/hamburger icons are 16px in 32px controls. Library row ellipsis/gear remain the approved 18px exception. The Models title and Name label share the left edge; the Models and Cluster header rows have 10px top padding and their left heading groups have the approved 20px inset. Each right toolbar stays vertically centred with its title. Moving the left Cluster group did not shift the right search/Add/hamburger group horizontally. Only Models Import has a 2px right visual offset; search and compass remain anchored.
 
 Model configuration and API use the same 800px centred column, shared fonts, section/card spacing and outer-scrollbar 40px top/bottom track margins. Chat uses its independently scrolling history/messages. Detailed screen rules below retain all scoped exceptions.
 
@@ -58,6 +58,10 @@ These are image dimensions, not assumed CSS viewport sizes. Capture equivalent f
 The user's supplementary [panel-layering.png](references/ui/panel-layering.png) clarifies the aesthetic: where there is a sidebar and right-hand content panel, the right-hand panel is **darker**, reads as a **foreground surface above the sidebar**, and has **rounded exposed corners**, especially the visible top-left boundary. 'Above' describes visual stacking, not moving the panel upward on the page. Keep separation subtle; do not add a heavy border or pronounced shadow absent from the references.
 
 The user's later comparison makes the ChatGPT app the proportion reference for the outer title bar and left icon rail. Use a taller title bar and narrower rail than the initial ModelLoom demo, preserving the supplied ModelLoom screen contents and panel layering. The current visual-review dimensions are a 44px title bar, matching native window-control overlay, a 50px rail, and centered 36px rail buttons. These are CSS dimensions derived approximately from the scaled reference; compare captures at matching OS scaling before claiming an exact visual match.
+
+**Rail revision, 2026-10-15:** Remove the disabled Storage and Metrics buttons and their icons. The remaining top rail order is Home/Chat, Cluster, Models, API, Settings and More, with existing sizes and spacing retained.
+
+**Rail icon and spacing revision, 2026-10-15:** Home and Models use the installed OpenAI desktop package's actual hollow/filled Home and Books paths; More uses its three-dot artwork in both closed and open states. The user chose to retain the existing Phosphor Network, HardDrives and GearSix hollow/filled pairs for Cluster, API and Settings. Selected destinations use filled artwork in white; unselected destinations use hollow artwork in muted grey. Retain 20px icon boxes, 36px buttons, the charcoal selected/open background and visible keyboard focus. Use a uniform 8px gap between the top buttons with no extra margin after Home, giving 44px between centres. This matches the packaged desktop rail's `gap-2`, `.25rem` spacing token and `2.25rem` buttons at the default 16px root. See [asset provenance](../docs/CHATGPT-ICONS.md). This supersedes earlier glyph, stroke and spacing rules for the top rail only; the lower download/profile controls and overflow-menu entry remain unchanged.
 
 The user's subsequent sidebar revision standardizes the main navigation icons (Home, Cluster, Models, API, Storage, Metrics, Settings and overflow) to **20px CSS boxes with 1.75 strokes**, preserving their existing glyphs, positions, 36px button areas and 11px corner radius. Unselected navigation buttons are transparent with muted `#8b8b8b` icons; enabled hover and selected/open controls use rounded `#2f2f2f` shading and white `#ffffff` icons. Selected navigation has no blue border, tinted surface or glow. Keyboard focus remains distinct through a neutral `#ababab` outline and does not select a destination. Home now opens Chat and uses the same hover/selected rules as the other enabled destinations. Keep unavailable controls disabled with their existing accessible explanation and muted treatment; this styling revision does not enable unfinished destinations. Overflow uses a neutral `#262626` menu with a subtle `#383838` border and contains Chat only; API is a direct rail destination. The separate bottom download/profile controls and 16px overflow-menu glyphs retain their existing sizes and treatments. These are approved ModelLoom review targets, not measured ChatGPT computed styles or a claim of exact screenshot parity.
 
@@ -82,12 +86,15 @@ Window controls must remain operable with the correct platform behavior. The tar
 
 ### 2.1. Font sizes by text role
 
+**Settings-style typography revision, 2026-10-15:** Section headings and row labels use 14px at medium weight 500 across Settings, Cluster Devices/Connections/Requests, Model configuration and API. This includes device-name headings, Runtime selection, Runtime packs and GGUF. Use the shared `--font-size-section-heading` token for these section headings; row labels retain their existing 14px card-title token. Main page titles remain 24px. Sidebar category labels, descriptions, canvas cards and dialogs retain their existing roles. This supersedes the earlier 16px section-heading values for the listed pages only.
+
 **Approved revision, 2026-10-03:** Use the installed ChatGPT/Codex Windows app's default typography and corresponding control sizes. This supersedes the earlier values chosen visually. Shared tokens now cover Models, configuration, Cluster, Chat, API, menus, dialogs, the demo label and the Settings preview. Preserve the ModelLoom composition except for separately approved shell/header revisions.
 
 | ModelLoom text role                                     | CSS font size | Reference role and application                                                                                       |
 | ------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------- |
 | Main page headings                                      | **24px**      | Compact Library-style heading; weight 500, line height 1.2, inherited letter spacing                                 |
-| Section headings                                        | **16px**      | Popular-style heading; weight 500                                                                                    |
+| Settings-style section headings and row labels          | **14px**      | Weight 500 in Settings, Devices, Connections, Requests, Model configuration and API; section-heading token           |
+| Other section/conversation headings                     | **16px**      | Retain existing role outside the approved Settings-style pages; weight 500                                           |
 | Dialog headings                                         | **18px**      | Desktop dialog heading; weight 500; separate from section headings                                                   |
 | Model names, device names, and card titles              | **14px**      | Standard plugin-card title role; weight 500; same size for active and inactive models                                |
 | Chat messages                                           | **14px**      | Implemented message/composer role; production content rendering remains pending                                      |
@@ -106,6 +113,14 @@ Reference evidence: read-only inspection of Windows package `OpenAI.Codex_26.930
 These are source-verified defaults, not a claim that the live reference app's font preferences, computed styles, or zoom have been measured. The computer-use skill prohibits automating the ChatGPT desktop UI; no live reference inspection was performed. Record OS scaling, device-pixel ratio, app zoom, and any image resizing in comparisons. Screenshot pixels are not CSS pixels. Smaller desktop widths still reflow list metadata, and role sizes do not shrink at breakpoints. Exact screenshot parity remains unverified until both applications can be compared with their active font and scaling settings established.
 
 ### 2.2. Neutral dark colour template
+
+**Settings sidebar icon revision, 2026-10-15:** Use the reference sun, pulse,
+sliders and magnifying-glass artwork for Appearance, Diagnostics, Advanced and
+Search. Use Phosphor Cpu, Database and Network in regular outline weight for
+Runtime, Storage and Network, as explicitly selected by the user. Render all
+seven at 16px and keep the existing outlined selection treatment, row shading,
+spacing, labels, search filtering and category navigation. Scope the search
+artwork override to Settings. See [asset provenance](../docs/CHATGPT-ICONS.md).
 
 **Design revision, 2026-10-03:** Follow the user's ChatGPT/Codex references: neutral charcoal surfaces, white text, muted grey icons, rounded controls, and fewer blue buttons. This replaces the former rule that primary actions and selected navigation are generally blue. It changes presentation, not screen composition, action placement, device-card contents, or behaviour. The neutral treatments have been implemented in the shared navigation and current Models, configuration, Cluster, Chat and API surfaces through subsequent authorized revisions. Screen-specific overrides and exceptions below are part of the fixed baseline; the Settings preview and legacy base tokens do not establish a completed theme system. No additional implementation is authorized by this reconciliation.
 
@@ -173,6 +188,8 @@ The user's screenshots also show blue links, Voice, and a download/update contro
 
 Position the toast at the top centre of the content workspace, inset below the window chrome. It overlays the current screen and any floating side panel without shifting the toolbar, cards, canvas, or panel. Use a rounded rectangle, subtle semantic border, leading status icon, concise readable message, and an always-visible trailing **×** close button. Keep the toast sized to its message, with wrapping and safe horizontal margins in smaller windows; do not stretch it into a full-width banner. Only the toast intercepts pointer input; the surrounding screen stays usable.
 
+**Position revision, 2026-10-15:** All success, error and information toasts share one anchor: horizontally centred within the main content area, 24px below its top edge. The sidebar, toolbar height, canvas pan/zoom and details-panel visibility must not change that anchor. Keep the same position across Overview, Devices, Connections and Requests and recalculate the horizontal centre when the window resizes.
+
 | Kind        | Dark surface / border | Text and icon                | Example                 |
 | ----------- | --------------------- | ---------------------------- | ----------------------- |
 | Success     | `#082312` / `#245c35` | `#70d38a`, check-circle icon | Placement saved         |
@@ -189,7 +206,7 @@ For Cluster, replace Proposal discarded · applied placement unchanged with a ne
 
 ## 3. Navigation and shared status
 
-The agreed product destinations are Models, Cluster, Chat, API and Settings. The current rail mapping is fixed by the baseline table above: Home opens Chat; API follows Models; More contains Chat only. Storage, Metrics, Downloads and Local profile remain disabled with explanations. Settings opens Appearance in the renderer-only preview described in section 8. Their future functional scope, remaining assets and theme/platform extensions stay under D08; the implemented mapping is no longer an unresolved choice. Do not add account/cloud features because an avatar is present.
+The agreed product destinations are Models, Cluster, Chat, API and Settings. The current rail mapping is fixed by the baseline table above: Home opens Chat; API follows Models; More contains Chat only. Storage and Metrics are omitted from the rail under the 2026-10-15 revision. Downloads and Local profile remain disabled with explanations. Settings opens Appearance in the renderer-only preview described in section 8. Their future functional scope, remaining assets and theme/platform extensions stay under D08; the implemented mapping is no longer an unresolved choice. Do not add account/cloud features because an avatar is present.
 
 There is no shared bottom status bar. Cluster and API status belong in their respective screens. Distinguish total detected devices from selected/in-use devices and unavailable/stale measurements. Production counts must be computed, and unified memory must not be mislabeled as discrete VRAM.
 
@@ -202,6 +219,16 @@ API is available directly from its Server icon after Models in the sidebar; it i
 The approved compact-library revision below supersedes the reference's running-model card, metadata tiles, status badges and launch/cluster actions. Preserve the current header and neutral shared controls.
 
 - U07 (P3, P4): The upload icon, named Import GGUF, uses explicit file selection and validates metadata/compatibility before launch. The compass icon, named Explore models, opens the approved Hugging Face GGUF catalogue, with D05 settling metadata/download contracts; show progress, cancellation, failure, origin/license information where available, and local storage location. The current demo explains unavailable integration instead of transferring files or browsing a connected catalogue.
+- The 2026-10-15 import-indexing PROCEED adds a persistent index for the current
+  accepted development model. After file selection, show a text-only pending row
+  with the actual filename and a spinner labeled Indexing…. Preserve existing
+  rows; hide pending metadata/actions until inspection and index storage succeed.
+  Remove all model-brand logos from Models and the Cluster model picker.
+  Startup displays Updating library… while restoring the saved index, then lists
+  cached entries with the runtime stopped. Keep unavailable files visible with a
+  clear re-import explanation and disabled Configure. Source paths stay private
+  to main/core; explicit loading revalidates file identity and existing admission.
+  See [model import indexing](../docs/model-import-index.md) for migration and scope.
 - U08 (P3): Search filters the actual library. Rows show identity, size, format and quantization; Model details exposes architecture, parameters, maximum-context metadata and compatibility reasons. Distinguish model maximum context from configured active context. Unknown last use has no invented timestamp.
 - U09 (P4, P8): Select, place, validate and launch models in Cluster. One active model is shared with Chat/API. Replacing it requires explicit interruption confirmation. Models has no Start, Stop or Open in Cluster control.
 - U10 (P6): Show preparing/loading, running and model-load failures in Cluster; show import/download failures in their corresponding flows. Compatibility must be scoped to the selected runtime/backends/configuration rather than a blanket green badge. The compact library has no Ready/Stopped/Running or Fully compatible badges.
@@ -234,7 +261,7 @@ Remove the large metadata tiles, status badges, expanded running card, Start/Sto
 
 The user's PROCEED authorizes the revised six-section configuration mockup, with the subsequent corrections applied: no model logo, no section-navigation sidebar, blue enabled toggles and white sliders. Keep the existing navigation rail with Models selected. A single centred, scrollable column has the Model configuration heading, model name and GGUF/quantization chips, Back to Models action, six external section headings above rounded charcoal groups, and a bottom Reset defaults / Save defaults row. There is no Run/Play control here. GPU Offload opens Cluster through Set in Cluster without applying settings or changing placement.
 
-Use the shared Segoe UI system stack and text-role tokens: 24px page title, 16px section headings, 14px medium setting labels, 13px controls/descriptions and 12px chips/supporting text. Do not translate scaled screenshot pixels into isolated font literals. Use the same `#181818` foreground, `#f3f3f3` text, `#ababab` supporting text, `#383838` borders, 28px fields/actions and 16px group rounding. Configuration groups use `#222222`, inputs `#262626`; enabled switches use blue `#487fff` with a white thumb, disabled switches grey, and slider thumbs/fills white on a charcoal track. Shared switch geometry is 28×16px with a 12px thumb; range thumbs are 12px. The column is at most 800px CSS wide, with 40px header-to-content spacing, 36px between sections, 14px heading-to-group spacing, 16px horizontal group insets and 14px vertical row padding. These are consistent ModelLoom review targets, not measured ChatGPT screenshot parity. Reflow narrower windows without shrinking the text-role sizes. Preserve visible keyboard focus, labels, help text and native numeric/slider/checkbox semantics.
+Use the shared Segoe UI system stack and text-role tokens: 24px page title, 14px medium section headings, 14px medium setting labels, 13px controls/descriptions and 12px chips/supporting text. Do not translate scaled screenshot pixels into isolated font literals. Use the same `#181818` foreground, `#f3f3f3` text, `#ababab` supporting text, `#383838` borders, 28px fields/actions and 16px group rounding. Configuration groups use `#222222`, inputs `#262626`; enabled switches use blue `#487fff` with a white thumb, disabled switches grey, and slider thumbs/fills white on a charcoal track. Shared switch geometry is 28×16px with a 12px thumb; range thumbs are 12px. The column is at most 800px CSS wide, with 40px header-to-content spacing, 36px between sections, 14px heading-to-group spacing, 16px horizontal group insets and 14px vertical row padding. These are consistent ModelLoom review targets, not measured ChatGPT screenshot parity. Reflow narrower windows without shrinking the text-role sizes. Preserve visible keyboard focus, labels, help text and native numeric/slider/checkbox semantics.
 
 Include all agreed sections and controls:
 
@@ -250,6 +277,105 @@ The user explicitly selected **current app session only** for Save defaults. Kee
 Editor validation rejects empty/nonfinite values, nonintegers in count fields and values outside the sample control ranges; Physical Batch Size cannot exceed Evaluation Batch Size. Demo ranges include temperature 0–2, Top P/Min P 0–1, CPU threads 1–64, Presence Penalty −2–2 and Seed 0–4294967295. Positive counts and RoPE values follow their field minima. Sample defaults and editor ranges are not runtime/backend/hardware capability claims; production limits and settings application remain subject to the reviewed runtime/configuration contracts. Limit text inputs and exact stop entries locally; up to 16 stop strings are supported by this demo editor. Show inline errors, focus the first invalid control and confirm successful session saving honestly.
 
 ## 5. Cluster screen
+
+### Approved sidebar revision, 2026-10-15
+
+The user approved the generated sidebar/canvas mockup and authorized implementation.
+This revision supersedes the older Cluster heading, search/Add toolbar and
+hamburger composition below. Other screens and the global icon rail retain
+their current styling and behavior.
+
+- The left panel follows Settings: 240 CSS px, Segoe UI/system font stack,
+  18px medium Cluster heading, 14px navigation and semibold group labels,
+  30px navigation rows with 1px gaps, 6px vertical/12px horizontal padding,
+  16px icons with an 8px gap, #1c1c1c background, #303033 divider and neutral
+  10px selected-row rounding. Cluster appears once, in this sidebar.
+- The later approved refinement removes device search entirely from Cluster.
+  Sidebar Add device uses the reference circled-plus icon and opens a full content
+  view. Overview, Devices, Connections and Requests have independent destinations;
+  Your devices contains coordinator-first shortcuts to existing device details.
+  Requests shows a count only when the demo actually has pending requests.
+- The 2026-10-15 icon refinement uses the installed reference package's circled
+  plus, square grid, desktop, Wi-Fi, envelope and laptop-connector artwork for
+  Add device, Overview, Devices, Connections, Requests and Your devices respectively.
+  Render all at 16px, retain outlined artwork on selected rows, and preserve the
+  existing row shading, spacing, labels and navigation. Asset provenance is in
+  [CHATGPT-ICONS.md](../docs/CHATGPT-ICONS.md).
+- Overview preserves the device diagram and contextual details. Its compact
+  model pill sits beside a 32px charcoal circular Run/Stop/Cancel/restart control.
+  Run uses the Regular PlayCircle icon. The Details control is also a 32px charcoal circle.
+  The Details toggle sits at the top-right with the same right-edge inset as the
+  Models Explore compass button. Existing validation, confirmation, interruption, renaming and
+  focus behavior remain in force. There is no duplicate title, search or Add
+  dropdown in this header.
+- The bottom-left zoom/percentage/Fit to view bar is explicitly protected.
+  Preserve its component, icons, CSS, spacing, colours, position within the canvas
+  and interaction behavior. Do not move it into the top toolbar or duplicate it.
+  Keep the canvas mounted across Cluster destination navigation.
+- The subsequent approved canvas refinement starts at exactly 100% instead of
+  automatically fitting on launch. Window resizing preserves the current scale.
+  A single device uses its own card bounds and stays horizontally centered in the
+  available canvas, or in the space left of the open details panel. Vertically,
+  place its center 32px above the midpoint of the canvas after reserving the zoom
+  bar's height plus 28px at the bottom, matching the user's higher-card reference.
+  Recompute this position on resize, restoration and panel changes. Manual pan and
+  zoom remain available. Fit to view and keyboard 0 fit and center the diagram at
+  the same visual height, leaving clearance above the existing control bar.
+  This refinement authorizes canvas positioning changes while preserving the
+  control bar's appearance, icons, padding and fixed placement.
+- Devices presents supplied device/hardware details. Connections presents only
+  supplied sample links with explicit sample latency, unknown path and unverified
+  status. Requests reuses session-only decisions. Add/Join use available-device
+  cards and a Connect manually disclosure, retaining distinct LAN/Tailscale/
+  Headscale previews and request direction. Existing Join cluster and Share this PC
+  contexts remain accessible from device/connection views.
+- The 2026-10-15 hardware-inventory PROCEED replaces the blanket missing-fields
+  note with individual measured rows. Local Windows devices show the OS-reported
+  edition, display version and full build, machine architecture, physical CPU
+  cores/logical threads, installed/usable/available RAM, and supported physical
+  AMD/NVIDIA GPUs with their driver and available dedicated-memory readings.
+  Never substitute shared RAM or truncated WMI AdapterRAM for dedicated VRAM.
+  Unavailable readings stay unavailable; verified runtime backends come only
+  from verifier-accepted installed inventory. Show the observation time and
+  refresh local snapshots periodically. Preserve the approved Settings layout.
+  See [hardware inventory](../docs/hardware-inventory.md) for provider and evidence limits.
+- The subsequent 2026-10-15 GPU correction applies the same physical AMD/NVIDIA
+  filter to the canvas and Devices, using PCI vendor identity. Exclude Intel,
+  software/virtual display adapters, unknown identities and adapters Windows
+  reports disabled or failed. Retain CPU and number GPUs after filtering.
+  Windows device-change notifications immediately invalidate the ten-second
+  telemetry cache and start a new observation. Discard observations overtaken
+  by a notification, coalesce concurrent scans and update both views through
+  the existing bridge. Display updates follow completion of native discovery;
+  do not promise zero latency or treat idle/sleeping GPUs as disabled.
+  This is a display policy, not runtime compatibility or admission authority.
+- The later approved Settings-format revision applies to Devices, Connections
+  and Requests: reuse Settings' centered 728px column, 44px top/24px horizontal/
+  32px bottom content padding (18px horizontal at the existing narrow breakpoint),
+  24px page titles, 40px header spacing, 14px medium section headings, 14px labels and
+  13px descriptions. Device hardware, connections and requests use Settings'
+  rounded #222222 groups with 16px side insets, 14px vertical row padding and
+  shared row dividers. Keep existing actions, request decisions and sample/unavailable
+  disclosures. Overview and Add/Join/Share retain their existing presentation.
+- The later Devices inventory approval lists every supplied PC/Mac on the same
+  scrollable page. Each named device has a role badge and plain label/value rows
+  for reported CPU/core/thread details, each GPU's model/memory, unified memory
+  where applicable, OS and device status. Remove Devices' three header actions,
+  content icons and Device details/View details buttons. Connection actions stay
+  on Connections; existing canvas and sidebar inspection remain available.
+  Keep unknown architecture/RAM/free-memory/driver/backend data in one compact
+  per-device disclosure, rather than repeating empty rows or inventing values.
+  Apple unified memory is one shared pool, not separate RAM plus discrete VRAM.
+  Additional hardware detection is outside this presentation revision.
+- Use `@phosphor-icons/react` 2.1.10 Regular icons in changed Cluster surfaces,
+  including Cpu and GraphicsCard. Preserve existing colours and selection
+  highlights; no automatic Regular-to-Fill change is part of this authorization.
+  Existing protected zoom icons and unrelated screens are excluded from migration.
+
+This is a renderer presentation revision, not authorization to implement discovery,
+enrollment, pairing, worker access or real request approval. Normal builds contain
+no sample peers, links or participation requests; unavailable integration is stated
+honestly. Local runtime callbacks and security boundaries are unchanged.
 
 The 2026-10-07 approved startup correction shows the user's own PC in the existing
 device card before model import/loading or remote connections. Identify it as
@@ -369,7 +495,7 @@ Add device invites another PC to contribute to this PC's cluster; Join cluster a
 
 Cluster overview retains its model/device/memory/allocation information and adds Pending requests. Distinguish an invitation into another coordinator's cluster from a request to join this PC's cluster; describe the resulting roles before Approve/Decline. A small pending count appears on the existing hamburger, which opens overview when requests await a decision. Incoming examples and decisions remain visible only in the demo; actions change their illustrated status without adding a card, changing placement or simulating an authenticated connection. Outgoing status, sharing preferences, hardware choices and incoming decisions survive screen navigation for this app session only.
 
-Use the actual existing overview panel as the sizing reference, rather than the generated mockup's apparent scale: retain 18px frame padding, 22px corners, the existing inset scroll viewport, 18px title/close icon, 16px section headings, 13px descriptions/controls and 12px detail rows. Reuse 18px section separation, 16px section top padding, 10px row padding, 8px action gaps and neutral dividers. Menu icons use 16px and its chevron 14px, matching existing controls. Use the existing 28px action controls and 28×16px blue/white enabled switch geometry. Keep the shared neutral palette, white primary actions and charcoal secondary actions. Non-demo builds show no candidates/requests and disable request/sharing actions until integration.
+Use the actual existing overview panel as the sizing reference, rather than the generated mockup's apparent scale: retain 18px frame padding, 22px corners, the existing inset scroll viewport, 18px title/close icon, 14px medium section headings, 13px descriptions/controls and 12px detail rows. Reuse 18px section separation, 16px section top padding, 10px row padding, 8px action gaps and neutral dividers. Menu icons use 16px and its chevron 14px, matching existing controls. Use the existing 28px action controls and 28×16px blue/white enabled switch geometry. Keep the shared neutral palette, white primary actions and charcoal secondary actions. Non-demo builds show no candidates/requests and disable request/sharing actions until integration.
 
 **Future connected-device behaviour:** Both entry points add a worker to the current coordinator-managed cluster after the reviewed joining/approval flow succeeds. Users do not choose a parent node; clicking a node's + does not attach the new worker to that node. Automatically place the new card in the worker area alongside the other workers. Card position describes the visual layout, not the network topology. Draw dotted lines only for verified relationships, with truthful direct/relay/unknown and latency information; do not invent a coordinator link or a full mesh merely because a card appears. Layer placement determines inference participation, and joining alone does not change the applied allocation. Keep pending placement separate from the active allocation and require validated Run or confirmed Apply and restart. This records intended UI behaviour only: automatic new-card placement and real joining/connection rendering are not implemented in the current demo and require the separately reviewed networking, pairing and placement integration.
 
@@ -440,7 +566,7 @@ Define uptime as the live API server instance uptime, request-count scope/reset 
 
 ### Authorized API presentation, 2026-10-05
 
-The user's PROCEED adopts the final centred, stacked mockup, using Model configuration as the layout and sizing reference. Use its 800px maximum column width, 24px top/32px bottom page margins, 24px title, 40px header-to-section gap, external 16px section headings, 14px heading-to-card gap, 36px between sections, 16px group rounding and horizontal insets, and 14px row padding. Stack Server, Access, Integration and Server logs in that order. Keep the main workspace flat `#181818`, groups `#222222`, fields `#262626`, neutral borders/text and existing shared font roles. Omit the header button, model identity/GGUF/quantization row and old summary footer. The user's subsequent navigation correction places the existing Server icon directly after Models in the sidebar and removes API from More. Match the other rail icons' 20px size, 1.75 stroke width, 36px button, spacing, keyboard focus and neutral selected state. Reuse the existing outer main scrollbar, including its 40px top/bottom track margins and clear rounded corners. Code/log viewers scroll independently and contain wheel scrolling at their ends.
+The user's PROCEED adopts the final centred, stacked mockup, using Model configuration as the layout and sizing reference. Use its 800px maximum column width, 24px top/32px bottom page margins, 24px title, 40px header-to-section gap, external 14px medium section headings, 14px heading-to-card gap, 36px between sections, 16px group rounding and horizontal insets, and 14px row padding. Stack Server, Access, Integration and Server logs in that order. Keep the main workspace flat `#181818`, groups `#222222`, fields `#262626`, neutral borders/text and existing shared font roles. Omit the header button, model identity/GGUF/quantization row and old summary footer. The user's subsequent navigation correction places the existing Server icon directly after Models in the sidebar and removes API from More. Match the other rail icons' 20px size, 1.75 stroke width, 36px button, spacing, keyboard focus and neutral selected state. Reuse the existing outer main scrollbar, including its 40px top/bottom track margins and clear rounded corners. Code/log viewers scroll independently and contain wheel scrolling at their ends.
 
 This milestone is presentation only. Show Stopped and unavailable statistics, a clearly labelled example localhost address with disabled copy, and no bound server claim. Start, exposure selection, key generation/reveal/copy, and empty-log Copy/Clear controls remain disabled with explanations. Local only is the default preview state; authentication remains required, with no optional-key switch. No keys or logs are fabricated. The active model reflects the shared simulated library and is explicitly labelled demo, or Not loaded when absent; Choose in Cluster navigates without changing the model. Server logs is an empty, scrollable monospace viewer until a real log source exists.
 
@@ -460,7 +586,7 @@ The later search-gap-only PROCEED removes the group label's 12px top padding. Th
 
 The subsequent search-colour PROCEED matches the supplied ChatGPT crop's sampled fill, RGB(46, 45, 48), as #2e2d30 for the Settings search background and border. Keep the existing 32px field height, width, padding, rounding, text/icon treatment and position. This local Settings override does not change the shared search component or other screens.
 
-Centre a maximum 728px column within the remaining right pane, not the entire window. This supersedes the generated preview's wider card column and earlier 800px Settings proposal; Model configuration/API retain 800px. The original 2559x1599 reference has a 1274px card width and approximately 376px/381px margins to the divider/scrollbar. At assumed 175% display scaling these correspond to about 728px and 215px/218px; this is screenshot-derived geometry, not live reference computed styles. Use automatic equal side margins, minimum 24px detail padding (18px at widths up to 1050px), 44px top/32px bottom padding, 24px main title, 40px header gap, 16px section headings, 14px heading-to-card gap, 36px section gap, 16px card rounding/insets and 14px row padding. Retain independent category/detail scrolling with 40px top/bottom scrollbar-track insets. Controls reflow without shrinking fonts at the 1000px minimum supported window width.
+Centre a maximum 728px column within the remaining right pane, not the entire window. This supersedes the generated preview's wider card column and earlier 800px Settings proposal; Model configuration/API retain 800px. The original 2559x1599 reference has a 1274px card width and approximately 376px/381px margins to the divider/scrollbar. At assumed 175% display scaling these correspond to about 728px and 215px/218px; this is screenshot-derived geometry, not live reference computed styles. Use automatic equal side margins, minimum 24px detail padding (18px at widths up to 1050px), 44px top/32px bottom padding, 24px main title, 40px header gap, 14px medium section headings, 14px heading-to-card gap, 36px section gap, 16px card rounding/insets and 14px row padding. Retain independent category/detail scrolling with 40px top/bottom scrollbar-track insets. Controls reflow without shrinking fonts at the 1000px minimum supported window width.
 
 Appearance stacks Theme, Interface and Accessibility. Dark/Neutral/Comfortable and switch states are illustrative, disabled preview controls with explanations; they do not apply global settings. Category search matches labels and setting keywords, clears with Escape, and reports no matches. Selected category survives screen navigation in app memory and resets on reload. Search is local view state. Runtime stacks Installed runtimes, Runtime selection and Runtime settings. Manage installed runtimes opens an accessible empty inventory dialog; no versions, installed/active engines or compatibility are fabricated. Update/selection/log/download controls remain disabled. Storage, Network, Diagnostics and Advanced show explicit pending content instead of inventing unreviewed controls; Network offers Open API settings. No persistence, theme switching, runtime/files/network operations, new permissions or IPC are added.
 
