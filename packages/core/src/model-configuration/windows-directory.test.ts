@@ -100,6 +100,7 @@ it('persists indexed sources and defaults across an actual guarded database rest
       generation: { ...initial.generation, temperature: 0.2 },
     });
     await first.store.recordImport(source.modelId, 123, source);
+    await first.store.recordUse(source.modelId, 123456789);
   } finally {
     first.close();
   }
@@ -115,6 +116,7 @@ it('persists indexed sources and defaults across an actual guarded database rest
     expect(saved.generation.temperature).toBe(0.2);
     expect(await second.store.readImportSource(source.modelId)).toEqual(source);
     expect(await second.store.readImport(source.modelId)).toBe(123);
+    expect(await second.store.readUse(source.modelId)).toBe(123456789);
   } finally {
     second.close();
   }

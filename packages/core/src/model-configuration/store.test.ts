@@ -91,11 +91,89 @@ it('upgrades only the exact old configuration schema and preserves saved default
   expect(await store.read(saved.modelId)).toEqual(saved);
   expect(await store.readImport(saved.modelId)).toBe(123);
   expect(await store.readImportSource(saved.modelId)).toBeNull();
-  expect(database.prepare('SELECT version FROM configuration_schema').get()?.version).toBe(2);
+  expect(database.prepare('SELECT version FROM configuration_schema').get()?.version).toBe(3);
   expect(await store.readCredential()).toEqual({
     generation: 7,
     protectedKey: Buffer.from('fixture-protected-bytes'),
   });
+});
+
+it('retains last request use across reopen and reimport, without moving backwards', async () => {
+  const { store, database, known } = setup();
+  const id = record().modelId;
+  expect(await store.readUse(id)).toBeNull();
+  await store.recordImport(id, 123);
+  expect(await store.readUse(id)).toBeNull();
+  const timestamp = Date.now() - 1000;
+  await store.recordUse(id, timestamp);
+  await store.recordUse(id, timestamp - 1000);
+  await store.recordImport(id, 456);
+  const reopened = new ModelConfigurationStore(
+    database,
+    () => {},
+    (id) => known.has(id),
+    capabilities,
+    record().load,
+  );
+  expect(await reopened.readUse(id)).toBe(timestamp);
+  expect(await reopened.readImport(id)).toBe(123);
+  await expect(store.recordUse('b'.repeat(64), timestamp)).rejects.toThrow('UNKNOWN_MODEL');
+  for (const invalid of [0, -1, NaN, 1.5, Date.now() + 60000])
+    await expect(store.recordUse(id, invalid)).rejects.toThrow('INVALID_CONFIGURATION');
+});
+
+it('upgrades the exact indexed schema without losing the imported source', async () => {
+  const { database, store, known } = setup();
+  const id = record().modelId;
+  const source = {
+    modelId: id,
+    file: 'E:\\Models\\model.gguf',
+    name: 'Indexed model',
+    size: '4 GB',
+    sizeBytes: 4000000000,
+    modifiedMs: 1234,
+    architecture: 'llama',
+    contextLimit: 4096,
+    quantization: 'Q4_K_M',
+    parameters: '4B',
+  };
+  await store.recordImport(id, 123, source);
+  await store.save(id, 0, await store.read(id));
+  await store.replaceCredential(0, Buffer.from('fixture-protected-bytes'));
+  // Recreate the previous schema version while preserving its retained tables.
+  database.exec(
+    'DROP TABLE model_usage; DROP TABLE configuration_schema; CREATE TABLE configuration_schema(version INTEGER NOT NULL CHECK(version=2)); INSERT INTO configuration_schema VALUES(2)',
+  );
+  const reopened = new ModelConfigurationStore(
+    database,
+    () => {},
+    (id) => known.has(id),
+    capabilities,
+    record().load,
+  );
+  expect(await reopened.readImport(id)).toBe(123);
+  expect(await reopened.readImportSource(id)).toEqual(source);
+  expect((await reopened.read(id)).revision).toBe(1);
+  expect((await reopened.readCredential())?.protectedKey).toEqual(
+    Buffer.from('fixture-protected-bytes'),
+  );
+  expect(await reopened.readUse(id)).toBeNull();
+  expect(database.prepare('SELECT version FROM configuration_schema').get()?.version).toBe(3);
+});
+
+it('retains the previous use on write failure and rejects malformed stored timestamps', async () => {
+  const { store, database } = setup();
+  const id = record().modelId;
+  const timestamp = Date.now() - 1000;
+  await store.recordUse(id, timestamp);
+  database.exec(
+    "CREATE TRIGGER reject_usage BEFORE UPDATE ON model_usage BEGIN SELECT RAISE(ABORT,'failure'); END",
+  );
+  await expect(store.recordUse(id, timestamp + 1000)).rejects.toThrow('CONFIGURATION_UNAVAILABLE');
+  expect(await store.readUse(id)).toBe(timestamp);
+  database.exec('DROP TRIGGER reject_usage');
+  database.prepare('UPDATE model_usage SET last_used=? WHERE model_id=?').run(1.5, id);
+  await expect(store.readUse(id)).rejects.toThrow('UNSUPPORTED_CONFIGURATION');
 });
 
 it('rolls back import time and file metadata together when saving the index fails', async () => {
