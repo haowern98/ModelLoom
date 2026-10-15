@@ -51,6 +51,27 @@ it('reads bounded model context and exact file identity without estimating memor
     sha256: createHash('sha256').update(bytes).digest('hex'),
   });
 });
+it('indexes optional display metadata from GGUF rather than a fixed model profile', async () => {
+  const header = fixture();
+  header.writeBigUInt64LE(5n, 16);
+  const bytes = Buffer.concat([
+    header,
+    str('general.name'),
+    u32(8),
+    str('Observed model'),
+    str('general.file_type'),
+    u32(4),
+    u32(15),
+    str('general.size_label'),
+    u32(8),
+    str('8B'),
+  ]);
+  expect(await inspectGGUF(await file(bytes))).toMatchObject({
+    name: 'Observed model',
+    quantization: 'Q4_K_M',
+    parameters: '8B',
+  });
+});
 it('accepts a normal large tokenizer array within the metadata byte budget', async () => {
   const header = fixture();
   header.writeBigUInt64LE(3n, 16);

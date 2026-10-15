@@ -73,8 +73,20 @@ it('rejects a second writer and forged serialized root authority', () => {
   );
 });
 
-it('persists committed defaults across an actual guarded database restart', async () => {
+it('persists indexed sources and defaults across an actual guarded database restart', async () => {
   const value = root();
+  const source = {
+    modelId: record().modelId,
+    file: 'E:\\Models\\model.gguf',
+    name: 'Indexed model',
+    size: '4 GB',
+    sizeBytes: 4000000000,
+    modifiedMs: 1234,
+    architecture: 'llama',
+    contextLimit: 4096,
+    quantization: 'Q4_K_M',
+    parameters: '4B',
+  };
   const first = openModelConfigurationStore(
     trustedHistoryRoot(value),
     (id) => id === record().modelId,
@@ -87,6 +99,7 @@ it('persists committed defaults across an actual guarded database restart', asyn
       ...initial,
       generation: { ...initial.generation, temperature: 0.2 },
     });
+    await first.store.recordImport(source.modelId, 123, source);
   } finally {
     first.close();
   }
@@ -100,6 +113,8 @@ it('persists committed defaults across an actual guarded database restart', asyn
     const saved = await second.store.read(record().modelId);
     expect(saved.revision).toBe(1);
     expect(saved.generation.temperature).toBe(0.2);
+    expect(await second.store.readImportSource(source.modelId)).toEqual(source);
+    expect(await second.store.readImport(source.modelId)).toBe(123);
   } finally {
     second.close();
   }
