@@ -38,6 +38,7 @@ it('shows an unloaded local worker before any model import, without requiring GP
   expect(command.mock.calls.every(([input]) => input?.action === 'snapshot')).toBe(true);
   await user.click(device.getByRole('button', { name: 'Actions for own-pc' }));
   await user.click(screen.getByRole('button', { name: 'Device details' }));
+  await user.click(await screen.findByText('Device details', { selector: 'summary span' }));
   expect(screen.getByText('Windows', { selector: 'dd' })).toBeVisible();
   expect(screen.getAllByText('This device', { selector: 'dd' })).toHaveLength(2);
 });

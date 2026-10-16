@@ -40,3 +40,55 @@ it('imports through the bridge and waits for actual readiness, without a demo co
   expect(hook.result.current.view!.phase).toBe('ready');
   hook.unmount();
 });
+it('polls memory warnings during a pending load without replacing its final result', async () => {
+  const base: RuntimeView = { enabled: true, phase: 'stopped', model: null, error: null };
+  let snapshot = base;
+  let finishLoad!: (view: RuntimeView) => void;
+  let finishAnswer!: (view: RuntimeView) => void;
+  const command = vi.fn((input: RuntimeCommand) => {
+    if (input.action === 'load')
+      return new Promise<RuntimeView>((resolve) => {
+        finishLoad = resolve;
+      });
+    if (input.action === 'memory-decision')
+      return new Promise<RuntimeView>((resolve) => {
+        finishAnswer = resolve;
+      });
+    return Promise.resolve(snapshot);
+  });
+  window.modelLoomRuntime = { command };
+  const hook = renderHook(() => module.useRuntime());
+  await waitFor(() => expect(hook.result.current.view).toEqual(base));
+  let pending!: Promise<void>;
+  act(() => {
+    pending = hook.result.current.run({ action: 'load', modelId: 'model-123' });
+  });
+  snapshot = { ...base, phase: 'loading', memoryWarning: { id: 'first' } };
+  await waitFor(() => expect(hook.result.current.view?.memoryWarning?.id).toBe('first'));
+  expect(hook.result.current.view?.phase).toBe('stopped');
+  expect(hook.result.current.loading).toBe(true);
+  let answer!: Promise<void>;
+  act(() => {
+    answer = hook.result.current.answerMemory('first', false);
+  });
+  snapshot = { ...snapshot, memoryWarning: { id: 'second' } };
+  await waitFor(() => expect(hook.result.current.view?.memoryWarning?.id).toBe('second'));
+  await act(async () => {
+    finishAnswer({ ...base, memoryWarning: null });
+    await answer;
+  });
+  expect(hook.result.current.view?.memoryWarning?.id).toBe('second');
+  expect(hook.result.current.loading).toBe(true);
+  await act(async () => {
+    finishLoad({ ...base, phase: 'ready', memoryWarning: null });
+    await pending;
+  });
+  expect(hook.result.current.view?.phase).toBe('ready');
+  expect(hook.result.current.loading).toBe(false);
+  expect(command).toHaveBeenCalledWith({
+    action: 'memory-decision',
+    id: 'first',
+    loadAnyway: false,
+  });
+  hook.unmount();
+});
