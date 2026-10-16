@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { Dispatch } from 'react';
+import type { ClusterConfigurations } from './useClusterConfigurations';
+import type { RuntimeView } from '../../../shared/runtime';
+import { FloppyDisk } from '@phosphor-icons/react/dist/csr/FloppyDisk';
 import { Network } from '@phosphor-icons/react/dist/csr/Network';
 import { SidebarSimple } from '@phosphor-icons/react/dist/csr/SidebarSimple';
-import { PlayCircle as Play } from '@phosphor-icons/react/dist/csr/PlayCircle';
+import { ChatGptPlayIcon } from '../../components/ChatGptPlayIcon';
+import { ChatGptHistoryIcon } from '../../components/ChatGptHistoryIcon';
 import { Stop as Square } from '@phosphor-icons/react/dist/csr/Stop';
 import { ArrowClockwise as RotateCw } from '@phosphor-icons/react/dist/csr/ArrowClockwise';
 import { Spinner as LoaderCircle } from '@phosphor-icons/react/dist/csr/Spinner';
@@ -29,13 +33,33 @@ import type { ClusterView } from './ClusterSidebar';
 import { ClusterViews } from './ClusterViews';
 import { incomingExamples } from '../../mocks/clusterJoining';
 import type { JoiningProps } from './ClusterJoiningPanel';
-import type { ClusterSelection } from './ClusterPanel';
+import type { AssignmentStatus, ClusterSelection } from './ClusterPanel';
 import styles from './ClusterPage.module.css';
 
-type Modal = { type: 'placement'; model: DemoModel } | { type: 'restart' };
+type Modal = { type: 'placement'; model: DemoModel } | { type: 'restart' } | { type: 'name' };
+const configurationErrors: Readonly<Record<string, string>> = {
+  CLEANUP_FAILED:
+    'Runtime shutdown could not be confirmed. Restart the app before trying another allocation.',
+  NEEDS_RESOURCE_EVIDENCE:
+    'These load settings are not supported by the validated runtime yet. Choose supported settings and try again.',
+  PLANNING_CANCELLED: 'Automatic assignment was cancelled. Your previous edits are still here.',
+  PLANNING_INCOMPLETE:
+    'Automatic assignment could not finish. Try again or assign layers manually.',
+  INSUFFICIENT_RESOURCES: 'There is not enough available memory for this configuration.',
+  INCOMPATIBLE_DRIVER:
+    'The GPU driver is not compatible with this runtime. Update it and try again.',
+  NEEDS_MODEL_METADATA:
+    'Model layer information is unavailable. Re-import the model before saving an assignment.',
+  CONFIGURATION_UNAVAILABLE:
+    'Changes could not be saved. Your edits are still here; try editing again to retry.',
+  STALE_CONFIGURATION: 'This configuration changed. Select it again before saving or running.',
+  NOT_READY: 'Configurations are not available yet. Wait for the model library to finish opening.',
+  INVALID_CLUSTER_CONFIGURATION: 'Check the configuration name and settings, then try again.',
+};
 
 interface ClusterPageProps extends JoiningProps {
   demo: boolean;
+  configurations?: ClusterConfigurations;
   devices: readonly DemoDevice[];
   onRenameDevice: (id: string, name: string) => void;
   activeModel: DemoModel | undefined;
@@ -43,7 +67,14 @@ interface ClusterPageProps extends JoiningProps {
   placement: DemoPlacement;
   dispatch: Dispatch<PlacementAction>;
   onStop: () => void;
-  localRuntime?: { loading: boolean; onChoose(model: DemoModel): void; onRun(): void };
+  localRuntime?: {
+    loading: boolean;
+    activeCluster?: RuntimeView['activeCluster'];
+    onChoose(model: DemoModel): void;
+    onRun(): void;
+    onRunConfiguration?(id: string, revision: number): void;
+    onRunDraft?(target: { key: string; revision: number; modelId: string }): void;
+  };
 }
 
 /** Cluster presentation delegates local runtime actions; networking previews remain session-only. */
@@ -59,38 +90,47 @@ export function ClusterPage({
   dispatch,
   onStop,
   localRuntime,
+  configurations,
 }: ClusterPageProps) {
+  const [configurationName, setConfigurationName] = useState('');
   const [view, setView] = useState<ClusterView>('overview');
   const [panelOpen, setPanelOpen] = useState(false);
   const panelId = useId();
   const panelToggle = useRef<HTMLButtonElement>(null);
-  const panelClose = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
   const [notification, setNotification] = useState<ToastMessage | null>(null);
   const notificationId = useRef(0);
   const dismissNotification = useCallback(() => setNotification(null), []);
-  const notify = (kind: ToastMessage['kind'], message: string) => {
+  const notify = useCallback((kind: ToastMessage['kind'], message: string) => {
     setNotification({
       id: ++notificationId.current,
       kind,
       message,
       origin: document.activeElement instanceof HTMLElement ? document.activeElement : null,
     });
-  };
+  }, []);
+  const configurationError = configurations?.error;
+  useEffect(() => {
+    if (configurationError)
+      notify('error', configurationErrors[configurationError] ?? configurationError);
+  }, [configurationError, notify]);
   const reportError = (message: string) => {
     if (message) notify('error', message);
   };
   useEffect(() => {
-    if (panelOpen) panelClose.current?.focus();
+    if (panelOpen) panelRef.current?.focus();
   }, [panelOpen]);
   const restoreFocus = useRef<HTMLElement | null>(null);
   const [selection, setSelection] = useState<ClusterSelection>({ type: 'overview' });
   const closePanel = () => {
+    const focusTarget =
+      document.activeElement === panelToggle.current ? panelToggle.current : restoreFocus.current;
     setPanelOpen(false);
     setSelection((current) =>
       current.type === 'device' ? { ...current, renaming: false } : current,
     );
     queueMicrotask(() => {
-      if (restoreFocus.current?.isConnected) restoreFocus.current.focus();
+      if (focusTarget?.isConnected) focusTarget.focus();
       else panelToggle.current?.focus();
     });
   };
@@ -126,9 +166,29 @@ export function ClusterPage({
       devices.some((device) => device.id === link.from) &&
       devices.some((device) => device.id === link.to),
   );
-  const selectedModel = models.find((model) => model.id === placement.modelId);
-  const layerCount = demoLayerCount(selectedModel?.id ?? 'qwen');
-  const ranges = placement.inputs
+  const selectedModel = models.find((model) =>
+    configurations?.selection
+      ? model.id.replace(/^model-/u, '') === configurations.selection.modelId
+      : model.id === placement.modelId,
+  );
+  const executableGpus = devices.flatMap((device) =>
+    (device.inventory?.gpus ?? []).flatMap((gpu) =>
+      gpu.executionIdentity
+        ? [{ hardwareId: `local-${gpu.id}`, uuid: gpu.executionIdentity.uuid }]
+        : [],
+    ),
+  );
+  const editorInputs = configurations
+    ? executableGpus.map((gpu) => ({
+        hardwareId: gpu.hardwareId,
+        first: configurations.raw?.runs.find((run) => run.uuid === gpu.uuid)?.first ?? '',
+        last: configurations.raw?.runs.find((run) => run.uuid === gpu.uuid)?.last ?? '',
+      }))
+    : placement.inputs;
+  const layerCount = configurations
+    ? (selectedModel?.blockCount ?? 0)
+    : demoLayerCount(selectedModel?.id ?? 'qwen');
+  const ranges = editorInputs
     .map((input) => ({
       hardwareId: input.hardwareId,
       first: Number(input.first),
@@ -136,28 +196,92 @@ export function ClusterPage({
     }))
     .filter(
       (range, index) =>
-        placement.inputs[index]?.first.trim() &&
-        placement.inputs[index]?.last.trim() &&
-        validSampleRange(range, layerCount),
+        editorInputs[index]?.first.trim() &&
+        editorInputs[index]?.last.trim() &&
+        // Physical GPU identities are not in the demo's hardware allowlist.
+        (configurations
+          ? Number.isInteger(range.first) &&
+            Number.isInteger(range.last) &&
+            range.first >= 0 &&
+            range.first <= range.last &&
+            range.last < layerCount
+          : validSampleRange(range, layerCount)),
     );
   const loading = localRuntime ? localRuntime.loading : Boolean(placement.launch);
-  const canPlace = demo && Boolean(selectedModel);
-  const changed = !localRuntime && hasPlacementChanges(placement);
-  const selectedIsActive = selectedModel?.id === activeModel?.id && Boolean(activeModel);
+  const canPlace =
+    (demo || Boolean(configurations?.raw && layerCount > 0)) && Boolean(selectedModel);
+  const changed = configurations
+    ? configurations.dirty
+    : !localRuntime && hasPlacementChanges(placement);
+  const activeCluster = localRuntime?.activeCluster;
+  const selectedIsActive = Boolean(
+    activeModel &&
+    selectedModel?.id === activeModel.id &&
+    (activeCluster
+      ? activeCluster.draftKey
+        ? configurations?.draft?.key === activeCluster.draftKey &&
+          configurations.draft.revision === activeCluster.revision
+        : configurations?.saved?.id === activeCluster.configurationId &&
+          configurations.saved.revision === activeCluster.revision
+      : !configurations?.selection?.configurationId),
+  );
+  const appliedRanges = activeCluster
+    ? activeCluster.runs.flatMap((run) => {
+        const gpu = executableGpus.find((gpu) => gpu.uuid === run.uuid);
+        return gpu ? [{ hardwareId: gpu.hardwareId, first: run.first, last: run.last }] : [];
+      })
+    : activeModel
+      ? placement.applied
+      : [];
+  const runCurrentAllocation = async () => {
+    if (!configurations || !localRuntime) return;
+    if (configurations.saved && !configurations.dirty) {
+      localRuntime.onRunConfiguration?.(configurations.saved.id, configurations.saved.revision);
+      return;
+    }
+    const target = await configurations.prepareRun();
+    if (target) localRuntime.onRunDraft?.(target);
+    else if (devices[0]) showPanel({ type: 'device', device: devices[0] });
+  };
+  const assignmentStates: Record<string, AssignmentStatus> = {};
+  for (const device of devices) {
+    const owns = (hardwareId: string) => device.hardware.some((item) => item.id === hardwareId);
+    const hasInput =
+      Boolean(selectedModel) &&
+      editorInputs.some(
+        (input) => owns(input.hardwareId) && Boolean(input.first.trim() || input.last.trim()),
+      );
+    const hasSaved = Boolean(
+      configurations?.saved?.runs.some((run) =>
+        executableGpus.some((gpu) => gpu.uuid === run.uuid && owns(gpu.hardwareId)),
+      ),
+    );
+    const inUse = selectedIsActive && appliedRanges.some((range) => owns(range.hardwareId));
+    assignmentStates[device.id] =
+      changed && (hasInput || hasSaved || inUse)
+        ? 'Draft'
+        : inUse && !loading
+          ? 'In use'
+          : hasSaved && hasInput
+            ? 'Saved'
+            : hasInput
+              ? 'Draft'
+              : 'No assignment';
+  }
   const runAction = loading
     ? 'Cancel loading'
-    : selectedIsActive && changed
+    : selectedIsActive && changed && !configurations
       ? 'Apply and restart'
       : selectedIsActive
         ? 'Stop model'
         : 'Run model';
   const RunIcon = loading
     ? LoaderCircle
-    : selectedIsActive && changed
+    : selectedIsActive && changed && !configurations
       ? RotateCw
       : selectedIsActive
         ? Square
-        : Play;
+        : null;
   const close = () => {
     setModal(null);
   };
@@ -180,9 +304,11 @@ export function ClusterPage({
   const title =
     modal?.type === 'placement'
       ? 'Plan layer placement'
-      : selectedIsActive
-        ? 'Restart demo model?'
-        : 'Switch demo model?';
+      : configurations
+        ? 'Apply current allocation?'
+        : selectedIsActive
+          ? 'Restart demo model?'
+          : 'Switch demo model?';
 
   return (
     <section
@@ -203,6 +329,15 @@ export function ClusterPage({
         onSelect={inspectDevice}
         pendingRequests={pendingRequests}
         local={Boolean(localRuntime)}
+        configurations={configurations?.configurations}
+        selectedConfigurationId={configurations?.saved?.id}
+        onConfiguration={(id) => {
+          const configuration = configurations?.configurations.find((item) => item.id === id);
+          if (configuration) {
+            void configurations?.selectConfiguration(configuration);
+            setView('overview');
+          }
+        }}
       />
       <div
         className={`${styles.main} ${['devices', 'connections', 'requests'].includes(view) ? styles.detailsMain : ''}`}
@@ -218,6 +353,63 @@ export function ClusterPage({
         <div hidden={view !== 'overview'}>
           <header className={styles.header}>
             <div className={styles.heading}>
+              <div
+                className={`${styles.actionCapsule} ${styles.historyCapsule}`}
+                role="group"
+                aria-label="Assignment history"
+              >
+                <button
+                  type="button"
+                  className={styles.runIcon}
+                  aria-label="Undo"
+                  title="Undo"
+                  disabled={
+                    loading ||
+                    !canPlace ||
+                    !(configurations ? configurations.canUndo : placement.past.length)
+                  }
+                  onClick={() =>
+                    configurations ? configurations.undo() : dispatch({ type: 'undo' })
+                  }
+                >
+                  <ChatGptHistoryIcon kind="undo" />
+                </button>
+                <button
+                  type="button"
+                  className={styles.runIcon}
+                  aria-label="Redo"
+                  title="Redo"
+                  disabled={
+                    loading ||
+                    !canPlace ||
+                    !(configurations ? configurations.canRedo : placement.future.length)
+                  }
+                  onClick={() =>
+                    configurations ? configurations.redo() : dispatch({ type: 'redo' })
+                  }
+                >
+                  <ChatGptHistoryIcon kind="redo" />
+                </button>
+                <span className={styles.historyDivider} aria-hidden="true" />
+                <button
+                  type="button"
+                  className={styles.runIcon}
+                  aria-label="Reset to default"
+                  title="Reset to default"
+                  disabled={
+                    !canPlace ||
+                    !changed ||
+                    loading ||
+                    Boolean(configurations?.planning || configurations?.pending)
+                  }
+                  onClick={() => {
+                    if (configurations) void configurations.autoPlace();
+                    else dispatch({ type: 'auto-place' });
+                  }}
+                >
+                  <ChatGptHistoryIcon kind="reset" />
+                </button>
+              </div>
               <ClusterModelPicker
                 local={Boolean(localRuntime)}
                 models={models}
@@ -231,13 +423,89 @@ export function ClusterPage({
                 }
               />
               <div className={styles.actionCapsule} role="group" aria-label="Cluster actions">
+                {configurations?.planning && (
+                  <button
+                    type="button"
+                    className={styles.runIcon}
+                    aria-label="Cancel planning"
+                    title="Cancel planning"
+                    onClick={() => {
+                      void configurations.cancelPlanning();
+                    }}
+                  >
+                    <Square size={16} aria-hidden="true" />
+                  </button>
+                )}
+                {configurations && activeModel && !selectedIsActive && (
+                  <button
+                    type="button"
+                    className={styles.runIcon}
+                    aria-label="Stop model"
+                    title="Stop model"
+                    onClick={onStop}
+                  >
+                    <Square size={16} aria-hidden="true" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={styles.runIcon}
+                  aria-label="Save configuration"
+                  title="Save configuration"
+                  disabled={
+                    !configurations?.dirty ||
+                    loading ||
+                    configurations.planning ||
+                    configurations.pending
+                  }
+                  onClick={() => {
+                    if (!configurations) return;
+                    if (configurations.saved)
+                      void configurations.save(null).then((saved) => {
+                        if (!saved && devices[0]) showPanel({ type: 'device', device: devices[0] });
+                      });
+                    else {
+                      setConfigurationName('');
+                      setModal({ type: 'name' });
+                    }
+                  }}
+                >
+                  <FloppyDisk size={16} aria-hidden="true" />
+                </button>
                 <button
                   type="button"
                   className={styles.runIcon}
                   aria-label={runAction}
                   title={`${runAction}${loading && !localRuntime ? ' · simulated loading' : ''}`}
-                  disabled={(!demo && !localRuntime) || !selectedModel || !devices.length}
+                  disabled={
+                    (!demo && !localRuntime) ||
+                    (!loading &&
+                      (!selectedModel ||
+                        !devices.length ||
+                        Boolean(
+                          configurations &&
+                          (!configurations.raw ||
+                            configurations.pending ||
+                            configurations.planning),
+                        )))
+                  }
                   onClick={() => {
+                    if (configurations && localRuntime) {
+                      if (loading || selectedIsActive) {
+                        onStop();
+                        return;
+                      }
+                      if (!configurations.hasAssignments && selectedModel) {
+                        setModal({ type: 'placement', model: selectedModel });
+                        return;
+                      }
+                      if (activeModel) {
+                        setModal({ type: 'restart' });
+                        return;
+                      }
+                      void runCurrentAllocation();
+                      return;
+                    }
                     if (localRuntime) {
                       if (loading || selectedIsActive) onStop();
                       else localRuntime.onRun();
@@ -252,7 +520,11 @@ export function ClusterPage({
                     } else run();
                   }}
                 >
-                  <RunIcon size={16} weight="regular" aria-hidden="true" />
+                  {RunIcon ? (
+                    <RunIcon size={16} weight="regular" aria-hidden="true" />
+                  ) : (
+                    <ChatGptPlayIcon />
+                  )}
                 </button>
               </div>
               <span className={styles.srOnly} aria-live="polite">
@@ -336,13 +608,16 @@ export function ClusterPage({
                   >
                     <DeviceCard
                       device={device}
-                      ranges={ranges}
-                      appliedRanges={activeModel ? placement.applied : []}
+                      ranges={
+                        selectedIsActive && !changed && activeCluster ? appliedRanges : ranges
+                      }
+                      appliedRanges={appliedRanges}
                       layerCount={layerCount}
                       proposed={!selectedIsActive || changed || loading}
+                      savedAssignment={Boolean(configurations?.saved && !changed)}
                       loading={loading}
                       active={canPlace}
-                      localReady={Boolean(localRuntime && activeModel)}
+                      localReady={false}
                       onDetails={(device) => showPanel({ type: 'device', device })}
                       onRename={(device) => showPanel({ type: 'device', device, renaming: true })}
                       selected={selection.type === 'device' && selection.device.id === device.id}
@@ -386,15 +661,40 @@ export function ClusterPage({
               activeModel={activeModel}
               selectedModel={selectedModel}
               loading={loading}
-              inputs={placement.inputs}
+              editingDisabled={
+                loading || Boolean(configurations?.planning || configurations?.saving)
+              }
+              inputs={editorInputs}
               layerCount={layerCount}
-              ranges={ranges}
+              assignmentStates={assignmentStates}
               canPlace={canPlace}
-              closeRef={panelClose}
+              saveIssues={
+                configurations?.issues.map((issue) => ({
+                  ...issue,
+                  hardwareId: executableGpus.find((gpu) => gpu.uuid === issue.uuid)?.hardwareId,
+                })) ?? []
+              }
+              panelRef={panelRef}
               onClose={closePanel}
               onOverview={() => setSelection({ type: 'overview' })}
               onSelect={(device) => showPanel({ type: 'device', device })}
-              onEdit={(input) => dispatch({ type: 'edit', input })}
+              onEdit={(input) => {
+                if (!configurations) {
+                  dispatch({ type: 'edit', input });
+                  return;
+                }
+                const gpu = executableGpus.find((item) => item.hardwareId === input.hardwareId);
+                if (!gpu) return;
+                const runs = configurations.raw?.runs ?? [];
+                const next = { uuid: gpu.uuid, first: input.first, last: input.last };
+                configurations.edit(
+                  input.first || input.last
+                    ? runs.some((run) => run.uuid === gpu.uuid)
+                      ? runs.map((run) => (run.uuid === gpu.uuid ? next : run))
+                      : [...runs, next]
+                    : runs.filter((run) => run.uuid !== gpu.uuid),
+                );
+              }}
               onStartRename={() => {
                 if (currentSelection.type === 'device')
                   setSelection({ type: 'device', device: currentSelection.device, renaming: true });
@@ -409,32 +709,61 @@ export function ClusterPage({
                 setSelection({ ...currentSelection, renaming: false });
                 notify('success', 'Device renamed');
               }}
-              hasChanges={canPlace && changed && !loading}
-              onDiscard={() => {
-                dispatch({ type: 'discard' });
-                notify('information', 'Changes discarded');
-              }}
             />
           )}
         </div>
       </div>
       {modal && (
-        <Dialog title={title} onClose={close}>
+        <Dialog title={modal.type === 'name' ? 'Save configuration' : title} onClose={close}>
+          {modal.type === 'name' && (
+            <>
+              <label className={styles.renameField}>
+                Configuration name
+                <input
+                  autoFocus
+                  aria-label="Configuration name"
+                  value={configurationName}
+                  onChange={(event) => setConfigurationName(event.target.value)}
+                />
+              </label>
+              <footer>
+                <Button onClick={close}>Cancel</Button>
+                <Button
+                  disabled={!configurationName.trim()}
+                  onClick={() => {
+                    void configurations?.save(configurationName).then((saved) => {
+                      close();
+                      if (!saved && devices[0]) showPanel({ type: 'device', device: devices[0] });
+                    });
+                  }}
+                >
+                  Save
+                </Button>
+              </footer>
+            </>
+          )}
           {modal.type === 'restart' && (
             <>
               <p>
-                Load {selectedModel?.name} with the proposed sample allocation
+                Load {selectedModel?.name} with the {configurations ? 'current' : 'proposed sample'}{' '}
+                allocation
                 {activeModel ? `, replacing the current session for ${activeModel.name}` : ''}?
               </p>
               <p>
-                In the connected app, restarting interrupts active Chat and API requests. This demo
-                runs no inference and restarts no process.
+                {configurations
+                  ? 'Restarting interrupts active Chat and API requests. The current allocation is checked again before loading.'
+                  : 'In the connected app, restarting interrupts active Chat and API requests. This demo runs no inference and restarts no process.'}
               </p>
               <footer>
                 <Button onClick={close}>Cancel</Button>
                 <Button
                   variant="primary"
                   onClick={() => {
+                    if (configurations && localRuntime) {
+                      void runCurrentAllocation();
+                      close();
+                      return;
+                    }
                     if (validate()) {
                       dismissNotification();
                       dispatch({ type: 'run' });
@@ -442,7 +771,11 @@ export function ClusterPage({
                     }
                   }}
                 >
-                  {selectedIsActive ? 'Restart demo' : 'Switch and run demo'}
+                  {configurations
+                    ? 'Apply and restart'
+                    : selectedIsActive
+                      ? 'Restart demo'
+                      : 'Switch and run demo'}
                 </Button>
               </footer>
             </>
@@ -450,16 +783,21 @@ export function ClusterPage({
           {modal.type === 'placement' && (
             <>
               <p>
-                Choose how to assign layers for <strong>{modal.model.name}</strong>. The model loads
-                only when you click Run.
+                Choose how to assign layers for <strong>{modal.model.name}</strong>.
               </p>
               <p>
-                Auto place uses a sample allocation in this demo; no optimizer or memory-fit check
-                runs.
+                {configurations
+                  ? 'After assigning layers, click the Play button again to load. Save is optional.'
+                  : 'Auto place uses a sample allocation in this demo; no optimizer or memory-fit check runs.'}
               </p>
               <div className={styles.placementChoices}>
                 <Button
                   onClick={() => {
+                    if (configurations) {
+                      if (selectedModel?.id === modal.model.id) void configurations.autoPlace();
+                      close();
+                      return;
+                    }
                     dispatch({ type: 'choose', modelId: modal.model.id, mode: 'auto' });
                     dismissNotification();
                     close();
@@ -469,6 +807,12 @@ export function ClusterPage({
                 </Button>
                 <Button
                   onClick={() => {
+                    if (configurations) {
+                      if (selectedModel?.id === modal.model.id && devices[0])
+                        showPanel({ type: 'device', device: devices[0] });
+                      close();
+                      return;
+                    }
                     dispatch({ type: 'choose', modelId: modal.model.id, mode: 'manual' });
                     dismissNotification();
                     close();
@@ -477,9 +821,6 @@ export function ClusterPage({
                   Place manually
                 </Button>
               </div>
-              <footer className={styles.placementCancel}>
-                <Button onClick={close}>Cancel</Button>
-              </footer>
             </>
           )}
         </Dialog>

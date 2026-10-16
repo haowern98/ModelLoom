@@ -38,10 +38,23 @@
 .actionCapsule {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   padding: 0;
   border-radius: 999px;
   background: #2c2c2c;
+}
+.historyCapsule {
+  flex-shrink: 0;
+  padding: 0 4px;
+}
+.historyCapsule .runIcon {
+  color: var(--text);
+}
+.historyDivider {
+  width: 1px;
+  height: 16px;
+  margin-inline: 2px;
+  background: #ffffff14;
 }
 .candidateGrid {
   display: grid;
@@ -310,7 +323,7 @@
 }
 .runIcon,
 .panelToggle,
-.panelClose {
+.panelBack {
   display: grid;
   place-items: center;
   width: var(--control-height-icon);
@@ -323,7 +336,7 @@
 }
 .page .runIcon,
 .page .panelToggle,
-.page .panelClose {
+.page .panelBack {
   background: transparent;
   border-radius: 50%;
 }
@@ -337,7 +350,7 @@
 .page .runIcon:not(:disabled):hover,
 .page .panelToggle:hover,
 .page .panelToggle[aria-expanded='true'],
-.page .panelClose:hover {
+.page .panelBack:hover {
   background: var(--cluster-control-hover);
 }
 .workspace {
@@ -372,6 +385,13 @@
   overflow-x: hidden;
   overscroll-behavior: contain;
 }
+.panelContent:has(.overviewSummary) {
+  margin-left: -12px;
+  padding-left: 12px;
+}
+.panel:focus {
+  outline: none;
+}
 .panelContent::-webkit-scrollbar {
   width: 6px;
 }
@@ -391,9 +411,68 @@
 }
 .panelHeader {
   display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.panelHeading {
+  flex: 1;
+  min-width: 0;
+}
+.deviceSubtitle {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+.deviceDetails {
+  margin-top: 14px;
+  font-size: var(--font-size-metadata);
+}
+.deviceDetails summary {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding-block: 6px;
+  color: var(--muted);
+  font-size: var(--font-size-control);
+  list-style: none;
+  cursor: pointer;
+}
+.deviceDetails summary::-webkit-details-marker {
+  display: none;
+}
+.deviceDetails summary:hover {
+  color: var(--text);
+}
+.deviceDetails summary:focus-visible {
+  outline: 2px solid #78baff;
+}
+.deviceDetails summary svg {
+  flex-shrink: 0;
+}
+.deviceDetails[open] > summary svg {
+  transform: rotate(90deg);
+}
+.deviceDetails dl {
+  display: grid;
+  gap: 12px;
+  margin: 8px 0 0;
+}
+.deviceDetails dl > div {
+  display: grid;
+  gap: 4px;
+}
+.deviceDetails dt {
+  color: var(--muted);
+}
+.deviceDetails dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.deviceDetails + .panelSection {
+  margin-top: 6px;
+  padding-top: 10px;
 }
 .panelHeader h2 {
   font-size: var(--font-size-dialog-title);
@@ -404,6 +483,52 @@
   color: var(--muted);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
+}
+.overviewModel {
+  margin-top: 12px;
+}
+.overviewModelName {
+  font-size: var(--font-size-control);
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+.overviewStatus {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--font-size-metadata);
+}
+.hardwareSummary {
+  margin-top: 14px;
+}
+.hardwareSummary h3,
+.overviewSummary .panelSection h3 {
+  font-size: var(--font-size-section-heading);
+  font-weight: var(--font-weight-medium);
+}
+.overviewMemory {
+  margin: 8px 0 0;
+  font-size: var(--font-size-metadata);
+}
+.overviewMemory > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 6px;
+}
+.overviewSummary .panelSection {
+  margin-top: 14px;
+  padding-top: 12px;
+}
+.page .overviewSummary .allocationRow {
+  padding-block: 8px;
+}
+.overviewMemory dt {
+  color: var(--muted);
+}
+.overviewMemory dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 .placementControls {
   display: flex;
@@ -760,24 +885,79 @@
 .rangeInputs {
   display: flex;
   gap: 12px;
-  margin-top: 16px;
+  margin-top: 12px;
 }
-.rangeInputs label {
+.rangeInputs > div {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
   gap: 5px;
+}
+.rangeInputs label {
   font-size: var(--font-size-body);
 }
-.rangeInputs input {
+.rangeInputs > div:has(input:disabled) label {
+  color: var(--muted);
+}
+.layerNumberField {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  min-height: var(--control-height-dialog);
+  border: 1px solid #555;
+  border-radius: 10px;
+  background: #1a1a1a;
+}
+.layerNumberField:has(input:focus-visible) {
+  outline: 2px solid #78baff;
+  outline-offset: 2px;
+}
+.layerNumberField:has(input:disabled) {
+  opacity: 0.6;
+}
+.layerNumberField input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+.rangeInputs .layerNumberField input {
   width: 100%;
-  border: 1px solid #414a5c;
-  border-radius: 6px;
-  padding: 6px 10px;
+  min-width: 0;
+  border: 0;
+  border-radius: 10px 0 0 10px;
+  padding: 8px 12px;
   color: var(--text);
-  background: #14161a;
-  font-size: var(--font-size-control);
+  background: transparent;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+.layerStepper {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  flex: 0 0 28px;
+  margin-block: 4px;
+  border-left: 1px solid #ffffff14;
+}
+.page .layerStepper button {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  margin-inline: 3px;
+  color: var(--text);
+  background: transparent;
+}
+.page .layerStepper button:not(:disabled):hover {
+  background: #ffffff0d;
+}
+.page .layerStepper button:disabled {
+  color: #5f5f5f;
+  cursor: default;
+  background: transparent;
 }
 .networkModes {
   display: flex;
@@ -829,17 +1009,6 @@
   opacity: 1;
   pointer-events: auto;
 }
-.page .backToOverview {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  margin-top: 12px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: var(--font-size-secondary);
-}
 .details {
   margin: 18px 0;
   font-size: var(--font-size-metadata);
@@ -875,29 +1044,49 @@
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  width: 100%;
-  padding: 10px 0;
+  width: calc(100% + 24px);
+  margin-inline: -12px;
+  padding: 10px 12px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 10px;
   background: transparent;
   text-align: left;
   font-size: var(--font-size-metadata);
 }
+.page .allocationRow:hover {
+  background: #2f2f2f;
+}
 .allocationRow small {
   color: var(--muted);
+  font-size: var(--font-size-metadata);
+  font-weight: var(--font-weight-normal);
   white-space: nowrap;
 }
-.hardwareEditor {
+.allocationRow > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.allocationRow > svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.layerEditorGroup {
   margin-top: 12px;
-  padding: 12px;
   border-radius: 12px;
   background: #303030;
+}
+.hardwareEditor {
+  padding: 14px;
   font-size: var(--font-size-metadata);
 }
+.hardwareEditor + .hardwareEditor {
+  border-top: 1px solid #ffffff0d;
+}
 .hardwareEditor h4 {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: var(--font-size-card-title);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 .hardwareEditor p {
   color: var(--muted);
@@ -910,10 +1099,6 @@
   text-align: center;
   font-size: var(--font-size-description);
   color: var(--muted);
-}
-.rangeInputs input {
-  background: #1a1a1a;
-  border-color: #555555;
 }
 .menu {
   background: #262626;
@@ -937,12 +1122,13 @@
   gap: 8px;
   color: var(--text);
   font-size: var(--font-size-control);
+  line-height: var(--line-height-body);
 }
 .panelHeader h2 {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.panelClose {
+.panelBack {
   flex-shrink: 0;
 }
 .renameField input {
@@ -961,13 +1147,18 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
+  min-height: 24px;
+}
+.panelIdentity h2 {
+  font-size: var(--font-size-heading);
+  line-height: 24px;
 }
 .renameTrigger {
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -992,10 +1183,6 @@
   gap: 8px;
   margin-top: 12px;
 }
-.panelHeader:has(.nameEditor) {
-  align-items: flex-start;
-}
-
 .modelPicker {
   position: relative;
   min-width: 0;
@@ -1085,31 +1272,4 @@
 .placementChoices button {
   flex: 1;
   min-height: var(--control-height-dialog);
-}
-.page dialog footer.placementCancel {
-  justify-content: center;
-  margin-top: 12px;
-}
-.page dialog .placementCancel button:last-child {
-  padding-inline: 12px;
-  border: 0;
-  color: var(--muted);
-  background: transparent;
-}
-.page dialog .placementCancel button:last-child:hover {
-  color: var(--text);
-  background: transparent;
-}
-.page .discardChanges {
-  margin-top: 12px;
-  padding: 6px 0;
-  border: 0;
-  border-radius: 4px;
-  color: var(--muted);
-  background: transparent;
-  font-size: var(--font-size-control);
-}
-.page .discardChanges:hover {
-  color: var(--text);
-  background: transparent;
 }
