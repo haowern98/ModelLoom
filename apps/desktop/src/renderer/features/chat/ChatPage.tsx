@@ -15,7 +15,7 @@ import {
 import { SearchField } from '../../components/SearchField';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
-import { ConversationRow } from './ConversationRow';
+import { SidebarItemRow } from '../../components/SidebarItemRow';
 import { copyText } from '../../components/copyText';
 import type { ChatAction, ChatMessage, DemoChat } from '../../mocks/chat';
 import type { DemoModel } from '../../mocks/modelLibrary';
@@ -183,7 +183,7 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
                 <section key={group} aria-label={group}>
                   <h2>{group}</h2>
                   {entries.map((item) => (
-                    <ConversationRow
+                    <SidebarItemRow
                       key={item.id}
                       id={item.id}
                       title={item.title}
