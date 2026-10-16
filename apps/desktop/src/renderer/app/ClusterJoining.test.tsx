@@ -84,7 +84,7 @@ describe('Cluster joining demo', () => {
     );
     expect(screen.queryByLabelText(/pending requests?$/)).not.toBeInTheDocument();
     expect(within(panel).getByText('Declined · demo')).toBeVisible();
-    expect(within(panel).getByText('4 sample devices')).toBeVisible();
+    expect(within(panel).getByText('4 devices · 5 GPUs')).toBeVisible();
     expect(screen.getAllByText(/^Layers /)).toHaveLength(5);
     await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', { name: 'Cluster panel' }));

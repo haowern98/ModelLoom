@@ -60,7 +60,7 @@ describe('Cluster planning and launch', () => {
     const selector = screen.getByRole('button', { name: 'Selected demo model: Qwen3.8-27B' });
     await user.click(selector);
     await user.click(screen.getByRole('menuitem', { name: /Llama 3.1 8B/ }));
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await user.click(screen.getByRole('button', { name: 'Close dialog' }));
     expect(selector).toHaveFocus();
     expect(selector).toHaveTextContent('Qwen3.8-27B');
     await user.click(selector);

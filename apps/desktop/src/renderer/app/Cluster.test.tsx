@@ -51,7 +51,7 @@ describe('Cluster demo', () => {
     expect(screen.queryByRole('article', { name: 'cancelled-name' })).not.toBeInTheDocument();
   });
 
-  it('updates all edits directly, keeps invalid values across panels and discards to the active allocation', async () => {
+  it('updates edits directly, keeps invalid drafts across panels and restores them through undo and redo', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
@@ -65,7 +65,7 @@ describe('Cluster demo', () => {
     await user.clear(screen.getByRole('spinbutton', { name: 'First layer for GPU 1' }));
     await user.type(screen.getByRole('spinbutton', { name: 'First layer for GPU 1' }), '27');
     await user.click(screen.getByRole('button', { name: 'Select mac-studio' }));
-    const first = screen.getByRole('spinbutton', {
+    let first = screen.getByRole('spinbutton', {
       name: 'First layer for Apple Silicon (M2 Ultra)',
     });
     await user.clear(first);
@@ -75,16 +75,22 @@ describe('Cluster demo', () => {
     await user.click(screen.getByRole('button', { name: 'Select mac-studio' }));
     expect(
       screen.getByRole('spinbutton', { name: 'First layer for Apple Silicon (M2 Ultra)' }),
-    ).toHaveValue(-1);
+    ).toHaveValue('-1');
     expect(
       screen.getByRole('spinbutton', { name: 'First layer for Apple Silicon (M2 Ultra)' }),
-    ).toHaveAttribute('aria-invalid', 'true');
-    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
-    expect(
-      screen.getByRole('spinbutton', { name: 'First layer for Apple Silicon (M2 Ultra)' }),
-    ).toHaveValue(72);
+    ).toHaveAttribute('aria-invalid', 'false');
+    first = screen.getByRole('spinbutton', { name: 'First layer for Apple Silicon (M2 Ultra)' });
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(first).toHaveValue('-');
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(first).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(first).toHaveValue('72');
+    await user.click(screen.getByRole('button', { name: 'Redo' }));
+    await user.click(screen.getByRole('button', { name: 'Redo' }));
+    await user.click(screen.getByRole('button', { name: 'Redo' }));
+    expect(first).toHaveValue('-1');
     expect(screen.queryByRole('button', { name: 'Discard changes' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
   });
 
   it('opens with a compact model selector and one demo label, without redundant status rows', async () => {
@@ -151,7 +157,7 @@ describe('Cluster demo', () => {
     expect(coordinator).toHaveFocus();
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await user.click(toggle);
-    await user.click(screen.getByRole('button', { name: 'Close cluster panel' }));
+    await user.click(toggle);
     expect(toggle).toHaveFocus();
     expect(screen.getAllByText(/^Layers /)).toHaveLength(5);
   });
