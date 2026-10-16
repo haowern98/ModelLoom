@@ -4,6 +4,7 @@ import { runUtility } from './utility.js';
 import { HistoryStore } from '../history/store.js';
 import { ModelConfigurationStore } from '../model-configuration/store.js';
 import { ConfigurationController } from '../model-configuration/controller.js';
+import { ClusterController } from '../cluster/controller.js';
 import { capabilities, record } from '../model-configuration/test-fixtures.js';
 
 it('keeps configuration management caller-bound and closes it on full Quit', async () => {
@@ -35,6 +36,8 @@ it('keeps configuration management caller-bound and closes it on full Quit', asy
     },
     history,
     configuration,
+    undefined,
+    new ClusterController(store, 'window', { cacheK: 'q8_0', cacheV: 'q8_0' }),
   );
   receive(
     JSON.stringify({
@@ -75,6 +78,32 @@ it('keeps configuration management caller-bound and closes it on full Quit', asy
       }),
     );
   await new Promise<void>((resolve) => setImmediate(resolve));
+  receive(
+    JSON.stringify({
+      type: 'cluster-command',
+      id: 1,
+      caller: 'forged',
+      command: { action: 'list' },
+    }),
+  );
+  receive(
+    JSON.stringify({
+      type: 'cluster-command',
+      id: 2,
+      caller: 'window',
+      command: { action: 'read', modelId: record().modelId, configurationId: null },
+    }),
+  );
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(replies.find((v) => v.type === 'cluster-reply' && v.id === 1)?.reply).toEqual({
+    ok: false,
+    error: 'NOT_READY',
+  });
+  expect(replies.find((v) => v.type === 'cluster-reply' && v.id === 2)?.reply).toMatchObject({
+    ok: true,
+    draft: null,
+    configurations: [],
+  });
   expect(
     replies.find((value) => value.type === 'configuration-reply' && value.id === 1)?.reply,
   ).toEqual({ ok: false, error: 'NOT_READY' });
@@ -99,7 +128,7 @@ it('keeps configuration management caller-bound and closes it on full Quit', asy
   database.close();
 });
 
-it('rechecks saved load settings in core before requesting any native launch', async () => {
+it('captures changed saved load settings before requesting native launch', async () => {
   const history = new HistoryStore(new DatabaseSync(':memory:')),
     database = new DatabaseSync(':memory:');
   const store = new ModelConfigurationStore(
@@ -175,10 +204,10 @@ it('rechecks saved load settings in core before requesting any native launch', a
   await new Promise<void>((resolve) => setImmediate(resolve));
   expect(
     replies.filter((message) => message.type === 'broker' && message.action === 'launch'),
-  ).toHaveLength(0);
-  expect(replies.find((message) => message.type === 'reply')?.reply).toEqual({
+  ).toHaveLength(1);
+  expect(replies.find((message) => message.type === 'reply')?.reply).toMatchObject({
     id: 1,
-    error: 'NOT_READY',
+    snapshot: { phase: 'failed' },
   });
   await configuration.close();
   history.close();
