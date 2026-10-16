@@ -13,15 +13,19 @@ export function useRuntime() {
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
-      if (!busy.current || importing.current) {
-        const current = generation.current;
-        try {
-          const next = await bridge.command({ action: 'snapshot' });
-          if (alive && current === generation.current && (!busy.current || importing.current))
-            setView(next);
-        } catch {
-          /* Main's Quit gate closes the bridge before the window disappears. */
-        }
+      const current = generation.current;
+      try {
+        const next = await bridge.command({ action: 'snapshot' });
+        if (alive && current === generation.current)
+          setView((previous) =>
+            !busy.current || importing.current
+              ? next
+              : previous
+                ? { ...previous, memoryWarning: next.memoryWarning ?? null }
+                : null,
+          );
+      } catch {
+        /* Main's Quit gate closes the bridge before the window disappears. */
       }
       if (alive)
         timer = setTimeout(() => {
@@ -40,7 +44,7 @@ export function useRuntime() {
     const current = ++generation.current;
     busy.current = true;
     importing.current = command.action === 'import';
-    setLoading(command.action === 'load');
+    setLoading(command.action === 'load' || command.action === 'run-configuration');
     try {
       const next = await bridge.command(command);
       if (current === generation.current) setView(next);
@@ -60,5 +64,21 @@ export function useRuntime() {
       }
     }
   }
-  return { view, loading, run };
+  async function answerMemory(id: string, loadAnyway: boolean) {
+    const bridge = window.modelLoomRuntime;
+    if (!bridge) return;
+    const current = generation.current;
+    try {
+      const next = await bridge.command({ action: 'memory-decision', id, loadAnyway });
+      if (current === generation.current)
+        setView((previous) =>
+          previous?.memoryWarning?.id === id
+            ? { ...previous, memoryWarning: next.memoryWarning ?? null }
+            : previous,
+        );
+    } catch {
+      /* Keep the warning open so the user can retry their decision. */
+    }
+  }
+  return { view, loading, run, answerMemory };
 }

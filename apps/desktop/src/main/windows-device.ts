@@ -84,6 +84,8 @@ export function parseWindowsHardware(value: unknown): WindowsHardware {
   return result;
 }
 interface GpuReading {
+  uuid?: string;
+  bus?: string;
   name?: string | null;
   total: number | null;
   free: number | null;
@@ -95,6 +97,29 @@ export function mergeGpuReadings(
   readings: readonly GpuReading[] | undefined,
 ): readonly DeviceGpu[] | undefined {
   if (!readings) return gpus;
+  // Physical telemetry rows stand on their own. Never attach execution identity by name.
+  if (
+    readings.length &&
+    readings.every(
+      (r) =>
+        /^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(r.uuid ?? '') &&
+        /^[a-f0-9]{8}:[a-f0-9]{2}:[a-f0-9]{2}\.[0-7]$/iu.test(r.bus ?? ''),
+    )
+  ) {
+    return [
+      ...(gpus ?? []).filter((g) => g.pciVendorId !== '10de'),
+      ...readings.map((g): DeviceGpu => ({
+        id: g.uuid!,
+        name: g.name ?? 'NVIDIA GPU',
+        pciVendorId: '10de',
+        enabled: true,
+        driverVersion: g.driver,
+        executionIdentity: { vendor: 'nvidia', uuid: g.uuid!, pciBus: g.bus! },
+        ...(g.total !== null ? { totalMemoryBytes: g.total } : {}),
+        ...(g.free !== null ? { availableMemoryBytes: g.free } : {}),
+      })),
+    ];
+  }
   if (!gpus)
     return readings.flatMap((g, index) =>
       g.name

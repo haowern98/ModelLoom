@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { isDeepStrictEqual } from 'node:util';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { decodeRuntimeCommand } from '../shared/runtime';
 import type { RuntimeView, RuntimeDevice } from '../shared/runtime';
 import { decodeChatCommand } from '../shared/chat';
@@ -17,21 +17,56 @@ import { decodeApiOwnerReply } from '../../../../packages/core/src/local-api/wir
 import { decodeModelSource } from '../../../../packages/core/src/model-configuration/model-source';
 import type { ModelSource } from '../../../../packages/core/src/model-configuration/model-source';
 import type { RuntimeModel } from '../shared/runtime';
+import { decodeClusterCommand, decodeClusterReply } from '../shared/cluster-configuration';
+import type { ClusterReply } from '../shared/cluster-configuration';
+import {
+  captureClusterRun,
+  captureClusterDraft,
+} from '../../../../packages/core/src/cluster/run-plan';
+import type {
+  ClusterDraft,
+  SavedClusterConfiguration,
+  GpuRun,
+  CapturedClusterLoad,
+} from '../../../../packages/core/src/cluster/contracts';
+import type { StockClusterReport } from '../../../../packages/core/src/cluster/stock-profile';
+import type { ModelConfigurationRecord } from '../../../../packages/core/src/model-configuration/contracts';
 interface Host {
   command(text: string): Promise<Record<string, unknown>>;
   close(): Promise<void>;
   chat?(caller: string, input: unknown): Promise<ChatReply>;
   configuration?(caller: string, input: unknown): Promise<ConfigurationReply>;
+  cluster?(caller: string, input: unknown): Promise<ClusterReply>;
   api?(caller: string, input: unknown): Promise<ApiOwnerReply>;
   changed?(listener: () => void): () => void;
   /** Trusted main prepares a verified engine only after model/resource admission. */
   prepare?(file: string): Promise<void>;
+  prepareCluster?(
+    file: string,
+    saved: SavedClusterConfiguration,
+    report: StockClusterReport,
+    allowSharedMemory: boolean,
+    confirmMemory?: () => Promise<boolean>,
+  ): Promise<void>;
 }
 /** Trusted main dependencies; none of these capabilities are renderer inputs. */
 interface ActivationDependencies {
   enabled: true;
   expectedHash: string;
   packageId: string;
+  clusterArtifact?: string;
+  planCluster?(
+    file: string,
+    draft: ClusterDraft,
+    blockCount: number,
+    signal: AbortSignal,
+  ): Promise<readonly GpuRun[]>;
+  preflightCluster?(
+    file: string,
+    saved: SavedClusterConfiguration,
+    signal: AbortSignal,
+    allowSharedMemory?: boolean,
+  ): Promise<StockClusterReport>;
   deploymentId?: string;
   pick(): Promise<string | null>;
   inspect(
@@ -40,10 +75,17 @@ interface ActivationDependencies {
     { sha256: string; size: string } & Partial<Omit<ModelSource, 'modelId' | 'file' | 'size'>>
   >;
   available?(source: ModelSource): Promise<boolean>;
-  preflight(): Promise<void>;
+  preflight(allowSharedMemory?: boolean): Promise<void>;
+  /** Trusted main UI only; no renderer-supplied consent flag or launch argument. */
+  confirmSharedMemory?(): Promise<boolean>;
   createHost(file: string): Promise<Host>;
   /** Model-independent utility/history startup; retains the same owner across model loads. */
-  createHistoryHost?(): Promise<Host>;
+  createHistoryHost?(source?: ModelSource): Promise<Host>;
+  planModel?(
+    file: string,
+    record: ModelConfigurationRecord,
+    signal: AbortSignal,
+  ): Promise<SavedClusterConfiguration>;
   device?(): Promise<RuntimeDevice>;
 }
 export type RuntimeDependencies =
@@ -56,11 +98,19 @@ const messages: Record<string, string> = {
   INSUFFICIENT_RESOURCES:
     'Not enough available RAM or GPU memory for the selected settings. Free memory and try again.',
   INCOMPATIBLE_DRIVER: 'The GPU driver is incompatible with this runtime.',
-  NEEDS_RESOURCE_EVIDENCE: 'This device or configuration does not have a validated memory budget.',
+  NEEDS_RESOURCE_EVIDENCE:
+    'This configuration could not be verified for the selected runtime and GPUs.',
+  UNSAVED_CONFIGURATION: 'The allocation changed. Run the current allocation again.',
+  INVALID_CLUSTER_CONFIGURATION:
+    'Assign all model layers exactly once, without gaps or overlaps, before running.',
+  STALE_CONFIGURATION: 'The configuration changed. Select it again before running.',
+  UNKNOWN_CONFIGURATION: 'The saved configuration could not be found.',
+  SHARED_GPU_MEMORY_CONFIRMATION:
+    'This configuration may use system RAM as shared GPU memory. Load again to review the warning.',
   PACKAGE_VERIFICATION_FAILED:
     'Runtime verification failed. Check the signed development package and its expiry.',
-  UNSUPPORTED_MODEL: 'This first connection supports only the tested Bonsai 27B Q1_0 GGUF.',
-  INVALID_MODEL_ID: 'Select the imported Bonsai model.',
+  UNSUPPORTED_MODEL: 'This GGUF is not compatible with the selected runtime.',
+  INVALID_MODEL_ID: 'Select the imported model.',
   BUSY: 'Stop the current model before importing or loading another model.',
   CLEANUP_FAILED: 'Owned runtime exit could not be confirmed. Loading is blocked.',
   CONFIGURATION_UNAVAILABLE:
@@ -88,12 +138,103 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
   let restoration: Promise<void> | undefined;
   let importPreparation: Promise<void> | undefined;
   let historyFailed = false;
+  const sources = new Map<string, ModelSource>();
+  function updateModel(model: RuntimeModel): void {
+    const models = view.models ?? [];
+    view = {
+      ...view,
+      model: view.model?.id === model.id ? model : view.model,
+      models: models.some((entry) => entry.id === model.id)
+        ? models.map((entry) => (entry.id === model.id ? model : entry))
+        : [...models, model],
+    };
+  }
+  async function restoreLibrary(): Promise<void> {
+    if (!host?.api) return;
+    let after: string | null = null;
+    const models: RuntimeModel[] = [];
+    const restored = new Map<string, ModelSource>();
+    while (!quitting) {
+      const command = { action: 'readLibraryEntry' as const, after };
+      const reply = decodeApiOwnerReply(await host.api(caller, command), command);
+      if (!reply.ok || !('entry' in reply)) throw Error('LIBRARY_UNAVAILABLE');
+      if (!reply.entry) break;
+      const { source, lastUsedAt } = reply.entry;
+      const unavailable = deps.enabled && deps.available ? !(await deps.available(source)) : true;
+      const model = modelView(source, unavailable);
+      if (lastUsedAt !== null) model.lastUsedAt = lastUsedAt;
+      models.push(model);
+      restored.set(model.id, source);
+      after = source.modelId;
+    }
+    if (quitting) return;
+    sources.clear();
+    for (const [key, source] of restored) sources.set(key, source);
+    view = { ...view, models };
+  }
+  let hostModelId = deps.enabled ? deps.expectedHash : '';
+  const currentModelId = () =>
+    view.model?.id.replace(/^model-/u, '') ?? (deps.enabled ? deps.expectedHash : '');
+  let memoryDecision: { id: string; resolve(answer: boolean): void } | undefined;
+  let declinedMemoryOperation: number | undefined;
+  const confirmMemory = (): Promise<boolean> => {
+    if (deps.enabled && deps.confirmSharedMemory) return deps.confirmSharedMemory();
+    if (memoryDecision || quitting) return Promise.resolve(false);
+    const warningId = randomUUID();
+    view = { ...view, memoryWarning: { id: warningId } };
+    return new Promise((resolve) => {
+      memoryDecision = {
+        id: warningId,
+        resolve(answer) {
+          memoryDecision = undefined;
+          view = { ...view, memoryWarning: null };
+          resolve(answer);
+        },
+      };
+    });
+  };
+  const confirmForLoad = (operation: number, signal: AbortSignal) => async () => {
+    if (operation !== epoch || quitting || signal.aborted) return false;
+    const confirmed = await confirmMemory();
+    if (!confirmed && operation === epoch && !quitting && !signal.aborted)
+      declinedMemoryOperation = operation;
+    return confirmed && operation === epoch && !quitting && !signal.aborted;
+  };
   let deviceProbe: Promise<void> | undefined;
   let deviceObservedAt = 0;
   let deviceCleanupFailed = false;
   let deviceGeneration = 0;
   let unsubscribe: (() => void) | undefined;
   let usageProbe: Promise<void> | undefined;
+  let planning: AbortController | undefined, clusterLoading: AbortController | undefined;
+  let pendingCluster: RuntimeView['activeCluster'] = null;
+  let clusterCleanupFailed = false;
+  let runningConfiguration = false;
+  const clusterOperations = new Set<Promise<unknown>>();
+  let clusterTail: Promise<void> = Promise.resolve();
+  async function trackCluster<T>(work: () => Promise<T>, signal: AbortSignal): Promise<T> {
+    const operation = clusterTail.then(() => {
+      if (clusterCleanupFailed) throw Error('CLEANUP_FAILED');
+      if (signal.aborted || quitting) throw Error('PLANNING_CANCELLED');
+      return work();
+    });
+    clusterTail = operation.then(
+      () => undefined,
+      (error: unknown) => {
+        if (error instanceof Error && error.message === 'CLEANUP_FAILED')
+          clusterCleanupFailed = true;
+      },
+    );
+    clusterOperations.add(operation);
+    try {
+      return await operation;
+    } catch (error) {
+      if (error instanceof Error && error.message === 'CLEANUP_FAILED') clusterCleanupFailed = true;
+      throw error;
+    } finally {
+      clusterOperations.delete(operation);
+    }
+  }
   const chatListeners = new Set<() => void>();
   const observeChat = (created: Host) => {
     if (!quitting)
@@ -102,6 +243,27 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       });
     return created;
   };
+  async function selectHistoryOwner(source: ModelSource): Promise<void> {
+    if (!deps.enabled || !deps.createHistoryHost || (host && hostModelId === source.modelId))
+      return;
+    if (host) {
+      unsubscribe?.();
+      await host.command(JSON.stringify({ id: ++id, action: 'quit' }));
+      await host.close();
+      host = undefined;
+      preparation = undefined;
+    }
+    if (quitting) return;
+    const creating = deps.createHistoryHost(source);
+    preparation = creating;
+    try {
+      host = observeChat(await creating);
+    } catch (error) {
+      if (preparation === creating) preparation = undefined;
+      throw error;
+    }
+    hostModelId = source.modelId;
+  }
   if (deps.enabled && deps.createHistoryHost) {
     view = { ...view, restoring: true, models: [] };
     preparation = Promise.resolve()
@@ -113,7 +275,6 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     void preparation.catch(() => {
       historyFailed = true;
     });
-    const expectedHash = deps.expectedHash;
     restoration = preparation
       .then(async () => {
         if (quitting || !host?.api) return;
@@ -121,12 +282,13 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
         if (!reply.ok || !('source' in reply)) throw new Error('LIBRARY_UNAVAILABLE');
         if (reply.source === null) return;
         const source = decodeModelSource(reply.source);
-        if (source.modelId !== expectedHash) throw new Error('LIBRARY_UNAVAILABLE');
-        const unavailable = deps.available ? !(await deps.available(source)) : true;
+        await restoreLibrary();
+        await selectHistoryOwner(source);
         if (quitting) return;
         file = source.file;
-        const model = modelView(source, unavailable);
-        view = { ...view, model, models: [model] };
+        const model = view.models?.find((entry) => entry.id === `model-${source.modelId}`);
+        if (!model) throw Error('LIBRARY_UNAVAILABLE');
+        view = { ...view, model };
         await observeModelUse();
       })
       .catch(() => {
@@ -144,6 +306,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       size: source.size,
       architecture: source.architecture,
       contextLimit: source.contextLimit,
+      blockCount: source.blockCount ?? null,
       quantization: source.quantization,
       parameters: source.parameters,
       unavailable,
@@ -163,7 +326,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       const updated = { ...view.model };
       if (reply.lastUsedAt === null) delete updated.lastUsedAt;
       else updated.lastUsedAt = reply.lastUsedAt;
-      view = { ...view, model: updated, models: [updated] };
+      updateModel(updated);
     })().catch(() => {
       console.error('Model last-use time could not be read.');
     });
@@ -204,10 +367,23 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     if (!quitting && generation !== deviceGeneration) await observeDevice();
   };
   const result = () => structuredClone(view);
-  const send = async (action: string, selection?: Record<string, string>) => {
+  const send = async (
+    action: string,
+    selection?: Record<string, string>,
+    clusterConfiguration?: { id: string; revision: number; load: CapturedClusterLoad },
+    modelConfiguration?: SavedClusterConfiguration,
+    clusterDraft?: { key: string; revision: number },
+  ) => {
     if (!host) return;
     const reply = await host.command(
-      JSON.stringify({ id: ++id, action, ...(selection ? { selection } : {}) }),
+      JSON.stringify({
+        id: ++id,
+        action,
+        ...(selection ? { selection } : {}),
+        ...(clusterConfiguration ? { clusterConfiguration } : {}),
+        ...(modelConfiguration ? { modelConfiguration } : {}),
+        ...(clusterDraft ? { clusterDraft } : {}),
+      }),
     );
     if (reply.error) throw new Error('START_FAILED');
     const snapshot = reply.snapshot;
@@ -220,6 +396,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     view = {
       ...view,
       phase: phase as RuntimeView['phase'],
+      activeCluster: phase === 'ready' ? (pendingCluster ?? null) : null,
       error:
         phase === 'failed'
           ? 'Runtime stopped unexpectedly or failed to load. Stop and retry explicitly.'
@@ -236,6 +413,106 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       view.error = messages.CLEANUP_FAILED!;
   };
   return {
+    async cluster(input: unknown): Promise<ClusterReply> {
+      const command = decodeClusterCommand(input);
+      if (['edit', 'discard', 'save', 'cancel-planning', 'auto-place'].includes(command.action))
+        planning?.abort();
+      if (quitting || !deps.enabled) return { ok: false, error: 'NOT_READY' };
+      try {
+        if (preparation) await preparation;
+        if (restoration) await restoration;
+        if (quitting || !host?.cluster) return { ok: false, error: 'NOT_READY' };
+        // Legacy indexes are re-inspected only when opening placement, not on every startup.
+        if (
+          command.action === 'read' &&
+          view.model?.blockCount == null &&
+          file &&
+          command.modelId === currentModelId() &&
+          host.api
+        ) {
+          const info = await deps.inspect(file);
+          if (quitting || info.sha256 !== currentModelId())
+            return { ok: false, error: 'UNKNOWN_MODEL' };
+          const previous = sources.get(`model-${currentModelId()}`);
+          if (previous) {
+            const source = decodeModelSource({
+              ...previous,
+              blockCount: info.blockCount ?? null,
+            });
+            const registered = await host.api(caller, {
+              action: 'registerImport',
+              modelId: source.modelId,
+              created: Math.floor(Date.now() / 1000),
+              source,
+            });
+            if (!registered.ok) return { ok: false, error: 'CONFIGURATION_UNAVAILABLE' };
+            sources.set(`model-${source.modelId}`, source);
+            const model = modelView(source);
+            updateModel(model);
+          }
+        }
+        if (command.action === 'auto-place') {
+          if (runningConfiguration || ['starting', 'loading', 'stopping'].includes(view.phase))
+            throw Error('NOT_READY');
+          if (clusterCleanupFailed) throw Error('CLEANUP_FAILED');
+          if (!deps.planCluster) throw Error('NEEDS_MODEL_METADATA');
+          const operation = new AbortController();
+          planning = operation;
+          const read = decodeClusterReply(
+            await host.cluster(caller, {
+              action: 'read',
+              modelId: currentModelId(),
+              configurationId: command.key.startsWith('config:') ? command.key.slice(7) : null,
+            }),
+          );
+          if (!read.ok) return read;
+          const source = read.draft ? sources.get(`model-${read.draft.modelId}`) : undefined;
+          if (!source?.blockCount) throw Error('NEEDS_MODEL_METADATA');
+          if (
+            !read.draft ||
+            read.draft.key !== command.key ||
+            read.draft.revision !== command.revision
+          )
+            throw Error('STALE_CONFIGURATION');
+          if (operation.signal.aborted || quitting) throw Error('PLANNING_CANCELLED');
+          const selectedFile = source.file,
+            currentDraft = read.draft,
+            blocks = source.blockCount;
+          const runs = await trackCluster(
+            () => deps.planCluster!(selectedFile, currentDraft, blocks, operation.signal),
+            operation.signal,
+          );
+          if (operation.signal.aborted || quitting) throw Error('PLANNING_CANCELLED');
+          const reply = await host.cluster(caller, {
+            action: 'edit',
+            key: command.key,
+            expectedRevision: command.revision,
+            edit: {
+              modelId: read.draft.modelId,
+              load: read.draft.load,
+              runs: runs.map((r) => ({
+                uuid: r.uuid,
+                first: String(r.first),
+                last: String(r.last),
+              })),
+            },
+          });
+          if (planning === operation) planning = undefined;
+          return decodeClusterReply(reply);
+        }
+        return decodeClusterReply(await host.cluster(caller, command));
+      } catch (error) {
+        try {
+          return decodeClusterReply({
+            ok: false,
+            error: error instanceof Error ? error.message : '',
+          });
+        } catch {
+          /* Closed error vocabulary only. */
+        }
+        return { ok: false, error: 'CONFIGURATION_UNAVAILABLE' };
+      }
+    },
     /** Trusted native device-change notification; bypasses the telemetry cache, never admission. */
     async deviceChanged(): Promise<void> {
       if (quitting) return;
@@ -261,7 +538,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       const command = decodeConfigurationCommand(input);
       if (quitting || !deps.enabled || !file || !view.model)
         return { ok: false, error: 'NOT_READY' };
-      if (command.modelId !== deps.expectedHash) return { ok: false, error: 'UNKNOWN_MODEL' };
+      if (!sources.has(`model-${command.modelId}`)) return { ok: false, error: 'UNKNOWN_MODEL' };
       try {
         if (preparation) await preparation;
         if (quitting || !host?.configuration)
@@ -293,10 +570,16 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     async command(input: unknown): Promise<RuntimeView> {
       const command = decodeRuntimeCommand(input);
       if (quitting) return result();
+      if (command.action === 'memory-decision') {
+        if (memoryDecision?.id === command.id) memoryDecision.resolve(command.loadAnyway);
+        return result();
+      }
+      if (command.action === 'stop' || command.action === 'import') memoryDecision?.resolve(false);
       if (command.action === 'snapshot' && (importing || view.restoring)) return result();
       if (command.action === 'snapshot') await observeDevice();
       if (!deps.enabled || quitting) return result();
       let loadingEpoch: number | undefined;
+      let ownsConfigurationRun = false;
       try {
         if (command.action === 'snapshot') {
           // Keep a rejected admission visible until an explicit stop/retry. A stopped core
@@ -304,7 +587,8 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           if (host && view.phase !== 'failed') await send('snapshot');
           await observeModelUse();
         } else if (command.action === 'import') {
-          if (importing || !['stopped', 'failed'].includes(view.phase)) throw new Error('BUSY');
+          if (importing || runningConfiguration || !['stopped', 'failed'].includes(view.phase))
+            throw new Error('BUSY');
           importing = true;
           ++epoch;
           const work = (async () => {
@@ -319,7 +603,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
               throw error;
             });
             const importedAt = Math.floor(Date.now() / 1000);
-            if (info.sha256 !== deps.expectedHash) throw new Error('UNSUPPORTED_MODEL');
+            if (!/^[a-f0-9]{64}$/u.test(info.sha256)) throw Error('UNSUPPORTED_MODEL');
             if (quitting) return result();
             const source: ModelSource = {
               modelId: info.sha256,
@@ -330,8 +614,12 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
               modifiedMs: info.modifiedMs ?? 0,
               architecture: info.architecture ?? 'Unknown',
               contextLimit: info.contextLimit ?? 0,
+              blockCount: info.blockCount ?? null,
               quantization: info.quantization ?? 'Unknown',
               parameters: info.parameters ?? 'Unknown',
+              ...(info.thinkingSupported === undefined
+                ? {}
+                : { thinkingSupported: info.thinkingSupported }),
             };
             if (deps.createHistoryHost && preparation) await preparation;
             await observeDevice();
@@ -343,6 +631,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
               await host.close();
               host = undefined;
             }
+            await selectHistoryOwner(source);
             if (host?.api) {
               const registered = await host.api(caller, {
                 action: 'registerImport',
@@ -356,10 +645,13 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
             if (quitting) return;
             file = selected;
             const model = modelView(source);
+            const previous = view.models?.find((entry) => entry.id === model.id);
+            if (previous?.lastUsedAt !== undefined) model.lastUsedAt = previous.lastUsedAt;
+            sources.set(model.id, source);
+            updateModel(model);
             view = {
               ...view,
               model,
-              models: [model],
               phase: 'stopped',
               error: null,
             };
@@ -373,43 +665,312 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
             importing = false;
             view = { ...view, indexing: null };
           }
+        } else if (command.action === 'run-configuration') {
+          if (runningConfiguration) throw Error('BUSY');
+          runningConfiguration = true;
+          ownsConfigurationRun = true;
+          if (clusterCleanupFailed) throw Error('CLEANUP_FAILED');
+          if (preparation) await preparation;
+          if (quitting || !host?.cluster || !deps.clusterArtifact)
+            throw Error('NEEDS_RESOURCE_EVIDENCE');
+          let capturedEpoch = epoch;
+          const listed = decodeClusterReply(await host.cluster(caller, { action: 'list' }));
+          if (!listed.ok) throw Error(listed.error);
+          const selected = listed.configurations.find((c) => c.id === command.configurationId);
+          if (!selected || !sources.has(`model-${selected.modelId}`))
+            throw Error('UNKNOWN_CONFIGURATION');
+          if (selected.modelId !== currentModelId()) {
+            if (importing || !['stopped', 'failed'].includes(view.phase)) throw Error('BUSY');
+            const source = sources.get(`model-${selected.modelId}`)!;
+            capturedEpoch = ++epoch;
+            await selectHistoryOwner(source);
+            if (quitting || epoch !== capturedEpoch) return result();
+            file = source.file;
+            view = {
+              ...view,
+              model: view.models!.find((entry) => entry.id === `model-${source.modelId}`)!,
+              phase: 'stopped',
+              error: null,
+            };
+          }
+          const restored = decodeClusterReply(
+            await host.cluster(caller, {
+              action: 'read',
+              modelId: selected.modelId,
+              configurationId: selected.id,
+            }),
+          );
+          if (quitting || epoch !== capturedEpoch) return result();
+          if (!restored.ok) throw Error(restored.error);
+          if (!restored.configuration) throw Error('UNKNOWN_CONFIGURATION');
+          captureClusterRun(
+            restored.configuration,
+            command.revision,
+            restored.draft,
+            deps.clusterArtifact,
+          );
+          if (!file || view.model?.unavailable || !deps.preflightCluster || !host.prepareCluster)
+            throw Error('NEEDS_RESOURCE_EVIDENCE');
+          if (!['ready', 'stopped', 'failed'].includes(view.phase)) throw Error('BUSY');
+          const abort = new AbortController();
+          clusterLoading?.abort();
+          clusterLoading = abort;
+          const saved = restored.configuration;
+          let confirmed = false,
+            budget: StockClusterReport;
+          try {
+            const selectedFile = file;
+            budget = await trackCluster(
+              () => deps.preflightCluster!(selectedFile, saved, abort.signal),
+              abort.signal,
+            );
+          } catch (error) {
+            if (!(error instanceof Error) || error.message !== 'SHARED_GPU_MEMORY_CONFIRMATION')
+              throw error;
+            if (abort.signal.aborted || quitting || epoch !== capturedEpoch) return result();
+            confirmed = await confirmMemory();
+            if (!confirmed) return result();
+            if (abort.signal.aborted || quitting || epoch !== capturedEpoch) return result();
+            const selectedFile = file;
+            budget = await trackCluster(
+              () => deps.preflightCluster!(selectedFile, saved, abort.signal, true),
+              abort.signal,
+            );
+          }
+          if (abort.signal.aborted || quitting || epoch !== capturedEpoch) return result();
+          const latest = decodeClusterReply(
+            await host.cluster(caller, {
+              action: 'read',
+              modelId: saved.modelId,
+              configurationId: saved.id,
+            }),
+          );
+          if (!latest.ok || !latest.configuration) throw Error('STALE_CONFIGURATION');
+          captureClusterRun(
+            latest.configuration,
+            command.revision,
+            latest.draft,
+            deps.clusterArtifact,
+          );
+          if (!isDeepStrictEqual(latest.configuration.load, saved.load))
+            throw Error('STALE_CONFIGURATION');
+          if (abort.signal.aborted || quitting || epoch !== capturedEpoch) return result();
+          if (clusterCleanupFailed) throw Error('CLEANUP_FAILED');
+          const operation = ++epoch;
+          loadingEpoch = operation;
+          await send('stop');
+          if (operation !== epoch || quitting) return result();
+          view = { ...view, phase: 'starting', error: null };
+          if (clusterCleanupFailed) throw Error('CLEANUP_FAILED');
+          enginePreparation = host.prepareCluster(
+            file,
+            saved,
+            budget,
+            confirmed,
+            confirmForLoad(operation, abort.signal),
+          );
+          await enginePreparation;
+          if (operation !== epoch || quitting) return result();
+          if (clusterCleanupFailed) throw Error('CLEANUP_FAILED');
+          pendingCluster = {
+            configurationId: saved.id,
+            revision: saved.revision,
+            runs: saved.runs,
+          };
+          await send(
+            'load',
+            {
+              deploymentId: deps.deploymentId ?? 'desktop-development',
+              sessionId: randomUUID(),
+              operationId: randomUUID(),
+              packageId: deps.packageId,
+              modelId: currentModelId(),
+            },
+            { id: saved.id, revision: saved.revision, load: saved.load },
+          );
+          if (declinedMemoryOperation === operation && operation === epoch && !quitting) {
+            await send('stop');
+            view = { ...view, phase: 'stopped', error: null };
+            declinedMemoryOperation = undefined;
+          }
         } else if (command.action === 'stop') {
+          clusterLoading?.abort();
+          planning?.abort();
           ++epoch;
           if (host) await send('stop');
           else view = { ...view, phase: 'stopped', error: null };
         } else if (command.action === 'load') {
-          if (importing || view.restoring) throw new Error('BUSY');
-          if (!file || !view.model || command.modelId !== view.model.id)
-            throw new Error('INVALID_MODEL_ID');
+          planning?.abort();
+          clusterLoading?.abort();
+          await clusterTail;
+          if (clusterCleanupFailed) throw Error('CLEANUP_FAILED');
+          if (importing || view.restoring || runningConfiguration) throw new Error('BUSY');
+          const source = sources.get(command.modelId);
+          if (!source) throw new Error('INVALID_MODEL_ID');
           if (!['stopped', 'failed'].includes(view.phase)) throw new Error('BUSY');
-          if (view.model.unavailable) throw new Error('MODEL_FILE_UNAVAILABLE');
+          const model = view.models?.find((entry) => entry.id === command.modelId);
+          if (!model || model.unavailable) throw new Error('MODEL_FILE_UNAVAILABLE');
           const operation = ++epoch;
           loadingEpoch = operation;
-          view = { ...view, phase: 'starting', error: null };
+          view = { ...view, model, phase: 'starting', error: null };
+          file = source.file;
+          await selectHistoryOwner(source);
           if (deps.createHistoryHost && preparation) await preparation;
           if (operation !== epoch || quitting) return result();
           await deps
             .inspect(file)
             .then((inspected) => {
-              if (inspected.sha256 !== deps.expectedHash) throw new Error('UNSUPPORTED_MODEL');
+              if (inspected.sha256 !== currentModelId()) throw new Error('UNSUPPORTED_MODEL');
             })
             .catch(() => {
               if (operation !== epoch || quitting) return;
               const model = view.model ? { ...view.model, unavailable: true } : null;
-              view = { ...view, model, models: model ? [model] : [] };
+              if (model) updateModel(model);
               throw new Error('MODEL_FILE_UNAVAILABLE');
             });
           if (operation !== epoch || quitting) return result();
+          if (
+            command.draft &&
+            (!host?.configuration ||
+              !host.cluster ||
+              !deps.preflightCluster ||
+              !host.prepareCluster)
+          )
+            throw Error('NEEDS_RESOURCE_EVIDENCE');
           if (host?.configuration) {
             const settings = await host.configuration(caller, {
               action: 'read',
-              modelId: deps.expectedHash,
+              modelId: currentModelId(),
             });
             if (!settings.ok) throw new Error('CONFIGURATION_UNAVAILABLE');
+            if ((deps.planModel || command.draft) && deps.preflightCluster && host.prepareCluster) {
+              const abort = new AbortController();
+              clusterLoading = abort;
+              const selectedFile = file;
+              const readDraft = async () => {
+                if (!command.draft || !host?.cluster || !source.blockCount)
+                  throw Error('NEEDS_MODEL_METADATA');
+                const reply = decodeClusterReply(
+                  await host.cluster(caller, {
+                    action: 'read',
+                    modelId: source.modelId,
+                    configurationId: command.draft.key.startsWith('config:')
+                      ? command.draft.key.slice(7)
+                      : null,
+                  }),
+                );
+                if (!reply.ok) throw Error(reply.error);
+                if (
+                  !reply.draft ||
+                  reply.draft.key !== command.draft.key ||
+                  reply.draft.modelId !== source.modelId
+                )
+                  throw Error('STALE_CONFIGURATION');
+                if (reply.draft.load.defaults.contextLength > source.contextLimit)
+                  throw Error('INVALID_CLUSTER_CONFIGURATION');
+                return reply.draft;
+              };
+              const selected = command.draft
+                ? captureClusterDraft(
+                    await readDraft(),
+                    command.draft.revision,
+                    source.blockCount!,
+                    'b11306-four-slot',
+                    randomUUID(),
+                  )
+                : await trackCluster(
+                    () => deps.planModel!(selectedFile, settings.record, abort.signal),
+                    abort.signal,
+                  );
+              let budget: StockClusterReport;
+              let confirmed = false;
+              try {
+                budget = await trackCluster(
+                  () => deps.preflightCluster!(selectedFile, selected, abort.signal),
+                  abort.signal,
+                );
+              } catch (error) {
+                if (!(error instanceof Error) || error.message !== 'SHARED_GPU_MEMORY_CONFIRMATION')
+                  throw error;
+                if (operation !== epoch || quitting || abort.signal.aborted) return result();
+                confirmed = await confirmMemory();
+                if (operation !== epoch || quitting || abort.signal.aborted) return result();
+                if (!confirmed) {
+                  view = { ...view, phase: 'stopped', error: null };
+                  return result();
+                }
+                if (operation !== epoch || quitting || abort.signal.aborted) return result();
+                budget = await trackCluster(
+                  () => deps.preflightCluster!(selectedFile, selected, abort.signal, true),
+                  abort.signal,
+                );
+              }
+              if (operation !== epoch || quitting || abort.signal.aborted) return result();
+              if (command.draft) {
+                const latest = captureClusterDraft(
+                  await readDraft(),
+                  command.draft.revision,
+                  selected.blockCount,
+                  selected.profileId,
+                  selected.id,
+                );
+                if (!isDeepStrictEqual(latest, selected)) throw Error('STALE_CONFIGURATION');
+              }
+              if (operation !== epoch || quitting || abort.signal.aborted) return result();
+              enginePreparation = host.prepareCluster(
+                selectedFile,
+                selected,
+                budget,
+                confirmed,
+                confirmForLoad(operation, abort.signal),
+              );
+              await enginePreparation;
+              if (operation !== epoch || quitting || abort.signal.aborted) return result();
+              pendingCluster = command.draft
+                ? {
+                    configurationId: selected.id,
+                    revision: selected.revision,
+                    draftKey: command.draft.key,
+                    runs: selected.runs,
+                  }
+                : null;
+              await send(
+                'load',
+                {
+                  deploymentId: deps.deploymentId ?? 'desktop-development',
+                  sessionId: randomUUID(),
+                  operationId: randomUUID(),
+                  packageId: deps.packageId,
+                  modelId: currentModelId(),
+                },
+                undefined,
+                selected,
+                command.draft,
+              );
+              if (declinedMemoryOperation === operation && operation === epoch && !quitting) {
+                await send('stop');
+                view = { ...view, phase: 'stopped', error: null };
+                declinedMemoryOperation = undefined;
+              }
+              return result();
+            }
             if (!isDeepStrictEqual(settings.record.load, settings.defaults.load))
-              throw new Error('NEEDS_RESOURCE_EVIDENCE');
+              throw Error('NEEDS_RESOURCE_EVIDENCE');
           }
-          await deps.preflight();
+          try {
+            await deps.preflight();
+          } catch (error) {
+            if (!(error instanceof Error) || error.message !== 'SHARED_GPU_MEMORY_CONFIRMATION')
+              throw error;
+            if (operation !== epoch || quitting) return result();
+            const confirmed = await confirmMemory();
+            if (operation !== epoch || quitting) return result();
+            if (!confirmed) {
+              view = { ...view, phase: 'stopped', error: null };
+              return result();
+            }
+            await deps.preflight(true);
+          }
           if (operation !== epoch || quitting) return result();
           if (!host) {
             preparation = deps.createHost(file);
@@ -421,12 +982,13 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
             await enginePreparation;
           }
           if (operation !== epoch || quitting) return result();
+          pendingCluster = null;
           await send('load', {
             deploymentId: deps.deploymentId ?? 'desktop-development',
             sessionId: randomUUID(),
             operationId: randomUUID(),
             packageId: deps.packageId,
-            modelId: deps.expectedHash,
+            modelId: currentModelId(),
           });
         }
       } catch (error: unknown) {
@@ -435,18 +997,28 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           error instanceof Error && ['BUSY', 'INVALID_MODEL_ID'].includes(error.message);
         view = {
           ...view,
-          phase: command.action === 'snapshot' || rejected ? view.phase : 'failed',
+          phase:
+            command.action === 'snapshot' ||
+            (command.action === 'run-configuration' && loadingEpoch === undefined) ||
+            rejected
+              ? view.phase
+              : 'failed',
           error:
             error instanceof Error
               ? (messages[error.message] ??
                 'The runtime operation failed. Stop and retry explicitly.')
               : 'The runtime operation failed.',
         };
+      } finally {
+        if (ownsConfigurationRun) runningConfiguration = false;
       }
       return result();
     },
     async quit(): Promise<void> {
+      clusterLoading?.abort();
+      planning?.abort();
       quitting = true;
+      memoryDecision?.resolve(false);
       unsubscribe?.();
       chatListeners.clear();
       ++epoch;
@@ -454,6 +1026,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       // A pending picker owns no model handles; only selected-file indexing must settle.
       await Promise.allSettled([restoration, view.indexing ? importPreparation : undefined]);
       await usageProbe;
+      await Promise.allSettled([...clusterOperations]);
       if (preparation) {
         try {
           host = await preparation;
@@ -484,6 +1057,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
         });
       view = { ...view, phase: 'stopped' };
       if (deviceCleanupFailed) throw new Error('QUERY_CLEANUP_FAILED');
+      if (clusterCleanupFailed) throw new Error('CLEANUP_FAILED');
     },
   };
 }
