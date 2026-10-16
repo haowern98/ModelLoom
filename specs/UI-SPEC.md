@@ -6,6 +6,18 @@
 
 Runtime behavior follows [ADR-0002](decisions/0002-lm-studio-runtime-direction.md): LM Studio GUI/core/runtime direction, accepted grouped llama-server, independent upgrades, ordinary engine-crash isolation, and desktop-owned shutdown. The [runtime process screenshot](references/runtime/README.md) is lifecycle/presentation evidence, not an additional UI-screen design.
 
+**Cluster configuration implementation, 2026-10-16:** Auto place produces a
+reviewable draft using fresh resources and the verified stock estimator, preferring
+one GPU before both GPU orders and centre-out cuts. Save retains named intent;
+Run captures that saved revision and checks applicability before interrupting an
+active model. Dirty or changed revisions fail preparation. Selection and Save do
+not change the active session. GPU bars show verified active ranges after complete
+stock startup checks. Stop/Cancel stay reachable and Quit joins owned estimator
+cleanup. This applies only to the exact Bonsai 64-block b11306 Windows development
+profile (context 7680 per slot, four slots, q8 KV, fixed default batches and one/two
+local NVIDIA GPUs). Preserve existing layout and controls. Broader production,
+remote and platform acceptance remain open.
+
 ## Current UI baseline, 2026-10-05
 
 **Reconciled current state, 2026-10-10:** This heading retains the original
@@ -443,8 +455,58 @@ Preserve the selected-model header, search and placement toolbar, coordinator/wo
 
 - U11 (P1-P2): Add device supports LAN discovery/manual private address, Tailscale, and existing Headscale entry points. Discovery, enrollment, approval, reachability, and readiness are distinct states. Show the selected mode and observed direct/relay/unknown path where relevant.
 - U12 (P1, P3): Device cards show actual identity/role/OS, approved connection, runtime health, CPU/GPU/backend information, and selected/assigned participation. Indicate compute hardware unsupported by the active runtime with a reason and compatible action.
-- U13 (P3, P8): Auto place produces a proposal for actual model/configuration/devices. Manual edits update a pending revision directly, without a separate save step; show estimated memory separately from actual use. Validate before initial Run or confirmed Apply and restart, with the interruption warning for an active session. Do not silently move layers while generating.
+- U13 (P3, P8): The 2026-10-16 revision requires durable raw drafts and explicit Save before Run, for both automatic and manual proposals. Put Configurations below Your devices. Show a circular icon-only Save beside Play while dirty, with Save configuration tooltip and accessible name; no persistent Unsaved changes label, dot or warning colour. First Save requests a name and subsequent Saves update it. Show assignment errors only for the attempted Save revision, preserving raw text and clearing errors on new edits. Play on a directly selected model opens Auto place / Place manually / Cancel. Selecting a model/configuration and generating/saving proposals never load or stop the active model. Keep Stop/Cancel reachable while another selection is dirty; confirm interruption before replacing a session.
 - U14 (P4, P6): A required worker disconnect interrupts affected generation. Mark the peer and model/session appropriately and provide reconnect/restart/removal choices consistent with actual recovery policy.
+
+The later approved compact editor puts an Undo / Redo / Reset to default pill
+before the model selector, with Save / Play after it. A faint vertical divider
+separates Reset from Redo. All actions stay visible, muted when disabled; Save is
+disabled while clean. Undo/Redo restore raw drafts through autosave, new edits
+clear Redo, and successful Save clears history. Reset creates one undoable
+automatic proposal, without saving or loading. Remove the bottom Discard changes
+action. Preserve the device header, back link, role, OS, address and connection.
+Below the divider show Layer assignment and actual layer count/range once.
+Omit CPU and duplicate GPU specifications from the editor, retaining them on the
+canvas. Group GPU headings and First layer / Last layer fields on one charcoal
+surface. Dark rounded fields have a faint inset divider and always-visible
+stacked up/down buttons, with keyboard stepping within 0 through layer count
+minus one. Typing preserves incomplete drafts and temporary overlaps; Save
+retains field explanations and the red validation toast. This supersedes the
+earlier dirty-only Save and bottom Discard presentation.
+
+With no model selected, keep each GPU's First layer / Last layer fields and
+arrows visible but disabled and muted, with dash placeholders and empty values.
+Keep the Choose a model to assign layers hint, omit the Not used for model layers
+message, and do not invent a layer count or maximum before metadata is available.
+
+The subsequent approved header revision uses one icon-only Back arrow at the
+left of the device name, with a Back to cluster overview tooltip and accessible
+name. It returns to the overview inside the panel. Remove the panel's X and the
+standalone back-text row; the existing external panel toggle handles showing and
+hiding it, with Escape and focus restoration retained. Keep the existing type
+scale, flat surfaces and GPU group. Place one muted This device / Sample device
+and role line beneath the name. OS, address and connection remain accessible in
+an initially collapsed, plain Device details disclosure; expanded labels and
+values stack left-aligned, preserving complete technical strings and wrapping.
+
+The later device-header spacing correction matches the canvas device name at
+16px with the existing medium weight. Use a compact 24px identity row and a 2px
+subtitle gap. Keep the Back offset. Device details uses 6px vertical summary
+padding, followed by a 6px gap to the divider and 10px below it before Layer
+assignment. These changes apply to the device panel; the overview title remains
+18px.
+
+The approved overview cleanup groups the selected model and muted state,
+Hardware, and Layer assignment without adding cards or changing the flat palette.
+Omit redundant State/Running model rows; keep a different running model visible.
+Show actual device/GPU counts, one-decimal memory totals using GiB for observed
+binary capacities, and unified memory only on devices that provide it. Unknown
+capacity stays Unknown. Assignment rows open the device editor and distinguish
+No assignment, Draft (including invalid raw edits), Saved and verified In use.
+Remove the repeated Save instruction and vague Placement not confirmed label.
+The user's compactness correction retains the existing 18px panel title, uses
+14px section headings and 13px model text, and tightens overview-only gaps to
+12–14px. Do not copy the generated image's enlarged typography or spacing.
 
 Connection curves show verified relationships rather than an invented full mesh. Latency labels need measurement scope/unit/freshness; unavailable data remains unavailable. Layer ranges must be valid for the actual model and native placement method; the mock's ranges up to 127 are not a placement contract. List/small-window navigation and graph keyboard alternatives require D08 review while preserving the primary composition.
 

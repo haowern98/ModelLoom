@@ -2,6 +2,17 @@
 
 Local reference package: OpenAI.Codex 26.1007.9446.0, installed Windows package.
 
+Cluster Run uses the original `play-light-16` SVG (shared symbol `oKi`) through
+ChatGptPlayIcon.tsx at its native 16x16 size. Its path was checked against the
+installed shared bundle listed below. The circular button, spacing and other
+Run/Stop/loading states are unchanged.
+
+The assignment history pill uses original shared 16x16 glyphs through
+ChatGptHistoryIcon.tsx: `arrow-left-lg-light-16` (`c4n`) for Undo,
+`arrow-right-lg-light-16` (`f4n`) for Redo, and
+`arrows-clockwise-rotate-lg-light-16` (`t3n`) for Reset to default.
+The faint divider before Reset is CSS, separate from the SVG paths.
+
 ChatGptRailIcon.tsx contains exact static path data, not executable code from the reference bundle. Imported assets are Home outline (home-light-20, shared U9n), Home selected (initial S0o), Books outline (books-light-20, shared G3n), Books selected (initial JAo), and More (ellipsis-horizontal-light-20, shared V5n). All use their original 20x20 canvas. More has no separate filled state in this implementation; it retains the same three dots when its menu opens.
 
 The user chose to retain the existing Phosphor hollow/filled pairs for Cluster, API and Settings. The reference icon paths carry no separate licence declaration in the selected asset records; they are not covered by the Phosphor MIT notice. This change is a local development reference, not release/distribution clearance.
