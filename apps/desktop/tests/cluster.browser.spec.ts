@@ -1,4 +1,49 @@
 import { expect, test } from '@playwright/test';
+
+test('Connections groups its subtitle beneath the heading and centers actions beside both', async ({
+  page,
+}) => {
+  await page.goto('http://127.0.0.1:5176');
+  await page.getByRole('button', { name: 'Cluster', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Cluster navigation' })
+    .getByRole('button', { name: 'Connections', exact: true })
+    .click();
+  const section = page.getByRole('region', { name: 'Connections', exact: true });
+  const heading = section.getByRole('heading', { name: 'Connections', exact: true });
+  const subtitle = section.getByText('Network connections will appear here.', { exact: true });
+  for (const width of [1280, 1000]) {
+    await page.setViewportSize({ width, height: 720 });
+    const titleBounds = (await heading.boundingBox())!;
+    const subtitleBounds = (await subtitle.boundingBox())!;
+    expect(subtitleBounds.x).toBe(titleBounds.x);
+    expect(subtitleBounds.y - titleBounds.y - titleBounds.height).toBeCloseTo(6, 0);
+    const center = (titleBounds.y + subtitleBounds.y - 2 + subtitleBounds.height) / 2;
+    for (const name of ['Join cluster', 'Share this PC', 'Add device']) {
+      const bounds = (await section.getByRole('button', { name, exact: true }).boundingBox())!;
+      expect(Math.abs(bounds.y + bounds.height / 2 - center)).toBeLessThan(1);
+      expect(bounds.x).toBeGreaterThan(subtitleBounds.x + subtitleBounds.width);
+    }
+    const stationary = [
+      heading,
+      ...['Join cluster', 'Share this PC', 'Add device'].map((name) =>
+        section.getByRole('button', { name, exact: true }),
+      ),
+      section.getByText('No verified network connections.', { exact: true }),
+    ];
+    const before = await Promise.all(stationary.map((element) => element.boundingBox()));
+    await subtitle.evaluate((element) => {
+      element.style.top = '0px';
+    });
+    expect(await Promise.all(stationary.map((element) => element.boundingBox()))).toEqual(before);
+    expect((await subtitle.boundingBox())!.y).toBe(subtitleBounds.y - 2);
+    await subtitle.evaluate((element) => {
+      element.style.removeProperty('top');
+    });
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.screenshot({ path: 'E:/ModelLoom-Project/plans/connections-header.png' });
+});
 import type { Page } from '@playwright/test';
 
 test('compact overview keeps model, hardware and assignments readable within the panel', async ({

@@ -470,6 +470,22 @@ it('uses durable core storage for Save-only validation, named selection and rest
     expect(screen.getByRole('button', { name: 'Save configuration' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Run model' }));
     expect(run).toHaveBeenCalledWith(store.cluster.list()[0]!.id, 1);
+    await user.click(screen.getByRole('button', { name: 'Delete configuration: Laptop' }));
+    let confirmation = screen.getByRole('dialog', { name: 'Delete configuration?' });
+    expect(within(confirmation).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    await user.click(within(confirmation).getByRole('button', { name: 'Cancel' }));
+    expect(store.cluster.list()).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Delete configuration: Laptop' }));
+    confirmation = screen.getByRole('dialog', { name: 'Delete configuration?' });
+    await user.click(within(confirmation).getByRole('button', { name: 'Delete' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Laptop' })).not.toBeInTheDocument(),
+    );
+    expect(store.cluster.list()).toEqual([]);
+    expect(run).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run model' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Run model' }));
+    expect(screen.getByRole('dialog', { name: 'Plan layer placement' })).toBeVisible();
     second.unmount();
   } finally {
     first.unmount();
