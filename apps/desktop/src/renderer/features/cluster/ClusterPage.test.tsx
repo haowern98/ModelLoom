@@ -3,10 +3,20 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import { ClusterPage } from './ClusterPage';
+import { createDemoLibrary } from '../../mocks/modelLibrary';
 import { createDemoPlacement, demoDevices } from '../../mocks/cluster';
 import { createDemoJoining, transitionDemoJoining } from '../../mocks/clusterJoining';
 
-function Cluster({ demo = true }: { demo?: boolean }) {
+function Cluster({
+  demo = true,
+  selectedId = null,
+  activeId = null,
+}: {
+  demo?: boolean;
+  selectedId?: string | null;
+  activeId?: string | null;
+}) {
+  const models = createDemoLibrary().models;
   const [joining, onJoining] = useReducer(transitionDemoJoining, undefined, createDemoJoining);
   return (
     <ClusterPage
@@ -15,14 +25,101 @@ function Cluster({ demo = true }: { demo?: boolean }) {
       onJoining={onJoining}
       devices={demo ? demoDevices : []}
       onRenameDevice={vi.fn()}
-      activeModel={undefined}
-      models={[]}
-      placement={createDemoPlacement(null)}
+      activeModel={models.find((model) => model.id === activeId)}
+      models={selectedId ? models : []}
+      placement={createDemoPlacement(selectedId)}
       dispatch={vi.fn()}
       onStop={vi.fn()}
     />
   );
 }
+
+it('keeps empty layer fields visible and disabled before a model is selected', async () => {
+  const user = userEvent.setup();
+  render(<Cluster />);
+  await user.click(screen.getByRole('button', { name: 'Select studio-desktop' }));
+  const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+  expect(within(panel).getByText('Choose a model to assign layers.')).toBeVisible();
+  const fields = within(panel).getAllByRole('spinbutton');
+  expect(fields).toHaveLength(4);
+  for (const gpu of [0, 1]) {
+    for (const boundary of ['First', 'Last']) {
+      const field = within(panel).getByRole('spinbutton', {
+        name: `${boundary} layer for GPU ${gpu}`,
+      });
+      expect(field).toBeVisible();
+      expect(field).toBeDisabled();
+      expect(field).toHaveValue('');
+      expect(field).toHaveAttribute('placeholder', '\u2014');
+      expect(field).not.toHaveAttribute('aria-valuemax');
+      expect(field).not.toHaveAttribute('max', '-1');
+    }
+  }
+  const steppers = within(panel).getAllByRole('button', { name: /^(Increase|Decrease) / });
+  expect(steppers).toHaveLength(8);
+  for (const stepper of steppers) {
+    expect(stepper).toBeVisible();
+    expect(stepper).toBeDisabled();
+  }
+  expect(within(panel).queryByText('Not used for model layers')).not.toBeInTheDocument();
+});
+
+it('keeps device details collapsed and uses the header back control and outer panel toggle', async () => {
+  const user = userEvent.setup();
+  render(<Cluster />);
+  await user.click(screen.getByRole('button', { name: 'Select studio-desktop' }));
+  let panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+  const title = within(panel).getByRole('heading', { name: 'studio-desktop' });
+  const back = within(panel).getByRole('button', { name: 'Back to cluster overview' });
+  expect(back.closest('header')).toBe(title.closest('header'));
+  expect(back.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(panel).getByText('Sample device · Coordinator')).toBeVisible();
+  expect(
+    within(panel).queryByRole('button', { name: 'Close cluster panel' }),
+  ).not.toBeInTheDocument();
+  const disclosure = within(panel).getByText('Device details').closest('details')!;
+  const summary = within(disclosure).getByText('Device details').closest('summary')!;
+  expect(disclosure).not.toHaveAttribute('open');
+  expect(within(disclosure).getByText('OS')).not.toBeVisible();
+  summary.focus();
+  expect(summary).toHaveFocus();
+  await user.click(summary);
+  expect(disclosure).toHaveAttribute('open');
+  for (const name of ['OS', 'Address', 'Connection']) {
+    expect(within(disclosure).getByText(name)).toBeVisible();
+  }
+  await user.click(summary);
+  expect(disclosure).not.toHaveAttribute('open');
+  await user.click(back);
+  expect(within(panel).getByRole('heading', { name: 'Cluster overview' })).toBeVisible();
+  const toggle = screen.getByRole('button', { name: 'Cluster panel' });
+  await user.click(toggle);
+  expect(screen.queryByRole('complementary', { name: 'Cluster panel' })).not.toBeInTheDocument();
+  await user.click(toggle);
+  panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+  expect(within(panel).getByRole('heading', { name: 'Cluster overview' })).toBeVisible();
+});
+
+it('shows a different running model without repeating the selected model when it is ready', async () => {
+  const user = userEvent.setup();
+  const models = createDemoLibrary().models;
+  const selected = models[0]!;
+  const other = models[1]!;
+  const view = render(<Cluster selectedId={selected.id} />);
+  await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
+  let panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+  expect(within(panel).getByText(selected.name)).toBeVisible();
+  expect(within(panel).queryByText('Running model')).not.toBeInTheDocument();
+  view.rerender(<Cluster selectedId={selected.id} activeId={other.id} />);
+  panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+  expect(within(panel).getByText('Running model')).toBeVisible();
+  expect(within(panel).getByText(other.name)).toBeVisible();
+  view.rerender(<Cluster selectedId={selected.id} activeId={selected.id} />);
+  panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+  expect(within(panel).getByText(/Ready/)).toBeVisible();
+  expect(within(panel).getAllByText(selected.name)).toHaveLength(1);
+  expect(within(panel).queryByText('Running model')).not.toBeInTheDocument();
+});
 
 it('navigates distinct Cluster views and retains the canvas across navigation', async () => {
   const user = userEvent.setup();
