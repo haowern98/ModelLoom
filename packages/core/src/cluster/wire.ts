@@ -13,6 +13,7 @@ import type {
   SavedClusterConfiguration,
 } from './contracts.js';
 export type ClusterCommand =
+  | { action: 'delete'; id: string; revision: number }
   | { action: 'list' }
   | { action: 'read'; modelId: string; configurationId: string | null }
   | { action: 'edit'; key: string; expectedRevision: number | null; edit: ClusterEdit }
@@ -101,6 +102,11 @@ export function decodeClusterCommand(input: unknown): ClusterCommand {
       )
         return fail();
       return { action: a, modelId: v.modelId, configurationId: v.configurationId };
+    }
+    if (a === 'delete') {
+      const v = object(input, ['action', 'id', 'revision']);
+      if (typeof v.id !== 'string' || !id.test(v.id)) return fail();
+      return { action: a, id: v.id, revision: revision(v.revision) };
     }
     if (a === 'edit') {
       const v = object(input, ['action', 'key', 'expectedRevision', 'edit']);

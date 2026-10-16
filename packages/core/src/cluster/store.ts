@@ -217,6 +217,16 @@ export class ClusterStore {
       return next;
     });
   }
+  /** Delete saved intent and its own draft atomically; model settings and active captures are separate. */
+  remove(id: string, revision: number): void {
+    this.writeSafe(() => {
+      const saved = this.read(id);
+      if (!saved) throw Error('UNKNOWN_CONFIGURATION');
+      this.revision(revision, saved.revision);
+      this.db.prepare('DELETE FROM cluster_configurations WHERE configuration_id=?').run(id);
+      this.db.prepare('DELETE FROM cluster_drafts WHERE draft_key=?').run(`config:${id}`);
+    });
+  }
   private putDraft(draft: ClusterDraft): void {
     this.db
       .prepare(

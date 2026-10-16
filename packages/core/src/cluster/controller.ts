@@ -59,7 +59,8 @@ export class ClusterController {
           });
         draft = result.draft;
         configuration = result.configuration;
-      } else if (command.action === 'discard')
+      } else if (command.action === 'delete') cluster.remove(command.id, command.revision);
+      else if (command.action === 'discard')
         draft = cluster.discardDraft(command.key, command.revision);
       else if (command.action === 'auto-place') {
         const current = cluster.readDraft(command.key);

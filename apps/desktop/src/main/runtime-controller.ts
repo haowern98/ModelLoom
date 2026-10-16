@@ -415,9 +415,18 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
   return {
     async cluster(input: unknown): Promise<ClusterReply> {
       const command = decodeClusterCommand(input);
-      if (['edit', 'discard', 'save', 'cancel-planning', 'auto-place'].includes(command.action))
+      if (
+        ['edit', 'discard', 'save', 'delete', 'cancel-planning', 'auto-place'].includes(
+          command.action,
+        )
+      )
         planning?.abort();
       if (quitting || !deps.enabled) return { ok: false, error: 'NOT_READY' };
+      if (
+        command.action === 'delete' &&
+        (runningConfiguration || ['starting', 'loading', 'stopping'].includes(view.phase))
+      )
+        return { ok: false, error: 'NOT_READY' };
       try {
         if (preparation) await preparation;
         if (restoration) await restoration;
