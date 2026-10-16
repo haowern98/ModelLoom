@@ -1,5 +1,51 @@
 import { expect, test } from '@playwright/test';
 
+test('larger model toggles preserve all other text and control geometry', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Configure Qwen3.8-27B' }).click();
+  const config = page.locator('form');
+  const toggles = config.getByRole('switch');
+  for (const width of [1280, 1000]) {
+    await page.setViewportSize({ width, height: 720 });
+    const measure = () =>
+      config.evaluate((element) => ({
+        fixed: Array.from(
+          element.querySelectorAll(
+            'h1, h2, label, p, button, input:not([role="switch"]), select, textarea',
+          ),
+        ).map((node) => {
+          const box = node.getBoundingClientRect(),
+            style = getComputedStyle(node);
+          return { x: box.x, y: box.y, width: box.width, height: box.height, font: style.fontSize };
+        }),
+        switches: Array.from(element.querySelectorAll('[role="switch"]')).map((node) => {
+          const box = node.getBoundingClientRect();
+          return { right: box.right, centerY: box.y + box.height / 2 };
+        }),
+      }));
+    await toggles.evaluateAll((nodes) =>
+      nodes.forEach((node) => {
+        (node as HTMLElement).style.setProperty('--control-width-switch', '28px');
+        (node as HTMLElement).style.setProperty('--control-height-switch', '16px');
+        (node as HTMLElement).style.setProperty('--control-size-switch-thumb', '12px');
+      }),
+    );
+    const before = await measure();
+    await toggles.evaluateAll((nodes) => nodes.forEach((node) => node.removeAttribute('style')));
+    for (const toggle of await toggles.all()) {
+      await expect(toggle).toHaveCSS('width', '32px');
+      await expect(toggle).toHaveCSS('height', '20px');
+      expect(await toggle.evaluate((node) => getComputedStyle(node, '::before').width)).toBe(
+        '16px',
+      );
+      expect(await toggle.evaluate((node) => getComputedStyle(node, '::before').height)).toBe(
+        '16px',
+      );
+    }
+    expect(await measure()).toEqual(before);
+  }
+});
+
 test('per-model defaults save for this session, preserve pending edits and reset after reload', async ({
   page,
 }) => {

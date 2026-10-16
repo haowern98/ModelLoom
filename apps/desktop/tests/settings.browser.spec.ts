@@ -7,6 +7,72 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
 });
 
+test('all Settings toggles use the larger size without moving other content', async ({ page }) => {
+  const navigation = page.getByRole('navigation', { name: 'Settings categories' });
+  const detail = page.getByRole('region', { name: 'Settings details' });
+  let count = 0;
+  for (const width of [1280, 1000]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const category of [
+      'Appearance',
+      'Runtime',
+      'Network',
+      'Storage',
+      'Diagnostics',
+      'Advanced',
+    ]) {
+      await navigation.getByRole('button', { name: category, exact: true }).click();
+      const toggles = detail.getByRole('switch');
+      count += await toggles.count();
+      const measure = () =>
+        detail.evaluate((element) => ({
+          fixed: Array.from(
+            element.querySelectorAll(
+              'h1, h2, label, strong, p, button, input:not([role="switch"]), select, textarea',
+            ),
+          ).map((node) => {
+            const box = node.getBoundingClientRect(),
+              style = getComputedStyle(node);
+            return {
+              x: box.x,
+              y: box.y,
+              width: box.width,
+              height: box.height,
+              font: style.fontSize,
+            };
+          }),
+          switches: Array.from(element.querySelectorAll('[role="switch"]')).map((node) => {
+            const box = node.getBoundingClientRect();
+            return { right: box.right, centerY: box.y + box.height / 2 };
+          }),
+        }));
+      await toggles.evaluateAll((nodes) =>
+        nodes.forEach((node) => {
+          const style = (node as HTMLElement).style;
+          style.setProperty('--control-width-switch', '28px');
+          style.setProperty('--control-height-switch', '16px');
+          style.setProperty('--control-size-switch-thumb', '12px');
+        }),
+      );
+      const before = await measure();
+      await toggles.evaluateAll((nodes) => nodes.forEach((node) => node.removeAttribute('style')));
+      for (const toggle of await toggles.all()) {
+        await expect(toggle).toHaveCSS('width', '32px');
+        await expect(toggle).toHaveCSS('height', '20px');
+        expect(await toggle.evaluate((node) => getComputedStyle(node, '::before').width)).toBe(
+          '16px',
+        );
+        expect(await toggle.evaluate((node) => getComputedStyle(node, '::before').height)).toBe(
+          '16px',
+        );
+        await expect(toggle).toBeDisabled();
+      }
+      expect(await measure()).toEqual(before);
+    }
+  }
+  expect(count).toBeGreaterThan(0);
+});
+
 test('settings search finds category content and navigation preserves the selected page', async ({
   page,
 }) => {
