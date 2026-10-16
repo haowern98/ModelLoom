@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import path from 'node:path';
 import { createRuntimeController } from './runtime-controller';
 import type {
   ClusterDraft,
@@ -34,7 +35,7 @@ it('runs an older indexed model configuration without dropping the newly importe
     expect(loaded.model?.id).toBe(`model-${modelId}`);
     expect(loaded.models).toHaveLength(2);
     expect(host.prepareCluster).toHaveBeenCalledWith(
-      'E:\\Models\\model.gguf',
+      path.resolve('models', 'model.gguf'),
       expect.objectContaining({ modelId }),
       expect.anything(),
       false,
@@ -142,7 +143,7 @@ function setup(popup = false) {
     expectedHash: modelId,
     packageId: 'package',
     clusterArtifact: 'b11306-cuda12.4-msvc14.44-dev1',
-    pick: vi.fn(() => Promise.resolve('E:\\Models\\model.gguf')),
+    pick: vi.fn(() => Promise.resolve(path.resolve('models', 'model.gguf'))),
     inspect: vi.fn(() =>
       Promise.resolve({ sha256: modelId, size: '3.8 GB', blockCount: 64, contextLimit: 32768 }),
     ),
@@ -288,7 +289,7 @@ it('preflights saved intent before stopping and loads its exact owner ID/revisio
   expect((await f.run()).phase).toBe('ready');
   expect(f.events).toEqual(['preflight', 'stop', 'prepareCluster', 'load']);
   expect(f.host.prepareCluster).toHaveBeenCalledWith(
-    'E:\\Models\\model.gguf',
+    path.resolve('models', 'model.gguf'),
     f.saved,
     {},
     false,

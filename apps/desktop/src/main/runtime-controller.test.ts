@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import path from 'node:path';
 import * as module from './runtime-controller';
 import type { ModelSource } from '../../../../packages/core/src/model-configuration/model-source';
 const localDevice = {
@@ -202,7 +203,7 @@ it('indexes a different valid model hash and restores its source through the cor
     enabled: true as const,
     expectedHash: 'a'.repeat(64),
     packageId: 'package',
-    pick: vi.fn(() => Promise.resolve('E:\\Models\\filename.gguf')),
+    pick: vi.fn(() => Promise.resolve(path.resolve('models', 'filename.gguf'))),
     inspect: vi.fn(
       () =>
         new Promise<{ sha256: string; size: string }>((resolve) => {
@@ -219,12 +220,13 @@ it('indexes a different valid model hash and restores its source through the cor
   await vi.waitFor(() => expect(deps.inspect).toHaveBeenCalledTimes(1));
   const pending = await controller.command({ action: 'snapshot' });
   expect(pending.indexing).toBe('filename.gguf');
-  expect(JSON.stringify(pending)).not.toContain('E:\\Models');
+  const privatePath = JSON.stringify(path.resolve('models', 'filename.gguf')).slice(1, -1);
+  expect(JSON.stringify(pending)).not.toContain(privatePath);
   release({ sha256: modelId, size: '4 GB' });
   const imported = await importing;
   expect(imported.model?.name).toBe('filename.gguf');
   expect(deps.createHistoryHost).toHaveBeenCalledWith(
-    expect.objectContaining({ modelId, file: 'E:\\Models\\filename.gguf' }),
+    expect.objectContaining({ modelId, file: path.resolve('models', 'filename.gguf') }),
   );
   expect(imported.model?.lastUsedAt).toBeUndefined();
   lastUsedAt = Date.now();
@@ -246,7 +248,7 @@ it('indexes a different valid model hash and restores its source through the cor
   expect(deps.inspect).toHaveBeenCalledTimes(1);
   expect(deps.preflight).not.toHaveBeenCalled();
   expect(deps.createHost).not.toHaveBeenCalled();
-  expect(JSON.stringify(restored)).not.toContain('E:\\Models');
+  expect(JSON.stringify(restored)).not.toContain(privatePath);
   await reopened.quit();
   deps.available.mockResolvedValueOnce(false);
   const missing = module.createRuntimeController(deps, 'window');
