@@ -1,4 +1,5 @@
 import { ChatGptSidebarIcon } from '../../components/ChatGptSidebarIcon';
+import { SidebarItemRow } from '../../components/SidebarItemRow';
 import type { DemoDevice } from '../../mocks/cluster';
 import styles from './ClusterSidebar.module.css';
 
@@ -16,6 +17,8 @@ interface ClusterSidebarProps {
   configurations?: readonly { id: string; name: string }[] | undefined;
   selectedConfigurationId?: string | undefined;
   onConfiguration?: (id: string) => void;
+  onDeleteConfiguration?: (id: string) => void;
+  deletingDisabled?: boolean;
 }
 
 const destinations = [
@@ -36,6 +39,8 @@ export function ClusterSidebar({
   configurations = [],
   selectedConfigurationId,
   onConfiguration,
+  onDeleteConfiguration,
+  deletingDisabled = false,
 }: ClusterSidebarProps) {
   const orderedDevices = [
     ...devices.filter((device) => device.role === 'Coordinator'),
@@ -100,14 +105,16 @@ export function ClusterSidebar({
         <section aria-label="Configurations">
           <h2 className={styles.groupHeading}>Configurations</h2>
           {configurations.map((configuration) => (
-            <button
+            <SidebarItemRow
               key={configuration.id}
-              type="button"
-              aria-pressed={selectedConfigurationId === configuration.id}
-              onClick={() => onConfiguration?.(configuration.id)}
-            >
-              <span className={styles.deviceName}>{configuration.name}</span>
-            </button>
+              id={configuration.id}
+              title={configuration.name}
+              kind="configuration"
+              selected={selectedConfigurationId === configuration.id}
+              disabled={deletingDisabled || !onDeleteConfiguration}
+              onSelect={() => onConfiguration?.(configuration.id)}
+              onDelete={() => onDeleteConfiguration?.(configuration.id)}
+            />
           ))}
         </section>
       </div>

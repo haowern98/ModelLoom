@@ -73,13 +73,13 @@
 .candidateGrid .candidateRow button {
   align-self: flex-start;
 }
-.page button {
+.page button:where(:not([data-sidebar-row-button])) {
   background: #303030;
   border-color: var(--border);
   border-radius: 999px;
   box-shadow: none;
 }
-.page button:hover {
+.page button:where(:not([data-sidebar-row-button])):hover {
   background: #3a3a3a;
 }
 .page .whiteAction,
