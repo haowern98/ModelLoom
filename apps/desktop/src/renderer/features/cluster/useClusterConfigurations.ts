@@ -63,6 +63,7 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
   const preparingRun = useRef(false);
   const configurations = useRef<readonly SavedClusterConfiguration[]>([]);
   const readError = useRef<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const refresh = () => {
     const entry = selected.current ? entries.current.get(selected.current) : undefined;
     setSnapshot({
@@ -272,6 +273,39 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
       refresh();
     });
   };
+  const remove = async (configuration: SavedClusterConfiguration): Promise<boolean> => {
+    if (!bridge || deleting || planning.current) return false;
+    const key = `config:${configuration.id}`;
+    const entry = entries.current.get(key);
+    if (entry?.busy) return false;
+    if (entry) entry.busy = true;
+    setDeleting(true);
+    try {
+      await entry?.tail;
+      const reply = success(
+        await bridge.command({
+          action: 'delete',
+          id: configuration.id,
+          revision: configuration.revision,
+        }),
+      );
+      configurations.current = reply.configurations;
+      entries.current.delete(key);
+      if (selected.current === key) await select(configuration.modelId, null);
+      refresh();
+      return true;
+    } catch {
+      const message = 'Could not delete the configuration. It is still here.';
+      if (entry) entry.error = message;
+      readError.current = message;
+      refresh();
+      return false;
+    } finally {
+      if (entry) entry.busy = false;
+      setDeleting(false);
+      refresh();
+    }
+  };
   const autoPlace = async () => {
     const entry = current();
     if (!entry || !bridge || entry.busy || planning.current) return;
@@ -386,8 +420,9 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
       !!entry &&
       (entry.saved ? !sameEdit(entry.raw, baseline(entry.saved)) : hasAssignments(entry.raw)),
     planning: snapshot.planning,
-    pending: !!entry && (entry.busy || entry.sequence !== entry.acknowledged),
-    saving: entry?.busy ?? false,
+    pending: deleting || (!!entry && (entry.busy || entry.sequence !== entry.acknowledged)),
+    saving: deleting || (entry?.busy ?? false),
+    deleting,
     canUndo: !!entry?.past.length && !entry.busy && !snapshot.planning,
     canRedo: !!entry?.future.length && !entry.busy && !snapshot.planning,
     error: entry?.error ?? snapshot.error,
@@ -400,6 +435,7 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     redo: () => moveHistory('redo'),
     save,
     discard,
+    remove,
     autoPlace,
     prepareRun,
     cancelPlanning: async () => {

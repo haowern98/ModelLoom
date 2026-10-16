@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { Dispatch } from 'react';
 import type { ClusterConfigurations } from './useClusterConfigurations';
+import type { SavedClusterConfiguration } from '../../../shared/cluster-configuration';
 import type { RuntimeView } from '../../../shared/runtime';
 import { FloppyDisk } from '@phosphor-icons/react/dist/csr/FloppyDisk';
 import { Network } from '@phosphor-icons/react/dist/csr/Network';
@@ -36,7 +37,11 @@ import type { JoiningProps } from './ClusterJoiningPanel';
 import type { AssignmentStatus, ClusterSelection } from './ClusterPanel';
 import styles from './ClusterPage.module.css';
 
-type Modal = { type: 'placement'; model: DemoModel } | { type: 'restart' } | { type: 'name' };
+type Modal =
+  | { type: 'placement'; model: DemoModel }
+  | { type: 'restart' }
+  | { type: 'name' }
+  | { type: 'delete'; configuration: SavedClusterConfiguration };
 const configurationErrors: Readonly<Record<string, string>> = {
   CLEANUP_FAILED:
     'Runtime shutdown could not be confirmed. Restart the app before trying another allocation.',
@@ -302,13 +307,15 @@ export function ClusterPage({
     else dispatch({ type: 'run' });
   };
   const title =
-    modal?.type === 'placement'
-      ? 'Plan layer placement'
-      : configurations
-        ? 'Apply current allocation?'
-        : selectedIsActive
-          ? 'Restart demo model?'
-          : 'Switch demo model?';
+    modal?.type === 'delete'
+      ? 'Delete configuration?'
+      : modal?.type === 'placement'
+        ? 'Plan layer placement'
+        : configurations
+          ? 'Apply current allocation?'
+          : selectedIsActive
+            ? 'Restart demo model?'
+            : 'Switch demo model?';
 
   return (
     <section
@@ -337,6 +344,11 @@ export function ClusterPage({
             void configurations?.selectConfiguration(configuration);
             setView('overview');
           }
+        }}
+        deletingDisabled={loading || Boolean(configurations?.pending || configurations?.planning)}
+        onDeleteConfiguration={(id) => {
+          const configuration = configurations?.configurations.find((item) => item.id === id);
+          if (configuration) setModal({ type: 'delete', configuration });
         }}
       />
       <div
@@ -714,7 +726,39 @@ export function ClusterPage({
         </div>
       </div>
       {modal && (
-        <Dialog title={modal.type === 'name' ? 'Save configuration' : title} onClose={close}>
+        <Dialog
+          title={modal.type === 'name' ? 'Save configuration' : title}
+          onClose={close}
+          {...(modal.type === 'delete' ? { initialFocus: 'cancel' as const } : {})}
+        >
+          {modal.type === 'delete' && (
+            <>
+              <p>
+                Delete <strong>{modal.configuration.name}</strong>?
+              </p>
+              <p>
+                This removes the saved configuration and its draft. Your model and model settings
+                are kept.
+              </p>
+              <footer>
+                <Button data-dialog-cancel onClick={close}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    const configuration = modal.configuration;
+                    close();
+                    void configurations?.remove(configuration).then((removed) => {
+                      if (removed) notify('success', 'Configuration deleted.');
+                    });
+                  }}
+                >
+                  Delete
+                </Button>
+              </footer>
+            </>
+          )}
           {modal.type === 'name' && (
             <>
               <label className={styles.renameField}>
