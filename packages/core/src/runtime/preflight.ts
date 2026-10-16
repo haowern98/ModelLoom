@@ -39,6 +39,7 @@ export type Preflight = Readonly<{
     | 'INSUFFICIENT_RESOURCES'
     | 'INVALID_CONFIGURATION'
     | 'INCOMPATIBLE_DRIVER'
+    | 'SHARED_GPU_MEMORY_CONFIRMATION'
     | 'ADMITTED';
   totalContext: number;
   ram: number | null;

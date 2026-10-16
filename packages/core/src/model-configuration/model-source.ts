@@ -8,6 +8,9 @@ export interface ModelSource {
   readonly modifiedMs: number;
   readonly architecture: string;
   readonly contextLimit: number;
+  /** Absent on the legacy index. Null means reinspection did not establish a usable count. */
+  readonly blockCount?: number | null;
+  readonly thinkingSupported?: boolean;
   readonly quantization: string;
   readonly parameters: string;
 }
@@ -31,6 +34,11 @@ export function decodeModelSource(input: unknown): ModelSource {
     'quantization',
     'parameters',
   ];
+  if (Object.hasOwn(value, 'blockCount')) keys.push('blockCount');
+  if (Object.hasOwn(value, 'thinkingSupported')) {
+    keys.push('thinkingSupported');
+    if (typeof value.thinkingSupported !== 'boolean') return invalid();
+  }
   if (Object.keys(value).length !== keys.length || keys.some((key) => !Object.hasOwn(value, key)))
     return invalid();
   for (const key of [
@@ -64,6 +72,12 @@ export function decodeModelSource(input: unknown): ModelSource {
     if (typeof value[key] !== 'number' || !Number.isSafeInteger(value[key]) || value[key] < 0)
       return invalid();
   if (
+    (Object.hasOwn(value, 'blockCount') &&
+      value.blockCount !== null &&
+      (typeof value.blockCount !== 'number' ||
+        !Number.isSafeInteger(value.blockCount) ||
+        value.blockCount < 1 ||
+        value.blockCount >= 2147483647)) ||
     typeof value.modifiedMs !== 'number' ||
     !Number.isFinite(value.modifiedMs) ||
     value.modifiedMs < 0

@@ -5,6 +5,12 @@ export interface GGUFInfo {
   readonly architecture: string;
   readonly contextLimit: number;
   readonly tensors: number;
+  /** Indexed repeating-block metadata only; executable profile support is checked separately. */
+  readonly blockCount: number | null;
+  /** Extra NextN blocks are allocated but not executed in ordinary decoder inference. */
+  readonly nextnPredictLayers?: number;
+  /** Template capability hint only; the template itself is never exposed. */
+  readonly thinkingSupported?: boolean;
   readonly name?: string;
   readonly quantization?: string;
   readonly parameters?: string;
@@ -145,10 +151,35 @@ export async function inspectGGUF(file: string): Promise<GGUFInfo> {
     const name = display('general.name'),
       parameters = display('general.size_label'),
       fileType = metadata.get('general.file_type');
+    const blocks = metadata.get(`${architecture}.block_count`);
+    const blockCount =
+      typeof blocks === 'number' &&
+      Number.isSafeInteger(blocks) &&
+      blocks > 0 &&
+      blocks < 2147483647
+        ? blocks
+        : null;
+    const nextnKey = `${architecture}.nextn_predict_layers`,
+      nextn = metadata.get(nextnKey),
+      template = metadata.get('tokenizer.chat_template');
+    if (
+      metadata.has(nextnKey) &&
+      (typeof nextn !== 'number' ||
+        !Number.isSafeInteger(nextn) ||
+        nextn < 0 ||
+        blockCount === null ||
+        nextn >= blockCount)
+    )
+      return invalid();
     return Object.freeze({
       architecture,
       contextLimit: Number(contextLimit),
       tensors,
+      blockCount,
+      ...(typeof nextn === 'number' ? { nextnPredictLayers: nextn } : {}),
+      ...(typeof template === 'string'
+        ? { thinkingSupported: /\benable_thinking\b/u.test(template) }
+        : {}),
       sha256: hash.digest('hex'),
       ...(name ? { name } : {}),
       ...(parameters ? { parameters } : {}),

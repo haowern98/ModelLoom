@@ -19,6 +19,8 @@ export interface ResourceSnapshot {
 }
 const uuidPattern = /^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu;
 const versionPattern = /^\d{1,3}(?:\.\d{1,3}){1,3}$/u;
+// Leave the same physical-RAM reserve used by the bounded 3060 overflow diagnostic.
+const sharedMemoryReserve = 1536 * 1048576;
 
 /** Decodes only the eight fixed NVIDIA CSV properties, converting integer MiB to bytes.
  * The bounded display name remains attached to its physical UUID; it is not admission authority.
@@ -100,7 +102,8 @@ function meetsDriver(actual: string, minimum: string): boolean {
 }
 
 /** Pure CUDA admission check. Requires independently validated placement and a signed inventory's NVIDIA driver minimum.
- * Each physical device must fit its own budget; unknowns fail closed. This does not authorize launching
+ * Confirmed single-GPU WDDM fallback reserves the full GPU budget in RAM as well,
+ * since the driver controls residency. Unknowns fail closed. This does not authorize launching
  * an engine, establish the launch's device mapping, or reserve memory against other applications.
  */
 export function checkCudaResources(
@@ -109,6 +112,7 @@ export function checkCudaResources(
   report: PlannerReport | undefined,
   snapshot: ResourceSnapshot,
   minimumDriver: string,
+  sharedMemoryConfirmed = false,
 ): Preflight {
   const base = checkResources(configuration, artifact, 'cuda', report, {
     ram: snapshot.ram ?? NaN,
@@ -131,7 +135,8 @@ export function checkCudaResources(
   const ids = new Set<string>();
   let total = 0,
     shortage = base.code === 'INSUFFICIENT_RESOURCES',
-    incompatible = false;
+    incompatible = false,
+    wddm = true;
   for (const device of placement) {
     if (
       !uuidPattern.test(device.uuid) ||
@@ -159,9 +164,33 @@ export function checkCudaResources(
     )
       return result('NEEDS_RESOURCE_EVIDENCE');
     incompatible ||= !meetsDriver(gpu.driver, minimumDriver);
+    wddm &&= gpu.driverModel === 'WDDM' && meetsDriver(gpu.driver, '546.01');
     shortage ||= gpu.free < device.bytes;
   }
   if (!Number.isSafeInteger(total) || total !== base.vram) return result('NEEDS_RESOURCE_EVIDENCE');
+  if (
+    !incompatible &&
+    shortage &&
+    base.code === 'ADMITTED' &&
+    configuration.gpuDevice &&
+    placement.length === 1 &&
+    wddm
+  ) {
+    // Reserve all GPU backing, not just the apparent shortage: Windows can move
+    // other allocations too. This is an estimate, never a memory reservation.
+    const ram = base.ram! + total + sharedMemoryReserve;
+    if (!Number.isSafeInteger(ram)) return result('NEEDS_RESOURCE_EVIDENCE');
+    return Object.freeze({
+      ...base,
+      ram,
+      code:
+        snapshot.ram! < ram
+          ? 'INSUFFICIENT_RESOURCES'
+          : sharedMemoryConfirmed
+            ? 'ADMITTED'
+            : 'SHARED_GPU_MEMORY_CONFIRMATION',
+    });
+  }
   return result(
     incompatible ? 'INCOMPATIBLE_DRIVER' : shortage ? 'INSUFFICIENT_RESOURCES' : 'ADMITTED',
   );
