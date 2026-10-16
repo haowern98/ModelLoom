@@ -200,6 +200,48 @@ function setup(popup = false) {
   };
 }
 
+it('allows deleting saved intent without stopping an already ready model', async () => {
+  const f = setup();
+  try {
+    await f.initialize(true);
+    expect((await f.controller.cluster({ action: 'delete', id: configId, revision: 1 })).ok).toBe(
+      true,
+    );
+    expect(f.host.cluster).toHaveBeenCalledWith(expect.any(String), {
+      action: 'delete',
+      id: configId,
+      revision: 1,
+    });
+    expect(f.host.command).not.toHaveBeenCalled();
+    expect((await f.controller.command({ action: 'snapshot' })).phase).toBe('ready');
+  } finally {
+    await f.controller.quit();
+  }
+});
+
+it('rejects deletion while an allocation is being admitted for loading', async () => {
+  const f = setup();
+  const pending = deferred<StockClusterReport>();
+  try {
+    await f.initialize();
+    f.deps.preflightCluster.mockImplementationOnce(() => pending.promise);
+    const running = f.run();
+    await vi.waitFor(() => expect(f.deps.preflightCluster).toHaveBeenCalledOnce());
+    expect(await f.controller.cluster({ action: 'delete', id: configId, revision: 1 })).toEqual({
+      ok: false,
+      error: 'NOT_READY',
+    });
+    expect(f.host.cluster.mock.calls.some(([, command]) => command.action === 'delete')).toBe(
+      false,
+    );
+    pending.resolve({} as StockClusterReport);
+    await running;
+  } finally {
+    pending.resolve({} as StockClusterReport);
+    await f.controller.quit();
+  }
+});
+
 it('Auto assign writes raw ranges through owner CAS without saving or loading', async () => {
   const f = setup();
   await f.initialize();

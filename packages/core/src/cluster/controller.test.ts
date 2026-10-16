@@ -46,8 +46,15 @@ it.each([
   { action: 'save', key: 'model:' + 'a'.repeat(64), revision: 0, name: 'Name' },
   { action: 'read', modelId: 'path', configurationId: null },
   { action: 'cancel-planning', receipt: {} },
+  { action: 'delete', id: '../other', revision: 1 },
+  { action: 'delete', id: '12345678-1234-4234-8234-123456789abc', revision: 0 },
+  { action: 'delete', id: '12345678-1234-4234-8234-123456789abc', revision: 1, path: 'E:\\secret' },
 ])('rejects malformed control %o', (input) => {
   expect(() => decodeClusterCommand(input)).toThrow('INVALID_CONTROL');
+});
+it('accepts only an exact revision-bound delete command', () => {
+  const command = { action: 'delete', id: '12345678-1234-4234-8234-123456789abc', revision: 1 };
+  expect(decodeClusterCommand(command)).toEqual(command);
 });
 it('rejects raw host exception replies', () => {
   expect(() => decodeClusterReply({ ok: false, error: 'C:\\secret' })).toThrow('INVALID_CONTROL');

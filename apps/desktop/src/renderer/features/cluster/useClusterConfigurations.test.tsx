@@ -11,6 +11,50 @@ import type {
 } from '../../../shared/cluster-configuration';
 const load = { defaults: {}, cacheK: 'f16', cacheV: 'f16' } as CapturedClusterLoad;
 
+it('retains the selected configuration and its edits when deletion fails', async () => {
+  const fixture = historyBridge();
+  const original = fixture.bridge.command;
+  fixture.bridge.command = vi.fn((command) =>
+    command.action === 'delete'
+      ? Promise.resolve({ ok: false as const, error: 'CONFIGURATION_UNAVAILABLE' as const })
+      : original(command),
+  );
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
+  await act(async () => expect(await result.current.remove(fixture.configuration)).toBe(false));
+  expect(result.current.saved).toEqual(fixture.configuration);
+  expect(result.current.raw?.runs[0]?.last).toBe('6');
+  expect(result.current.configurations).toEqual([fixture.configuration]);
+  expect(result.current.error).toContain('Could not delete');
+});
+
+it('restores the independent model draft after deleting the selected saved configuration', async () => {
+  const fixture = historyBridge();
+  const original = fixture.bridge.command;
+  fixture.bridge.command = vi.fn((command) =>
+    command.action === 'delete'
+      ? Promise.resolve({
+          ok: true as const,
+          configurations: [],
+          configuration: null,
+          draft: null,
+          load: null,
+          issues: [],
+        })
+      : original(command),
+  );
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectModel(fixture.configuration.modelId));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  await act(async () => expect(await result.current.remove(fixture.configuration)).toBe(true));
+  expect(result.current.saved).toBeNull();
+  expect(result.current.raw?.runs[0]?.last).toBe('6');
+  expect(result.current.configurations).toEqual([]);
+  expect(result.current.selection?.configurationId).toBeNull();
+});
+
 it('does not mark placement dirty or add Undo when only hydrated model defaults differ', async () => {
   const fixture = historyBridge();
   const original = fixture.bridge.command;

@@ -35,6 +35,53 @@ const source = {
   quantization: 'Q4_K_M',
   parameters: '4B',
 };
+it('deletes only the requested saved configuration and its draft, preserving model settings and other drafts', async () => {
+  const { store } = setup();
+  await store.recordImport(edit.modelId, 123, source);
+  const create = (name: string) => {
+    const draft = store.cluster.writeDraft(`model:${edit.modelId}`, null, {
+      ...edit,
+      runs: [{ uuid, first: '0', last: '63' }],
+    });
+    const saved = store.cluster.saveDraft(draft.key, draft.revision, name);
+    if (!saved.ok) throw Error('fixture save failed');
+    return saved;
+  };
+  const first = create('Delete this'),
+    second = create('Keep this');
+  const modelDraft = store.cluster.writeDraft(`model:${edit.modelId}`, null, edit);
+  const settings = await store.read(edit.modelId);
+  expect(() =>
+    store.cluster.remove(first.configuration.id, first.configuration.revision + 1),
+  ).toThrow('STALE_CONFIGURATION');
+  expect(store.cluster.read(first.configuration.id)).not.toBeNull();
+  store.cluster.remove(first.configuration.id, first.configuration.revision);
+  expect(store.cluster.read(first.configuration.id)).toBeNull();
+  expect(store.cluster.readDraft(first.draft.key)).toBeNull();
+  expect(store.cluster.read(second.configuration.id)).toEqual(second.configuration);
+  expect(store.cluster.readDraft(second.draft.key)).toEqual(second.draft);
+  expect(store.cluster.readDraft(modelDraft.key)).toEqual(modelDraft);
+  expect(await store.read(edit.modelId)).toEqual(settings);
+  expect(await store.readImportSource(edit.modelId)).toEqual(source);
+});
+it('rolls back configuration deletion if removing its draft fails', async () => {
+  const { store, db } = setup();
+  await store.recordImport(edit.modelId, 123, source);
+  const draft = store.cluster.writeDraft(`model:${edit.modelId}`, null, {
+    ...edit,
+    runs: [{ uuid, first: '0', last: '63' }],
+  });
+  const saved = store.cluster.saveDraft(draft.key, draft.revision, 'Retain on failure');
+  if (!saved.ok) throw Error('fixture save failed');
+  db.exec(
+    "CREATE TRIGGER fail_delete BEFORE DELETE ON cluster_drafts BEGIN SELECT RAISE(ABORT, 'injected failure'); END",
+  );
+  expect(() =>
+    store.cluster.remove(saved.configuration.id, saved.configuration.revision),
+  ).toThrow();
+  expect(store.cluster.read(saved.configuration.id)).toEqual(saved.configuration);
+  expect(store.cluster.readDraft(saved.draft.key)).toEqual(saved.draft);
+});
 it('durably retains invalid drafts and promotes only a complete captured revision', async () => {
   const { db, store } = setup();
   await store.recordImport(edit.modelId, 123, source);
