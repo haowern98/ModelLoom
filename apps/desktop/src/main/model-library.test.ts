@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createRuntimeController } from './runtime-controller';
 import { ModelConfigurationStore } from '../../../../packages/core/src/model-configuration/store';
@@ -21,7 +22,7 @@ it('retains all imports through refresh, settings, switching, reimport and resta
   );
   const sources: ModelSource[] = ['a', 'b'].map((key) => ({
     modelId: key.repeat(64),
-    file: `E:\\Models\\${key}.gguf`,
+    file: path.resolve('models', `${key}.gguf`),
     name: key === 'a' ? 'Bonsai' : 'Qwen',
     size: '4 GB',
     sizeBytes: 4000000000,
@@ -147,7 +148,8 @@ it('retains all imports through refresh, settings, switching, reimport and resta
       unavailable: true,
     });
     expect(restored.phase).toBe('stopped');
-    expect(JSON.stringify(restored)).not.toContain('E:\\Models');
+    for (const source of sources)
+      expect(JSON.stringify(restored)).not.toContain(JSON.stringify(source.file).slice(1, -1));
   } finally {
     await controller.quit();
     database.close();
