@@ -22,7 +22,7 @@ describe('Model configuration demo', () => {
     expect(screen.getByRole('textbox', { name: 'System Prompt' })).toHaveValue(
       '<script>example</script>',
     );
-    expect(screen.getByRole('status')).toHaveTextContent('Pending changes');
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
     expect(document.querySelector('script:not([src])')).toBeNull();
   });
 
@@ -33,9 +33,9 @@ describe('Model configuration demo', () => {
     const temperature = screen.getByRole('spinbutton', { name: 'Temperature' });
     await user.clear(temperature);
     await user.type(temperature, '0.6');
-    await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
     await user.clear(temperature);
-    await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(temperature).toHaveAttribute('aria-invalid', 'true');
     expect(temperature).toHaveFocus();
     expect(screen.getByRole('alert')).toHaveTextContent('Check the highlighted settings');
@@ -43,16 +43,16 @@ describe('Model configuration demo', () => {
     const physical = screen.getByRole('spinbutton', { name: 'Physical Batch Size' });
     await user.clear(physical);
     await user.type(physical, '4096');
-    await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(
       screen.getByText('Physical Batch Size must not exceed Evaluation Batch Size.'),
     ).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Reset defaults' }));
     expect(temperature).toHaveValue(0.8);
     expect(physical).toHaveValue(512);
-    expect(screen.getByRole('status')).toHaveTextContent('Pending changes');
-    await user.click(screen.getByRole('button', { name: 'Save defaults' }));
-    expect(screen.getByRole('button', { name: 'Save defaults' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
   });
 
   it('preserves disabled manual values and synchronizes numeric controls with sliders', async () => {
@@ -89,7 +89,7 @@ describe('Model configuration demo', () => {
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));
     await user.type(screen.getByRole('textbox', { name: 'Stop Strings' }), ' END {Enter}');
-    expect(screen.getByRole('status')).toHaveTextContent('Pending changes');
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
     expect(screen.getByRole('button', { name: /Remove stop string.*END/ })).toBeVisible();
     expect(screen.getByText(' END ', { normalizer: (text) => text })).toBeVisible();
     await user.click(screen.getByText('Chat Template', { exact: true }));
@@ -99,7 +99,7 @@ describe('Model configuration demo', () => {
     );
     await user.click(screen.getByRole('switch', { name: 'llama.cpp Arguments Override' }));
     await user.type(screen.getByRole('textbox', { name: 'Arguments' }), '--example $(ignored)');
-    await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(screen.getByRole('status')).toHaveTextContent('Defaults saved');
     await user.click(screen.getByRole('button', { name: 'Back to Models' }));
     await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));

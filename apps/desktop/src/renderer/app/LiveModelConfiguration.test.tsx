@@ -68,7 +68,7 @@ it('opens the imported model editor and reports Save only after the core commits
   const temperature = screen.getByRole('spinbutton', { name: 'Temperature' });
   await user.clear(temperature);
   await user.type(temperature, '0.2');
-  await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+  await user.click(screen.getByRole('button', { name: 'Save changes' }));
   expect(
     await screen.findByText('Defaults saved. New requests will use these settings.'),
   ).toBeVisible();
@@ -85,7 +85,7 @@ it('retains the pending draft when storage fails and never claims it was saved',
   await user.clear(temperature);
   await user.type(temperature, '0.3');
   fail();
-  await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+  await user.click(screen.getByRole('button', { name: 'Save changes' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Settings could not be confirmed');
   expect(temperature).toHaveValue(0.3);
   expect((await store.read(record().modelId)).generation.temperature).toBe(0.8);
@@ -127,7 +127,7 @@ it('commits supported performance and advanced load settings while keeping unsaf
   await user.type(screen.getByRole('textbox', { name: 'Chat Template text' }), 'Custom template');
   expect(screen.getByRole('switch', { name: 'llama.cpp Arguments Override' })).toBeDisabled();
   expect(screen.getByRole('combobox', { name: 'Context Overflow' })).toBeDisabled();
-  await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+  await user.click(screen.getByRole('button', { name: 'Save changes' }));
   await screen.findByText('Defaults saved. New requests will use these settings.');
   const saved = await store.read(record().modelId);
   expect(saved.load).toMatchObject({

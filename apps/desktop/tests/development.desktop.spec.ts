@@ -200,11 +200,11 @@ test('relocated packaged development imports and loads the approved runtime', as
     await window.getByRole('button', { name: 'Configure Bonsai 27B', exact: true }).click();
     const temperature = window.getByRole('spinbutton', { name: 'Temperature', exact: true });
     await temperature.fill((await temperature.inputValue()) === '0.75' ? '0.8' : '0.75');
-    await window.getByRole('button', { name: 'Save defaults', exact: true }).click();
+    await window.getByRole('button', { name: 'Save changes', exact: true }).click();
     await expect(window.getByRole('status')).toContainText('Defaults saved');
     if ((await temperature.inputValue()) !== '0.75') {
       await temperature.fill('0.75');
-      await window.getByRole('button', { name: 'Save defaults', exact: true }).click();
+      await window.getByRole('button', { name: 'Save changes', exact: true }).click();
       await expect(window.getByRole('status')).toContainText('Defaults saved');
     }
     if (process.env.MODELLOOM_PACKAGED_UTILITY_DEATH_TEST === '1') {

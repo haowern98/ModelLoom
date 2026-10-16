@@ -1,5 +1,112 @@
 import { expect, test } from '@playwright/test';
 
+test('model actions stay at the pane bottom while settings scroll above them', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Configure Qwen3.8-27B' }).click();
+  const actions = page.getByRole('group', { name: 'Model configuration actions' });
+  const main = page.locator('main');
+  const scroll = page.locator('[data-configuration-scroll]');
+  const reset = actions.getByRole('button', { name: 'Reset defaults', exact: true });
+  const save = actions.getByRole('button', { name: 'Save changes', exact: true });
+  for (const width of [1280, 1000, 800, 640]) {
+    await page.setViewportSize({ width, height: 720 });
+    await expect(actions.getByRole('button')).toHaveCount(2);
+    await expect(main.locator('..')).toHaveCSS('background-color', 'rgb(24, 24, 24)');
+    await expect(reset).toHaveCSS('border-radius', '999px');
+    await expect(reset).toHaveCSS('background-color', 'rgb(48, 48, 48)');
+    await expect(save).toBeDisabled();
+    const paneBounds = (await main.boundingBox())!;
+    const barBounds = (await actions.boundingBox())!;
+    expect(barBounds.x).toBe(paneBounds.x);
+    expect(barBounds.width).toBe(paneBounds.width);
+    expect(barBounds.y + barBounds.height).toBe(paneBounds.y + paneBounds.height);
+    for (const fraction of [0, 0.5, 1]) {
+      await scroll.evaluate((element, fraction) => {
+        element.scrollTop = fraction * (element.scrollHeight - element.clientHeight);
+      }, fraction);
+      expect(await actions.boundingBox()).toEqual(barBounds);
+      await expect(reset).toBeInViewport();
+      await expect(save).toBeInViewport();
+    }
+    const lastControl = page.getByRole('switch', { name: 'llama.cpp Arguments Override' });
+    await lastControl.scrollIntoViewIfNeeded();
+    const lastBounds = (await lastControl.boundingBox())!;
+    expect(lastBounds.y + lastBounds.height).toBeLessThanOrEqual(barBounds.y);
+    const saveBounds = (await save.boundingBox())!;
+    const resetBounds = (await reset.boundingBox())!;
+    expect(resetBounds.x + resetBounds.width).toBeLessThan(saveBounds.x);
+    expect(paneBounds.x + paneBounds.width - saveBounds.x - saveBounds.width).toBeLessThanOrEqual(
+      26,
+    );
+  }
+  const prompt = page.getByRole('textbox', { name: 'System Prompt', exact: true });
+  await prompt.fill('Temporary instructions');
+  await expect(save).toBeEnabled();
+  await expect(page.getByText('Pending changes', { exact: true })).toHaveCount(0);
+  await reset.click();
+  await expect(prompt).toHaveValue('');
+  await expect(save).toBeDisabled();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.screenshot({ path: 'E:/ModelLoom-Project/plans/model-fixed-actions.png' });
+});
+
+test('model explanations appear beneath labels with the Thinking row spacing and no help icons', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Configure Qwen3.8-27B' }).click();
+  const form = page.locator('form');
+  await expect(form.getByRole('button', { name: /^About / })).toHaveCount(0);
+  await expect(form.getByRole('tooltip')).toHaveCount(0);
+  await expect(form.getByText('Total tokens available for the prompt and response.')).toBeVisible();
+  for (const width of [1280, 1000]) {
+    await page.setViewportSize({ width, height: 900 });
+    const reference = await form
+      .getByText('For supported chat templates.', { exact: true })
+      .evaluate((node) => {
+        const style = getComputedStyle(node);
+        return {
+          margin: style.marginTop,
+          font: style.fontSize,
+          color: style.color,
+          lineHeight: style.lineHeight,
+        };
+      });
+    expect(reference.margin).toBe('4px');
+    const descriptions = form.locator('[class*="labelArea"] > p');
+    expect(await descriptions.count()).toBeGreaterThan(3);
+    for (const description of await descriptions.all()) {
+      const layout = await description.evaluate((node) => {
+        const style = getComputedStyle(node);
+        const labelArea = node.parentElement!;
+        const row = labelArea.parentElement!;
+        const areaBounds = labelArea.getBoundingClientRect();
+        const controlBounds = row.lastElementChild!.getBoundingClientRect();
+        return {
+          text: {
+            margin: style.marginTop,
+            font: style.fontSize,
+            color: style.color,
+            lineHeight: style.lineHeight,
+          },
+          paddingTop: getComputedStyle(row).paddingTop,
+          paddingBottom: getComputedStyle(row).paddingBottom,
+          centerDifference: Math.abs(
+            areaBounds.y + areaBounds.height / 2 - controlBounds.y - controlBounds.height / 2,
+          ),
+        };
+      });
+      expect(layout.text).toEqual(reference);
+      expect(layout.paddingTop).toBe('14px');
+      expect(layout.paddingBottom).toBe('14px');
+      expect(layout.centerDifference).toBeLessThan(1);
+    }
+  }
+  await form
+    .getByRole('region', { name: 'Generation', exact: true })
+    .screenshot({ path: 'E:/ModelLoom-Project/plans/model-inline-explanations.png' });
+});
+
 test('larger model toggles preserve all other text and control geometry', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Configure Qwen3.8-27B' }).click();
@@ -54,7 +161,7 @@ test('per-model defaults save for this session, preserve pending edits and reset
   const temperature = page.getByRole('spinbutton', { name: 'Temperature', exact: true });
   await temperature.fill('0.65');
   await page.getByRole('textbox', { name: 'System Prompt' }).fill('Keep answers concise.');
-  await page.getByRole('button', { name: 'Save defaults' }).click();
+  await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('status')).toContainText('Defaults saved for this demo session');
   await page.getByRole('button', { name: 'Back to Models' }).click();
   await expect(page.getByRole('button', { name: 'Configure Qwen3.8-27B' })).toBeFocused();
@@ -70,7 +177,7 @@ test('per-model defaults save for this session, preserve pending edits and reset
   await page.getByRole('button', { name: 'Models', exact: true }).click();
   await page.getByRole('button', { name: 'Configure Qwen3.8-27B' }).click();
   await expect(page.getByRole('textbox', { name: 'System Prompt' })).toHaveValue('Pending prompt');
-  await expect(page.getByRole('status')).toContainText('Pending changes');
+  await expect(page.getByRole('button', { name: 'Save changes' })).toBeEnabled();
   await page.reload();
   await page.getByRole('button', { name: 'Configure Qwen3.8-27B' }).click();
   await expect(temperature).toHaveValue('0.8');
@@ -94,7 +201,7 @@ test('validation, toggles, sliders, exact stop strings and advanced editors work
   await expect(page.getByRole('spinbutton', { name: 'Context Length' })).toHaveValue('4096');
   const temperature = page.getByRole('spinbutton', { name: 'Temperature', exact: true });
   await temperature.fill('3');
-  await page.getByRole('button', { name: 'Save defaults' }).click();
+  await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(temperature).toBeFocused();
   await expect(temperature).toHaveAttribute('aria-invalid', 'true');
   await expect(page.getByRole('alert')).toContainText('Check the highlighted settings');
@@ -105,7 +212,7 @@ test('validation, toggles, sliders, exact stop strings and advanced editors work
   await expect(temperature).toHaveValue('0.51');
   const physical = page.getByRole('spinbutton', { name: 'Physical Batch Size' });
   await physical.fill('4096');
-  await page.getByRole('button', { name: 'Save defaults' }).click();
+  await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(physical).toBeFocused();
   await expect(
     page.getByText('Physical Batch Size must not exceed Evaluation Batch Size.'),
@@ -125,13 +232,13 @@ test('validation, toggles, sliders, exact stop strings and advanced editors work
   await page.getByRole('textbox', { name: 'Chat Template text' }).fill('<script>example</script>');
   await page.getByRole('switch', { name: 'llama.cpp Arguments Override' }).click();
   await page.getByRole('textbox', { name: 'Arguments', exact: true }).fill('--example $(ignored)');
-  await page.getByRole('button', { name: 'Save defaults' }).click();
+  await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('status')).toContainText('Defaults saved');
   await page.getByRole('button', { name: 'Reset defaults' }).click();
   await expect(temperature).toHaveValue('0.8');
   await expect(page.getByRole('button', { name: /Remove stop string/ })).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: 'Arguments', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('status')).toContainText('Pending changes');
+  await expect(page.getByRole('button', { name: 'Save changes' })).toBeEnabled();
 });
 
 for (const font of ['system', 'Arial fallback']) {

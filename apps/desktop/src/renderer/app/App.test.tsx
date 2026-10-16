@@ -147,7 +147,7 @@ describe('Models milestone', () => {
     const temperature = screen.getByRole('spinbutton', { name: 'Temperature' });
     await user.clear(temperature);
     await user.type(temperature, '0.6');
-    await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(screen.getByRole('status')).toHaveTextContent('Defaults saved for this demo session');
     await user.click(screen.getByRole('button', { name: 'Back to Models' }));
     expect(screen.getByRole('button', { name: 'Configure Llama 3.1 8B' })).toHaveFocus();

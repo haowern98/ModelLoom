@@ -113,6 +113,10 @@
   overflow: auto;
   padding: 20px 26px 12px 27px;
 }
+.main:has(> [data-model-configuration]) {
+  padding: 0;
+  overflow: hidden;
+}
 /* Keep the native scroll strip clear of the workspace's rounded ends. */
 .main::-webkit-scrollbar {
   width: 10px;

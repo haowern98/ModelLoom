@@ -51,7 +51,7 @@ test('packaged demo opens safely, navigates, and exits its owned app', async () 
     await expect(window.getByRole('heading', { name: 'Model configuration' })).toBeVisible();
     await expect(window.getByRole('region', { name: 'Prompt', exact: true })).toBeVisible();
     await window.getByRole('spinbutton', { name: 'Temperature', exact: true }).fill('0.6');
-    await window.getByRole('button', { name: 'Save defaults' }).click();
+    await window.getByRole('button', { name: 'Save changes' }).click();
     await expect(window.getByRole('status')).toContainText('Defaults saved for this demo session');
     await window.getByRole('button', { name: 'Back to Models' }).click();
     await window.getByRole('button', { name: 'Configure Qwen3.8-27B' }).click();
