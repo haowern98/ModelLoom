@@ -10,6 +10,109 @@ import { resolveRequestSettings } from '../model-configuration/resolve.js';
 import { OwnerChatChannel, UtilityChatTransport } from '../hosts/chat-channel.js';
 import { trackModelUse } from './model-use-transport.js';
 
+it.each([
+  { tokens: 10, cap: undefined, completion: 600, valid: true },
+  { tokens: 10, cap: 128, completion: 129, valid: false },
+  { tokens: 7680, cap: undefined, completion: 1, valid: false },
+])(
+  'enforces API context and explicit caps without a hidden 512-token limit: $tokens/$cap/$completion',
+  async ({ tokens, cap, completion, valid }) => {
+    const history = new HistoryStore(new DatabaseSync(':memory:'));
+    const scope = new ApiCallerScope();
+    const saved = record();
+    const active = {
+      modelId: saved.modelId,
+      revision: 1,
+      profileId: capabilities.profileId,
+      load: saved.load,
+    };
+    let emit!: (chunk: GenerationChunk) => void | Promise<void>;
+    let finish!: (outcome: TerminalOutcome) => void;
+    let starts = 0;
+    const service = new GenerationService({
+      history,
+      session: { deploymentId: 'desktop', sessionId: 'session', operationId: 'load' },
+      provenance: {
+        packageId: 'runtime',
+        upstreamCommit: 'a'.repeat(40),
+        configuration: {
+          modelSha256: saved.modelId,
+          contextPerSlot: 7680,
+          slots: 4,
+          gpuLayers: 0,
+          cacheK: 'f16',
+          cacheV: 'f16',
+          seed: 7,
+          temperature: 0.8,
+        },
+      },
+      configuration: {
+        capabilities,
+        capture: (overrides = {}) =>
+          Promise.resolve(resolveRequestSettings(saved, active, overrides, capabilities)),
+      },
+      cleanup: () => Promise.resolve(),
+      transport: {
+        tokenCount: () => Promise.resolve(tokens),
+        start: (_identity, _messages, callback, settings) => {
+          starts++;
+          expect(settings?.parameters.max_tokens).toBe(cap ?? -1);
+          emit = callback;
+          const settled = new Promise<TerminalOutcome>((resolve) => {
+            finish = resolve;
+          });
+          return {
+            settled,
+            cancel: () => finish({ status: 'cancelled', reason: 'USER_CANCELLED' }),
+          };
+        },
+      },
+    });
+    try {
+      const api = service.generateApi(
+        scope.issue(),
+        {
+          messages: [{ role: 'user', content: 'Question' }],
+          overrides: cap === undefined ? {} : { max_tokens: cap },
+        },
+        () => undefined,
+      );
+      if (tokens === 7680) {
+        await expect(api.admitted).rejects.toThrow('CONTEXT_FULL');
+        await expect(api.done).rejects.toThrow('CONTEXT_FULL');
+        expect(starts).toBe(0);
+      } else {
+        await api.admitted;
+        const emission = Promise.resolve().then(() =>
+          emit({
+            type: 'terminal',
+            outcome: { status: 'completed', reason: 'STOP' },
+            usage: {
+              prompt_tokens: tokens,
+              completion_tokens: completion,
+              total_tokens: tokens + completion,
+            },
+          }),
+        );
+        if (valid) await emission;
+        else await expect(emission).rejects.toThrow('INVALID_STREAM');
+        finish({ status: 'completed', reason: 'STOP' });
+        const result = await api.done;
+        if (valid)
+          expect(result).toMatchObject({
+            outcome: { status: 'completed' },
+            usage: { completion_tokens: 600 },
+          });
+        else expect(result.outcome.status).toBe('failed');
+      }
+    } finally {
+      await service.close();
+      scope.close();
+      history.close();
+    }
+  },
+);
+
 it('runs stateless API on the Chat queue, revokes queued callers and never writes API history', async () => {
   const history = new HistoryStore(new DatabaseSync(':memory:'));
   const scope = new ApiCallerScope();

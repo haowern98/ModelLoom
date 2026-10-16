@@ -5,6 +5,66 @@ import {
   decodeApiManagementReply,
   decodeApiOwnerReply,
 } from './wire.js';
+
+it('keeps paged library restoration owner-only and validates cursor progress and entry data', () => {
+  const source = {
+    modelId: 'b'.repeat(64),
+    file: 'E:\\Models\\model.gguf',
+    name: 'Indexed model',
+    size: '4 GB',
+    sizeBytes: 4000000000,
+    modifiedMs: 1234,
+    architecture: 'llama',
+    contextLimit: 4096,
+    quantization: 'Q4_K_M',
+    parameters: '4B',
+  };
+  const command = { action: 'readLibraryEntry' as const, after: 'a'.repeat(64) };
+  for (const after of [null, command.after]) {
+    const request = { ...command, after };
+    expect(decodeApiOwnerCommand(request)).toEqual(request);
+    expect(() => decodeApiManagementCommand(request)).toThrow('INVALID_CONTROL');
+    for (const lastUsedAt of [null, 123]) {
+      const reply = { ok: true, entry: { source, lastUsedAt } };
+      expect(decodeApiOwnerReply(reply, request)).toEqual(reply);
+      expect(() => decodeApiManagementReply(reply)).toThrow('INVALID_CONTROL');
+    }
+    expect(decodeApiOwnerReply({ ok: true, entry: null }, request)).toEqual({
+      ok: true,
+      entry: null,
+    });
+  }
+  for (const after of [undefined, '', '../secret', 'A'.repeat(64), 'a'.repeat(63), 123])
+    expect(() => decodeApiOwnerCommand({ ...command, after })).toThrow('INVALID_CONTROL');
+  expect(() => decodeApiOwnerCommand({ ...command, file: 'private' })).toThrow('INVALID_CONTROL');
+  for (const modelId of ['a'.repeat(64), '0'.repeat(64)])
+    expect(() =>
+      decodeApiOwnerReply(
+        { ok: true, entry: { source: { ...source, modelId }, lastUsedAt: null } },
+        command,
+      ),
+    ).toThrow('INVALID_CONTROL');
+  for (const lastUsedAt of [
+    0,
+    -1,
+    1.5,
+    NaN,
+    Infinity,
+    Number.MAX_SAFE_INTEGER + 1,
+    '123',
+    undefined,
+  ])
+    expect(() => decodeApiOwnerReply({ ok: true, entry: { source, lastUsedAt } }, command)).toThrow(
+      'INVALID_CONTROL',
+    );
+  for (const reply of [
+    { ok: true, entry: null, extra: true },
+    { ok: true, entry: { source, lastUsedAt: null, extra: true } },
+    { ok: true, entry: { source: { ...source, extra: true }, lastUsedAt: null } },
+  ])
+    expect(() => decodeApiOwnerReply(reply, command)).toThrow();
+});
+
 it('reads usage through the fixed owner only and rejects forged or malformed timestamps', () => {
   const command = { action: 'readModelUsage' as const };
   expect(decodeApiOwnerCommand(command)).toEqual(command);

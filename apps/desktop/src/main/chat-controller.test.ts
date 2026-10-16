@@ -1,14 +1,15 @@
 import { expect, it, vi } from 'vitest';
+import path from 'node:path';
 import { createRuntimeController } from './runtime-controller';
 it('binds Chat to main caller and rejects new work after Quit', async () => {
   const callers: string[] = [];
   const controller = createRuntimeController(
     {
       enabled: true,
-      expectedHash: 'approved',
+      expectedHash: 'a'.repeat(64),
       packageId: 'package',
       pick: () => Promise.resolve('private.gguf'),
-      inspect: () => Promise.resolve({ sha256: 'approved', size: '1 GB' }),
+      inspect: () => Promise.resolve({ sha256: 'a'.repeat(64), size: '1 GB' }),
       preflight: () => Promise.resolve(),
       createHost: () =>
         Promise.resolve({
@@ -63,10 +64,10 @@ function startup() {
   };
   const deps = {
     enabled: true as const,
-    expectedHash: 'approved',
+    expectedHash: 'a'.repeat(64),
     packageId: 'package',
     pick: vi.fn(() => Promise.resolve('private.gguf')),
-    inspect: vi.fn(() => Promise.resolve({ sha256: 'approved', size: '1 GB' })),
+    inspect: vi.fn(() => Promise.resolve({ sha256: 'a'.repeat(64), size: '1 GB' })),
     preflight: vi.fn(() => Promise.resolve()),
     createHost: vi.fn(() => Promise.reject(new Error('UNEXPECTED_MODEL_HOST'))),
     createHistoryHost: vi.fn(() => Promise.resolve(host)),
@@ -105,7 +106,7 @@ it('keeps one history owner through imports and rejected model loads', async () 
   expect((await controller.command({ action: 'load', modelId: imported.model!.id })).phase).toBe(
     'ready',
   );
-  expect(host.prepare).toHaveBeenCalledWith('private.gguf');
+  expect(host.prepare).toHaveBeenCalledWith(path.resolve('private.gguf'));
   await controller.command({ action: 'stop' });
   await controller.command({ action: 'import' });
   expect((await controller.chat({ action: 'list' })).page?.payload).toBe('saved chat');
