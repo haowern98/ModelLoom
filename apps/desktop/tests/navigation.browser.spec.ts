@@ -9,7 +9,6 @@ test('sidebar uses neutral selection, consistent icons and distinct keyboard foc
   const cluster = rail.getByRole('button', { name: 'Cluster', exact: true });
   const home = rail.getByRole('button', { name: 'Chat', exact: true });
   const more = rail.getByRole('button', { name: 'More navigation' });
-  const mainIcons = rail.locator('button > svg');
 
   await page.mouse.move(500, 40);
   await expect(models).toHaveAttribute('aria-current', 'page');
@@ -21,11 +20,17 @@ test('sidebar uses neutral selection, consistent icons and distinct keyboard foc
   await expect(home).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(cluster).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(cluster).toHaveCSS('color', 'rgb(139, 139, 139)');
-  for (let index = 0; index < 8; index++) {
-    await expect(mainIcons.nth(index)).toHaveCSS('width', '20px');
-    await expect(mainIcons.nth(index)).toHaveCSS('height', '20px');
-    await expect(mainIcons.nth(index)).toHaveAttribute('stroke-width', '1.75');
+  for (const name of ['Chat', 'Cluster', 'Models', 'API', 'Settings', 'More navigation']) {
+    const icon = rail.getByRole('button', { name, exact: true }).locator('svg');
+    await expect(icon).toHaveCSS('width', '20px');
+    await expect(icon).toHaveCSS('height', '20px');
+    await expect(icon).toHaveAttribute('aria-hidden', 'true');
+    expect(await icon.locator('path').count()).toBeGreaterThan(0);
   }
+  await expect(rail.getByRole('button', { name: /Downloads/ }).locator('svg')).toHaveCSS(
+    'width',
+    '16px',
+  );
   await cluster.hover();
   await expect(cluster).toHaveCSS('background-color', 'rgb(47, 47, 47)');
   await expect(models).toHaveAttribute('aria-current', 'page');
@@ -46,6 +51,9 @@ test('sidebar uses neutral selection, consistent icons and distinct keyboard foc
   await expect(
     rail.getByLabel('Additional screens').getByRole('button', { name: 'API', exact: true }),
   ).toHaveCount(0);
+  await expect(
+    rail.getByLabel('Additional screens').getByRole('button', { name: 'Chat', exact: true }),
+  ).toBeVisible();
   await rail.getByRole('button', { name: 'API', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'API', exact: true })).toBeVisible();
   await expect(rail.getByRole('button', { name: 'API', exact: true })).toHaveAttribute(

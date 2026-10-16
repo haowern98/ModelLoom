@@ -254,7 +254,9 @@ for (const font of ['system', 'Arial fallback']) {
     for (const width of [1280, 1000, 800]) {
       await page.setViewportSize({ width, height: 720 });
       const heading = page.getByRole('heading', { name: 'Model configuration' });
-      await page.locator('main').evaluate((main) => main.scrollTo({ top: 0 }));
+      await page
+        .locator('[data-configuration-scroll]')
+        .evaluate((area) => area.scrollTo({ top: 0 }));
       const topSpace = await heading.evaluate(
         (element) =>
           element.getBoundingClientRect().top -
@@ -264,7 +266,7 @@ for (const font of ['system', 'Arial fallback']) {
       await expect(heading).toHaveCSS('font-size', '24px');
       await expect(page.getByRole('heading', { name: 'Prompt', exact: true })).toHaveCSS(
         'font-size',
-        '16px',
+        '14px',
       );
       const config = page.locator('form');
       await expect(config.getByRole('region')).toHaveCount(6);
@@ -309,7 +311,9 @@ for (const font of ['system', 'Arial fallback']) {
           expect(box.x + box.width).toBeLessThanOrEqual(bounds[0]!.right);
         }
       }
-      await page.locator('main').evaluate((main) => main.scrollTo({ top: 0 }));
+      await page
+        .locator('[data-configuration-scroll]')
+        .evaluate((area) => area.scrollTo({ top: 0 }));
       if (font === 'system')
         await page.screenshot({ path: `test-results/configuration-${width}.png` });
     }
