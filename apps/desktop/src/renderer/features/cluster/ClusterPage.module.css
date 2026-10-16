@@ -387,6 +387,9 @@
 .panelContent:has(.overviewSummary) {
   margin-left: -12px;
   padding-left: 12px;
+  /* Leave room for the full row hover surface without moving its text or controls. */
+  margin-right: -18px;
+  padding-right: 12px;
 }
 .panel:focus {
   outline: none;

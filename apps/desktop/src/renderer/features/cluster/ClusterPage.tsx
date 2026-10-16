@@ -24,7 +24,7 @@ import {
   parseLayerInputs,
   validSampleRange,
 } from '../../mocks/cluster';
-import type { DemoDevice, DemoPlacement, PlacementAction } from '../../mocks/cluster';
+import type { DemoDevice, DemoPlacement, LayerInput, PlacementAction } from '../../mocks/cluster';
 import { DeviceCard } from './DeviceCard';
 import { ClusterCanvas } from './ClusterCanvas';
 import { ClusterPanel } from './ClusterPanel';
@@ -98,6 +98,9 @@ export function ClusterPage({
   configurations,
 }: ClusterPageProps) {
   const [configurationName, setConfigurationName] = useState('');
+  const [validatedDemoInputs, setValidatedDemoInputs] = useState<readonly LayerInput[] | null>(
+    null,
+  );
   const [view, setView] = useState<ClusterView>('overview');
   const [panelOpen, setPanelOpen] = useState(false);
   const panelId = useId();
@@ -291,6 +294,7 @@ export function ClusterPage({
     setModal(null);
   };
   const validate = () => {
+    setValidatedDemoInputs(placement.inputs);
     const proposal = parseLayerInputs(placement.inputs, layerCount);
     if (!proposal || !completeSamplePlacement(proposal, layerCount)) {
       reportError(
@@ -684,7 +688,12 @@ export function ClusterPage({
                 configurations?.issues.map((issue) => ({
                   ...issue,
                   hardwareId: executableGpus.find((gpu) => gpu.uuid === issue.uuid)?.hardwareId,
-                })) ?? []
+                })) ??
+                (validatedDemoInputs === placement.inputs
+                  ? placement.inputs
+                      .filter((input) => parseLayerInputs([input], layerCount) === null)
+                      .map((input) => ({ hardwareId: input.hardwareId, field: 'first' }))
+                  : [])
               }
               panelRef={panelRef}
               onClose={closePanel}
