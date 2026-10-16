@@ -83,25 +83,29 @@ test('packaged demo opens safely, navigates, and exits its owned app', async () 
     await expect(window.getByLabel('1 pending request')).toBeVisible();
     await joiningPanel.getByRole('button', { name: 'Decline join request from office-pc' }).click();
     await expect(window.getByLabel(/pending requests?$/)).toHaveCount(0);
-    await window.getByRole('button', { name: 'Add', exact: true }).click();
-    await window.getByRole('menuitem', { name: 'Add device', exact: true }).click();
-    await joiningPanel.getByRole('button', { name: 'Invite office-pc' }).click();
+    const clusterPages = window.getByRole('navigation', { name: 'Cluster navigation' });
+    await clusterPages.getByRole('button', { name: 'Add device', exact: true }).click();
+    const addPage = window.getByRole('region', { name: 'Add device', exact: true });
+    await addPage.getByRole('button', { name: 'Invite office-pc' }).click();
     await expect(
-      joiningPanel.getByRole('button', { name: 'Invitation pending for office-pc' }),
+      addPage.getByRole('button', { name: 'Invitation pending for office-pc' }),
     ).toBeDisabled();
-    await window.getByRole('button', { name: 'Add', exact: true }).click();
-    await window.getByRole('menuitem', { name: 'Join cluster', exact: true }).click();
-    await joiningPanel.getByRole('button', { name: 'Request to join render-coordinator' }).click();
+    await clusterPages.getByRole('button', { name: 'Connections', exact: true }).click();
+    await window.getByRole('button', { name: 'Join cluster', exact: true }).click();
+    const joinPage = window.getByRole('region', { name: 'Join cluster', exact: true });
+    await joinPage.getByRole('button', { name: 'Request to join render-coordinator' }).click();
     await expect(
-      joiningPanel.getByRole('button', { name: 'Join request pending for render-coordinator' }),
+      joinPage.getByRole('button', { name: 'Join request pending for render-coordinator' }),
     ).toBeDisabled();
-    await window.getByRole('button', { name: 'Add', exact: true }).click();
-    await window.getByRole('menuitem', { name: 'Share this PC' }).click();
-    await joiningPanel.getByRole('switch', { name: 'Allow participation requests' }).click();
-    await expect(joiningPanel.getByRole('switch')).toBeChecked();
-    await joiningPanel.getByRole('button', { name: 'Stop sharing' }).click();
-    await expect(joiningPanel.getByRole('switch')).not.toBeChecked();
-    await expect(joiningPanel.getByRole('switch')).toBeFocused();
+    await clusterPages.getByRole('button', { name: 'Connections', exact: true }).click();
+    await window.getByRole('button', { name: 'Share this PC' }).click();
+    const sharePage = window.getByRole('region', { name: 'Share this PC', exact: true });
+    await sharePage.getByRole('switch', { name: 'Allow participation requests' }).click();
+    await expect(sharePage.getByRole('switch')).toBeChecked();
+    await sharePage.getByRole('button', { name: 'Stop sharing' }).click();
+    await expect(sharePage.getByRole('switch')).not.toBeChecked();
+    await expect(sharePage.getByRole('switch')).toBeFocused();
+    await clusterPages.getByRole('button', { name: 'Overview', exact: true }).click();
     await expect(window.getByRole('article')).toHaveCount(4);
     await expect(window.getByText(/^Layers /)).toHaveCount(5);
     await window.getByRole('button', { name: 'Select studio-desktop' }).click();
