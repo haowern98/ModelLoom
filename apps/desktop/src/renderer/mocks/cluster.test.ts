@@ -11,6 +11,60 @@ import {
 } from './cluster';
 
 describe('unloaded placement and launch state', () => {
+  it('undoes and redoes invalid raw drafts without changing the active allocation', () => {
+    const initial = createDemoPlacement();
+    const edited = transitionDemoPlacement(initial, {
+      type: 'edit',
+      input: { hardwareId: 'studio-gpu0', first: '', last: '00.5' },
+    });
+    const undone = transitionDemoPlacement(edited, { type: 'undo' });
+    expect(undone.inputs).toEqual(initial.inputs);
+    const redone = transitionDemoPlacement(undone, { type: 'redo' });
+    expect(redone.inputs).toEqual(edited.inputs);
+    expect(redone.applied).toBe(initial.applied);
+    expect(redone.appliedModelId).toBe(initial.appliedModelId);
+    expect(redone.baseline).toBe(initial.baseline);
+    expect(redone.launch).toBeNull();
+    const branched = transitionDemoPlacement(undone, {
+      type: 'edit',
+      input: { hardwareId: 'studio-gpu0', first: '0', last: '12' },
+    });
+    expect(branched.future).toEqual([]);
+    expect(transitionDemoPlacement(branched, { type: 'redo' })).toBe(branched);
+    expect(transitionDemoPlacement(branched, { type: 'edit', input: branched.inputs[0]! })).toBe(
+      branched,
+    );
+  });
+
+  it('resets the draft to auto placement as one undoable change and clears history on boundaries', () => {
+    const initial = createDemoPlacement();
+    const manual = transitionDemoPlacement(initial, {
+      type: 'choose',
+      modelId: 'llama',
+      mode: 'manual',
+    });
+    const auto = transitionDemoPlacement(manual, { type: 'auto-place' });
+    expect(auto.past).toEqual([manual.inputs]);
+    expect(auto.baseline).toBe(manual.baseline);
+    expect(auto.applied).toBe(initial.applied);
+    expect(auto.launch).toBeNull();
+    expect(transitionDemoPlacement(auto, { type: 'auto-place' })).toBe(auto);
+    expect(transitionDemoPlacement(auto, { type: 'undo' }).inputs).toEqual(manual.inputs);
+    expect(transitionDemoPlacement(auto, { type: 'stop' }).past).toBe(auto.past);
+    const loading = transitionDemoPlacement(auto, { type: 'run' });
+    for (const type of ['undo', 'redo', 'auto-place'] as const)
+      expect(transitionDemoPlacement(loading, { type })).toBe(loading);
+    const complete = transitionDemoPlacement(loading, { type: 'complete' });
+    expect(complete.past).toEqual([]);
+    expect(complete.future).toEqual([]);
+    expect(transitionDemoPlacement(auto, { type: 'discard' }).past).toEqual([]);
+    expect(
+      transitionDemoPlacement(auto, { type: 'choose', modelId: 'gemma', mode: 'auto' }).past,
+    ).toEqual([]);
+    const empty = createDemoPlacement(null);
+    for (const type of ['undo', 'redo', 'auto-place'] as const)
+      expect(transitionDemoPlacement(empty, { type })).toBe(empty);
+  });
   it('rejects unknown hardware, fractional, reversed and out-of-bounds ranges', () => {
     for (const range of [
       { hardwareId: 'unknown', first: 0, last: 27 },
