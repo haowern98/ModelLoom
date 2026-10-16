@@ -8,6 +8,29 @@
 
 ## 1. Scope and contract status
 
+**2026-10-16 Cluster configuration amendment:** The local desktop adds a closed,
+sender-checked `modelloom:cluster` bridge through the existing owned utility and
+protected configuration database, upgraded transactionally from schemas 1/2/3 to
+schema 4. Management accepts bounded IDs, raw range text and captured settings;
+it does not accept file paths, arguments, environment maps or planner/placement
+receipts. The public HTTP API gains no management endpoint. Draft writes use
+compare-and-swap revisions, and explicit Save alone promotes validated intent.
+The runtime command `run-configuration` carries only a saved ID and revision.
+The implemented Windows development slice uses the verified, unmodified b11306
+runtime for the exact Bonsai 64-block profile: context 7680 per slot, four slots,
+q8_0 K/V caches, flash attention on, batch 2048/microbatch 512 and one or two
+NVIDIA GPUs on this PC.
+Other load tuples remain rejected. It does not open production root custody,
+change signatures or modify llama.cpp. Auto place refreshes resources and runs the
+stock fit estimator, preferring one GPU, then checking both GPU orders and cuts
+from the centre outward until the first feasible proposal. Review, Save and Run
+remain separate actions. Run captures the saved ID/revision, model, load settings
+and ranges, preflights before stopping an active model, and rechecks dirty state
+and revision in core. Exact UUID launch and complete stock debug startup checks
+bind PCI identities, all 64 blocks, output, cache/state and allowed input fallback.
+The UI shows verified active ranges. Quit joins estimator cleanup.
+See [native validation](../docs/research/cluster-placement-native-validation.md).
+
 The current accepted development bridge is described in the dated local Chat
 amendment below and [ADR-0005](decisions/0005-local-generation-development.md).
 Runtime/Chat main/preload/utility controls, authenticated captured-engine
@@ -298,3 +321,66 @@ new turn. A newer saved draft survives even if the renderer reloads before the
 Send reply. Copy/Delete feedback clears when live status changes or Send, Retry
 or Stop starts, including keyboard Send, so later status and errors are visible.
 These corrections add no command or saved-chat format change.
+
+## Imported-model and settings development contract, 2026-10-16
+
+The 2026-10-17 Run correction separates named persistence from activation. The
+renderer supplies only an imported model ID and acknowledged draft key/revision.
+Main reads and validates the protected draft, performs resource admission, and
+rechecks the exact draft after asynchronous work. The utility independently
+checks model identity, revision and complete captured allocation before broker
+launch. An unnamed session allocation is not inserted into the named
+configuration list. Play on an empty selected-model draft opens the existing
+automatic/manual placement dialog. Auto-place only prepares assignments; manual
+placement opens the editor. The same Play button loads prepared assignments.
+Switching models retains each unsaved draft and never loads or creates a named
+configuration. Undo to empty assignments restores the choice on the next Play.
+Stop, Quit and model switches invalidate pending work. Named Save remains an
+explicit separate action. This supersedes
+earlier development behavior requiring a named Save before every Run.
+
+Cluster records, including durable drafts, persist placement fields only. They
+do not embed per-model load or advanced settings. Owner replies hydrate current
+model settings for planning and session capture. Existing embedded settings are
+validated and removed transactionally while preserving model identity, names,
+revisions and assignments; the separate model-settings records are unchanged.
+Named Run captures the current settings for its memory check and compares them
+again in main and utility before launch. A settings change during that interval
+requires retry. Load-only differences are not placement edits.
+
+The user's PROCEED authorizes compatible imported GGUFs with the pinned,
+unchanged, signature- and file-verified stock development runtime. This section
+supersedes earlier development-only restrictions to one Bonsai digest, one exact
+load tuple, fixed four-slot admission and mandatory memory-budget rejection.
+Older evidence remains historical evidence for its original configuration.
+The production runtime catalog remains empty; release, platform, security and
+inference-correctness gates remain unchanged.
+
+Insufficient estimated free RAM or VRAM opens the existing Dialog with Cancel and
+Load anyway. It does not silently reduce context, change weights or quantization,
+change sampling, or move selected layers. A nonce binds the answer to one pending
+load. Load anyway requires a fresh resource observation and grants one-use
+permission for that load only. A wrong or stale nonce has no effect; Cancel,
+Stop and Quit invalidate the pending decision. Native allocation failures remain
+recoverable load failures, with owned cleanup confirmed before another load.
+
+Saved generation settings apply to newly admitted requests. Supported context,
+thread, batch, concurrency and Flash Attention controls, RoPE frequency base and
+frequency scale, reasoning budget/message and custom Jinja template apply on the
+next model load. Native arguments are compiled from a fixed supported allowlist;
+arbitrary arguments, unimplemented overflow modes, speculative decoding and
+automatic tuning remain unavailable. The 2026-10-17 correction keeps model
+settings separate from saved Cluster placements. Every Run resolves current
+settings, then captures them immutably for that active load. Later edits do not
+alter an already active load or admitted request.
+
+Generation admission captures the actual configured native slot count, bounded
+to integers from 1 through 1024, plus eight pending requests. Cancellation alone
+does not release active capacity: observed native settlement and existing exact
+ownership rules still govern release and shutdown.
+
+For the selected Qwen model, metadata reports 65 allocation blocks while ordinary
+inference executes 64 model layers without MTP. Preserve this distinction when
+compiling and validating placement; do not enable an MTP or draft-model path to
+reconcile those counts. A successful load alone does not establish unchanged
+inference quality.

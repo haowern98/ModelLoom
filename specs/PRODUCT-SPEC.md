@@ -10,6 +10,24 @@ This is the authoritative product specification, moved from `ModelLoom-Project P
 
 Related specifications: [technical](TECHNICAL-SPEC.md), [integration](INTEGRATION-SPEC.md), [security](SECURITY-SPEC.md), and [UI](UI-SPEC.md). Specifications define behavior and constraints; execution work belongs in [plans](../plans/PLAN.md).
 
+**Cluster configuration implementation, 2026-10-16:**
+
+The implemented Windows development slice uses the verified, unmodified b11306
+runtime for the exact Bonsai 64-block profile: context 7680 per slot, four slots,
+q8_0 K/V caches, flash attention on, batch 2048/microbatch 512 and one or two
+NVIDIA GPUs on this PC.
+Other load tuples remain rejected. It does not open production root custody,
+change signatures or modify llama.cpp. Auto place refreshes resources and runs the
+stock fit estimator, preferring one GPU, then checking both GPU orders and cuts
+from the centre outward until the first feasible proposal. Review, Save and Run
+remain separate actions. Run captures the saved ID/revision, model, load settings
+and ranges, preflights before stopping an active model, and rechecks dirty state
+and revision in core. Exact UUID launch and complete stock debug startup checks
+bind PCI identities, all 64 blocks, output, cache/state and allowed input fallback.
+The UI shows verified active ranges. Quit joins estimator cleanup.
+Dated local evidence and its limits are recorded in
+[native validation](../docs/research/cluster-placement-native-validation.md).
+
 ## Current delivery scope, 2026-10-14
 
 The explicitly enabled Windows development build supports verified local Bonsai
@@ -77,6 +95,10 @@ Ship a platform-appropriate single app installer/package for Windows, Linux, and
 4. Preserve the original GGUF weights and configured sampling behavior. If a model, tensor type, backend, or placement is unsupported, explain the limitation and offer only compatible choices; never silently substitute a model or quantization.
 5. Show where the model files and worker caches live, and provide in-app controls to clear them.
 6. Models is a compact library with identity, size, format, quantization and recorded last use; expose detailed metadata and per-model configuration through row actions. Unknown last use is shown as unknown. Planning, validation and Run/Stop live in Cluster. The approved configuration demo edits and validates per-model defaults for the current app session only, with no engine or active-session effects; real settings application remains integration work.
+7. Importing another model retains every indexed library entry, including across restart. Re-importing identical content updates its file location without duplicating it or erasing its settings and recorded use. Library membership is separate from the selected and active runtime model.
+8. When Limit Response Length is off, new requests have no reply-length token cap. The loaded context capacity still applies, with no silent history truncation. Enabling the setting applies the saved positive limit; an explicit API request limit overrides that default. Previously captured attempts retain their settings for Retry.
+9. Auto-place proposes assignments without starting inference. Play on an empty allocation opens the existing automatic/manual assignment choice. Automatic assignment only prepares layers; manual assignment opens the editor. Once assignments are prepared, the same Play button loads the current allocation without requiring a named configuration. Save is optional for named reuse. Switching models never loads or saves; each model retains its unsaved draft and history. Undo back to an empty allocation restores the assignment choice on the next Play. Validation, memory warnings, explicit active-session replacement and owned cleanup still apply.
+10. Cluster Save stores model identity and GPU assignments, without copying model settings. Every Run resolves that model's current saved settings and rechecks the allocation and memory requirements. Model-setting changes do not mark placement as edited, alter an active load, or change an admitted request.
 
 ### P4. Chat and API
 
@@ -113,7 +135,7 @@ Follow [ADR-0003](decisions/0003-lm-studio-behavior-reference.md): use LM Studio
 
 1. The first release has one active model, shared by built-in Chat and the API. Selecting another library item does not silently replace the active model. Switching explains required interruption and requires the user's explicit action.
 2. Chat and API share the active model's bounded request admission and follow LM Studio's configurable parallel-request/continuous-batching behavior where supported. One active model does not imply one active request. Show queued/busy states and provide cancellation. D09 investigates concurrency, pending capacity, fairness, timeouts, and overload behavior against versioned LM Studio evidence before scheduler implementation; its documented concurrency default of four is a reference to validate, not a verified cluster resource limit.
-3. Placement edits form a pending proposal directly, without per-device Keep draft or a separate Save changes step. Initial Run validates and loads the selected proposal; edits to an active allocation remain pending until explicit Apply and restart. Show both the active placement and pending placement. Explain interrupted requests before applying changes; do not apply a new split silently during generation.
+3. The 2026-10-17 revision separates Run, named Save and per-model settings. Retain assignment edits as durable raw drafts and validate them on Save or Run. Named configurations store model identity and exact GPU ranges; model settings remain in their separate per-model record. Auto-place proposes assignments, while Run uses the current allocation and current saved model settings without requiring a named Save. Selection and Save never alter the active session. Recheck current applicability before Run; explain interrupted requests and require confirmation before replacing an active session. Never silently change placement during generation.
 4. Model-data transfer/cache on approved workers is allowed automatically within the configured storage limits. Show storage locations and provide cleanup controls. This approval does not require a complete GGUF copy on each worker; the required data and transfer mechanism remain a technical decision.
 5. LAN and private-network API access require an API key and explicit exposure settings. Localhost is the default scope and requires an API key by default, as approved by the user; any optional exception needs an explicit reviewed policy.
 
@@ -152,7 +174,7 @@ Upstream llama.cpp [describes its RPC backend as a fragile, insecure proof of co
 8. **Headless worker:** Start and recover a Linux worker without a desktop session; inspect and stop it from the coordinator UI.
 
 9. **Shared model and queue:** Submit Chat and API requests to the same active model. Verify queued/busy/cancelled states, bounded overload handling, and no hidden model switch.
-10. **Placement restart:** Edit a proposed split during a session without a separate save step. Confirm active placement stays unchanged until an explicitly requested restart and that interruption is explained.
+10. **Placement restart:** Edit an autosaved draft during a session, then explicitly Save the validated configuration. Confirm active placement stays unchanged until an explicitly requested and confirmed restart, with fresh device/resource checks and interruption explained.
 11. **Model storage:** Exercise permitted model-data transfer/cache on an approved worker, inspect locations and limits, and clear an idle cache without deleting unrelated files or the user's original model.
 12. **Visual fidelity:** Compare each of the five screens against its preserved reference at the matching window size. Review the darker foreground panel, rounded corners, and accessible operation. Any intentional deviation needs user approval and a recorded reason.
 13. **Runtime crash isolation:** During generation, exercise controlled termination and an ordinary native runtime-crash case separately. The GUI and unaffected core remain usable, the partial answer is marked interrupted/failed, affected queue work is resolved explicitly, and controlled restart/reload works without a hidden request replay.
@@ -186,6 +208,24 @@ Beginner guidance and expert controls are required in the first public release, 
 Use spec-anchored development: revise specifications alongside approved software changes and link behavior tests to requirement IDs. The lecture guidance calls for product/technical/integration specifications, separate execution plans, tests, and review (Lecture 7, pages 8 and 14-20). Apply permission boundaries, systematic failure/adversarial testing, and traceable validation (Lecture 6, pages 6-12 and 17-34).
 
 An acceptance result records the app/runtime revisions, model identity, selected settings, devices, platform, scenario, observed result, and non-sensitive evidence. Do not mark a journey complete solely from a mock screen, simulated worker, build, or CI badge. Local component/browser and unsigned packaged Windows UI checks have been run, as recorded in TESTING-SPEC. No full production J1-J15 journey is established by the demo. The current reconciliation does not rerun tests or extend the prior evidence to runtime, networking, persistence, security enforcement or other platforms.
+
+## Imported models and editable settings, approved 2026-10-16
+
+The Windows development build accepts compatible imported GGUF models through
+the verified, unchanged stock runtime instead of restricting imports to the
+Bonsai digest. Estimated RAM or VRAM shortage opens the shared app dialog with
+Cancel and Load anyway. Loading anyway preserves the selected weights,
+quantization, context and sampling; a native allocation failure remains a
+recoverable failure with confirmed owned cleanup.
+
+Supported model configuration controls save real defaults. Generation defaults
+apply to new requests; load and advanced launch settings apply on the next
+load. The 2026-10-17 correction makes saved Cluster configurations retain placement
+only and resolve current model settings at Run. Unsupported controls remain unavailable, including
+arbitrary command-line overrides, unimplemented context-overflow transformations
+and unvalidated speculative decoding. Detailed boundaries and acceptance cases
+are in the 2026-10-16 sections of INTEGRATION-SPEC and TESTING-SPEC. These changes
+do not establish production activation or universal inference equivalence.
 
 ## References
 
