@@ -122,6 +122,7 @@ test('packaged demo opens safely, navigates, and exits its owned app', async () 
     await window.getByRole('button', { name: 'Undo', exact: true }).click();
     await expect(window.getByRole('button', { name: 'Stop model' })).toBeVisible();
     await window.getByRole('button', { name: 'Cluster panel', exact: true }).click();
+    await window.getByRole('button', { name: 'Fit to view', exact: true }).click();
     await window.getByRole('button', { name: 'Actions for ml-workstation' }).click();
     await window.getByRole('button', { name: 'Rename device' }).click();
     await expect(window.getByRole('dialog')).toHaveCount(0);
