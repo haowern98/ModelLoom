@@ -13,6 +13,7 @@ const actions = [
 export type ApiManagementCommand = { readonly action: (typeof actions)[number] };
 export type ApiOwnerCommand =
   | ApiManagementCommand
+  | { readonly action: 'readLibraryEntry'; readonly after: string | null }
   | {
       readonly action: 'registerImport';
       readonly modelId: string;
@@ -44,10 +45,33 @@ export type ApiOwnerReply =
   | ApiManagementReply
   | { readonly ok: true; readonly registered: true }
   | { readonly ok: true; readonly source: ModelSource | null }
+  | {
+      readonly ok: true;
+      readonly entry: { readonly source: ModelSource; readonly lastUsedAt: number | null } | null;
+    }
   | { readonly ok: true; readonly lastUsedAt: number | null };
 export function decodeApiOwnerReply(input: unknown, command: ApiOwnerCommand): ApiOwnerReply {
   if (input && typeof input === 'object' && Reflect.get(input, 'ok') === false)
     return decodeApiManagementReply(input);
+  if (command.action === 'readLibraryEntry') {
+    const value = object(input, ['ok', 'entry']);
+    if (value.ok !== true) return invalid();
+    if (value.entry === null) return Object.freeze({ ok: true, entry: null });
+    const entry = object(value.entry, ['source', 'lastUsedAt']);
+    const source = decodeModelSource(entry.source);
+    if (
+      (command.after !== null && source.modelId <= command.after) ||
+      (entry.lastUsedAt !== null && integer(entry.lastUsedAt) < 1)
+    )
+      return invalid();
+    return Object.freeze({
+      ok: true,
+      entry: Object.freeze({
+        source,
+        lastUsedAt: entry.lastUsedAt === null ? null : integer(entry.lastUsedAt),
+      }),
+    });
+  }
   if (command.action === 'readModelUsage') {
     const value = object(input, ['ok', 'lastUsedAt']);
     if (value.ok !== true || (value.lastUsedAt !== null && integer(value.lastUsedAt) < 1))
@@ -105,6 +129,15 @@ export function decodeApiManagementCommand(input: unknown): ApiManagementCommand
 }
 /** Main-only import data is not admitted by the renderer bridge decoder. */
 export function decodeApiOwnerCommand(input: unknown): ApiOwnerCommand {
+  if (input && typeof input === 'object' && Reflect.get(input, 'action') === 'readLibraryEntry') {
+    const value = object(input, ['action', 'after']);
+    if (
+      value.after !== null &&
+      (typeof value.after !== 'string' || !/^[a-f0-9]{64}$/u.test(value.after))
+    )
+      return invalid();
+    return Object.freeze({ action: 'readLibraryEntry', after: value.after });
+  }
   if (input && typeof input === 'object' && Reflect.get(input, 'action') === 'readModelUsage') {
     object(input, ['action']);
     return Object.freeze({ action: 'readModelUsage' });
