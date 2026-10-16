@@ -1,5 +1,69 @@
 import type { RuntimeConfiguration } from '../runtime/preflight.js';
 import { checkResources, SERVER_CACHE_POLICY } from '../runtime/preflight.js';
+import type { ClusterEffectiveLoad } from '../cluster/effective-load.js';
+import { clusterLoadArguments } from '../cluster/effective-load.js';
+
+/** Trusted plan compiler only. Native receipt and resource admission still precede launch. */
+export function clusterServerArguments(
+  model: string,
+  load: ClusterEffectiveLoad,
+  port: number,
+  keyFile: string,
+  alias: string,
+): readonly string[] {
+  validateEndpoint(model, port, keyFile, alias);
+  // Generation settings are captured by the existing request owner, not this load configuration.
+  return Object.freeze([
+    '--model',
+    model,
+    '--alias',
+    alias,
+    '--host',
+    '127.0.0.1',
+    '--port',
+    String(port),
+    '--api-key-file',
+    keyFile,
+    '--no-ui',
+    '--slots',
+    '--no-context-shift',
+    '--no-agent',
+    '--no-ui-mcp-proxy',
+    '--no-mmproj',
+    '--fit',
+    'off',
+    '--cache-ram',
+    String(load.serverCaches.promptCacheMiB),
+    '--ctx-checkpoints',
+    String(load.serverCaches.contextCheckpoints),
+    ...clusterLoadArguments(load),
+    ...(load.preferences?.reasoningBudget.enabled
+      ? ['--reasoning-budget', String(load.preferences.reasoningBudget.value)]
+      : []),
+    ...(load.preferences?.reasoningMessage
+      ? ['--reasoning-budget-message', load.preferences.reasoningMessage]
+      : []),
+    ...(load.preferences?.customTemplate
+      ? ['--jinja', '--chat-template', load.preferences.chatTemplate]
+      : []),
+  ]);
+}
+function validateEndpoint(model: string, port: number, keyFile: string, alias: string): void {
+  if (
+    !Number.isInteger(port) ||
+    port < 1024 ||
+    port > 65535 ||
+    !/^[a-zA-Z0-9_-]{1,128}$/u.test(alias) ||
+    [model, keyFile].some(
+      (value) =>
+        typeof value !== 'string' ||
+        value.length < 1 ||
+        value.length > 32700 ||
+        value.includes('\0'),
+    )
+  )
+    throw Error('INVALID_CONFIGURATION');
+}
 /** Closed supported configuration. Unsupported selected controls fail instead of being silently omitted. */
 export function fixedArguments(
   model: string,
@@ -8,6 +72,7 @@ export function fixedArguments(
   keyFile: string,
   alias: string,
 ): readonly string[] {
+  validateEndpoint(model, port, keyFile, alias);
   const keys = [
     'modelSha256',
     'contextPerSlot',
@@ -21,18 +86,7 @@ export function fixedArguments(
   if (Object.hasOwn(configuration, 'gpuDevice')) keys.push('gpuDevice');
   if (
     Object.keys(configuration).length !== keys.length ||
-    !keys.every((key) => Object.hasOwn(configuration, key)) ||
-    !Number.isInteger(port) ||
-    port < 1024 ||
-    port > 65535 ||
-    !/^[a-zA-Z0-9_-]{1,128}$/u.test(alias) ||
-    [model, keyFile].some(
-      (value) =>
-        typeof value !== 'string' ||
-        value.length < 1 ||
-        value.length > 32700 ||
-        value.includes('\0'),
-    )
+    !keys.every((key) => Object.hasOwn(configuration, key))
   )
     throw new Error('INVALID_CONFIGURATION');
   const cfg = configuration as RuntimeConfiguration;
@@ -54,6 +108,7 @@ export function fixedArguments(
     keyFile,
     '--no-ui',
     '--slots',
+    '--no-context-shift',
     '--no-agent',
     '--no-ui-mcp-proxy',
     '--no-mmproj',
