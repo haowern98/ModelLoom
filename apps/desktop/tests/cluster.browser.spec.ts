@@ -1,6 +1,58 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
+test('compact overview keeps model, hardware and assignments readable within the panel', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Cluster', exact: true }).click();
+  await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
+  const panel = page.getByRole('complementary', { name: 'Cluster panel' });
+  const content = panel.getByRole('region', { name: 'Cluster panel content' });
+  for (const width of [1280, 1000]) {
+    await page.setViewportSize({ width, height: 720 });
+    await content.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await expect(panel.getByRole('heading', { name: 'Cluster overview', exact: true })).toHaveCSS(
+      'font-size',
+      '18px',
+    );
+    for (const name of ['Hardware', 'Layer assignment'])
+      await expect(panel.getByRole('heading', { name, exact: true })).toHaveCSS(
+        'font-size',
+        '14px',
+      );
+    await expect(panel.getByText('Qwen3.8-27B', { exact: true })).toHaveCSS('font-size', '13px');
+    await expect(panel.getByText('4 devices · 5 GPUs', { exact: true })).toBeVisible();
+    await expect(panel.getByText('GPU memory', { exact: true }).locator('..')).toHaveText(
+      'GPU memory60.0 GB',
+    );
+    await expect(panel.getByText('Unified memory', { exact: true }).locator('..')).toHaveText(
+      'Unified memory192.0 GB',
+    );
+    await expect(
+      panel.getByText(
+        /Placement not confirmed|Sample allocation, not measured memory use\.|Discrete VRAM/,
+      ),
+    ).toHaveCount(0);
+    await expect(panel.getByText('State', { exact: true })).toHaveCount(0);
+    await expect(panel.getByText('None', { exact: true })).toHaveCount(0);
+    for (const name of ['studio-desktop', 'ml-workstation', 'mac-studio', 'inference-node']) {
+      const row = panel.getByRole('button', { name: `${name} In use`, exact: true });
+      await row.scrollIntoViewIfNeeded();
+      await expect(row).toBeInViewport();
+    }
+    expect(await content.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+    const bounds = await panel.boundingBox();
+    if (!bounds) throw new Error('Overview panel geometry missing');
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(720);
+  }
+});
+
 test('device rename supports keyboard cancellation, validation and long names without altering placement', async ({
   page,
 }) => {
@@ -35,7 +87,7 @@ test('device rename supports keyboard cancellation, validation and long names wi
   await expect(pencil).toBeFocused();
   await expect(page.getByRole('article', { name: 'ml-workstation' })).toBeVisible();
   await page.mouse.move(0, 0);
-  await panel.getByRole('button', { name: 'Close cluster panel' }).focus();
+  await panel.focus();
   await expect(pencil).toHaveCSS('opacity', '0');
   await panel.getByRole('heading', { name: 'ml-workstation' }).hover();
   await expect(pencil).toHaveCSS('opacity', '1');
@@ -77,14 +129,14 @@ test('device rename supports keyboard cancellation, validation and long names wi
   await expect(card).toBeVisible();
   await pencil.click();
   await input.fill('closed-panel-name');
-  await panel.getByRole('button', { name: 'Close cluster panel' }).click();
+  await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
   await page.getByRole('button', { name: 'Select mac-studio' }).click();
   await expect(input).toHaveCount(0);
   await pencil.click();
   await expect(input).toHaveValue('mac-studio');
   await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'Cluster overview', exact: true }).click();
-  await expect(panel.getByRole('button', { name: `${name} 48–71` })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to cluster overview', exact: true }).click();
+  await expect(panel.getByRole('button', { name: `${name} In use` })).toBeVisible();
   await expect(page.getByRole('article')).toHaveCount(4);
   await page.getByRole('button', { name: 'Models', exact: true }).click();
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
@@ -105,9 +157,7 @@ async function renameSampleDevice(page: Page, name: string) {
   await page.getByRole('button', { name: 'Save name' }).click();
 }
 
-test('direct edits expose restart and quiet Discard without saved draft sections', async ({
-  page,
-}) => {
+test('direct edits expose restart and Undo without saved draft sections', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
   await page.getByRole('button', { name: 'Fit to view', exact: true }).click();
@@ -116,15 +166,16 @@ test('direct edits expose restart and quiet Discard without saved draft sections
   await expect(page.getByRole('button', { name: 'Save changes' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Keep draft/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Apply and restart' })).toBeVisible();
-  await expect(panel.getByRole('button', { name: 'Discard changes' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
   await expect(panel.getByText(/Unsaved draft|Saved proposal/)).toHaveCount(0);
-  await page.getByRole('button', { name: 'Close cluster panel' }).click();
+  await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
   await page.getByRole('button', { name: 'Apply and restart' }).click();
   await expect(page.getByRole('dialog', { name: 'Restart demo model?' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Apply and restart' })).toBeFocused();
   await page.getByRole('button', { name: 'Select studio-desktop' }).click();
-  await page.getByRole('button', { name: 'Discard changes' }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByRole('spinbutton', { name: 'Last layer for GPU 0' })).toHaveValue('27');
   await expect(page.getByRole('button', { name: 'Stop model' })).toBeVisible();
 });
@@ -157,8 +208,13 @@ test('toasts overlay the screen, close with X and leave placement unchanged', as
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await expect(toast).toHaveCount(0);
   await editSampleProposal(page);
-  await page.getByRole('button', { name: 'Discard changes' }).click();
-  await expect(toast).toHaveText('Changes discarded');
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await editSampleProposal(page);
+  await page.getByRole('button', { name: 'Apply and restart' }).click();
+  await page.getByRole('button', { name: 'Restart demo', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel loading', exact: true }).click();
+  await expect(toast).toHaveText('Demo loading cancelled · previous session unchanged');
   await expect(toast.locator('..')).toHaveCSS('background-color', 'rgb(38, 38, 38)');
 });
 
@@ -183,7 +239,13 @@ test('toast timers pause on hover and keyboard focus, and replacements get a fre
   await page.clock.runFor(2001);
   await expect(toast).toHaveCount(0);
   await editSampleProposal(page);
-  await page.getByRole('button', { name: 'Discard changes' }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await editSampleProposal(page);
+  await page.getByRole('button', { name: 'Apply and restart' }).click();
+  await page.getByRole('button', { name: 'Restart demo', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel loading', exact: true }).click();
+  await expect(toast).toHaveText('Demo loading cancelled · previous session unchanged');
   await page.clock.runFor(4000);
   await renameSampleDevice(page, 'studio-desktop');
   await page.clock.runFor(2000);
@@ -368,9 +430,10 @@ test('direct layer edits, restart cancellation and navigation work with the keyb
   await expect(page.getByRole('dialog', { name: 'Restart demo model?' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(restart).toBeFocused();
-  await page.getByRole('button', { name: 'Discard changes' }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Stop model' })).toBeVisible();
-  await page.getByRole('button', { name: 'Close cluster panel' }).click();
+  await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
   await expect(page.getByRole('article')).toHaveCount(4);
   await page.getByRole('button', { name: 'Actions for ml-workstation' }).click();
   await page.getByRole('button', { name: 'Device details' }).click();
@@ -447,7 +510,7 @@ test('nodes select independently of role and expose the same contextual Add devi
   const panel = page.getByRole('complementary', { name: 'Cluster panel' });
   await expect(panel.getByRole('heading', { name: 'Add device' })).toBeVisible();
   await expect(panel.getByText('Example devices · not discovered')).toBeVisible();
-  await page.getByRole('button', { name: 'Close cluster panel' }).click();
+  await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
   await page.getByRole('button', { name: 'Select ml-workstation' }).focus();
   await page.keyboard.press('Enter');
   await expect(panel.getByRole('heading', { name: 'ml-workstation' })).toBeVisible();
@@ -499,7 +562,7 @@ test('keyboard pan, bounded zoom and fit work without zooming layer inputs', asy
   expect(await canvas.locator('> div[style]').evaluate((element) => element.style.transform)).toBe(
     graphTransform,
   );
-  await page.getByRole('button', { name: 'Close cluster panel' }).click();
+  await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
   const viewport = await canvas.boundingBox();
   if (!viewport) throw new Error('Canvas is missing');
   await page.mouse.move(viewport.x + 30, viewport.y + viewport.height - 70);
@@ -562,7 +625,7 @@ test('one device stays centered on resize and beside the details panel without c
   await page.setViewportSize({ width: 1400, height: 760 });
   await centered(true);
   await expect(zoom).toHaveText('100%');
-  await page.getByRole('button', { name: 'Close cluster panel' }).click();
+  await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
   await centered();
   await page.getByRole('button', { name: 'Zoom in' }).click();
   await expect(zoom).toHaveText('115%');
@@ -692,12 +755,12 @@ test('Cluster toolbar uses rounded neutral controls and overlays its panel witho
     if (!bounds) throw new Error('Cluster panel is missing');
     expect(bounds.x + bounds.width).toBeLessThan(width);
     expect(bounds.y + bounds.height).toBeLessThan(720);
-    await expect(page.getByRole('button', { name: 'Close cluster panel' })).toBeFocused();
+    await expect(page.getByRole('complementary', { name: 'Cluster panel' })).toBeFocused();
     // The panel does not trap focus or block the model picker.
     await model.focus();
     await expect(model).toBeFocused();
     await expect(page.getByRole('article')).toHaveCount(4);
-    await page.getByRole('button', { name: 'Close cluster panel' }).focus();
+    await page.getByRole('complementary', { name: 'Cluster panel' }).focus();
     await page.keyboard.press('Escape');
     await expect(panel).toHaveCount(0);
     await expect(toggle).toBeFocused();
@@ -823,7 +886,7 @@ for (const font of ['system', 'proportional fallback']) {
     const transform = await diagram.getAttribute('style');
     await page.keyboard.press('ArrowRight');
     expect(await diagram.getAttribute('style')).not.toEqual(transform);
-    await page.getByRole('button', { name: 'Close cluster panel' }).click();
+    await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
     for (const width of [1280, 1000]) {
       await page.setViewportSize({ width, height: width === 1000 ? 620 : 720 });
       await controls.getByRole('button', { name: 'Fit to view', exact: true }).click();

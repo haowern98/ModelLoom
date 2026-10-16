@@ -114,9 +114,10 @@ test('packaged demo opens safely, navigates, and exits its owned app', async () 
     await window.getByRole('button', { name: 'Apply and restart' }).click();
     await window.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(window.getByText('Active layers 0 – 27')).toBeVisible();
-    await window.getByRole('button', { name: 'Discard changes' }).click();
+    await window.getByRole('button', { name: 'Undo', exact: true }).click();
+    await window.getByRole('button', { name: 'Undo', exact: true }).click();
     await expect(window.getByRole('button', { name: 'Stop model' })).toBeVisible();
-    await window.getByRole('button', { name: 'Close cluster panel' }).click();
+    await window.getByRole('button', { name: 'Cluster panel', exact: true }).click();
     await window.getByRole('button', { name: 'Actions for ml-workstation' }).click();
     await window.getByRole('button', { name: 'Rename device' }).click();
     await expect(window.getByRole('dialog')).toHaveCount(0);
@@ -127,7 +128,7 @@ test('packaged demo opens safely, navigates, and exits its owned app', async () 
     await expect(window.getByRole('article', { name: 'office-workstation' })).toBeVisible();
     await expect(window.getByRole('button', { name: 'Save changes' })).toHaveCount(0);
     await window.screenshot({ path: 'test-results/cluster-packaged-windows.png' });
-    await window.getByRole('button', { name: 'Close cluster panel' }).click();
+    await window.getByRole('button', { name: 'Cluster panel', exact: true }).click();
     await window.getByRole('button', { name: 'Selected demo model: Qwen3.8-27B' }).click();
     await window.getByRole('menuitem', { name: /Llama 3.1 8B/ }).click();
     await window.getByRole('button', { name: 'Place manually', exact: true }).click();
@@ -139,7 +140,7 @@ test('packaged demo opens safely, navigates, and exits its owned app', async () 
     await expect(window.getByRole('button', { name: 'Cancel loading' })).toBeVisible();
     await expect(window.getByRole('button', { name: 'Stop model' })).toBeVisible();
     await expect(window.getByText('Layers 0 – 31', { exact: true })).toBeVisible();
-    await window.getByRole('button', { name: 'Close cluster panel' }).click();
+    await window.getByRole('button', { name: 'Cluster panel', exact: true }).click();
     await navigation.getByRole('button', { name: 'Chat', exact: true }).click();
     await expect(window.getByRole('heading', { name: 'Planning a local setup' })).toBeVisible();
     const divider = await window
