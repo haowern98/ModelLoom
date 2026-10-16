@@ -29,7 +29,7 @@ export async function readOwnedSlots(
       !/^[a-zA-Z0-9_-]{1,128}$/u.test(key) ||
       !Number.isInteger(slots) ||
       slots < 1 ||
-      slots > 4 ||
+      slots > 1024 ||
       signal.aborted ||
       !owns()
     )
