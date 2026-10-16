@@ -116,7 +116,6 @@ export function ModelConfigurationPage({
       className={styles.checkbox}
       aria-label={`Enable ${numericSettings[key].label}`}
       checked={draft.enabled[key]}
-      disabled={Boolean(live && ['reasoningBudget', 'ropeBase', 'ropeScale'].includes(key))}
       onChange={(event) => patch({ enabled: { ...draft.enabled, [key]: event.target.checked } })}
     />
   );
@@ -167,8 +166,11 @@ export function ModelConfigurationPage({
                 'evaluationBatch',
                 'physicalBatch',
                 'concurrency',
+                'reasoningBudget',
+                'ropeBase',
+                'ropeScale',
               ].includes(key)
-              ? 'Load settings take effect after Stop and Run model. Only settings with verified resource requirements can load.'
+              ? 'Applies the next time the model is loaded.'
               : 'Saved generation defaults apply to new requests. ModelLoom checks supported values before saving.'
             : key === 'contextLength'
               ? 'The manual context value is retained while automatic optimization is selected. No hardware optimization runs in this demo.'
@@ -358,7 +360,7 @@ export function ModelConfigurationPage({
             )}
           </Row>
           {numeric('contextLength', {
-            disabled: draft.automatic || Boolean(live),
+            disabled: draft.automatic,
             ...(draft.automatic ? { inactive: 'Auto' } : {}),
           })}
           <Row
@@ -377,26 +379,22 @@ export function ModelConfigurationPage({
           </Row>
           {numeric('threads', {
             slider: true,
-            disabled: Boolean(live),
             ...(draft.numbers.threads === '' ? { inactive: 'Automatic' } : {}),
           })}
-          {numeric('evaluationBatch', { disabled: Boolean(live) })}
-          {numeric('physicalBatch', { disabled: Boolean(live) })}
-          {numeric('concurrency', { badge: 'Experimental', disabled: Boolean(live) })}
+          {numeric('evaluationBatch')}
+          {numeric('physicalBatch')}
+          {numeric('concurrency', { badge: 'Experimental' })}
           <Row
             label="Flash Attention"
             id="config-flash"
             help={
               live
-                ? 'Flash Attention is enabled in the supported performance profile.'
+                ? 'Applies the next time the model is loaded.'
                 : 'A stored preference; this demo does not verify backend support.'
             }
           >
-            {toggle(
-              'config-flash',
-              draft.flashAttention,
-              (flashAttention) => patch({ flashAttention }),
-              Boolean(live),
+            {toggle('config-flash', draft.flashAttention, (flashAttention) =>
+              patch({ flashAttention }),
             )}
           </Row>
         </Section>
@@ -405,6 +403,7 @@ export function ModelConfigurationPage({
           <Row
             label="Limit Response Length"
             id="config-responseLength"
+            help="When off, no reply-length cap is applied. The loaded context size still applies."
             extra={optional('responseLength')}
           >
             <input
@@ -506,20 +505,24 @@ export function ModelConfigurationPage({
           </Row>
           {live && !live.thinkingSupported && (
             <p className={styles.description}>
-              Thinking follows the model template. Changing its mode or budget is not available yet.
+              This model template does not expose a thinking toggle.
             </p>
           )}
           {numeric('reasoningBudget', {
             optional: 'reasoningBudget',
-            disabled: !draft.thinking || Boolean(live),
+            disabled: !draft.thinking,
           })}
-          <Row label="Reasoning Budget Message" id="config-reasoning-message">
+          <Row
+            label="Reasoning Budget Message"
+            id="config-reasoning-message"
+            {...(live ? { help: 'Applies the next time the model is loaded.' } : {})}
+          >
             <input
               className={styles.wideInput}
               id="config-reasoning-message"
               type="text"
               maxLength={2000}
-              disabled={!draft.thinking || !draft.enabled.reasoningBudget || Boolean(live)}
+              disabled={!draft.thinking || !draft.enabled.reasoningBudget}
               value={draft.reasoningMessage}
               onChange={(event) => patch({ reasoningMessage: event.target.value })}
             />
@@ -555,12 +558,7 @@ export function ModelConfigurationPage({
                 if (customTemplate !== draft.customTemplate) patch({ customTemplate });
               }}
             >
-              <summary
-                aria-disabled={Boolean(live)}
-                onClick={(event) => {
-                  if (live) event.preventDefault();
-                }}
-              >
+              <summary>
                 <span>Chat Template</span>
                 <span className={styles.templateValue}>
                   {draft.chatTemplate ? 'Custom' : 'Model default'}
@@ -568,12 +566,11 @@ export function ModelConfigurationPage({
               </summary>
               <p className={styles.description}>
                 {live
-                  ? 'Custom chat templates are not available for this model profile.'
+                  ? 'Applies the next time the model is loaded.'
                   : 'Stored as text only. This demo does not render or execute templates.'}
               </p>
               <textarea
                 aria-label="Chat Template text"
-                disabled={Boolean(live)}
                 placeholder="Leave empty to use the model default"
                 maxLength={16000}
                 value={draft.chatTemplate}
@@ -581,11 +578,10 @@ export function ModelConfigurationPage({
               />
             </details>
           </div>
-          {numeric('ropeBase', { optional: 'ropeBase', inactive: 'Auto', disabled: Boolean(live) })}
+          {numeric('ropeBase', { optional: 'ropeBase', inactive: 'Auto' })}
           {numeric('ropeScale', {
             optional: 'ropeScale',
             inactive: 'Auto',
-            disabled: Boolean(live),
           })}
           {numeric('seed', { optional: 'seed', inactive: 'Random' })}
           <Row
