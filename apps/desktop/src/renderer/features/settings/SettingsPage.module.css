@@ -199,12 +199,18 @@
   color: var(--neutral-muted);
 }
 .switch {
+  --control-width-switch: 32px;
+  --control-height-switch: 20px;
+  --control-size-switch-thumb: 16px;
   appearance: none;
   position: relative;
   flex-shrink: 0;
   width: var(--control-width-switch);
   height: var(--control-height-switch);
-  margin: 0;
+  /* Preserve the original layout footprint, right edge, and vertical centre. */
+  margin-block: calc((16px - var(--control-height-switch)) / 2);
+  margin-left: calc(28px - var(--control-width-switch));
+  margin-right: 0;
   border: 0;
   border-radius: 999px;
   background: #414141;

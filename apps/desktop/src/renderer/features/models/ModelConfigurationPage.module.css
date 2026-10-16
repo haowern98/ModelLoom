@@ -165,6 +165,9 @@
   accent-color: #487fff;
 }
 .toggle {
+  --control-width-switch: 32px;
+  --control-height-switch: 20px;
+  --control-size-switch-thumb: 16px;
   appearance: none;
   display: block;
   width: var(--control-width-switch);
