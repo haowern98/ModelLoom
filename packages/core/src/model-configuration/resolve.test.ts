@@ -25,9 +25,23 @@ it('resolves one request override over committed defaults without saving or chan
   expect(first.parameters.seed).toBe(42);
   expect(second.parameters.temperature).toBe(0.8);
   expect(second.parameters.seed).toBe(4294967295);
-  expect(second.parameters.max_tokens).toBe(512);
+  expect(second.parameters.max_tokens).toBe(-1);
   expect(committed.generation.seed.enabled).toBe(false);
   expect(Object.isFrozen(first.parameters)).toBe(true);
+});
+
+it('disables the output cap independently of the stored manual limit and active context size', () => {
+  const source = record();
+  source.generation.responseLength.value = 123;
+  expect(resolveRequestSettings(source, active(), {}, capabilities).parameters.max_tokens).toBe(-1);
+  source.generation.responseLength.enabled = true;
+  expect(resolveRequestSettings(source, active(), {}, capabilities).parameters.max_tokens).toBe(
+    123,
+  );
+  expect(
+    resolveRequestSettings(source, active(), { max_tokens: 64 }, capabilities).parameters
+      .max_tokens,
+  ).toBe(64);
 });
 
 it('turns disabled filters off and requests a random seed as Bionic checkboxes do', () => {
