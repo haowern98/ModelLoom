@@ -47,9 +47,75 @@ it('reads bounded model context and exact file identity without estimating memor
   expect(await inspectGGUF(await file(bytes))).toEqual({
     architecture: 'llama',
     contextLimit: 4096,
+    blockCount: null,
     tensors: 1,
     sha256: createHash('sha256').update(bytes).digest('hex'),
   });
+});
+it('reads repeating blocks from architecture metadata, never the tensor count', async () => {
+  const header = fixture();
+  header.writeBigUInt64LE(3n, 16);
+  const bytes = Buffer.concat([header, str('llama.block_count'), u32(4), u32(64)]);
+  expect(await inspectGGUF(await file(bytes))).toMatchObject({ tensors: 1, blockCount: 64 });
+});
+it.each([0, 4294967295])('keeps invalid block metadata unavailable (%s)', async (count) => {
+  const header = fixture();
+  header.writeBigUInt64LE(3n, 16);
+  const bytes = Buffer.concat([header, str('llama.block_count'), u32(4), u32(count)]);
+  expect((await inspectGGUF(await file(bytes))).blockCount).toBeNull();
+});
+function topologyFixture(nextn?: number, template?: string) {
+  const fields = [
+    str('general.architecture'),
+    u32(8),
+    str('qwen35'),
+    str('qwen35.context_length'),
+    u32(4),
+    u32(262144),
+    str('qwen35.block_count'),
+    u32(4),
+    u32(65),
+  ];
+  if (nextn !== undefined) fields.push(str('qwen35.nextn_predict_layers'), u32(4), u32(nextn));
+  if (template !== undefined) fields.push(str('tokenizer.chat_template'), u32(8), str(template));
+  return Buffer.concat([
+    Buffer.from('GGUF'),
+    u32(3),
+    u64(866n),
+    u64(BigInt(3 + Number(nextn !== undefined) + Number(template !== undefined))),
+    ...fields,
+  ]);
+}
+it('preserves allocation blocks while exposing an optional NextN count', async () => {
+  const dense = await inspectGGUF(await file(topologyFixture()));
+  expect(dense.blockCount).toBe(65);
+  expect(dense).not.toHaveProperty('nextnPredictLayers');
+  expect(await inspectGGUF(await file(topologyFixture(1)))).toMatchObject({
+    blockCount: 65,
+    nextnPredictLayers: 1,
+  });
+  expect(await inspectGGUF(await file(topologyFixture(0)))).toMatchObject({
+    nextnPredictLayers: 0,
+  });
+});
+it.each([65, 66, 4294967295])(
+  'rejects NextN counts without an inference trunk (%s)',
+  async (nextn) => {
+    await expect(inspectGGUF(await file(topologyFixture(nextn)))).rejects.toThrow('INVALID_GGUF');
+  },
+);
+it('returns a bounded thinking hint without exposing tokenizer templates', async () => {
+  const info = await inspectGGUF(
+    await file(topologyFixture(1, '{% if enable_thinking %}reason{% endif %}')),
+  );
+  expect(info.thinkingSupported).toBe(true);
+  expect(info).not.toHaveProperty('chatTemplate');
+  expect(await inspectGGUF(await file(topologyFixture(undefined, 'plain template')))).toMatchObject(
+    { thinkingSupported: false },
+  );
+  expect(
+    await inspectGGUF(await file(topologyFixture(undefined, 'not_enable_thinking'))),
+  ).toMatchObject({ thinkingSupported: false });
 });
 it('indexes optional display metadata from GGUF rather than a fixed model profile', async () => {
   const header = fixture();

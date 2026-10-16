@@ -113,6 +113,6 @@ it('rejects an unverified pending load tuple before entering the runtime', async
   });
   const rejected = await controller.command({ action: 'load', modelId: imported.model.id });
   expect(rejected.phase).toBe('failed');
-  expect(rejected.error).toContain('validated memory budget');
+  expect(rejected.error).toContain('verified for the selected runtime and GPUs');
   await controller.quit();
 });

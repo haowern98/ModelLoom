@@ -19,6 +19,63 @@ function setup(reserve = () => {}) {
   return { database, store, known };
 }
 
+const librarySource = (modelId: string) => ({
+  modelId,
+  file: `E:\\Models\\${modelId}.gguf`,
+  name: 'Indexed model',
+  size: '4 GB',
+  sizeBytes: 4000000000,
+  modifiedMs: 1234,
+  architecture: 'llama',
+  contextLimit: 4096,
+  quantization: 'Q4_K_M',
+  parameters: '4B',
+});
+
+it('restores every indexed model in identity order with independent usage after reopening', async () => {
+  const { store, database, known } = setup();
+  const first = librarySource('a'.repeat(64));
+  const second = librarySource('b'.repeat(64));
+  known.add(second.modelId);
+  await store.recordImport(second.modelId, 123, second);
+  await store.recordImport(first.modelId, 124, first);
+  await store.recordUse(second.modelId, 1000);
+  const moved = { ...first, file: 'E:\\Moved\\model.gguf' };
+  await store.recordImport(first.modelId, 125, moved);
+  const reopened = new ModelConfigurationStore(
+    database,
+    () => {},
+    (id) => known.has(id),
+    capabilities,
+    record().load,
+  );
+  expect(await reopened.readLibraryEntry(null)).toEqual({ source: moved, lastUsedAt: null });
+  expect(await reopened.readLibraryEntry(first.modelId)).toEqual({
+    source: second,
+    lastUsedAt: 1000,
+  });
+  expect(await reopened.readLibraryEntry(second.modelId)).toBeNull();
+  expect(database.prepare('SELECT COUNT(*) AS count FROM model_sources').get()?.count).toBe(2);
+  expect(await reopened.readImport(first.modelId)).toBe(124);
+  await expect(reopened.readLibraryEntry('../secret')).rejects.toThrow();
+});
+
+it('rejects corrupted source identity and usage while restoring library entries', async () => {
+  const { store, database } = setup();
+  const source = librarySource(record().modelId);
+  await store.recordImport(source.modelId, 123, source);
+  database
+    .prepare('UPDATE model_sources SET record=? WHERE model_id=?')
+    .run(JSON.stringify({ ...source, modelId: 'b'.repeat(64) }), source.modelId);
+  await expect(store.readLibraryEntry(null)).rejects.toThrow('UNSUPPORTED_CONFIGURATION');
+  database
+    .prepare('UPDATE model_sources SET record=? WHERE model_id=?')
+    .run(JSON.stringify(source), source.modelId);
+  await store.recordUse(source.modelId, 1000);
+  database.prepare('UPDATE model_usage SET last_used=? WHERE model_id=?').run(1.5, source.modelId);
+  await expect(store.readLibraryEntry(null)).rejects.toThrow('UNSUPPORTED_CONFIGURATION');
+});
+
 it('atomically saves revisions and reopens committed model defaults', async () => {
   const { database, store, known } = setup();
   const initial = await store.read(record().modelId);
@@ -91,7 +148,7 @@ it('upgrades only the exact old configuration schema and preserves saved default
   expect(await store.read(saved.modelId)).toEqual(saved);
   expect(await store.readImport(saved.modelId)).toBe(123);
   expect(await store.readImportSource(saved.modelId)).toBeNull();
-  expect(database.prepare('SELECT version FROM configuration_schema').get()?.version).toBe(3);
+  expect(database.prepare('SELECT version FROM configuration_schema').get()?.version).toBe(4);
   expect(await store.readCredential()).toEqual({
     generation: 7,
     protectedKey: Buffer.from('fixture-protected-bytes'),
@@ -142,7 +199,7 @@ it('upgrades the exact indexed schema without losing the imported source', async
   await store.replaceCredential(0, Buffer.from('fixture-protected-bytes'));
   // Recreate the previous schema version while preserving its retained tables.
   database.exec(
-    'DROP TABLE model_usage; DROP TABLE configuration_schema; CREATE TABLE configuration_schema(version INTEGER NOT NULL CHECK(version=2)); INSERT INTO configuration_schema VALUES(2)',
+    'DROP TABLE cluster_drafts; DROP TABLE cluster_configurations; DROP TABLE model_usage; DROP TABLE configuration_schema; CREATE TABLE configuration_schema(version INTEGER NOT NULL CHECK(version=2)); INSERT INTO configuration_schema VALUES(2)',
   );
   const reopened = new ModelConfigurationStore(
     database,
@@ -158,7 +215,7 @@ it('upgrades the exact indexed schema without losing the imported source', async
     Buffer.from('fixture-protected-bytes'),
   );
   expect(await reopened.readUse(id)).toBeNull();
-  expect(database.prepare('SELECT version FROM configuration_schema').get()?.version).toBe(3);
+  expect(database.prepare('SELECT version FROM configuration_schema').get()?.version).toBe(4);
 });
 
 it('retains the previous use on write failure and rejects malformed stored timestamps', async () => {
