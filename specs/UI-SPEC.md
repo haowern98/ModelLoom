@@ -455,8 +455,18 @@ Preserve the selected-model header, search and placement toolbar, coordinator/wo
 
 - U11 (P1-P2): Add device supports LAN discovery/manual private address, Tailscale, and existing Headscale entry points. Discovery, enrollment, approval, reachability, and readiness are distinct states. Show the selected mode and observed direct/relay/unknown path where relevant.
 - U12 (P1, P3): Device cards show actual identity/role/OS, approved connection, runtime health, CPU/GPU/backend information, and selected/assigned participation. Indicate compute hardware unsupported by the active runtime with a reason and compatible action.
-- U13 (P3, P8): The 2026-10-16 revision requires durable raw drafts and explicit Save before Run, for both automatic and manual proposals. Put Configurations below Your devices. Show a circular icon-only Save beside Play while dirty, with Save configuration tooltip and accessible name; no persistent Unsaved changes label, dot or warning colour. First Save requests a name and subsequent Saves update it. Show assignment errors only for the attempted Save revision, preserving raw text and clearing errors on new edits. Play on a directly selected model opens Auto place / Place manually / Cancel. Selecting a model/configuration and generating/saving proposals never load or stop the active model. Keep Stop/Cancel reachable while another selection is dirty; confirm interruption before replacing a session.
+
+Connections places its muted description directly below the heading, with a 6px
+visible gap and the same left edge. Its later 2px downward visual offset leaves
+the heading, actions and following content positions unchanged. The connected-app text is "Network connections will
+appear here." Join cluster, Share this PC and Add device form a right-aligned
+group vertically centered against the combined heading and description, matching
+the supplied Plugins header reference. Preserve the shared typography, button
+styling, content-column width and networking availability behavior.
+
+- U13 (P3, P8): The 2026-10-17 revision keeps durable raw drafts and makes named Save optional. Put Configurations below Your devices. Keep icon-only Save beside Play, with Save configuration tooltip and accessible name. First Save requests a name and subsequent Saves update it. Play with empty assignments opens Auto place / Place manually, with the top-right X for dismissal. Assignment choices only prepare layers; the same Play button loads prepared assignments. Switching models retains their independent unsaved drafts without loading or saving. Undo to empty restores the assignment-choice popup. Preserve raw text and clear old validation errors on edits. Keep Stop/Cancel reachable while another selection is dirty; confirm interruption before replacing a session.
 - U14 (P4, P6): A required worker disconnect interrupts affected generation. Mark the peer and model/session appropriately and provide reconnect/restart/removal choices consistent with actual recovery policy.
+- U15 (P3): Configuration rows share the chat-row layout, font, rounded selection, measured truncation/fade and hover scrolling. Reveal the original OpenAI trash-light-16 icon on hover or keyboard focus, reserving its fixed control width. Reset scrolling on leave and respect reduced motion. Trash opens the shared confirmation dialog. Confirmed deletion removes only that saved configuration and its own draft, retaining model settings, other drafts/configurations and any already running session. Deletion is unavailable during loading or planning. Failed deletion preserves the row and edits.
 
 The later approved compact editor puts an Undo / Redo / Reset to default pill
 before the model selector, with Save / Play after it. A faint vertical divider

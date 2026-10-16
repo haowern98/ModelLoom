@@ -1,5 +1,14 @@
 # ChatGPT sidebar icon provenance
 
+The shared chat/configuration row uses the original `trash-light-16` paths through
+ChatGptTrashIcon.tsx. This record was read statically from the installed
+OpenAI.Codex 26.1013.3656.0 package's
+`webview/assets/app-shared-2f18b1632f37.js`, SHA-256
+`c25c71cb02162edc2f03e8efce83708b00c453323caa5a4212bee5cbe4cdcf90`.
+Only the three static path records are included, with their original 16x16
+canvas and `currentColor` paint. This uses the same local development asset
+scope and distribution limitation as the reference paths below.
+
 Local reference package: OpenAI.Codex 26.1007.9446.0, installed Windows package.
 
 Cluster Run uses the original `play-light-16` SVG (shared symbol `oKi`) through

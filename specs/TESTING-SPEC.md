@@ -1247,3 +1247,17 @@ button and unused footer styling were removed; its existing close control remain
 covered by the launch interaction tests. These are local unit/integration and
 static results. Browser/packaged acceptance, hosted CI, new GPU runs and broader
 inference-equivalence evidence were not repeated for this commit checkpoint.
+
+## Configuration sidebar rows and deletion, 2026-10-17
+
+- Exercise the shared chat/configuration row in a real browser: long names fade
+  within the sidebar, overflowing names scroll only on hover or keyboard focus,
+  and the fixed-width trash button remains reachable. Leaving resets motion;
+  reduced-motion preference disables scrolling. Existing chat behavior remains.
+- Cancel or close deletion without changing storage. Confirm deletion and verify
+  only the saved configuration and its own draft disappear. Preserve imported
+  models, current model settings, other configurations and the per-model draft.
+- Reject malformed IDs, extra authority-bearing fields and stale revisions.
+  An injected draft-deletion failure rolls back the complete transaction.
+  Renderer failures retain selection and edits. Deleting the selected saved
+  configuration restores the independent model draft without starting inference.
