@@ -5,9 +5,10 @@ async function choose(page: Page, model: string, mode: 'Auto place' | 'Place man
   await page.getByRole('button', { name: /^Selected demo model:|^Choose model$/ }).click();
   await page.getByRole('menuitem', { name: new RegExp(model) }).click();
   await expect(page.getByRole('dialog', { name: 'Plan layer placement' })).toContainText(
-    'The model loads only when you click Run',
+    `Choose how to assign layers for ${model}.`,
   );
   await page.getByRole('button', { name: mode, exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Cancel loading' })).toHaveCount(0);
 }
 
 test('manual placement starts unassigned and validates all selected-model layers before switching', async ({
@@ -25,6 +26,7 @@ test('manual placement starts unassigned and validates all selected-model layers
   await run.click();
   await expect(page.getByRole('alert')).toContainText('all 32 sample layers exactly once');
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await page.getByRole('button', { name: 'Edit layers for inference-node GPU 0' }).click();
   const first = page.getByRole('spinbutton', { name: 'First layer for GPU 0' });
   const last = page.getByRole('spinbutton', { name: 'Last layer for GPU 0' });
@@ -34,6 +36,7 @@ test('manual placement starts unassigned and validates all selected-model layers
   await last.fill('30');
   await run.click();
   await expect(page.getByRole('alert')).toContainText('all 32 sample layers');
+  await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await expect(page.getByRole('button', { name: /Keep draft|Save changes/ })).toHaveCount(0);
   await last.fill('31');
   await run.click();
@@ -56,9 +59,16 @@ test('manual placement starts unassigned and validates all selected-model layers
   await page.getByRole('button', { name: 'Stop model' }).click();
   await expect(run).toBeVisible();
   await expect(page.getByText('In use', { exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Discard changes' }).click();
-  await expect(first).toHaveValue('');
-  await expect(last).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Discard changes' })).toHaveCount(0);
+  await expect(first).toHaveValue('0');
+  await expect(last).toHaveValue('31');
+  await page.getByRole('button', { name: 'Dismiss notification' }).click();
+  await page.getByRole('button', { name: 'Reset to default' }).click();
+  await expect(page.getByText(/^Planned layers/)).toHaveCount(5);
+  await expect(page.getByRole('button', { name: 'Cancel loading' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(first).toHaveValue('0');
+  await expect(last).toHaveValue('31');
 });
 
 test('auto placement is unloaded, loading can be cancelled and completes across navigation', async ({
@@ -77,6 +87,7 @@ test('auto placement is unloaded, loading can be cancelled and completes across 
     page.getByRole('button', { name: 'Selected demo model: Llama 3.1 8B' }),
   ).toBeDisabled();
   await page.getByRole('button', { name: 'Cancel loading' }).click();
+  await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await page.clock.runFor(1000);
   await expect(page.getByRole('button', { name: 'Run model' })).toBeVisible();
   await expect(page.getByText('In use', { exact: true })).toHaveCount(0);
@@ -111,21 +122,20 @@ test('model menu supports keyboard choices, cancellation and removed library ent
     'Mistral 7B Instruct',
   );
   const placementDialog = page.getByRole('dialog', { name: 'Plan layer placement' });
-  const cancel = placementDialog.getByRole('button', { name: 'Cancel', exact: true });
-  await expect(cancel).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(cancel).toHaveCSS('color', 'rgb(171, 171, 171)');
+  await expect(placementDialog.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
+  const close = placementDialog.getByRole('button', { name: 'Close dialog' });
   const dialogBounds = await placementDialog.boundingBox();
-  const cancelBounds = await cancel.boundingBox();
+  const closeBounds = await close.boundingBox();
   const manualBounds = await placementDialog
     .getByRole('button', { name: 'Place manually', exact: true })
     .boundingBox();
-  if (!dialogBounds || !cancelBounds || !manualBounds)
-    throw new Error('Missing placement controls');
-  expect(cancelBounds.x + cancelBounds.width / 2).toBeCloseTo(
-    dialogBounds.x + dialogBounds.width / 2,
-    1,
-  );
-  expect(cancelBounds.y).toBeGreaterThan(manualBounds.y + manualBounds.height);
+  if (!dialogBounds || !closeBounds || !manualBounds) throw new Error('Missing placement controls');
+  expect(closeBounds.x).toBeGreaterThan(dialogBounds.x + dialogBounds.width / 2);
+  expect(closeBounds.y).toBeLessThan(manualBounds.y);
+  await close.click();
+  await expect(selector).toBeFocused();
+  await selector.click();
+  await page.getByRole('menuitem', { name: /Mistral 7B Instruct/ }).click();
   await page.keyboard.press('Escape');
   await expect(selector).toBeFocused();
   await expect(selector).toHaveText('Qwen3.8-27B');
@@ -151,7 +161,8 @@ test('compact cluster toolbar stays contained without repeating the sidebar head
   const run = page.getByRole('button', { name: 'Stop model' });
   const toggle = page.getByRole('button', { name: 'Cluster panel', exact: true });
   const capsule = page.getByRole('group', { name: 'Cluster actions', exact: true });
-  await expect(capsule.getByRole('button')).toHaveCount(1);
+  await expect(capsule.getByRole('button')).toHaveCount(2);
+  await expect(capsule.getByRole('button', { name: 'Save configuration' })).toBeDisabled();
   await expect(capsule.getByRole('button', { name: 'Stop model' })).toBeVisible();
   await expect(capsule.getByRole('button', { name: 'Cluster panel', exact: true })).toHaveCount(0);
   await expect(toggle).toBeVisible();
@@ -176,7 +187,7 @@ test('compact cluster toolbar stays contained without repeating the sidebar head
       const capsuleBounds = await capsule.boundingBox();
       if (!modelBounds || !runBounds || !toggleBounds || !capsuleBounds)
         throw new Error('Missing toolbar controls');
-      expect(capsuleBounds.width).toBe(32);
+      expect(capsuleBounds.width).toBe(64);
       expect(capsuleBounds.height).toBe(32);
       expect(toggleBounds.width).toBe(32);
       expect(toggleBounds.height).toBe(32);

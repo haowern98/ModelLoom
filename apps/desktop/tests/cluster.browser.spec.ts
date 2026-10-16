@@ -237,15 +237,11 @@ test('toasts overlay the screen, close with X and leave placement unchanged', as
   await expect(toast.locator('..')).toHaveCSS('background-color', 'rgb(8, 35, 18)');
   expect(await card.boundingBox()).toEqual(before);
   const bounds = await toast.locator('..').boundingBox();
-  const toolbarBounds = await page.getByRole('group', { name: 'Cluster actions' }).boundingBox();
-  const workspaceBounds = await page
-    .getByRole('region', { name: 'Cluster canvas' })
-    .locator('../..')
-    .boundingBox();
-  if (!bounds || !toolbarBounds || !workspaceBounds)
-    throw new Error('Toast workspace geometry missing');
+  const workspaceBounds = await toast.locator('../..').boundingBox();
+  if (!bounds || !workspaceBounds) throw new Error('Toast workspace geometry missing');
   expect(bounds.width).toBeLessThan(700);
-  expect(bounds.y).toBeGreaterThanOrEqual(toolbarBounds.y + toolbarBounds.height);
+  expect(bounds.y - workspaceBounds.y).toBe(24);
+  expect(bounds.x + bounds.width / 2).toBeCloseTo(workspaceBounds.x + workspaceBounds.width / 2, 1);
   expect(bounds.x).toBeGreaterThanOrEqual(workspaceBounds.x);
   expect(bounds.y).toBeGreaterThanOrEqual(workspaceBounds.y);
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(workspaceBounds.x + workspaceBounds.width);
@@ -318,7 +314,8 @@ test('red coverage toasts expire while invalid raw field explanations remain', a
     page.getByRole('complementary', { name: 'Cluster panel' }).getByText(/cover all 128/),
   ).toHaveCount(0);
   await page.clock.runFor(3000);
-  await page.getByRole('button', { name: 'Apply and restart' }).click();
+  await page.getByRole('button', { name: 'Apply and restart' }).focus();
+  await page.keyboard.press('Enter');
   await page.clock.runFor(3000);
   await expect(toast).toBeVisible();
   await page.clock.runFor(2001);
@@ -461,7 +458,10 @@ test('direct layer edits, restart cancellation and navigation work with the keyb
   await page.keyboard.press('Enter');
   const first = page.getByRole('spinbutton', { name: 'First layer for GPU 0' });
   await first.fill('-1');
+  await expect(first).not.toHaveAttribute('aria-invalid', 'true');
+  await page.getByRole('button', { name: 'Apply and restart' }).click();
   await expect(first).toHaveAccessibleDescription(/whole numbers from 0 to 127/);
+  await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await page.keyboard.press('Escape');
   await expect(edit).toBeFocused();
   await edit.click();
