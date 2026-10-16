@@ -1,14 +1,14 @@
 import { useEffect, useId, useRef } from 'react';
 import type { RefObject } from 'react';
-import { ArrowLeft } from '@phosphor-icons/react/dist/csr/ArrowLeft';
+import { CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
 import { Pencil } from '@phosphor-icons/react/dist/csr/Pencil';
-import { X } from '@phosphor-icons/react/dist/csr/X';
-import { validSampleRange } from '../../mocks/cluster';
-import type { DemoDevice, DemoHardware, LayerInput, SampleRange } from '../../mocks/cluster';
+import { ChatGptHistoryIcon } from '../../components/ChatGptHistoryIcon';
+import type { DemoDevice, DemoHardware, LayerInput } from '../../mocks/cluster';
 import type { DemoModel } from '../../mocks/modelLibrary';
 import type { demoLinks } from '../../mocks/cluster';
 import styles from './ClusterPage.module.css';
 import { DeviceNameEditor } from './DeviceNameEditor';
+import { LayerNumberInput } from './LayerNumberInput';
 import { ClusterJoiningPanel, PendingRequests } from './ClusterJoiningPanel';
 import type { JoiningProps } from './ClusterJoiningPanel';
 import { connectionLabels } from '../../mocks/clusterJoining';
@@ -18,6 +18,8 @@ export type ClusterSelection =
   | { type: 'device'; device: DemoDevice; hardwareId?: string; renaming?: boolean }
   | { type: 'link'; link: (typeof demoLinks)[number] };
 
+export type AssignmentStatus = 'No assignment' | 'Draft' | 'Saved' | 'In use';
+
 interface ClusterPanelProps extends JoiningProps {
   id: string;
   selection: ClusterSelection;
@@ -25,11 +27,12 @@ interface ClusterPanelProps extends JoiningProps {
   activeModel: DemoModel | undefined;
   selectedModel: DemoModel | undefined;
   loading: boolean;
+  editingDisabled: boolean;
   inputs: readonly LayerInput[];
   layerCount: number;
-  ranges: readonly SampleRange[];
+  assignmentStates: Readonly<Record<string, AssignmentStatus>>;
   canPlace: boolean;
-  closeRef: RefObject<HTMLButtonElement | null>;
+  panelRef: RefObject<HTMLElement | null>;
   onClose: () => void;
   onOverview: () => void;
   onSelect: (device: DemoDevice) => void;
@@ -37,9 +40,8 @@ interface ClusterPanelProps extends JoiningProps {
   onStartRename: () => void;
   onCancelRename: () => void;
   onRename: (name: string) => void;
-  hasChanges: boolean;
   local?: boolean;
-  onDiscard: () => void;
+  saveIssues?: readonly { hardwareId?: string | undefined; field: string }[];
 }
 
 function LayerEditor({
@@ -49,7 +51,11 @@ function LayerEditor({
   focused,
   disabled,
   onEdit,
+  issue,
+  placeholder,
 }: {
+  issue?: string | undefined;
+  placeholder?: string | undefined;
   hardware: DemoHardware;
   input: LayerInput;
   layerCount: number;
@@ -58,55 +64,46 @@ function LayerEditor({
   onEdit: (input: LayerInput) => void;
 }) {
   const firstInput = useRef<HTMLInputElement>(null);
+  const lastInput = useRef<HTMLInputElement>(null);
   const id = useId();
-  const blank = !input.first.trim() && !input.last.trim();
-  const invalid =
-    !blank &&
-    (!input.first.trim() ||
-      !input.last.trim() ||
-      !validSampleRange(
-        { hardwareId: input.hardwareId, first: Number(input.first), last: Number(input.last) },
-        layerCount,
-      ));
+  const invalid = Boolean(issue);
   useEffect(() => {
-    if (focused) firstInput.current?.focus();
-  }, [focused]);
+    if (issue === 'last') lastInput.current?.focus();
+    else if (focused || issue) firstInput.current?.focus();
+  }, [focused, issue]);
   return (
     <div>
       <div className={styles.rangeInputs}>
-        <label htmlFor={`${id}-first`}>
-          First layer
-          <input
-            ref={firstInput}
+        <div>
+          <label htmlFor={`${id}-first`}>First layer</label>
+          <LayerNumberInput
+            inputRef={firstInput}
             id={`${id}-first`}
-            aria-label={`First layer for ${hardware.label}`}
+            label={`First layer for ${hardware.label}`}
             disabled={disabled}
-            type="number"
-            min="0"
-            max={layerCount - 1}
-            step="1"
-            aria-invalid={invalid}
-            aria-describedby={invalid ? `${id}-error` : undefined}
+            maximum={layerCount - 1}
+            invalid={invalid}
+            describedBy={invalid ? `${id}-error` : undefined}
             value={input.first}
-            onChange={(event) => onEdit({ ...input, first: event.target.value })}
+            placeholder={placeholder}
+            onChange={(value) => onEdit({ ...input, first: value })}
           />
-        </label>
-        <label htmlFor={`${id}-last`}>
-          Last layer
-          <input
+        </div>
+        <div>
+          <label htmlFor={`${id}-last`}>Last layer</label>
+          <LayerNumberInput
+            inputRef={lastInput}
             id={`${id}-last`}
-            aria-label={`Last layer for ${hardware.label}`}
+            label={`Last layer for ${hardware.label}`}
             disabled={disabled}
-            type="number"
-            min="0"
-            max={layerCount - 1}
-            step="1"
-            aria-invalid={invalid}
-            aria-describedby={invalid ? `${id}-error` : undefined}
+            maximum={layerCount - 1}
+            invalid={invalid}
+            describedBy={invalid ? `${id}-error` : undefined}
             value={input.last}
-            onChange={(event) => onEdit({ ...input, last: event.target.value })}
+            placeholder={placeholder}
+            onChange={(value) => onEdit({ ...input, last: value })}
           />
-        </label>
+        </div>
       </div>
       {invalid && (
         <p id={`${id}-error`} className={styles.error}>
@@ -130,11 +127,12 @@ export function ClusterPanel({
   activeModel,
   selectedModel,
   loading,
+  editingDisabled,
   inputs,
   layerCount,
-  ranges,
+  assignmentStates,
   canPlace,
-  closeRef,
+  panelRef,
   onClose,
   onOverview,
   onSelect,
@@ -142,8 +140,7 @@ export function ClusterPanel({
   onStartRename,
   onCancelRename,
   onRename,
-  hasChanges,
-  onDiscard,
+  saveIssues = [],
 }: ClusterPanelProps) {
   const renameTrigger = useRef<HTMLButtonElement>(null);
   const finishRename = () => {
@@ -158,8 +155,18 @@ export function ClusterPanel({
         : selection.type === 'overview'
           ? 'Cluster overview'
           : connectionLabels[selection.type];
+  const hardware = devices.flatMap((device) => device.hardware);
+  const gpus = hardware.filter((item) => item.kind === 'gpu');
+  const unified = hardware.filter((item) => item.kind === 'unified');
+  const memoryUnit = local ? 'GiB' : 'GB';
+  const memory = (items: readonly DemoHardware[]) =>
+    items.every((item) => Number.isFinite(item.memoryGb) && item.memoryGb > 0)
+      ? `${items.reduce((sum, item) => sum + item.memoryGb, 0).toFixed(1)} ${memoryUnit}`
+      : 'Unknown';
   return (
     <aside
+      ref={panelRef}
+      tabIndex={-1}
       id={id}
       className={styles.panel}
       aria-label="Cluster panel"
@@ -172,110 +179,108 @@ export function ClusterPanel({
     >
       <div className={styles.panelContent} role="region" aria-label="Cluster panel content">
         <header className={styles.panelHeader}>
-          {selection.type === 'device' ? (
-            selection.renaming ? (
-              <DeviceNameEditor
-                key={selection.device.id}
-                device={selection.device}
-                onCancel={finishRename}
-                onSave={(name) => {
-                  onRename(name);
-                  queueMicrotask(() => renameTrigger.current?.focus());
-                }}
-              />
-            ) : (
-              <div className={styles.panelIdentity}>
-                <h2>{title}</h2>
-                <button
-                  ref={renameTrigger}
-                  type="button"
-                  className={styles.renameTrigger}
-                  aria-label="Edit device name"
-                  onClick={onStartRename}
-                >
-                  <Pencil size={14} aria-hidden="true" />
-                </button>
-              </div>
-            )
-          ) : (
-            <h2>{title}</h2>
+          {selection.type !== 'overview' && (
+            <button
+              type="button"
+              className={styles.panelBack}
+              aria-label="Back to cluster overview"
+              title="Back to cluster overview"
+              onClick={() => {
+                onOverview();
+                queueMicrotask(() => panelRef.current?.focus());
+              }}
+            >
+              <ChatGptHistoryIcon kind="undo" />
+            </button>
           )}
-          <button
-            ref={closeRef}
-            type="button"
-            className={styles.panelClose}
-            aria-label="Close cluster panel"
-            onClick={onClose}
-          >
-            <X size={18} aria-hidden="true" />
-          </button>
+          <div className={styles.panelHeading}>
+            {selection.type === 'device' ? (
+              selection.renaming ? (
+                <DeviceNameEditor
+                  key={selection.device.id}
+                  device={selection.device}
+                  onCancel={finishRename}
+                  onSave={(name) => {
+                    onRename(name);
+                    queueMicrotask(() => renameTrigger.current?.focus());
+                  }}
+                />
+              ) : (
+                <div className={styles.panelIdentity}>
+                  <h2>{title}</h2>
+                  <button
+                    ref={renameTrigger}
+                    type="button"
+                    className={styles.renameTrigger}
+                    aria-label="Edit device name"
+                    onClick={onStartRename}
+                  >
+                    <Pencil size={14} aria-hidden="true" />
+                  </button>
+                </div>
+              )
+            ) : (
+              <h2>{title}</h2>
+            )}
+            {selection.type === 'device' && (
+              <p className={styles.deviceSubtitle}>
+                {local ? 'This device' : 'Sample device'} · {selection.device.role}
+              </p>
+            )}
+          </div>
         </header>
-        {selection.type !== 'overview' && (
-          <button type="button" className={styles.backToOverview} onClick={onOverview}>
-            <ArrowLeft size={14} />
-            Cluster overview
-          </button>
-        )}
         {selection.type === 'overview' && (
-          <>
-            <dl className={styles.details}>
-              <div>
-                <dt>Model</dt>
-                <dd>{selectedModel?.name ?? 'No model selected'}</dd>
-              </div>
-              <div>
-                <dt>State</dt>
-                <dd>
+          <div className={styles.overviewSummary}>
+            <div className={styles.overviewModel}>
+              <p className={styles.overviewModelName}>
+                {selectedModel?.name ?? 'No model selected'}
+              </p>
+              {selectedModel && (
+                <p className={styles.overviewStatus}>
                   {loading
                     ? local
-                      ? 'Loading local model'
+                      ? 'Model loading in progress'
                       : 'Loading demo model'
                     : selectedModel?.id === activeModel?.id && activeModel
                       ? local
                         ? 'Ready'
                         : 'Ready · simulated'
                       : 'Not loaded'}
-                </dd>
-              </div>
-              <div>
-                <dt>Running model</dt>
-                <dd>{activeModel?.name ?? 'None'}</dd>
-              </div>
-              <div>
-                <dt>Devices</dt>
-                <dd>
-                  {devices.length} {local ? 'local device' : 'sample devices'}
-                </dd>
-              </div>
-              <div>
-                <dt>Discrete VRAM</dt>
-                <dd>
-                  {devices
-                    .flatMap((device) => device.hardware)
-                    .filter((hardware) => hardware.kind === 'gpu')
-                    .reduce((sum, hardware) => sum + hardware.memoryGb, 0)}{' '}
-                  GB
-                </dd>
-              </div>
-              <div>
-                <dt>Unified memory</dt>
-                <dd>
-                  {devices
-                    .flatMap((device) => device.hardware)
-                    .filter((hardware) => hardware.kind === 'unified')
-                    .reduce((sum, hardware) => sum + hardware.memoryGb, 0)}{' '}
-                  GB
-                </dd>
-              </div>
-            </dl>
+                </p>
+              )}
+              {activeModel && activeModel.id !== selectedModel?.id && (
+                <dl className={styles.overviewMemory}>
+                  <div>
+                    <dt>Running model</dt>
+                    <dd>{activeModel.name}</dd>
+                  </div>
+                </dl>
+              )}
+            </div>
+            <section className={styles.hardwareSummary} aria-label="Hardware summary">
+              <h3>Hardware</h3>
+              <p className={styles.overviewStatus}>
+                {devices.length} {devices.length === 1 ? 'device' : 'devices'} ·{' '}
+                {gpus.length + unified.length} {gpus.length + unified.length === 1 ? 'GPU' : 'GPUs'}
+              </p>
+              <dl className={styles.overviewMemory}>
+                {gpus.length > 0 && (
+                  <div>
+                    <dt>GPU memory</dt>
+                    <dd>{memory(gpus)}</dd>
+                  </div>
+                )}
+                {unified.length > 0 && (
+                  <div>
+                    <dt>Unified memory</dt>
+                    <dd>{memory(unified)}</dd>
+                  </div>
+                )}
+              </dl>
+            </section>
             <PendingRequests demo={demo} joining={joining} onJoining={onJoining} />
             <section className={styles.panelSection}>
-              <h3>Layer allocation</h3>
-              <p className={styles.panelDescription}>
-                {local
-                  ? 'This local configuration uses full GPU offload. Custom placement is unavailable.'
-                  : 'Sample allocation, not measured memory use.'}
-              </p>
+              <h3>Layer assignment</h3>
               {devices.map((device) => (
                 <button
                   key={device.id}
@@ -284,84 +289,80 @@ export function ClusterPanel({
                   onClick={() => onSelect(device)}
                 >
                   <span>{device.name}</span>
-                  <small>
-                    {local
-                      ? activeModel
-                        ? 'Full GPU offload'
-                        : 'Not loaded'
-                      : canPlace
-                        ? ranges
-                            .filter((range) =>
-                              device.hardware.some((hardware) => hardware.id === range.hardwareId),
-                            )
-                            .map((range) => `${range.first}–${range.last}`)
-                            .join(', ') || 'Unassigned'
-                        : 'Not assigned'}
-                  </small>
+                  <small>{assignmentStates[device.id] ?? 'No assignment'}</small>
+                  <CaretRight size={14} aria-hidden="true" />
                 </button>
               ))}
             </section>
-          </>
+          </div>
         )}
         {selection.type === 'device' && (
           <>
-            <p className={styles.panelDescription}>
-              {local ? 'Local device' : 'Sample device'} · {selection.device.role}
-            </p>
-            <dl className={styles.details}>
-              <div>
-                <dt>OS</dt>
-                <dd>{selection.device.os}</dd>
-              </div>
-              <div>
-                <dt>Address</dt>
-                <dd>{selection.device.address}</dd>
-              </div>
-              <div>
-                <dt>Connection</dt>
-                <dd>{local ? 'This device' : 'Not verified'}</dd>
-              </div>
-            </dl>
+            <details key={selection.device.id} className={styles.deviceDetails}>
+              <summary>
+                <span>Device details</span>
+                <CaretRight size={16} aria-hidden="true" />
+              </summary>
+              <dl>
+                <div>
+                  <dt>OS</dt>
+                  <dd>{selection.device.os}</dd>
+                </div>
+                <div>
+                  <dt>Address</dt>
+                  <dd>{selection.device.address}</dd>
+                </div>
+                <div>
+                  <dt>Connection</dt>
+                  <dd>{local ? 'This device' : 'Not verified'}</dd>
+                </div>
+              </dl>
+            </details>
             <section className={styles.panelSection}>
-              <h3>Hardware and layers</h3>
+              <h3>Layer assignment</h3>
               <p className={styles.panelDescription}>
-                {local
-                  ? loading
-                    ? 'Loading the local model. Cancel stops the owned engine.'
-                    : 'The tested local configuration uses full GPU offload. Custom layer editing is unavailable.'
-                  : loading
-                    ? 'Simulated loading. Editing resumes when loading finishes or is cancelled.'
-                    : activeModel
-                      ? 'Edit sample ranges below. Run requires confirmation before replacing the active session.'
-                      : 'Assign sample layers below, then click Run to load the model.'}
+                {selectedModel
+                  ? layerCount > 0
+                    ? `${layerCount} layers · 0–${layerCount - 1}`
+                    : 'Layer metadata is unavailable. Re-import the model to assign layers.'
+                  : 'Choose a model to assign layers.'}
               </p>
-              {selection.device.hardware.map((hardware) => {
-                const input = inputs.find((entry) => entry.hardwareId === hardware.id);
-                return (
-                  <section
-                    key={hardware.id}
-                    className={styles.hardwareEditor}
-                    aria-label={`Details for ${hardware.label}`}
-                  >
-                    <h4>{hardware.label}</h4>
-                    <p>{hardware.name}</p>
-                    <p>{hardware.detail}</p>
-                    {canPlace && hardware.kind !== 'cpu' && input ? (
-                      <LayerEditor
-                        key={`${selectedModel?.id}-${hardware.id}`}
-                        hardware={hardware}
-                        input={input}
-                        layerCount={layerCount}
-                        disabled={loading}
-                        focused={selection.hardwareId === hardware.id}
-                        onEdit={onEdit}
-                      />
-                    ) : hardware.kind !== 'cpu' ? (
-                      <p className={styles.unassigned}>Not used for model layers</p>
-                    ) : null}
-                  </section>
-                );
-              })}
+              <div className={styles.layerEditorGroup}>
+                {selection.device.hardware
+                  .filter((hardware) => hardware.kind !== 'cpu')
+                  .map((hardware) => {
+                    const input = inputs.find((entry) => entry.hardwareId === hardware.id);
+                    const editable = canPlace && Boolean(input);
+                    return (
+                      <section
+                        key={hardware.id}
+                        className={styles.hardwareEditor}
+                        aria-label={`Details for ${hardware.label}`}
+                      >
+                        <h4>{hardware.label}</h4>
+                        <LayerEditor
+                          key={`${selectedModel?.id}-${hardware.id}`}
+                          hardware={hardware}
+                          input={
+                            canPlace && input
+                              ? input
+                              : { hardwareId: hardware.id, first: '', last: '' }
+                          }
+                          layerCount={selectedModel ? layerCount : 0}
+                          disabled={editingDisabled || !editable}
+                          placeholder={editable ? undefined : '\u2014'}
+                          focused={editable && selection.hardwareId === hardware.id}
+                          onEdit={onEdit}
+                          issue={
+                            editable
+                              ? saveIssues.find((issue) => issue.hardwareId === hardware.id)?.field
+                              : undefined
+                          }
+                        />
+                      </section>
+                    );
+                  })}
+              </div>
             </section>
           </>
         )}
@@ -402,11 +403,6 @@ export function ClusterPanel({
             joining={joining}
             onJoining={onJoining}
           />
-        )}
-        {hasChanges && (
-          <button type="button" className={styles.discardChanges} onClick={onDiscard}>
-            Discard changes
-          </button>
         )}
       </div>
     </aside>

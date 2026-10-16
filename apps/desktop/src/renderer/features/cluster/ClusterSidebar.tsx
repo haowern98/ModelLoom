@@ -13,6 +13,9 @@ interface ClusterSidebarProps {
   onSelect: (device: DemoDevice) => void;
   pendingRequests: number;
   local: boolean;
+  configurations?: readonly { id: string; name: string }[] | undefined;
+  selectedConfigurationId?: string | undefined;
+  onConfiguration?: (id: string) => void;
 }
 
 const destinations = [
@@ -30,6 +33,9 @@ export function ClusterSidebar({
   onSelect,
   pendingRequests,
   local,
+  configurations = [],
+  selectedConfigurationId,
+  onConfiguration,
 }: ClusterSidebarProps) {
   const orderedDevices = [
     ...devices.filter((device) => device.role === 'Coordinator'),
@@ -88,6 +94,19 @@ export function ClusterSidebar({
                 <span className={styles.deviceName}>{device.name}</span>
                 <span className={styles.secondary}>{local ? 'This device' : device.role}</span>
               </span>
+            </button>
+          ))}
+        </section>
+        <section aria-label="Configurations">
+          <h2 className={styles.groupHeading}>Configurations</h2>
+          {configurations.map((configuration) => (
+            <button
+              key={configuration.id}
+              type="button"
+              aria-pressed={selectedConfigurationId === configuration.id}
+              onClick={() => onConfiguration?.(configuration.id)}
+            >
+              <span className={styles.deviceName}>{configuration.name}</span>
             </button>
           ))}
         </section>

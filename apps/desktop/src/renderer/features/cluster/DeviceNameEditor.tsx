@@ -18,7 +18,7 @@ export function DeviceNameEditor({
   const input = useRef<HTMLInputElement>(null);
   const id = useId();
   useEffect(() => {
-    // Focus after the panel opens and focuses its close control.
+    // Focus after the surrounding panel takes its initial keyboard focus.
     queueMicrotask(() => {
       input.current?.focus();
       input.current?.select();

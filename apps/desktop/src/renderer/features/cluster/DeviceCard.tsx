@@ -16,6 +16,7 @@ interface DeviceCardProps {
   layerCount: number;
   loading: boolean;
   proposed: boolean;
+  savedAssignment?: boolean;
   active: boolean;
   localReady?: boolean;
   onEdit: (hardwareId: string) => void;
@@ -33,8 +34,9 @@ export function DeviceCard({
   layerCount,
   loading,
   proposed,
+  savedAssignment = false,
   active,
-  localReady = false,
+
   onEdit,
   onDetails,
   onRename,
@@ -156,7 +158,7 @@ export function DeviceCard({
                   <div className={styles.assignment}>
                     <div
                       className={styles.bar}
-                      title={range ? 'Sample allocation share, not measured memory use' : undefined}
+                      title={range ? 'Layer allocation share, not measured memory use' : undefined}
                     >
                       {range && (
                         <span
@@ -168,11 +170,9 @@ export function DeviceCard({
                     </div>
                     <div className={styles.rangeRow}>
                       <span>
-                        {localReady && hardware.kind === 'gpu'
-                          ? 'Full GPU offload'
-                          : range
-                            ? `${proposed ? 'Planned layers' : 'Layers'} ${range.first} – ${range.last}`
-                            : 'Unassigned'}
+                        {range
+                          ? `${proposed && !savedAssignment ? 'Planned layers' : 'Layers'} ${range.first} – ${range.last}`
+                          : 'Unassigned'}
                       </span>
                       <button
                         type="button"
