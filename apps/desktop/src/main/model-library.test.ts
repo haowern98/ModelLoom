@@ -11,6 +11,15 @@ import {
 } from '../../../../packages/core/src/model-configuration/test-fixtures';
 import type { ModelSource } from '../../../../packages/core/src/model-configuration/model-source';
 
+// The indexed runtime owner is Windows-only; retain its path contract on Linux CI too.
+vi.mock('node:path', async (importOriginal) => {
+  const original = await importOriginal<typeof path>();
+  return {
+    ...original,
+    default: { ...original, resolve: (...parts: string[]) => original.win32.resolve(...parts) },
+  };
+});
+
 it('retains all imports through refresh, settings, switching, reimport and restart', async () => {
   const database = new DatabaseSync(':memory:');
   const store = new ModelConfigurationStore(
@@ -22,7 +31,7 @@ it('retains all imports through refresh, settings, switching, reimport and resta
   );
   const sources: ModelSource[] = ['a', 'b'].map((key) => ({
     modelId: key.repeat(64),
-    file: path.resolve('models', `${key}.gguf`),
+    file: path.resolve('E:/Models', `${key}.gguf`),
     name: key === 'a' ? 'Bonsai' : 'Qwen',
     size: '4 GB',
     sizeBytes: 4000000000,

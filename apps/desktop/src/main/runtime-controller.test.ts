@@ -2,6 +2,15 @@ import { expect, it, vi } from 'vitest';
 import path from 'node:path';
 import * as module from './runtime-controller';
 import type { ModelSource } from '../../../../packages/core/src/model-configuration/model-source';
+
+// The indexed runtime owner is Windows-only; retain its path contract on Linux CI too.
+vi.mock('node:path', async (importOriginal) => {
+  const original = await importOriginal<typeof path>();
+  return {
+    ...original,
+    default: { ...original, resolve: (...parts: string[]) => original.win32.resolve(...parts) },
+  };
+});
 const localDevice = {
   name: 'local-pc',
   os: 'Windows',
@@ -203,7 +212,7 @@ it('indexes a different valid model hash and restores its source through the cor
     enabled: true as const,
     expectedHash: 'a'.repeat(64),
     packageId: 'package',
-    pick: vi.fn(() => Promise.resolve(path.resolve('models', 'filename.gguf'))),
+    pick: vi.fn(() => Promise.resolve(path.resolve('E:/Models', 'filename.gguf'))),
     inspect: vi.fn(
       () =>
         new Promise<{ sha256: string; size: string }>((resolve) => {
@@ -220,13 +229,13 @@ it('indexes a different valid model hash and restores its source through the cor
   await vi.waitFor(() => expect(deps.inspect).toHaveBeenCalledTimes(1));
   const pending = await controller.command({ action: 'snapshot' });
   expect(pending.indexing).toBe('filename.gguf');
-  const privatePath = JSON.stringify(path.resolve('models', 'filename.gguf')).slice(1, -1);
+  const privatePath = JSON.stringify(path.resolve('E:/Models', 'filename.gguf')).slice(1, -1);
   expect(JSON.stringify(pending)).not.toContain(privatePath);
   release({ sha256: modelId, size: '4 GB' });
   const imported = await importing;
   expect(imported.model?.name).toBe('filename.gguf');
   expect(deps.createHistoryHost).toHaveBeenCalledWith(
-    expect.objectContaining({ modelId, file: path.resolve('models', 'filename.gguf') }),
+    expect.objectContaining({ modelId, file: path.resolve('E:/Models', 'filename.gguf') }),
   );
   expect(imported.model?.lastUsedAt).toBeUndefined();
   lastUsedAt = Date.now();
