@@ -1,0 +1,91 @@
+.icon {
+  display: grid;
+  place-items: center;
+  width: var(--control-height-icon);
+  height: var(--control-height-icon);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+}
+.conversationRow {
+  position: relative;
+  border-radius: 10px;
+}
+.conversationRow + .conversationRow {
+  margin-top: 1px;
+}
+.conversationRow:hover,
+.conversationRow:has(:focus-visible),
+.selectedRow {
+  background: #2f2f2f;
+}
+.conversationButton {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 10px;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-control);
+  background: transparent;
+}
+.titleViewport {
+  display: block;
+  overflow: hidden;
+}
+.titleViewport[data-overflow='true'] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+.titleText {
+  display: inline-block;
+}
+.deleteChat {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+}
+.conversationRow:hover .deleteChat,
+.conversationRow:has(:focus-visible) .deleteChat {
+  opacity: 1;
+  pointer-events: auto;
+}
+.conversationRow:hover .titleViewport,
+.conversationRow:has(:focus-visible) .titleViewport {
+  margin-right: 28px;
+}
+.conversationRow:hover .titleViewport[data-overflow='true'] .titleText,
+.conversationRow:has(:focus-visible) .titleViewport[data-overflow='true'] .titleText {
+  animation: scrollTitle var(--title-duration) linear 700ms infinite alternate;
+}
+@keyframes scrollTitle {
+  0%,
+  15% {
+    transform: translateX(0);
+  }
+  80%,
+  100% {
+    transform: translateX(var(--title-scroll));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .conversationRow .titleViewport .titleText {
+    animation: none !important;
+  }
+}
+@media (hover: none) {
+  .deleteChat {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .titleViewport {
+    margin-right: 28px;
+  }
+}
