@@ -8,6 +8,25 @@ const localDevice = {
   threads: 8,
   role: 'Worker' as const,
 };
+it('keeps an active model ready when an unevidenced saved configuration is rejected', async () => {
+  const { controller, host } = setup();
+  await controller.command({ action: 'import' });
+  const imported = await controller.command({ action: 'snapshot' });
+  if (!imported.model) throw Error('fixture model unavailable');
+  expect((await controller.command({ action: 'load', modelId: imported.model.id })).phase).toBe(
+    'ready',
+  );
+  const attempts = host.command.mock.calls.length;
+  const rejected = await controller.command({
+    action: 'run-configuration',
+    configurationId: '12345678-1234-4234-8234-123456789abc',
+    revision: 1,
+  });
+  expect(rejected.phase).toBe('ready');
+  expect(rejected.error).toContain('verified for the selected runtime and GPUs');
+  expect(host.command).toHaveBeenCalledTimes(attempts);
+  await controller.quit();
+});
 function setup(enabled = true) {
   let phase = 'stopped';
   const host = {
@@ -24,10 +43,11 @@ function setup(enabled = true) {
   const deps = {
     enabled,
     pick: vi.fn(() => Promise.resolve('private/path.gguf')),
-    inspect: vi.fn(() => Promise.resolve({ sha256: 'approved', size: '3.80 GB' })),
-    expectedHash: 'approved',
+    inspect: vi.fn(() => Promise.resolve({ sha256: 'a'.repeat(64), size: '3.80 GB' })),
+    expectedHash: 'a'.repeat(64),
     packageId: 'package',
     preflight: vi.fn(() => Promise.resolve()),
+    confirmSharedMemory: vi.fn(() => Promise.resolve(false)),
     createHost: vi.fn(() => Promise.resolve(host)),
     device: vi.fn(() => Promise.resolve(localDevice)),
   };
@@ -144,7 +164,7 @@ it('imports an opaque model, rejects forged IDs, and reports readiness only afte
   expect(imported.model!.id).toMatch(/^model-/u);
   expect(JSON.stringify(imported)).not.toContain('private/path');
   expect((await controller.command({ action: 'load', modelId: 'model-forged' })).error).toBe(
-    'Select the imported Bonsai model.',
+    'Select the imported model.',
   );
   expect(deps.createHost).not.toHaveBeenCalled();
   expect((await controller.command({ action: 'load', modelId: imported.model!.id })).phase).toBe(
@@ -154,8 +174,8 @@ it('imports an opaque model, rejects forged IDs, and reports readiness only afte
   await controller.quit();
 });
 
-it('publishes an indexing filename while inspection runs and restores the saved library unloaded', async () => {
-  const modelId = 'a'.repeat(64);
+it('indexes a different valid model hash and restores its source through the correct unloaded owner', async () => {
+  const modelId = 'b'.repeat(64);
   let source: ModelSource | null = null;
   let lastUsedAt: number | null = null;
   let release!: (info: { sha256: string; size: string }) => void;
@@ -168,13 +188,19 @@ it('publishes an indexing filename while inspection runs and restores the saved 
         return Promise.resolve({ ok: true as const, lastUsedAt });
       if (command.action === 'readImportSource')
         return Promise.resolve({ ok: true as const, source });
+      if (command.action === 'readLibraryEntry')
+        return Promise.resolve({
+          ok: true as const,
+          entry:
+            source && !(input as { after: string | null }).after ? { source, lastUsedAt } : null,
+        });
       source = command.source ?? null;
       return Promise.resolve({ ok: true as const, registered: true as const });
     }),
   };
   const deps = {
     enabled: true as const,
-    expectedHash: modelId,
+    expectedHash: 'a'.repeat(64),
     packageId: 'package',
     pick: vi.fn(() => Promise.resolve('E:\\Models\\filename.gguf')),
     inspect: vi.fn(
@@ -197,6 +223,9 @@ it('publishes an indexing filename while inspection runs and restores the saved 
   release({ sha256: modelId, size: '4 GB' });
   const imported = await importing;
   expect(imported.model?.name).toBe('filename.gguf');
+  expect(deps.createHistoryHost).toHaveBeenCalledWith(
+    expect.objectContaining({ modelId, file: 'E:\\Models\\filename.gguf' }),
+  );
   expect(imported.model?.lastUsedAt).toBeUndefined();
   lastUsedAt = Date.now();
   const used = await controller.command({ action: 'snapshot' });
@@ -210,6 +239,7 @@ it('publishes an indexing filename while inspection runs and restores the saved 
   );
   const restored = await reopened.command({ action: 'snapshot' });
   expect(restored.model?.id).toBe(`model-${modelId}`);
+  expect(deps.createHistoryHost).toHaveBeenLastCalledWith(expect.objectContaining({ modelId }));
   expect(restored.phase).toBe('stopped');
   expect(restored.model?.unavailable).toBe(false);
   expect(restored.model?.lastUsedAt).toBe(lastUsedAt);
@@ -256,7 +286,7 @@ it('blocks loading an old library entry while a replacement import is indexing',
   expect(loading.error).toContain('Stop the current model');
   expect(loading.phase).toBe('stopped');
   expect(deps.createHost).not.toHaveBeenCalled();
-  release({ sha256: 'approved', size: '3.80 GB' });
+  release({ sha256: 'a'.repeat(64), size: '3.80 GB' });
   expect((await importing).phase).toBe('stopped');
   await controller.quit();
 });
@@ -278,7 +308,7 @@ it('waits for indexing cleanup on Quit and never publishes its unfinished import
   });
   await Promise.resolve();
   expect(closed).toBe(false);
-  release({ sha256: 'approved', size: '3.80 GB' });
+  release({ sha256: 'a'.repeat(64), size: '3.80 GB' });
   await Promise.all([importing, closing]);
   expect((await controller.command({ action: 'snapshot' })).model).toBeNull();
   expect(deps.createHost).not.toHaveBeenCalled();
@@ -351,7 +381,7 @@ it('denies paths and mismatched GGUFs without forwarding them to a host', async 
   );
   expect(deps.pick).not.toHaveBeenCalled();
   deps.inspect.mockResolvedValueOnce({ sha256: 'different', size: '1 GB' });
-  expect((await controller.command({ action: 'import' })).error).toContain('Bonsai');
+  expect((await controller.command({ action: 'import' })).error).toBeTruthy();
   expect(deps.createHost).not.toHaveBeenCalled();
 });
 it('explains rejected model file ownership without disclosing its path or starting an engine', async () => {
@@ -376,6 +406,52 @@ it('keeps a rejected retry visible even when an existing core is stopped', async
   const failed = await controller.command({ action: 'load', modelId: imported.model!.id });
   expect(await controller.command({ action: 'snapshot' })).toEqual(failed);
   await controller.quit();
+});
+it('cancels shared-memory loading before host creation when the warning is declined', async () => {
+  const { controller, deps } = setup();
+  const imported = await controller.command({ action: 'import' });
+  deps.preflight.mockRejectedValueOnce(new Error('SHARED_GPU_MEMORY_CONFIRMATION'));
+  const result = await controller.command({ action: 'load', modelId: imported.model!.id });
+  expect(deps.confirmSharedMemory).toHaveBeenCalledTimes(1);
+  expect(result.phase).toBe('stopped');
+  expect(result.error).toBeNull();
+  expect(deps.createHost).not.toHaveBeenCalled();
+});
+it('rechecks resources after shared-memory confirmation before starting the model', async () => {
+  const { controller, deps, host } = setup();
+  const imported = await controller.command({ action: 'import' });
+  deps.confirmSharedMemory.mockResolvedValueOnce(true);
+  deps.preflight.mockRejectedValueOnce(new Error('SHARED_GPU_MEMORY_CONFIRMATION'));
+  const result = await controller.command({ action: 'load', modelId: imported.model!.id });
+  expect(result.phase).toBe('ready');
+  expect(deps.preflight).toHaveBeenNthCalledWith(2, true);
+  expect(host.command.mock.calls.some(([text]) => text.includes('"action":"load"'))).toBe(true);
+  await controller.quit();
+});
+it('does not reuse a pending confirmation after Stop or bypass a fresh RAM shortage', async () => {
+  const { controller, deps } = setup();
+  const imported = await controller.command({ action: 'import' });
+  deps.preflight.mockRejectedValueOnce(new Error('SHARED_GPU_MEMORY_CONFIRMATION'));
+  let confirm!: (value: boolean) => void;
+  deps.confirmSharedMemory.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        confirm = resolve;
+      }),
+  );
+  const loading = controller.command({ action: 'load', modelId: imported.model!.id });
+  await vi.waitFor(() => expect(deps.confirmSharedMemory).toHaveBeenCalledTimes(1));
+  await controller.command({ action: 'stop' });
+  confirm(true);
+  expect((await loading).phase).toBe('stopped');
+  expect(deps.createHost).not.toHaveBeenCalled();
+  deps.preflight.mockRejectedValueOnce(new Error('SHARED_GPU_MEMORY_CONFIRMATION'));
+  deps.preflight.mockRejectedValueOnce(new Error('INSUFFICIENT_RESOURCES'));
+  deps.confirmSharedMemory.mockResolvedValueOnce(true);
+  expect(
+    (await controller.command({ action: 'load', modelId: imported.model!.id })).error,
+  ).toContain('Not enough');
+  expect(deps.createHost).not.toHaveBeenCalled();
 });
 it('preserves real readiness after rejecting a duplicate command', async () => {
   const { controller, host } = setup();
@@ -457,3 +533,83 @@ it('does not turn other broker failures into successful Quit', async () => {
   await expect(controller.quit()).rejects.toThrow('INVALID_CONTROL');
   expect(host.close).not.toHaveBeenCalled();
 });
+
+function popupSetup() {
+  const fixture = setup();
+  const { confirmSharedMemory: _unused, ...deps } = fixture.deps;
+  void _unused;
+  return { ...fixture, controller: module.createRuntimeController(deps) };
+}
+async function pendingMemoryWarning(f: ReturnType<typeof popupSetup>) {
+  const imported = await f.controller.command({ action: 'import' });
+  f.deps.preflight.mockRejectedValueOnce(Error('SHARED_GPU_MEMORY_CONFIRMATION'));
+  const loading = f.controller.command({ action: 'load', modelId: imported.model!.id });
+  let warningId = '';
+  await vi.waitFor(async () => {
+    const warning = (await f.controller.command({ action: 'snapshot' })).memoryWarning;
+    expect(warning).toBeTruthy();
+    warningId = warning!.id;
+  });
+  return { loading, warningId, modelId: imported.model!.id };
+}
+it('ignores mismatched popup decisions and cancels without preparing an engine', async () => {
+  const f = popupSetup();
+  const pending = await pendingMemoryWarning(f);
+  await f.controller.command({
+    action: 'memory-decision',
+    id: '22222222-2222-4222-8222-222222222222',
+    loadAnyway: true,
+  });
+  expect((await f.controller.command({ action: 'snapshot' })).memoryWarning?.id).toBe(
+    pending.warningId,
+  );
+  expect(f.deps.createHost).not.toHaveBeenCalled();
+  await f.controller.command({
+    action: 'memory-decision',
+    id: pending.warningId,
+    loadAnyway: false,
+  });
+  expect((await pending.loading).phase).toBe('stopped');
+  expect(f.deps.createHost).not.toHaveBeenCalled();
+  await f.controller.quit();
+});
+it('requires fresh popup permission and reruns preflight for Load anyway', async () => {
+  const f = popupSetup();
+  const pending = await pendingMemoryWarning(f);
+  await f.controller.command({
+    action: 'memory-decision',
+    id: pending.warningId,
+    loadAnyway: true,
+  });
+  expect((await pending.loading).phase).toBe('ready');
+  expect(f.deps.preflight).toHaveBeenNthCalledWith(2, true);
+  await f.controller.command({ action: 'stop' });
+  f.deps.preflight.mockRejectedValueOnce(Error('SHARED_GPU_MEMORY_CONFIRMATION'));
+  const second = f.controller.command({ action: 'load', modelId: pending.modelId });
+  await vi.waitFor(async () =>
+    expect((await f.controller.command({ action: 'snapshot' })).memoryWarning).toBeTruthy(),
+  );
+  const newId = (await f.controller.command({ action: 'snapshot' })).memoryWarning!.id;
+  expect(newId).not.toBe(pending.warningId);
+  await f.controller.command({
+    action: 'memory-decision',
+    id: pending.warningId,
+    loadAnyway: true,
+  });
+  expect((await f.controller.command({ action: 'snapshot' })).memoryWarning?.id).toBe(newId);
+  await f.controller.command({ action: 'memory-decision', id: newId, loadAnyway: false });
+  await second;
+  await f.controller.quit();
+});
+it.each(['stop', 'quit'] as const)(
+  'cancels pending memory popup on %s without renderer response',
+  async (action) => {
+    const f = popupSetup();
+    const pending = await pendingMemoryWarning(f);
+    if (action === 'quit') await f.controller.quit();
+    else await f.controller.command({ action: 'stop' });
+    await pending.loading;
+    expect(f.deps.createHost).not.toHaveBeenCalled();
+    if (action !== 'quit') await f.controller.quit();
+  },
+);
