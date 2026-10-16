@@ -8,10 +8,12 @@ export function Dialog({
   title,
   onClose,
   children,
+  initialFocus,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  initialFocus?: 'cancel';
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
@@ -21,6 +23,8 @@ export function Dialog({
     const trigger = document.activeElement;
     if (typeof dialog.showModal === 'function') dialog.showModal();
     else dialog.setAttribute('open', '');
+    if (initialFocus === 'cancel')
+      dialog.querySelector<HTMLElement>('[data-dialog-cancel]')?.focus();
     return () => {
       if (typeof dialog.close === 'function') dialog.close();
       // React may remove the dialog before passive cleanup; restore the live trigger afterwards.
@@ -29,7 +33,7 @@ export function Dialog({
           if (trigger.isConnected) trigger.focus();
         });
     };
-  }, []);
+  }, [initialFocus]);
   return (
     <dialog
       ref={ref}
