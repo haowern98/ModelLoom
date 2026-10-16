@@ -156,7 +156,8 @@ export class ApiGeneration {
     if (entry.abort.signal.aborted || this.closed) throw new Error('NOT_READY');
     const tokens = await this.count(entry.messages, entry.abort.signal, settings);
     if (!Number.isSafeInteger(tokens) || tokens < 0) throw new Error('TOKEN_COUNT_FAILED');
-    if (tokens + settings.parameters.max_tokens > settings.contextLength)
+    const outputLimit = settings.parameters.max_tokens;
+    if (tokens + (outputLimit === -1 ? 1 : outputLimit) > settings.contextLength)
       throw new Error('CONTEXT_FULL');
     requireApiCaller(entry.caller);
     if (entry.abort.signal.aborted || this.closed) throw new Error('NOT_READY');
@@ -190,7 +191,8 @@ export class ApiGeneration {
             if (
               (chunk.outcome.status === 'completed' || chunk.outcome.status === 'limit-reached') &&
               (!chunk.usage ||
-                chunk.usage.completion_tokens > entry.settings!.parameters.max_tokens ||
+                (entry.settings!.parameters.max_tokens !== -1 &&
+                  chunk.usage.completion_tokens > entry.settings!.parameters.max_tokens) ||
                 chunk.usage.total_tokens > entry.settings!.contextLength)
             )
               throw new Error('INVALID_STREAM');

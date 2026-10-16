@@ -83,7 +83,9 @@ export class GenerationAdmission<T extends ExecutionIdentity = RequestIdentity> 
       operationId: checked.operationId,
     });
     if (
-      policy.activeLimit !== 4 ||
+      !Number.isSafeInteger(policy.activeLimit) ||
+      policy.activeLimit < 1 ||
+      policy.activeLimit > 1024 ||
       policy.pendingLimit !== 8 ||
       [policy.queueMs, policy.generationMs, policy.cancellationMs].some(
         (ms) => !Number.isInteger(ms) || ms < 1 || ms > 2_147_483_647,

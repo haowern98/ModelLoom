@@ -19,6 +19,7 @@ import {
   decodeRequestIdentity,
   decodeSend,
   GENERATION_LIMITS,
+  GENERATION_POLICY,
 } from './contracts.js';
 import type {
   GenerationChunk,
@@ -89,6 +90,7 @@ export class GenerationService {
   private readonly deps: ServiceDependencies;
   private readonly admission: GenerationAdmission<ExecutionIdentity>;
   private readonly api: ApiGeneration;
+  private readonly capacity: number;
   private readonly entries = new Map<string, Entry>();
   private readonly preparing = new Map<
     string,
@@ -109,22 +111,29 @@ export class GenerationService {
       callerId: 'check',
       conversationId: 'check',
     });
-    if (deps.provenance.configuration.slots !== 4) throw new Error('NEEDS_RESOURCE_EVIDENCE');
+    const slots = deps.provenance.configuration.slots;
+    if (!Number.isSafeInteger(slots) || slots < 1 || slots > 1024)
+      throw new Error('INVALID_CONFIGURATION');
+    this.capacity = slots + GENERATION_POLICY.pendingLimit;
     this.deps = {
       ...deps,
       session: Object.freeze({ ...deps.session }),
       provenance: structuredClone(deps.provenance),
     };
-    this.admission = new GenerationAdmission<ExecutionIdentity>(this.deps.session, {
-      start: (identity) => this.start(identity),
-    });
+    this.admission = new GenerationAdmission<ExecutionIdentity>(
+      this.deps.session,
+      {
+        start: (identity) => this.start(identity),
+      },
+      { ...GENERATION_POLICY, activeLimit: slots },
+    );
     this.api = new ApiGeneration(
       this.deps,
       this.admission,
       () =>
         this.shutdown.signal.aborted
           ? 'NOT_READY'
-          : this.preparing.size + this.entries.size + this.api.pending >= 12
+          : this.preparing.size + this.entries.size + this.api.pending >= this.capacity
             ? 'QUEUE_FULL'
             : null,
       (messages, signal, settings) =>
@@ -189,7 +198,7 @@ export class GenerationService {
       )
     )
       throw new Error('CONVERSATION_BUSY');
-    if (this.preparing.size + this.entries.size + this.api.pending >= 12)
+    if (this.preparing.size + this.entries.size + this.api.pending >= this.capacity)
       throw new Error('QUEUE_FULL');
     const abort = new AbortController();
     const signal = AbortSignal.any([this.shutdown.signal, abort.signal]);
@@ -228,8 +237,9 @@ export class GenerationService {
         : context;
       const tokens = await this.count(messages, signal, settings);
       if (!Number.isSafeInteger(tokens) || tokens < 0) throw new Error('INVALID_TOKEN_COUNT');
+      const outputLimit = settings?.parameters.max_tokens ?? GENERATION_LIMITS.maxOutputTokens;
       if (
-        tokens + (settings?.parameters.max_tokens ?? GENERATION_LIMITS.maxOutputTokens) >
+        tokens + (outputLimit === -1 ? 1 : outputLimit) >
         this.deps.provenance.configuration.contextPerSlot
       )
         throw new Error('CONTEXT_FULL');
