@@ -8,6 +8,34 @@
 
 ## 1. Purpose and lecture basis
 
+**2026-10-16 Cluster configuration amendment:** Test raw invalid/overlapping draft
+retention across reopen, schema-1/2/3 migration and rollback, credential/usage
+preservation, failed storage reservation, closed caller-bound commands, stale
+Save/edit acknowledgements, selection restoration and Save-only warnings. Cover
+all legal float32 block cuts including the output slot, reversed physical GPU
+order, malformed estimates, planning cancellation and owned cleanup. A rejected
+configuration must leave an existing active session intact. Dated native evidence is now recorded separately: run `run-1792086790984`
+exercised single 4060 Ti, 48/16 and reversed 16/48 placements with complete stock
+checks for all 64 blocks and output in both orders. Three prompts matched exactly
+with a 32-token maximum (32, 7 and 32 actual tokens), with four concurrent requests, cancellation/recovery and
+zero owned processes within five seconds after exit. Stock estimator times were
+7.9/12.9/12.7 seconds. Earlier full core checks passed 629 tests across 63 files and
+desktop checks passed 223 across 36 files, before the latest three search tests.
+These are dated local observations, not universal quality, physical-residency,
+platform or release acceptance. The application path also completed Auto, Save,
+manual 48/16 Save, actual-adapter readiness and native Chat transport. The
+`saved-1792087282107/persistence-audit.json` follow-up independently verified 1848
+characters of native reasoning, the configured `limit-reached / OUTPUT_LIMIT`
+outcome and exact cluster provenance through the protected history owner. No
+answer completed before the output limit. A new core owner recovered the exact
+saved configuration, model index and available source in a stopped snapshot with
+no engine children; full Quit left zero utility processes. The audit performed no
+additional GPU run. Earlier harness timestamp, EOS and renderer-provenance
+assumptions remain recorded failures. The latest focused main-process suite passed
+18 race tests; the earlier full-suite counts remain dated snapshots. See
+[detailed stock validation](../docs/research/cluster-stock-validation-2026-10-16.md)
+and [native validation](../docs/research/cluster-placement-native-validation.md).
+
 **Current evidence summary, 2026-10-10:** The local development implementation
 has recorded real-model Chat, four-slot prefill/reuse, protected history/upgrades,
 startup-before-model, deletion/restart and neutral-popup evidence. The latest
@@ -1098,3 +1126,124 @@ column at 1280px, with no overflow or clipped rows at 800px. The apple-design re
 identified repeated unknown rows as clutter; the repaired version consolidates
 those into a per-device note. No additional hardware detection or networking was
 implemented or claimed. Full-suite and native desktop checks were not rerun.
+
+## Compact Cluster assignment editor, 2026-10-16
+
+The approved Undo / Redo / Reset to default toolbar and compact layer editor
+passed 50 affected tests across 10 suites. Coverage includes raw invalid drafts,
+serialized Undo/Redo during pending autosaves, per-selection history, failed and
+successful Save, undoable automatic proposals, numeric stepping/bounds, toolbar
+ordering/disabled states and preserved device information. Real in-memory core
+storage verifies Save and restored configurations; renderer demo browser checks
+at 1440px and the 1000px minimum width verify visible arrows, the faint divider,
+no horizontal overflow and Undo/Redo/Reset interactions. The captures are retained
+under `apps/desktop/out/cluster-compact-editor-*.png` as local visual evidence.
+Desktop typechecking, focused ESLint, formatting and the normal renderer build
+pass. Independent review found no blocking regression. This UI-only validation
+does not rerun native/GPU inference, packaged Electron or hosted CI checks.
+
+The later compact device-header revision passes 19 affected unit/integration
+tests and three focused browser cases covering rename/cancellation, panel toggle
+and focus restoration, and real inner scrolling at 1280px/1000px widths. The
+panel's X is absent, Back sits left of the name, and Device details starts
+collapsed with complete OS/address/connection information retained. Direct
+browser inspection confirms native summary Enter/Space activation and
+left-aligned expanded values. The existing type scale and flat GPU group remain.
+Packaged Electron, native/GPU and hosted CI checks were not rerun for this change.
+
+The overview cleanup and compactness correction cover 53 affected tests: 52
+passed in the combined run, while the two-GPU Save integration hit its unchanged
+five-second timeout during concurrent build/check work. Its isolated two-test
+suite then passed without changing assertions or timeouts. Three browser cases
+pass, including the new overview check for 18px title, 14px section headings,
+13px model text, counts, memory units, reachable assignment rows and no horizontal
+overflow at 1280px/1000px. Typechecking, focused lint, formatting and renderer
+build pass. Assignment coverage distinguishes invalid raw Draft, Saved, requested
+Run and verified In use; a Run callback alone never establishes active placement.
+Native/GPU, packaged and hosted CI checks were not rerun.
+
+## Imported-model and settings acceptance cases, 2026-10-16
+
+These intended acceptance cases follow the approved development contract in
+INTEGRATION-SPEC.md. They supersede historical tests requiring one Bonsai digest,
+an exact load tuple, four slots or unconditional low-memory rejection. They do
+not claim that the additional Qwen live test, packaged validation or release
+gates have passed. Retain older evidence with its original scope.
+
+- Import a different compatible GGUF, retain its verified identity and metadata,
+  restore it unloaded after restart, and reinspect it before loading. Changed
+  content, malformed identities and unsupported runtimes remain rejected.
+- Exercise low RAM and low VRAM independently. Cancel prepares no engine; Load
+  anyway performs a fresh resource check without changing weights, quantization,
+  context or sampling. Verify wrong/stale nonces, repeated clicks and subsequent
+  loads cannot reuse consent. Stop and Quit cancel a pending Dialog without
+  waiting indefinitely for a renderer answer.
+- Save supported performance and advanced settings, reload, and verify the exact
+  compiled native arguments. Verify generation changes affect new requests while
+  admitted requests retain their captured settings. An active load retains its
+  captured load/advanced settings after model-default changes; saved Cluster
+  placements resolve current model settings on their next Run. Invalid values
+  and unavailable controls remain rejected.
+- Exercise one- and two-slot configurations with eight pending requests: FIFO
+  scheduling, overflow rejection, queued cancellation, active cancellation held
+  until native settlement, and caller/session ownership. Reject zero, fractional,
+  non-finite and greater-than-1024 slot counts.
+- For Qwen, verify 65 allocation blocks versus 64 executed layers without MTP,
+  selected GPU placement, inference output and cancellation, recoverable native
+  allocation failure, and confirmed owned cleanup. Compare like-for-like settings
+  when assessing inference correctness; neither a working UI nor successful load
+  establishes equivalence.
+- Confirm the production runtime catalog remains empty and signature/file checks,
+  ownership boundaries and existing platform/security/release gates remain intact.
+
+## Run without named Save, 2026-10-17
+
+- Run an auto-planned or manually edited acknowledged draft without a naming
+  dialog, Save command or named-configuration insertion. Validate complete layer
+  coverage and fresh resource admission before loading.
+- Switch from a Qwen draft to an empty Bonsai draft without loading or saving.
+  Play opens the automatic/manual assignment dialog without invoking the planner
+  or runtime. Manual choice only opens the editor. Automatic choice prepares
+  Bonsai's assignments without loading. Clicking the same Play button again
+  loads the acknowledged draft. Switching back restores each unsaved draft;
+  Undo to empty assignments makes the next Play open the choice again.
+- Refuse stale revisions, changed allocations, forged model bindings and
+  unacknowledged edits. Stop during the final protected draft read must prevent
+  native preparation. Run preparation refuses empty drafts without invoking the
+  planner. A late auto-place result after model selection changes cannot become
+  the new model's assignment or run target.
+- Match active draft identity and revision to verified loading; later edits must
+  not be presented as the active allocation. Save and clean named-config Run
+  remain available independently.
+
+## Separate model settings from Cluster Save, 2026-10-17
+
+- Inspect actual persisted named and draft JSON: neither contains load settings
+  or advanced preferences. Model settings remain in the per-model settings table.
+- Change model context, concurrency, Flash Attention and advanced preferences.
+  Reopen an existing placement and verify it resolves those current settings with
+  unchanged assignments and configuration revision. Verify Flash Attention off
+  selects the supported value-cache type. Existing active captures remain stable.
+- Migrate legacy embedded settings while retaining configuration names, IDs,
+  revisions, model bindings and ranges. Reservation or transaction failure must
+  retain every original record and the separate model-settings data.
+- Reject model-setting changes between memory admission and native launch in
+  both main and utility. A load-only difference must not enable placement Save,
+  create assignment Undo history or require re-saving the placement.
+
+## Local commit checkpoint, 2026-10-17
+
+The full core Vitest suite passed 706 tests in 68 files. The full desktop suite
+passed 269 tests in 39 files on its serial rerun. The first desktop run had one
+settings-editor case exceed its five-second limit while core, type and lint checks
+ran concurrently; the isolated case and subsequent full desktop run passed
+without changing timeouts or assertions. Two test-only lint corrections removed
+an unnecessary type assertion and used an explicit rejected promise for callback
+failure; the affected estimator file passed all ten cases afterward.
+
+Desktop and core type checks, formatting for the 131 applicable product files,
+and lint passed after those corrections. The placement popup's bottom Cancel
+button and unused footer styling were removed; its existing close control remains
+covered by the launch interaction tests. These are local unit/integration and
+static results. Browser/packaged acceptance, hosted CI, new GPU runs and broader
+inference-equivalence evidence were not repeated for this commit checkpoint.
