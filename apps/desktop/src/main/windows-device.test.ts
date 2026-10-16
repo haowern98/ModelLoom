@@ -91,6 +91,28 @@ it('merges fresh GPU memory only for an unambiguous matching adapter', () => {
   ).toBeUndefined();
   expect(mergeGpuReadings([gpu], undefined)).toEqual([gpu]);
 });
+it('retains physical NVIDIA identities independently of equal names and WMI ordinals', () => {
+  const a = {
+    uuid: 'GPU-12345678-1234-1234-1234-123456789abc',
+    bus: '00000000:01:00.0',
+    name: 'Same GPU',
+    total: 8192,
+    free: 4096,
+    driver: '570.00',
+  };
+  const b = {
+    ...a,
+    uuid: 'GPU-87654321-1234-1234-1234-123456789abc',
+    bus: '00000000:02:00.0',
+    free: 2048,
+  };
+  const wmi = [{ id: 'gpu-0', name: 'Same GPU', pciVendorId: '10de' }];
+  const result = mergeGpuReadings(wmi, [a, b]);
+  expect(result?.map((g) => g.executionIdentity?.uuid)).toEqual([a.uuid, b.uuid]);
+  expect(result?.map((g) => g.availableMemoryBytes)).toEqual([4096, 2048]);
+  expect(mergeGpuReadings(wmi, [b, a])?.map((g) => g.id)).toEqual([b.uuid, a.uuid]);
+  expect(mergeGpuReadings(wmi, [])?.some((g) => g.executionIdentity)).toBe(false);
+});
 
 it('still reads an AMD laptop when NVIDIA tooling is absent', async () => {
   vi.stubEnv('SystemRoot', 'C:\\Windows');

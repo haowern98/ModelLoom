@@ -153,6 +153,50 @@ it('rejects RAM and per-device VRAM shortage', () => {
   expect(check({}, row(), cacheRam + 149).code).toBe('INSUFFICIENT_RESOURCES');
   expect(check({}, row(first, '9')).code).toBe('INSUFFICIENT_RESOURCES');
 });
+it('requires confirmation for single-GPU WDDM spill and reserves RAM for the full GPU allocation', () => {
+  const selected = { ...config, gpuDevice: first };
+  const selectedReport = { ...report, configuration: selected };
+  const requiredRam = cacheRam + 150 + 10 * 1048576 + 1536 * 1048576;
+  const snapshot = { ram: requiredRam, gpus: parseGpuQuery(Buffer.from(row(first, '9'))) };
+  expect(checkCudaResources(selected, 'cuda-1', selectedReport, snapshot, '600.0')).toMatchObject({
+    code: 'SHARED_GPU_MEMORY_CONFIRMATION',
+    ram: requiredRam,
+    vram: 10 * 1048576,
+  });
+  expect(checkCudaResources(selected, 'cuda-1', selectedReport, snapshot, '600.0', true).code).toBe(
+    'ADMITTED',
+  );
+  expect(
+    checkCudaResources(
+      selected,
+      'cuda-1',
+      selectedReport,
+      { ...snapshot, ram: requiredRam - 1 },
+      '600.0',
+      true,
+    ).code,
+  ).toBe('INSUFFICIENT_RESOURCES');
+  expect(
+    checkCudaResources(
+      selected,
+      'cuda-1',
+      { ...selectedReport, uncertainty: 'unknown' },
+      snapshot,
+      '600.0',
+      true,
+    ).code,
+  ).toBe('NEEDS_RESOURCE_EVIDENCE');
+});
+it('does not extend shared-memory fallback to TCC or unspecified physical GPU selection', () => {
+  const ram = 10 * 2 ** 30;
+  expect(check({}, row(first, '9'), ram).code).toBe('INSUFFICIENT_RESOURCES');
+  const selected = { ...config, gpuDevice: first };
+  const selectedReport = { ...report, configuration: selected };
+  const gpus = parseGpuQuery(Buffer.from(row(first, '9').replace('WDDM', 'TCC')));
+  expect(
+    checkCudaResources(selected, 'cuda-1', selectedReport, { ram, gpus }, '600.0', true).code,
+  ).toBe('INSUFFICIENT_RESOURCES');
+});
 it('cannot use a second GPU to hide shortage on the selected GPU', () => {
   expect(check({}, row(first, '9') + row(second, '16', '00000000:05:00.0')).code).toBe(
     'INSUFFICIENT_RESOURCES',
