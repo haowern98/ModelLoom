@@ -1,4 +1,8 @@
-import { decodeGenerationOverrides, decodeModelConfiguration } from './contracts.js';
+import {
+  decodeGenerationOverrides,
+  decodeModelConfiguration,
+  decodeResolvedRequestSettings,
+} from './contracts.js';
 import type {
   ActiveLoadSnapshot,
   GenerationOverrides,
@@ -39,26 +43,22 @@ export function resolveRequestSettings(
     presence_penalty: generation.presencePenalty.enabled ? generation.presencePenalty.value : 0,
     // The pinned llama.cpp sampler reserves UINT32_MAX for random seed selection.
     seed: generation.seed.enabled ? generation.seed.value : 4294967295,
-    max_tokens: generation.responseLength.enabled
-      ? generation.responseLength.value
-      : capabilities.nativeDefaults.max_tokens,
+    max_tokens: generation.responseLength.enabled ? generation.responseLength.value : -1,
     stop: generation.stopStrings,
     ...decodeGenerationOverrides(overrides, capabilities),
   };
-  // Validate effective defaults too; only the saved empty stop list may mean no extra stops.
-  const { stop, ...numeric } = parameters;
-  const checked = decodeGenerationOverrides(
-    { ...numeric, ...(stop.length ? { stop } : {}) },
+  // Only resolved owner settings admit the unlimited sentinel; caller overrides stay positive.
+  return decodeResolvedRequestSettings(
+    {
+      modelId: committed.modelId,
+      activeLoadRevision: active.revision,
+      generationRevision: committed.revision,
+      profileId: active.profileId,
+      contextLength: active.load.contextLength,
+      parameters,
+      systemPrompt: generation.systemPrompt,
+      thinking: generation.thinking,
+    },
     capabilities,
   );
-  return Object.freeze({
-    modelId: committed.modelId,
-    activeLoadRevision: active.revision,
-    generationRevision: committed.revision,
-    profileId: active.profileId,
-    contextLength: active.load.contextLength,
-    parameters: Object.freeze({ ...numeric, ...checked, stop: Object.freeze([...stop]) }),
-    systemPrompt: generation.systemPrompt,
-    thinking: generation.thinking,
-  });
 }

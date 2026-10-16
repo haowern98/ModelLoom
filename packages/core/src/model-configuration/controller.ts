@@ -7,6 +7,7 @@ import type {
   RuntimeSettingCapabilities,
   GenerationOverrides,
 } from './contracts.js';
+import { decodeModelConfiguration } from './contracts.js';
 import type { ModelConfigurationStore } from './store.js';
 import { resolveRequestSettings } from './resolve.js';
 import { decodeConfigurationCommand, decodeConfigurationReply } from './wire.js';
@@ -22,6 +23,7 @@ export class ConfigurationController {
     private readonly capabilities: RuntimeSettingCapabilities,
     private readonly initialLoad: LoadDefaults,
     private readonly active: () => ActiveLoadSnapshot | null,
+    private readonly modelCapabilities?: (modelId: string) => Promise<RuntimeSettingCapabilities>,
   ) {}
   command(caller: string, input: unknown): Promise<ConfigurationReply> {
     if (this.closed || caller !== this.caller || this.pending.size >= 16)
@@ -37,6 +39,18 @@ export class ConfigurationController {
   private async handle(input: unknown): Promise<ConfigurationReply> {
     try {
       const command = decodeConfigurationCommand(input);
+      const capabilities = await this.caps(command.modelId);
+      if (command.action === 'save') {
+        decodeModelConfiguration(command.record, capabilities);
+        if (
+          command.record.load.automatic ||
+          command.record.preferences.argumentsEnabled ||
+          command.record.preferences.overflow !== 'stop'
+        )
+          throw Error('UNSUPPORTED_SETTING');
+        if (command.record.generation.thinking !== null && !capabilities.thinking)
+          throw Error('UNSUPPORTED_SETTING');
+      }
       const record =
         command.action === 'save'
           ? await this.store.save(command.modelId, command.expectedRevision, command.record)
@@ -45,10 +59,26 @@ export class ConfigurationController {
       return decodeConfigurationReply({
         ok: true,
         record,
-        defaults: createModelConfiguration(record.modelId, this.initialLoad, this.capabilities),
-        pendingReload: active !== null && !isDeepStrictEqual(record.load, active.load),
-        maxOutputTokens: this.capabilities.maxOutputTokens,
-        thinkingSupported: this.capabilities.thinking,
+        defaults: createModelConfiguration(
+          record.modelId,
+          {
+            ...this.initialLoad,
+            contextLength: Math.min(this.initialLoad.contextLength, capabilities.contextLimit),
+          },
+          capabilities,
+        ),
+        pendingReload:
+          active !== null &&
+          active.modelId === record.modelId &&
+          (!isDeepStrictEqual(record.load, active.load) ||
+            !isDeepStrictEqual(
+              record.preferences,
+              active.preferences ??
+                createModelConfiguration(record.modelId, this.initialLoad, this.capabilities)
+                  .preferences,
+            )),
+        maxOutputTokens: capabilities.maxOutputTokens,
+        thinkingSupported: capabilities.thinking,
       });
     } catch (error) {
       try {
@@ -61,16 +91,22 @@ export class ConfigurationController {
       }
     }
   }
-  /** Only an exactly evidenced load profile can become an active snapshot. */
+  private caps(modelId: string): Promise<RuntimeSettingCapabilities> {
+    return this.modelCapabilities?.(modelId) ?? Promise.resolve(this.capabilities);
+  }
+  /** Capture saved next-load settings; native preflight remains the activation authority. */
   async captureLoad(modelId: string): Promise<ActiveLoadSnapshot> {
     if (this.closed) throw Error('NOT_READY');
-    const record = await this.store.read(modelId);
-    if (!isDeepStrictEqual(record.load, this.initialLoad)) throw Error('NEEDS_RESOURCE_EVIDENCE');
+    const record = decodeModelConfiguration(
+      await this.store.read(modelId),
+      await this.caps(modelId),
+    );
     return Object.freeze({
       modelId,
       revision: record.revision,
       profileId: this.capabilities.profileId,
       load: Object.freeze({ ...record.load }),
+      preferences: record.preferences,
     });
   }
   /** New requests capture defaults once; pending load changes do not alter active context. */
@@ -83,7 +119,7 @@ export class ConfigurationController {
       await this.store.read(active.modelId),
       active,
       overrides,
-      this.capabilities,
+      await this.caps(active.modelId),
     );
   }
   async close(): Promise<void> {
