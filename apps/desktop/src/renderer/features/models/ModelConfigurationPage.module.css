@@ -159,10 +159,7 @@
   cursor: not-allowed;
 }
 .checkbox {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  accent-color: #487fff;
+  composes: checkbox from '../../components/Checkbox.module.css';
 }
 .toggle {
   --control-width-switch: 32px;

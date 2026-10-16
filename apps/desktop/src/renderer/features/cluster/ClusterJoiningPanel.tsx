@@ -5,6 +5,7 @@ import { incomingExamples, joiningExamples } from '../../mocks/clusterJoining';
 import type { ConnectionMode, DemoJoining, JoiningAction } from '../../mocks/clusterJoining';
 import styles from './ClusterPage.module.css';
 import settings from '../settings/SettingsPage.module.css';
+import checkboxStyles from '../../components/Checkbox.module.css';
 
 export interface JoiningProps {
   demo: boolean;
@@ -142,6 +143,7 @@ export function ClusterJoiningPanel({
               <label key={hardware}>
                 <input
                   type="checkbox"
+                  className={checkboxStyles.checkbox}
                   checked={joining[hardware]}
                   disabled={!demo || !joining.sharing}
                   onChange={(event) =>

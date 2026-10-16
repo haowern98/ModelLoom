@@ -318,8 +318,7 @@
   font-size: var(--font-size-metadata);
 }
 .hardwareChoices input {
-  margin: 0;
-  accent-color: #487fff;
+  --checkbox-layout-size: 13px;
 }
 .runIcon,
 .panelToggle,
