@@ -80,6 +80,7 @@ it('captures settings before token accounting and retains them through queueing 
     expect(counts[4]!.messages[0]).toEqual({ role: 'system', content: 'Original instruction' });
     const captured = counts[4]!.settings;
     expect(captured).toBeDefined();
+    expect(captured?.parameters.max_tokens).toBe(-1);
     saved = {
       ...saved,
       revision: 8,
@@ -99,3 +100,74 @@ it('captures settings before token accounting and retains them through queueing 
     history.close();
   }
 });
+
+it.each([
+  { tokens: 7679, capped: false, admitted: true },
+  { tokens: 7679, capped: true, admitted: false },
+  { tokens: 7680, capped: false, admitted: false },
+])(
+  'reserves actual response capacity for Chat: $tokens prompt tokens, capped=$capped',
+  async ({ tokens, capped, admitted }) => {
+    const history = new HistoryStore(new DatabaseSync(':memory:'));
+    const saved = record();
+    saved.generation.responseLength = { enabled: capped, value: 128 };
+    const active = {
+      modelId: saved.modelId,
+      revision: 1,
+      profileId: capabilities.profileId,
+      load: saved.load,
+    };
+    let starts = 0;
+    const service = new GenerationService({
+      history,
+      session: { deploymentId: 'desktop', sessionId: 'session', operationId: 'load' },
+      provenance: {
+        packageId: 'runtime',
+        upstreamCommit: 'a'.repeat(40),
+        configuration: {
+          modelSha256: saved.modelId,
+          contextPerSlot: 7680,
+          slots: 4,
+          gpuLayers: 0,
+          cacheK: 'f16',
+          cacheV: 'f16',
+          seed: 7,
+          temperature: 0.8,
+        },
+      },
+      configuration: {
+        capabilities,
+        capture: () => Promise.resolve(resolveRequestSettings(saved, active, {}, capabilities)),
+      },
+      cleanup: () => Promise.resolve(),
+      transport: {
+        tokenCount: () => Promise.resolve(tokens),
+        start: (_identity, _messages, _emit, settings) => {
+          starts++;
+          expect(settings?.parameters.max_tokens).toBe(capped ? 128 : -1);
+          return {
+            settled: Promise.resolve({ status: 'completed' as const, reason: 'STOP' as const }),
+            cancel: () => {},
+          };
+        },
+      },
+    });
+    try {
+      const conversation = await history.newConversation();
+      const sent = service.send('window', { conversationId: conversation.id, text: 'Question' });
+      if (admitted) {
+        const identity = await sent;
+        expect(
+          (await history.retrySource(identity.attemptId)).settings?.parameters.max_tokens,
+        ).toBe(-1);
+        expect(starts).toBe(1);
+      } else {
+        await expect(sent).rejects.toThrow('CONTEXT_FULL');
+        expect(starts).toBe(0);
+      }
+    } finally {
+      await service.close();
+      history.close();
+    }
+  },
+);

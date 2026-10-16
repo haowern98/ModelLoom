@@ -177,7 +177,7 @@ it('lists beyond the first 32 conversations without returning drafts or provenan
   await controller.close();
   store.close();
 });
-it('reports the missing Chat resource evidence while keeping saved history available', async () => {
+it('rejects invalid native slot settings while keeping saved history available', async () => {
   const store = new HistoryStore(new DatabaseSync(':memory:'));
   const controller = new ChatController(store, 'window');
   try {
@@ -189,7 +189,7 @@ it('reports the missing Chat resource evidence while keeping saved history avail
           upstreamCommit: 'a'.repeat(40),
           configuration: {
             modelSha256: 'a'.repeat(64),
-            slots: 1,
+            slots: 0,
             contextPerSlot: 7680,
             gpuLayers: 0,
             cacheK: 'f16',
@@ -206,7 +206,7 @@ it('reports the missing Chat resource evidence while keeping saved history avail
         },
         cleanup: () => Promise.resolve(),
       }),
-    ).rejects.toThrow('NEEDS_RESOURCE_EVIDENCE');
+    ).rejects.toThrow('INVALID_CONFIGURATION');
     const created = await controller.command('window', { action: 'newConversation' });
     expect(created.ok).toBe(true);
     expect(
@@ -215,7 +215,7 @@ it('reports the missing Chat resource evidence while keeping saved history avail
         conversationId: created.conversationId,
         text: 'hello',
       }),
-    ).toEqual({ ok: false, error: 'NEEDS_RESOURCE_EVIDENCE' });
+    ).toEqual({ ok: false, error: 'NOT_READY' });
   } finally {
     await controller.close();
     store.close();

@@ -31,7 +31,7 @@ afterEach(async () => {
   for (const s of stores.splice(0)) s.close();
   vi.useRealTimers();
 });
-function setup(tokens = 10, unconfirmed = false, count?: ChatTransport['tokenCount']) {
+function setup(tokens = 10, unconfirmed = false, count?: ChatTransport['tokenCount'], slots = 4) {
   const store = new HistoryStore(new DatabaseSync(':memory:'));
   stores.push(store);
   const executions: {
@@ -63,7 +63,7 @@ function setup(tokens = 10, unconfirmed = false, count?: ChatTransport['tokenCou
   };
   const service = new GenerationService({
     session: { deploymentId: 'desktop', sessionId: 'session', operationId: 'operation' },
-    provenance,
+    provenance: { ...provenance, configuration: { ...provenance.configuration, slots } },
     history: store,
     transport,
     cleanup: () => {
@@ -449,3 +449,40 @@ it('unconfirmed native cancellation closes admission, preserves its failure and 
     service.send('window1', { conversationId: another.id, text: 'blocked' }),
   ).rejects.toThrow('NOT_READY');
 });
+
+it.each([1, 2])(
+  'schedules persisted Chat work using %i native slots and eight pending reservations',
+  async (slots) => {
+    const { service, store, executions } = setup(10, false, undefined, slots);
+    const conversations = await Promise.all(
+      Array.from({ length: slots + 9 }, () => store.newConversation()),
+    );
+    for (let n = 0; n < slots + 8; n++)
+      await service.send('window1', { conversationId: conversations[n]!.id, text: `Prompt ${n}` });
+    await drain();
+    expect(executions).toHaveLength(slots);
+    await expect(
+      service.send('window1', { conversationId: conversations[slots + 8]!.id, text: 'Overflow' }),
+    ).rejects.toThrow('QUEUE_FULL');
+    await service.cancelConversation('window1', conversations[slots + 1]!.id);
+    await drain();
+    expect(
+      (await store.readConversation(conversations[slots + 1]!.id)).turns[0]?.attempts[0]?.state,
+    ).toBe('cancelled');
+    expect(executions).toHaveLength(slots);
+    executions[0]!.finish({ status: 'completed', reason: 'STOP' });
+    await drain();
+    expect(executions).toHaveLength(slots + 1);
+    expect(executions.at(-1)?.identity.conversationId).toBe(conversations[slots]!.id);
+    await service.cancelConversation('window1', conversations[slots]!.id);
+    await drain();
+    expect(executions).toHaveLength(slots + 2);
+    expect(executions.at(-1)?.identity.conversationId).toBe(conversations[slots + 2]!.id);
+  },
+);
+it.each([0, -1, 1.5, 1025, NaN, Infinity])(
+  'rejects invalid loaded slot count %s before native work',
+  (slots) => {
+    expect(() => setup(10, false, undefined, slots)).toThrow();
+  },
+);
