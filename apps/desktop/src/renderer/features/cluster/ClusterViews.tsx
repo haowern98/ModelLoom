@@ -39,9 +39,22 @@ export function ClusterViews(props: ClusterViewsProps) {
     >
       <div className={settingsLayout ? settings.column : undefined}>
         <header
-          className={settingsLayout ? `${settings.header} ${styles.settingsHeader}` : styles.header}
+          className={
+            settingsLayout
+              ? `${settings.header} ${styles.settingsHeader} ${view === 'connections' ? styles.connectionsHeader : ''}`
+              : styles.header
+          }
         >
-          <h1>{titles[view]}</h1>
+          <div>
+            <h1>{titles[view]}</h1>
+            {view === 'connections' && (
+              <p className={styles.subtitle}>
+                {demo
+                  ? 'Sample connections · these values are not measurements.'
+                  : 'Network connections will appear here.'}
+              </p>
+            )}
+          </div>
           {view === 'connections' && (
             <div className={styles.actions}>
               <Button onClick={() => onConnectionAction('join')}>Join cluster</Button>
@@ -53,11 +66,6 @@ export function ClusterViews(props: ClusterViewsProps) {
         {view === 'devices' && <DeviceInventory devices={devices} demo={demo} local={local} />}
         {view === 'connections' && (
           <>
-            <p className={`${styles.description} ${styles.intro}`}>
-              {demo
-                ? 'Sample connections · these values are not measurements.'
-                : 'Network connections will appear here when networking integration is available.'}
-            </p>
             {demo && links.length > 0 && (
               <div className={settings.group}>
                 {demo &&
