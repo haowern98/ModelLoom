@@ -168,6 +168,15 @@ async function createWindow(): Promise<void> {
       throw new Error('INVALID_CONTROL');
     return windowController.configuration(input);
   });
+  ipcMain.handle('modelloom:cluster', async (event, input: unknown) => {
+    if (
+      event.sender !== window.webContents ||
+      event.senderFrame !== window.webContents.mainFrame ||
+      quitting
+    )
+      throw Error('INVALID_CONTROL');
+    return windowController.cluster(input);
+  });
   windowController.subscribeChat(() => {
     if (!quitting && !window.webContents.isDestroyed())
       window.webContents.send('modelloom:chat-changed');

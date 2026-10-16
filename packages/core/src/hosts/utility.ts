@@ -13,12 +13,20 @@ import type { HistoryStore, Provenance } from '../history/store.js';
 import { trustedHistoryRoot } from '../history/windows-directory.js';
 import { openModelConfigurationStore } from '../model-configuration/store.js';
 import { ConfigurationController } from '../model-configuration/controller.js';
+import { ClusterController } from '../cluster/controller.js';
 import { createConfigurationProfile } from '../model-configuration/development-profile.js';
 import type { ActiveLoadSnapshot } from '../model-configuration/contracts.js';
 import type { ConfigurationReply } from '../model-configuration/wire.js';
 import { ApiController } from '../local-api/controller.js';
 import { windowsApiKeyProtection } from '../model-configuration/windows-protection.js';
 import type { ApiOwnerReply } from '../local-api/wire.js';
+import { captureClusterRun, captureClusterDraft } from '../cluster/run-plan.js';
+import { requireStockClusterProfile } from '../cluster/stock-profile.js';
+import {
+  decodeSavedClusterConfiguration,
+  decodeCapturedClusterLoad,
+} from '../cluster/contracts.js';
+import { isDeepStrictEqual } from 'node:util';
 
 export interface UtilityChannel {
   send(text: string): void;
@@ -41,6 +49,7 @@ export function runUtility(
   injectedHistory?: HistoryStore,
   injectedConfiguration?: ConfigurationController,
   injectedApi?: ApiController,
+  injectedCluster?: ClusterController,
 ): void {
   let admitted = false;
   let scope = FIXTURE_SCOPE;
@@ -51,12 +60,15 @@ export function runUtility(
   let chatEpoch = 0;
   let provenance: Provenance | undefined;
   let configuration = injectedConfiguration;
+  let cluster = injectedCluster;
+  let lastCluster = 0;
   let api = injectedApi,
     lastApi = 0;
   let configurationOwner: ReturnType<typeof openModelConfigurationStore> | undefined;
   let configurationPreparation: Promise<void> | undefined;
   let activeLoad: ActiveLoadSnapshot | null = null;
   const loadConfigurations = new Map<string, ActiveLoadSnapshot>();
+  const loadProvenances = new Map<string, Provenance>();
   let lastConfiguration = 0;
   let lastChat = 0,
     quitting = false,
@@ -65,6 +77,7 @@ export function runUtility(
     string,
     {
       selection: Selection;
+      capturedReceipt: boolean;
       captured: ReturnType<typeof deferred<OwnedEngine>>;
       ready: ReturnType<typeof deferred<void>>;
       exited: ReturnType<typeof deferred<{ code: number; signal: null }>>;
@@ -83,6 +96,7 @@ export function runUtility(
         return Promise.reject(new Error('START_FAILED'));
       const entry = {
         selection,
+        capturedReceipt: false,
         captured: deferred<OwnedEngine>(),
         ready: deferred<void>(),
         exited: deferred<{ code: number; signal: null }>(),
@@ -104,6 +118,30 @@ export function runUtility(
     try {
       if (typeof input !== 'string') throw new Error('INVALID_CONTROL');
       const envelope = decodeObject(input);
+      if (envelope.type === 'cluster-command') {
+        exact(envelope, ['type', 'id', 'caller', 'command']);
+        if (
+          !admitted ||
+          typeof envelope.id !== 'number' ||
+          !Number.isSafeInteger(envelope.id) ||
+          envelope.id <= lastCluster ||
+          typeof envelope.caller !== 'string' ||
+          envelope.caller.length > 128
+        )
+          throw Error('INVALID_CONTROL');
+        lastCluster = envelope.id;
+        const caller = envelope.caller;
+        void (configurationPreparation ?? Promise.resolve())
+          .catch(() => undefined)
+          .then(() =>
+            !quitting && cluster
+              ? cluster.command(caller, envelope.command)
+              : ({ ok: false, error: 'NOT_READY' } as const),
+          )
+          .then((reply) => send({ type: 'cluster-reply', id: envelope.id, reply }))
+          .catch(() => channel.exit(1));
+        return;
+      }
       if (envelope.type === 'api-command') {
         exact(envelope, ['type', 'id', 'caller', 'command']);
         if (
@@ -244,9 +282,13 @@ export function runUtility(
               const profile = createConfigurationProfile(provenance!);
               configurationOwner = openModelConfigurationStore(
                 trustedHistoryRoot(applicationData),
-                (modelId) => modelId === scope.modelId,
+                (modelId) => /^[a-f0-9]{64}$/u.test(modelId),
                 profile.capabilities,
                 profile.load,
+                {
+                  cacheK: provenance!.configuration.cacheK,
+                  cacheV: provenance!.configuration.cacheV,
+                },
               );
               configuration = new ConfigurationController(
                 configurationOwner.store,
@@ -254,7 +296,16 @@ export function runUtility(
                 profile.capabilities,
                 profile.load,
                 () => activeLoad,
+                async (modelId) =>
+                  createConfigurationProfile(
+                    provenance!,
+                    (await configurationOwner!.store.readImportSource(modelId)) ?? undefined,
+                  ).capabilities,
               );
+              cluster = new ClusterController(configurationOwner.store, caller, {
+                cacheK: provenance!.configuration.cacheK,
+                cacheV: provenance!.configuration.cacheV,
+              });
               if (!injectedApi)
                 api = new ApiController(
                   configurationOwner.store,
@@ -296,6 +347,7 @@ export function runUtility(
         if (!entry) return; // Late receipts cannot settle a newer load.
         switch (event.phase) {
           case 'captured':
+            entry.capturedReceipt = true;
             entry.captured.resolve({
               selection: entry.selection,
               exited: entry.exited.promise,
@@ -336,6 +388,8 @@ export function runUtility(
               }
               activeLoad = loadConfigurations.get(selectionKey(entry.selection)) ?? null;
               if (chat && provenance) {
+                const activeProvenance =
+                  loadProvenances.get(selectionKey(entry.selection)) ?? provenance;
                 remote = new UtilityChatTransport(entry.selection, send, () => ++generationId);
                 try {
                   await chat.bind({
@@ -344,7 +398,7 @@ export function runUtility(
                       sessionId: entry.selection.sessionId,
                       operationId: entry.selection.operationId,
                     },
-                    provenance,
+                    provenance: activeProvenance,
                     transport: trackModelUse(remote, async (usedAt) => {
                       await configurationPreparation;
                       if (configurationOwner)
@@ -353,7 +407,12 @@ export function runUtility(
                     ...(provenance.upstreamCommit === '4f31296a907d73f3409f720429bcf31111615d77'
                       ? {
                           configuration: {
-                            capabilities: createConfigurationProfile(provenance).capabilities,
+                            capabilities: createConfigurationProfile(
+                              activeProvenance,
+                              (await configurationOwner?.store.readImportSource(
+                                entry.selection.modelId,
+                              )) ?? undefined,
+                            ).capabilities,
                             capture: async (overrides) => {
                               await configurationPreparation;
                               if (!configuration || !activeLoad)
@@ -390,7 +449,8 @@ export function runUtility(
             loadConfigurations.delete(selectionKey(event.selection));
             entry.captured.reject(new Error('START_FAILED'));
             entry.ready.reject(new Error('START_FAILED'));
-            entries.delete(selectionKey(event.selection));
+            // A captured engine still needs its exact owned-exit receipt for cleanup.
+            if (!entry.capturedReceipt) entries.delete(selectionKey(event.selection));
             break;
         }
         return;
@@ -405,6 +465,7 @@ export function runUtility(
         if (command.action === 'quit' || command.action === 'stop') chatEpoch++;
         if (command.action === 'quit' || command.action === 'stop') activeLoad = null;
         if (command.action === 'quit' || command.action === 'stop') loadConfigurations.clear();
+        if (command.action === 'quit' || command.action === 'stop') loadProvenances.clear();
         await chatPreparation?.catch(() => undefined);
         if (command.action === 'quit') {
           await configurationPreparation?.catch(() => undefined);
@@ -416,14 +477,135 @@ export function runUtility(
             await configurationPreparation;
             if (quitting || !configuration) throw new Error('NOT_READY');
             const selection = selectionFrom(command.selection, scope);
-            const snapshot = await configuration.captureLoad(scope.modelId);
+            if (
+              Object.hasOwn(command, 'clusterDraft') &&
+              !Object.hasOwn(command, 'modelConfiguration')
+            )
+              throw Error('INVALID_CONTROL');
+            let snapshot: ActiveLoadSnapshot;
+            if (
+              Object.hasOwn(command, 'clusterConfiguration') ||
+              Object.hasOwn(command, 'modelConfiguration')
+            ) {
+              const direct = Object.hasOwn(command, 'modelConfiguration');
+              exact(command, [
+                'id',
+                'action',
+                'selection',
+                direct ? 'modelConfiguration' : 'clusterConfiguration',
+                ...(direct && Object.hasOwn(command, 'clusterDraft') ? ['clusterDraft'] : []),
+              ]);
+              const modelConfiguration = direct
+                ? decodeSavedClusterConfiguration(command.modelConfiguration)
+                : undefined;
+              const target = command.clusterConfiguration;
+              if (!direct && (!target || typeof target !== 'object' || Array.isArray(target)))
+                throw Error('INVALID_CONTROL');
+              const selected = modelConfiguration
+                ? { id: modelConfiguration.id, revision: modelConfiguration.revision }
+                : (target as Record<string, unknown>);
+              exact(selected, ['id', 'revision', ...(direct ? [] : ['load'])]);
+              if (
+                typeof selected.id !== 'string' ||
+                typeof selected.revision !== 'number' ||
+                !configurationOwner ||
+                !provenance
+              )
+                throw Error('NOT_READY');
+              const saved =
+                modelConfiguration ?? configurationOwner.store.cluster.read(selected.id);
+              if (!saved || saved.modelId !== scope.modelId) throw Error('UNKNOWN_CONFIGURATION');
+              if (
+                !direct &&
+                !isDeepStrictEqual(decodeCapturedClusterLoad(selected.load), saved.load)
+              )
+                throw Error('STALE_CONFIGURATION');
+              if (modelConfiguration) {
+                const defaults = await configurationOwner.store.read(scope.modelId);
+                const source = await configurationOwner.store.readImportSource(scope.modelId);
+                if (Object.hasOwn(command, 'clusterDraft')) {
+                  const ref = decodeObject(JSON.stringify(command.clusterDraft));
+                  exact(ref, ['key', 'revision']);
+                  if (
+                    typeof ref.key !== 'string' ||
+                    typeof ref.revision !== 'number' ||
+                    !source?.blockCount
+                  )
+                    throw Error('INVALID_CONTROL');
+                  const draft = configurationOwner.store.cluster.readDraft(ref.key);
+                  if (!draft || draft.modelId !== scope.modelId) throw Error('STALE_CONFIGURATION');
+                  if (draft.load.defaults.contextLength > source.contextLimit)
+                    throw Error('INVALID_CLUSTER_CONFIGURATION');
+                  const expected = captureClusterDraft(
+                    draft,
+                    ref.revision,
+                    source.blockCount,
+                    createConfigurationProfile(provenance).capabilities.profileId,
+                    saved.id,
+                  );
+                  if (!isDeepStrictEqual(saved, expected)) throw Error('STALE_CONFIGURATION');
+                } else if (
+                  defaults.revision !== saved.revision ||
+                  source?.blockCount !== saved.blockCount ||
+                  !isDeepStrictEqual(defaults.load, saved.load.defaults) ||
+                  !isDeepStrictEqual(defaults.preferences, saved.load.preferences)
+                )
+                  throw Error('STALE_CONFIGURATION');
+              }
+              const effective = captureClusterRun(
+                saved,
+                selected.revision,
+                modelConfiguration
+                  ? null
+                  : configurationOwner.store.cluster.readDraft(`config:${saved.id}`),
+                'b11306-cuda12.4-msvc14.44-dev1',
+              );
+              requireStockClusterProfile(effective);
+              snapshot = Object.freeze({
+                modelId: saved.modelId,
+                revision: saved.revision,
+                profileId: saved.profileId,
+                load: saved.load.defaults,
+                ...(saved.load.preferences ? { preferences: saved.load.preferences } : {}),
+              });
+              loadProvenances.set(
+                selectionKey(selection),
+                Object.freeze({
+                  ...provenance,
+                  configuration: Object.freeze({
+                    ...provenance.configuration,
+                    gpuDevice: effective.placement.orderedUuids[0]!,
+                    modelSha256: effective.modelSha256,
+                    contextPerSlot: effective.contextPerSlot,
+                    slots: effective.slots,
+                    cacheK: effective.cacheK,
+                    cacheV: effective.cacheV,
+                    gpuLayers: effective.blockCount + 1,
+                  }),
+                  cluster: saved,
+                }),
+              );
+            } else snapshot = await configuration.captureLoad(scope.modelId);
             if (quitting) throw new Error('NOT_READY');
             loadConfigurations.set(selectionKey(selection), snapshot);
           } catch {
             return { reply: { id: command.id, error: 'NOT_READY' }, quit: false };
           }
         }
-        const reply = await session.handle(envelope.text as string);
+        const {
+          clusterConfiguration: _clusterConfiguration,
+          modelConfiguration: _modelConfiguration,
+          clusterDraft: _clusterDraft,
+          ...lifecycleCommand
+        } = command;
+        const reply = await session.handle(
+          command.action === 'load' &&
+            (_clusterConfiguration !== undefined ||
+              _modelConfiguration !== undefined ||
+              _clusterDraft !== undefined)
+            ? JSON.stringify(lifecycleCommand)
+            : (envelope.text as string),
+        );
         if (command.action === 'load' && reply.reply.error) {
           try {
             loadConfigurations.delete(selectionKey(selectionFrom(command.selection, scope)));
@@ -435,6 +617,7 @@ export function runUtility(
           await chat?.close();
           await configurationPreparation?.catch(() => undefined);
           await configuration?.close();
+          await cluster?.close();
           configurationOwner?.close();
           remote?.close();
           historyOwner?.close();
