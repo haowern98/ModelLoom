@@ -7,6 +7,7 @@ import { createDemoDefaults } from '../features/models/configuration';
 import type { DemoConfiguration } from '../features/models/configuration';
 import { fromModelEditor, toModelEditor } from '../features/models/live-configuration';
 import type { ConfigurationReply } from '../../shared/model-configuration';
+import { useClusterConfigurations } from '../features/cluster/useClusterConfigurations';
 import { ClusterPage } from '../features/cluster/ClusterPage';
 import { ChatPage } from '../features/chat/ChatPage';
 import { ApiPage } from '../features/api/ApiPage';
@@ -28,6 +29,7 @@ type Modal =
 
 export function App() {
   const runtime = useRuntime();
+  const clusterConfigurations = useClusterConfigurations(window.modelLoomCluster);
   const live = runtime.view?.enabled === true;
   const liveChat = useLiveChat(live, runtime.view?.phase === 'ready');
   const demo = __DEMO_DATA_ENABLED__;
@@ -122,6 +124,7 @@ export function App() {
   }, [placement.launch, library.models, live]);
 
   const [dismissedRuntimeError, setDismissedRuntimeError] = useState<string | null>(null);
+  const memoryWarning = runtime.view?.memoryWarning;
   const displayedModal =
     modal ??
     (runtime.view?.error && runtime.view.error !== dismissedRuntimeError
@@ -264,6 +267,7 @@ export function App() {
       ) : destination === 'Cluster' ? (
         <ClusterPage
           demo={demo && !local}
+          {...(local && window.modelLoomCluster ? { configurations: clusterConfigurations } : {})}
           joining={joining}
           onJoining={dispatchJoining}
           devices={
@@ -329,11 +333,29 @@ export function App() {
           {...(local
             ? {
                 localRuntime: {
+                  activeCluster: runtime.view?.activeCluster ?? null,
                   loading:
                     runtime.loading ||
                     runtime.view?.phase === 'starting' ||
                     runtime.view?.phase === 'loading',
-                  onChoose: (model: DemoModel) => setLocalSelection(model.id),
+                  onChoose: (model: DemoModel) => {
+                    setLocalSelection(model.id);
+                    void clusterConfigurations.selectModel(model.id);
+                  },
+                  onRunConfiguration: (configurationId: string, revision: number) => {
+                    void runtime.run({ action: 'run-configuration', configurationId, revision });
+                  },
+                  onRunDraft: (target: { key: string; revision: number; modelId: string }) => {
+                    setDismissedRuntimeError(null);
+                    void (async () => {
+                      if (runtime.view?.phase === 'ready') await runtime.run({ action: 'stop' });
+                      await runtime.run({
+                        action: 'load',
+                        modelId: `model-${target.modelId}`,
+                        draft: { key: target.key, revision: target.revision },
+                      });
+                    })();
+                  },
                   onRun: () => {
                     setDismissedRuntimeError(null);
                     if (localSelection)
@@ -374,7 +396,34 @@ export function App() {
           onApi={() => navigate('API')}
         />
       )}
-      {displayedModal && (
+      {memoryWarning && (
+        <Dialog
+          initialFocus="cancel"
+          title="Not enough available memory"
+          onClose={() => void runtime.answerMemory(memoryWarning.id, false)}
+        >
+          <p>
+            This configuration is estimated to need more memory than is currently available. Loading
+            may fail or run slowly. Your model and settings will stay the same.
+          </p>
+          <footer>
+            <Button
+              data-dialog-cancel
+              autoFocus
+              onClick={() => void runtime.answerMemory(memoryWarning.id, false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => void runtime.answerMemory(memoryWarning.id, true)}
+            >
+              Load anyway
+            </Button>
+          </footer>
+        </Dialog>
+      )}
+      {!memoryWarning && displayedModal && (
         <Dialog
           title={
             displayedModal.type === 'info'

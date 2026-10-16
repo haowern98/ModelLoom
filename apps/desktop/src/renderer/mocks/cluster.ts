@@ -186,6 +186,8 @@ export interface DemoPlacement {
   readonly mode: 'auto' | 'manual';
   readonly inputs: readonly LayerInput[];
   readonly baseline: readonly LayerInput[];
+  readonly past: readonly (readonly LayerInput[])[];
+  readonly future: readonly (readonly LayerInput[])[];
   readonly appliedModelId: string | null;
   readonly applied: readonly SampleRange[];
   readonly launch: DemoLaunch | null;
@@ -195,7 +197,7 @@ export type PlacementAction =
   | { type: 'choose'; modelId: string; mode: 'auto' | 'manual' }
   | { type: 'edit'; input: LayerInput }
   | { type: 'reset'; modelId: string | null }
-  | { type: 'run' | 'complete' | 'cancel' | 'stop' | 'discard' };
+  | { type: 'run' | 'complete' | 'cancel' | 'stop' | 'discard' | 'undo' | 'redo' | 'auto-place' };
 
 function placementInputs(ranges: readonly SampleRange[]): readonly LayerInput[] {
   return referenceRanges.map(({ hardwareId }) => {
@@ -227,6 +229,8 @@ export function createDemoPlacement(modelId: string | null = 'qwen'): DemoPlacem
     mode: 'auto',
     inputs,
     baseline: inputs,
+    past: [],
+    future: [],
     appliedModelId: modelId,
     applied,
     launch: null,
@@ -290,6 +294,20 @@ export function hasPlacementChanges(state: DemoPlacement): boolean {
   );
 }
 
+function replaceDraft(state: DemoPlacement, inputs: readonly LayerInput[]): DemoPlacement {
+  if (
+    inputs.every(
+      (input, index) =>
+        input.hardwareId === state.inputs[index]?.hardwareId &&
+        input.first === state.inputs[index]?.first &&
+        input.last === state.inputs[index]?.last,
+    ) &&
+    inputs.length === state.inputs.length
+  )
+    return state;
+  return { ...state, inputs, past: [...state.past, state.inputs], future: [] };
+}
+
 /** Planning leaves the active session untouched. Run snapshots valid input after UI confirmation;
  * completion alone applies it. Cancellation retains both the old session and the proposal. */
 export function transitionDemoPlacement(
@@ -307,6 +325,8 @@ export function transitionDemoPlacement(
         modelId: action.modelId,
         mode: action.mode,
         inputs,
+        past: [],
+        future: [],
         baseline: state.appliedModelId === action.modelId ? placementInputs(state.applied) : inputs,
       };
     }
@@ -317,12 +337,38 @@ export function transitionDemoPlacement(
         !state.inputs.some((input) => input.hardwareId === action.input.hardwareId)
       )
         return state;
-      return {
-        ...state,
-        inputs: state.inputs.map((input) =>
+      return replaceDraft(
+        state,
+        state.inputs.map((input) =>
           input.hardwareId === action.input.hardwareId ? action.input : input,
         ),
+      );
+    case 'auto-place':
+      if (state.launch || !state.modelId) return state;
+      return replaceDraft(
+        state,
+        placementInputs(autoSamplePlacement(demoLayerCount(state.modelId))),
+      );
+    case 'undo': {
+      const inputs = state.past.at(-1);
+      if (state.launch || !state.modelId || !inputs) return state;
+      return {
+        ...state,
+        inputs,
+        past: state.past.slice(0, -1),
+        future: [state.inputs, ...state.future],
       };
+    }
+    case 'redo': {
+      const inputs = state.future[0];
+      if (state.launch || !state.modelId || !inputs) return state;
+      return {
+        ...state,
+        inputs,
+        past: [...state.past, state.inputs],
+        future: state.future.slice(1),
+      };
+    }
     case 'run': {
       if (!state.modelId || state.launch) return state;
       const ranges = parseLayerInputs(state.inputs, demoLayerCount(state.modelId));
@@ -339,6 +385,8 @@ export function transitionDemoPlacement(
         applied: state.launch.ranges,
         inputs,
         baseline: inputs,
+        past: [],
+        future: [],
         launch: null,
       };
     }
@@ -360,7 +408,7 @@ export function transitionDemoPlacement(
       if (state.launch) return state;
       const inputs =
         state.appliedModelId === state.modelId ? placementInputs(state.applied) : state.baseline;
-      return { ...state, inputs, baseline: inputs };
+      return { ...state, inputs, baseline: inputs, past: [], future: [] };
     }
     case 'reset':
       return createDemoPlacement(action.modelId);
