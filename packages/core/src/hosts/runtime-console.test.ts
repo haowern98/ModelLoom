@@ -27,7 +27,7 @@ afterEach(async () => {
     rmSync(directory, { recursive: true, force: true });
   }
 });
-function start(mode = 'ready', gpu?: string) {
+function start(mode = 'ready', gpu?: string | readonly string[]) {
   const root = native.createDeployment();
   roots.push(root);
   const helper = fileURLToPath(
@@ -37,7 +37,9 @@ function start(mode = 'ready', gpu?: string) {
   const child =
     gpu === undefined
       ? native.launchConsole(root, helper, [fixture, mode], os.tmpdir())
-      : native.launchCudaConsole(root, helper, [fixture, mode], os.tmpdir(), gpu);
+      : typeof gpu === 'string'
+        ? native.launchCudaConsole(root, helper, [fixture, mode], os.tmpdir(), gpu)
+        : native.launchCudaPlanConsole(root, helper, [fixture, mode], os.tmpdir(), gpu);
   children.push(child);
   let text = '';
   return {
@@ -162,6 +164,31 @@ it('passes only the selected full GPU UUID to its child and leaves an independen
     if (previous === undefined) delete process.env.CUDA_VISIBLE_DEVICES;
     else process.env.CUDA_VISIBLE_DEVICES = previous;
   }
+});
+it('passes an ordered pair only to its owned fixture, without initializing GPUs', async () => {
+  const pair = [
+    'GPU-12345678-1234-1234-1234-123456789abc',
+    'GPU-87654321-1234-1234-1234-123456789abc',
+  ];
+  const selected = start('gpu', pair),
+    cpu = start('gpu');
+  await expect.poll(() => selected.read().text).toContain(`GPU ${pair.join(',')}`);
+  await expect.poll(() => cpu.read().text).toContain('GPU NONE');
+  native.requestStop(selected.child);
+  await expect.poll(() => selected.read().activeProcesses).toBe(0);
+});
+it.each(
+  [
+    [],
+    ['0'],
+    ['GPU-12345678-1234-1234-1234-123456789abc', 'GPU-12345678-1234-1234-1234-123456789abc'],
+  ].map((pair) => ({ pair })),
+)('rejects malformed or duplicate ordered GPU identities', ({ pair }) => {
+  const root = native.createDeployment();
+  roots.push(root);
+  expect(() => native.launchCudaPlanConsole(root, 'unused.exe', [], os.tmpdir(), pair)).toThrow(
+    'INVALID_CONTROL',
+  );
 });
 it.each([
   '0',
