@@ -24,10 +24,10 @@ describe('Cluster planning and launch', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Actions for Qwen3.8-27B' }));
-    expect(screen.getByRole('button', { name: 'Remove demo entry' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove model entry' })).toBeDisabled();
     await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', { name: 'Actions for Llama 3.1 8B' }));
-    expect(screen.getByRole('button', { name: 'Remove demo entry' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Remove model entry' })).toBeEnabled();
   });
   it('launches a manually assigned model only after switch confirmation, then stops it', async () => {
     const user = userEvent.setup();
@@ -72,7 +72,7 @@ describe('Cluster planning and launch', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel loading' }));
     await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Actions for Qwen3.8-27B' }));
-    expect(screen.getByRole('button', { name: 'Remove demo entry' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove model entry' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
     expect(screen.getByRole('button', { name: 'Selected demo model: Llama 3.1 8B' })).toBeVisible();
   });
