@@ -84,7 +84,7 @@ describe('Model configuration demo', () => {
     expect(screen.queryByRole('combobox', { name: /draft model/i })).not.toBeInTheDocument();
   });
 
-  it('adds exact stop strings without submitting and stores template and argument text safely', async () => {
+  it('adds exact stop strings and stores template text without exposing argument overrides', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));
@@ -97,13 +97,15 @@ describe('Model configuration demo', () => {
       screen.getByRole('textbox', { name: 'Chat Template text' }),
       '<script>template</script>',
     );
-    await user.click(screen.getByRole('switch', { name: 'llama.cpp Arguments Override' }));
-    await user.type(screen.getByRole('textbox', { name: 'Arguments' }), '--example $(ignored)');
+    expect(
+      screen.queryByRole('switch', { name: 'llama.cpp Arguments Override' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Arguments' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(screen.getByRole('status')).toHaveTextContent('Defaults saved');
     await user.click(screen.getByRole('button', { name: 'Back to Models' }));
     await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));
-    expect(screen.getByRole('textbox', { name: 'Arguments' })).toHaveValue('--example $(ignored)');
+    expect(screen.queryByRole('textbox', { name: 'Arguments' })).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Chat Template text' })).toHaveValue(
       '<script>template</script>',
     );

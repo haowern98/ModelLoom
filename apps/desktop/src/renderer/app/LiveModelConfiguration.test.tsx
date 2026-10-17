@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
@@ -72,6 +72,13 @@ it('opens the imported model editor and reports Save only after the core commits
   expect(
     await screen.findByText('Defaults saved. New requests will use these settings.'),
   ).toBeVisible();
+  expect(
+    within(screen.getByRole('group', { name: 'Model configuration actions' })).queryByText(
+      'Defaults saved. New requests will use these settings.',
+    ),
+  ).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'Dismiss notification' }));
+  expect(screen.queryByText('Defaults saved. New requests will use these settings.')).toBeNull();
   expect((await store.read(record().modelId)).generation.temperature).toBe(0.2);
 });
 
@@ -125,7 +132,10 @@ it('commits supported performance and advanced load settings while keeping unsaf
   await user.type(scale, '2');
   await user.click(screen.getByText('Chat Template', { selector: 'summary span' }));
   await user.type(screen.getByRole('textbox', { name: 'Chat Template text' }), 'Custom template');
-  expect(screen.getByRole('switch', { name: 'llama.cpp Arguments Override' })).toBeDisabled();
+  expect(
+    screen.queryByRole('switch', { name: 'llama.cpp Arguments Override' }),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByRole('textbox', { name: 'Arguments' })).not.toBeInTheDocument();
   expect(screen.getByRole('combobox', { name: 'Context Overflow' })).toBeDisabled();
   await user.click(screen.getByRole('button', { name: 'Save changes' }));
   await screen.findByText('Defaults saved. New requests will use these settings.');
