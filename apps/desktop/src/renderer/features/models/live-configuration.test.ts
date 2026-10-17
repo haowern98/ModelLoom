@@ -5,6 +5,7 @@ import { record } from '../../../../../../packages/core/src/model-configuration/
 it('round-trips real defaults without replacing disabled values or automatic threads', () => {
   const source = record();
   source.generation.temperature = 0.23;
+  source.preferences.argumentsText = '--example $(ignored)';
   const editor = toModelEditor(source);
   expect(editor.numbers.temperature).toBe('0.23');
   expect(editor.numbers.threads).toBe('');

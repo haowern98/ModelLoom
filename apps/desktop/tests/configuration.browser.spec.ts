@@ -1,5 +1,49 @@
 import { expect, test } from '@playwright/test';
 
+test('successful saves use the green popup without moving the footer buttons', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Configure Qwen3.8-27B' }).click();
+  const actions = page.getByRole('group', { name: 'Model configuration actions' });
+  const reset = actions.getByRole('button', { name: 'Reset defaults', exact: true });
+  const save = actions.getByRole('button', { name: 'Save changes', exact: true });
+  const temperature = page.getByRole('spinbutton', { name: 'Temperature', exact: true });
+  await page.clock.install();
+  for (const width of [1280, 640]) {
+    await page.setViewportSize({ width, height: 720 });
+    await temperature.fill(width === 1280 ? '0.6' : '0.7');
+    const before = { reset: await reset.boundingBox(), save: await save.boundingBox() };
+    await save.click();
+    const status = page.getByRole('status');
+    await expect(status).toHaveText('Defaults saved for this demo session.');
+    await expect(actions.getByText(/Defaults saved/)).toHaveCount(0);
+    const popup = status.locator('..');
+    await expect(popup).toHaveCSS('background-color', 'rgb(8, 35, 18)');
+    await expect(page.getByRole('button', { name: 'Dismiss notification' })).toBeVisible();
+    expect({ reset: await reset.boundingBox(), save: await save.boundingBox() }).toEqual(before);
+    const paneBounds = (await page.locator('main').boundingBox())!;
+    const popupBounds = (await popup.boundingBox())!;
+    expect(popupBounds.y - paneBounds.y).toBe(24);
+    expect(popupBounds.x + popupBounds.width / 2).toBeCloseTo(
+      paneBounds.x + paneBounds.width / 2,
+      1,
+    );
+    expect(popupBounds.x).toBeGreaterThanOrEqual(paneBounds.x);
+    expect(popupBounds.x + popupBounds.width).toBeLessThanOrEqual(paneBounds.x + paneBounds.width);
+    await page.mouse.move(0, 0);
+    await page.clock.runFor(5001);
+    await expect(status).toHaveCount(0);
+  }
+  await temperature.fill('0.5');
+  await save.click();
+  const close = page.getByRole('button', { name: 'Dismiss notification' });
+  await close.focus();
+  await page.clock.runFor(6000);
+  await expect(page.getByRole('status')).toBeVisible();
+  await close.click();
+  await expect(page.getByRole('status')).toHaveCount(0);
+  await expect(reset).toBeFocused();
+});
+
 test('model actions stay at the pane bottom while settings scroll above them', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Configure Qwen3.8-27B' }).click();
@@ -28,7 +72,7 @@ test('model actions stay at the pane bottom while settings scroll above them', a
       await expect(reset).toBeInViewport();
       await expect(save).toBeInViewport();
     }
-    const lastControl = page.getByRole('switch', { name: 'llama.cpp Arguments Override' });
+    const lastControl = page.getByLabel('Seed', { exact: true });
     await lastControl.scrollIntoViewIfNeeded();
     const lastBounds = (await lastControl.boundingBox())!;
     expect(lastBounds.y + lastBounds.height).toBeLessThanOrEqual(barBounds.y);
@@ -230,8 +274,8 @@ test('validation, toggles, sliders, exact stop strings and advanced editors work
   await expect(page.getByRole('combobox', { name: /draft model/i })).toHaveCount(0);
   await page.getByText('Chat Template', { exact: true }).click();
   await page.getByRole('textbox', { name: 'Chat Template text' }).fill('<script>example</script>');
-  await page.getByRole('switch', { name: 'llama.cpp Arguments Override' }).click();
-  await page.getByRole('textbox', { name: 'Arguments', exact: true }).fill('--example $(ignored)');
+  await expect(page.getByRole('switch', { name: 'llama.cpp Arguments Override' })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Arguments', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('status')).toContainText('Defaults saved');
   await page.getByRole('button', { name: 'Reset defaults' }).click();
