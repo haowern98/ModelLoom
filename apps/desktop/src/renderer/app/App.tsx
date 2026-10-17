@@ -429,7 +429,7 @@ export function App() {
             displayedModal.type === 'info'
               ? displayedModal.title
               : displayedModal.type === 'remove'
-                ? 'Remove demo entry?'
+                ? 'Remove model entry?'
                 : displayedModal.model.name
           }
           onClose={closeModal}

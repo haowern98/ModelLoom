@@ -122,7 +122,7 @@ export function ModelRow({
                   }
                   onClick={() => openAction(onRemove)}
                 >
-                  Remove demo entry
+                  Remove model entry
                 </button>
               </div>
             )}
