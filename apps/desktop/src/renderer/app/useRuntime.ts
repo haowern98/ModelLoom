@@ -1,25 +1,31 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RuntimeCommand, RuntimeView } from '../../shared/runtime';
-/** Session-only public state. Old poll/load replies cannot overwrite a newer stop or import. */
+/** Public snapshots include persisted library metadata and transient indexing progress. */
 export function useRuntime() {
   const [view, setView] = useState<RuntimeView | null>(null);
   const [loading, setLoading] = useState(false);
   const generation = useRef(0),
-    busy = useRef(false);
+    busy = useRef(false),
+    importing = useRef(false);
   useEffect(() => {
     const bridge = window.modelLoomRuntime;
     if (!bridge) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
-      if (!busy.current) {
-        const current = generation.current;
-        try {
-          const next = await bridge.command({ action: 'snapshot' });
-          if (alive && current === generation.current && !busy.current) setView(next);
-        } catch {
-          /* Main's Quit gate closes the bridge before the window disappears. */
-        }
+      const current = generation.current;
+      try {
+        const next = await bridge.command({ action: 'snapshot' });
+        if (alive && current === generation.current)
+          setView((previous) =>
+            !busy.current || importing.current
+              ? next
+              : previous
+                ? { ...previous, memoryWarning: next.memoryWarning ?? null }
+                : null,
+          );
+      } catch {
+        /* Main's Quit gate closes the bridge before the window disappears. */
       }
       if (alive)
         timer = setTimeout(() => {
@@ -37,7 +43,8 @@ export function useRuntime() {
     if (!bridge) return;
     const current = ++generation.current;
     busy.current = true;
-    setLoading(command.action === 'load');
+    importing.current = command.action === 'import';
+    setLoading(command.action === 'load' || command.action === 'run-configuration');
     try {
       const next = await bridge.command(command);
       if (current === generation.current) setView(next);
@@ -50,10 +57,28 @@ export function useRuntime() {
         );
     } finally {
       if (current === generation.current) {
+        ++generation.current;
         busy.current = false;
+        importing.current = false;
         setLoading(false);
       }
     }
   }
-  return { view, loading, run };
+  async function answerMemory(id: string, loadAnyway: boolean) {
+    const bridge = window.modelLoomRuntime;
+    if (!bridge) return;
+    const current = generation.current;
+    try {
+      const next = await bridge.command({ action: 'memory-decision', id, loadAnyway });
+      if (current === generation.current)
+        setView((previous) =>
+          previous?.memoryWarning?.id === id
+            ? { ...previous, memoryWarning: next.memoryWarning ?? null }
+            : previous,
+        );
+    } catch {
+      /* Keep the warning open so the user can retry their decision. */
+    }
+  }
+  return { view, loading, run, answerMemory };
 }

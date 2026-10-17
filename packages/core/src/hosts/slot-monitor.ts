@@ -41,7 +41,8 @@ export class OwnedSlotMonitor {
     exited: Promise<void>,
     private readonly cleanup: () => void,
   ) {
-    if (!Number.isInteger(count) || count < 1 || count > 4) throw new Error('STATUS_UNCONFIRMED');
+    if (!Number.isInteger(count) || count < 1 || count > 1024)
+      throw new Error('STATUS_UNCONFIRMED');
     void exited.then(
       () => this.exited(),
       () => this.fail(),

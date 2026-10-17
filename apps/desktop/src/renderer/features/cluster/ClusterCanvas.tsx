@@ -10,7 +10,17 @@ interface Viewport {
 }
 
 /** Pan/zoom affects presentation only. The inspector is outside this transformed surface. */
-export function ClusterCanvas({ children, onClear }: { children: ReactNode; onClear: () => void }) {
+export function ClusterCanvas({
+  children,
+  onClear,
+  singleDevice = false,
+  panelId,
+}: {
+  children: ReactNode;
+  onClear: () => void;
+  singleDevice?: boolean;
+  panelId?: string | undefined;
+}) {
   const viewport = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
   const controls = useRef<HTMLDivElement>(null);
@@ -20,29 +30,63 @@ export function ClusterCanvas({ children, onClear }: { children: ReactNode; onCl
   const [dragging, setDragging] = useState(false);
   const instructions = useId();
 
+  const centerY = useCallback((element: HTMLDivElement) => {
+    const bottomSpace = (controls.current?.offsetHeight ?? 40) + 28;
+    // Lift the visual center above the zoom bar, matching the approved single-device reference.
+    return Math.max(20, (element.clientHeight - bottomSpace) / 2 - 32);
+  }, []);
+
+  const availableWidth = useCallback(
+    (element: HTMLDivElement) => {
+      const panel = panelId ? document.getElementById(panelId) : null;
+      return panel
+        ? Math.max(
+            0,
+            Math.min(
+              element.clientWidth,
+              panel.getBoundingClientRect().left - element.getBoundingClientRect().left,
+            ),
+          )
+        : element.clientWidth;
+    },
+    [panelId],
+  );
+
+  const centerView = useCallback(() => {
+    const element = viewport.current;
+    const content = world.current;
+    if (!element?.clientWidth || !element.clientHeight || !content) return;
+    const width = availableWidth(element);
+    setView((previous) => ({
+      ...previous,
+      x: (width - content.offsetWidth * previous.scale) / 2,
+      y: singleDevice ? centerY(element) - (content.offsetHeight * previous.scale) / 2 : 20,
+    }));
+  }, [availableWidth, centerY, singleDevice]);
+
   const fitView = useCallback(() => {
     const element = viewport.current;
     const content = world.current;
     if (!element || !content || !element.clientWidth || !element.clientHeight) return;
-    // Leave room for the fixed controls below the fitted diagram.
-    const bottomSpace = (controls.current?.offsetHeight ?? 40) + 28;
+    const y = centerY(element);
+    const width = availableWidth(element);
     const scale = Math.max(
       0.25,
-      Math.min(
-        1,
-        (element.clientWidth - 40) / content.offsetWidth,
-        (element.clientHeight - 20 - bottomSpace) / content.offsetHeight,
-      ),
+      Math.min(1, (width - 40) / content.offsetWidth, (2 * (y - 20)) / content.offsetHeight),
     );
-    setView({ x: (element.clientWidth - content.offsetWidth * scale) / 2, y: 20, scale });
-  }, []);
+    setView({
+      x: (width - content.offsetWidth * scale) / 2,
+      y: y - (content.offsetHeight * scale) / 2,
+      scale,
+    });
+  }, [availableWidth, centerY]);
 
   const zoom = (factor: number) => {
     const element = viewport.current;
     if (!element) return;
     touched.current = true;
-    const x = element.clientWidth / 2;
-    const y = element.clientHeight / 2;
+    const x = availableWidth(element) / 2;
+    const y = singleDevice ? centerY(element) : element.clientHeight / 2;
     setView((previous) => {
       const scale = Math.max(0.25, Math.min(2, previous.scale * factor));
       const ratio = scale / previous.scale;
@@ -59,14 +103,16 @@ export function ClusterCanvas({ children, onClear }: { children: ReactNode; onCl
     const element = viewport.current;
     const content = world.current;
     if (!element || !content) return;
-    const autoFit = () => {
-      if (!touched.current) fitView();
+    const recenter = () => {
+      if (singleDevice || !touched.current) centerView();
     };
-    autoFit();
+    recenter();
     const observer =
-      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(autoFit);
+      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(recenter);
     observer?.observe(element);
     observer?.observe(content);
+    const panel = panelId ? document.getElementById(panelId) : null;
+    if (panel) observer?.observe(panel);
     const wheel = (event: WheelEvent) => {
       if (event.target instanceof Node && controls.current?.contains(event.target)) return;
       event.preventDefault();
@@ -92,7 +138,7 @@ export function ClusterCanvas({ children, onClear }: { children: ReactNode; onCl
       observer?.disconnect();
       element.removeEventListener('wheel', wheel);
     };
-  }, [fitView]);
+  }, [centerView, singleDevice, panelId]);
 
   return (
     <div
@@ -172,7 +218,7 @@ export function ClusterCanvas({ children, onClear }: { children: ReactNode; onCl
       </span>
       <div
         ref={world}
-        className={styles.canvas}
+        className={`${styles.canvas} ${singleDevice ? styles.singleDeviceCanvas : ''}`}
         style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
       >
         {children}

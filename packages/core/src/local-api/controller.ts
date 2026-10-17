@@ -62,9 +62,19 @@ export class ApiController {
   private async handle(input: unknown): Promise<ApiOwnerReply> {
     try {
       const command = decodeApiOwnerCommand(input);
+      if (command.action === 'readLibraryEntry')
+        return { ok: true, entry: await this.store.readLibraryEntry(command.after) };
+      if (command.action === 'readModelUsage')
+        return { ok: true, lastUsedAt: await this.store.readUse(this.modelId) };
+      if (command.action === 'readImportSource')
+        return { ok: true, source: await this.store.readLatestImportSource() };
       if (command.action === 'registerImport') {
         if (command.modelId !== this.modelId) throw new Error('INVALID_CONTROL');
-        this.imported = await this.store.recordImport(command.modelId, command.created);
+        this.imported = await this.store.recordImport(
+          command.modelId,
+          command.created,
+          command.source,
+        );
         // Import registration remains available even when Windows key protection cannot open.
         return { ok: true, registered: true };
       }

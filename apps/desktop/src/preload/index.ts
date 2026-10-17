@@ -2,11 +2,19 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { decodeApiManagementCommand, decodeApiManagementReply } from '../shared/local-api';
 import { decodeRuntimeCommand } from '../shared/runtime';
 import { decodeChatCommand, decodeChatReply } from '../shared/chat';
+import { decodeClusterCommand, decodeClusterReply } from '../shared/cluster-configuration';
 import {
   decodeConfigurationCommand,
   decodeConfigurationReply,
 } from '../shared/model-configuration';
 /** Sandbox bridge exposes a closed data API, never ipcRenderer or a generic channel. */
+contextBridge.exposeInMainWorld(
+  'modelLoomCluster',
+  Object.freeze({
+    command: (input: unknown) =>
+      ipcRenderer.invoke('modelloom:cluster', decodeClusterCommand(input)).then(decodeClusterReply),
+  }),
+);
 contextBridge.exposeInMainWorld(
   'modelLoomApi',
   Object.freeze({

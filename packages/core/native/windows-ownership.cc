@@ -300,7 +300,7 @@ napi_value create(napi_env env, napi_callback_info info) {
 /** Native children remain suspended until both containment assignments succeed.
  */
 napi_value launch_mode(napi_env env, napi_callback_info info, bool console,
-                       bool cuda = false) {
+                       bool cuda = false, bool plan = false) {
   napi_value values[5];
   if (!arguments(env, info, cuda ? 5 : console ? 4 : 3, values))
     return fail(env, "INVALID_CONTROL");
@@ -314,19 +314,39 @@ napi_value launch_mode(napi_env env, napi_callback_info info, bool console,
       length > 64 ||
       (console && (length == 0 || !wide(env, values[3], temporary))))
     return fail(env, "INVALID_CONTROL");
-  // Full physical UUID only. No ordinals, abbreviated UUIDs, MIG or environment
-  // maps cross this launch boundary; CUDA remaps the sole visible device to 0.
+  // One/two full physical UUIDs only. Visibility belongs to this owned child;
+  // no caller environment maps or display ordinals cross the boundary.
   if (cuda) {
-    if (!wide(env, values[4], gpu) || gpu.size() != 40 ||
-        gpu.substr(0, 4) != L"GPU-")
+    uint32_t count = 1;
+    if (plan && (napi_is_array(env, values[4], &array) != napi_ok || !array ||
+                 napi_get_array_length(env, values[4], &count) != napi_ok ||
+                 count < 1 || count > 2))
       return fail(env, "INVALID_CONTROL");
-    for (size_t i = 4; i < gpu.size(); ++i) {
-      const bool hyphen = i == 12 || i == 17 || i == 22 || i == 27;
-      const auto c = gpu[i];
-      if (hyphen ? c != L'-'
-                 : !((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f') ||
-                     (c >= L'A' && c <= L'F')))
+    std::wstring previous;
+    for (uint32_t n = 0; n < count; ++n) {
+      napi_value value = values[4];
+      if (plan && napi_get_element(env, values[4], n, &value) != napi_ok)
         return fail(env, "INVALID_CONTROL");
+      std::wstring selected;
+      if (!wide(env, value, selected) || selected.size() != 40 ||
+          selected.substr(0, 4) != L"GPU-")
+        return fail(env, "INVALID_CONTROL");
+      for (size_t i = 4; i < selected.size(); ++i) {
+        const bool hyphen = i == 12 || i == 17 || i == 22 || i == 27;
+        const auto c = selected[i];
+        if (hyphen ? c != L'-'
+                   : !((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f') ||
+                       (c >= L'A' && c <= L'F')))
+          return fail(env, "INVALID_CONTROL");
+        if (c >= L'A' && c <= L'F')
+          selected[i] = c + (L'a' - L'A');
+      }
+      if (selected == previous)
+        return fail(env, "INVALID_CONTROL");
+      if (n)
+        gpu += L",";
+      gpu += selected;
+      previous = selected;
     }
   }
   command = quote(executable);
@@ -455,6 +475,9 @@ napi_value launch_console(napi_env env, napi_callback_info info) {
 }
 napi_value launch_cuda_console(napi_env env, napi_callback_info info) {
   return launch_mode(env, info, true, true);
+}
+napi_value launch_cuda_plan_console(napi_env env, napi_callback_info info) {
+  return launch_mode(env, info, true, true, true);
 }
 
 /** Startup receipt is checked once against the contained image/time, then
@@ -813,6 +836,8 @@ NAPI_MODULE_INIT() {
        nullptr, napi_default, nullptr},
       {"launchCudaConsole", nullptr, checked<launch_cuda_console>, nullptr,
        nullptr, nullptr, napi_default, nullptr},
+      {"launchCudaPlanConsole", nullptr, checked<launch_cuda_plan_console>,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
       {"observe", nullptr, checked<observe>, nullptr, nullptr, nullptr,
        napi_default, nullptr},
       {"requestStop", nullptr, checked<stop>, nullptr, nullptr, nullptr,

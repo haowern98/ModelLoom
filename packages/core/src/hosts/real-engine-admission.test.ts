@@ -133,7 +133,7 @@ afterEach(async () => {
   setup.developmentBuild = false;
   setup.productionReports.splice(0, setup.productionReports.length, setup.report);
 });
-async function adapter() {
+async function adapter(takeSharedMemoryConfirmation?: () => boolean) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'modelloom-admission-'));
   directories.push(directory);
   return realEngineAdapter(
@@ -141,6 +141,7 @@ async function adapter() {
     'model.gguf',
     setup.config,
     9999,
+    takeSharedMemoryConfirmation,
   );
 }
 it.each([
@@ -204,5 +205,46 @@ it('rejects insufficient cache-inclusive RAM before creating an engine, even wit
     'INSUFFICIENT_RESOURCES',
   );
   expect(setup.launch).not.toHaveBeenCalled();
+  await instance.close();
+});
+it('requires owner confirmation at final creation and still rejects a RAM shortage after consent', async () => {
+  setup.discover.mockResolvedValue({
+    ...setup.snapshot,
+    ram: 8 * 2 ** 30,
+    gpus: [{ ...setup.snapshot.gpus[0]!, free: 2 }],
+  });
+  const unconfirmed = await adapter();
+  await expect(unconfirmed.launch(selection, new AbortController().signal)).rejects.toThrow(
+    'SHARED_GPU_MEMORY_CONFIRMATION',
+  );
+  expect(setup.launch).not.toHaveBeenCalled();
+  await unconfirmed.close();
+  setup.stopped = false;
+  setup.discover.mockResolvedValue({
+    ...setup.snapshot,
+    gpus: [{ ...setup.snapshot.gpus[0]!, free: 2 }],
+  });
+  const lowRam = await adapter(() => true);
+  await expect(lowRam.launch(selection, new AbortController().signal)).rejects.toThrow(
+    'INSUFFICIENT_RESOURCES',
+  );
+  expect(setup.launch).not.toHaveBeenCalled();
+  await lowRam.close();
+});
+it('permits confirmed WDDM backing only after the final fresh resource check', async () => {
+  setup.discover.mockResolvedValue({
+    ...setup.snapshot,
+    ram: 8 * 2 ** 30,
+    gpus: [{ ...setup.snapshot.gpus[0]!, free: 2 }],
+  });
+  setup.launch.mockImplementationOnce(() => {
+    throw new Error('REACHED_OWNED_LAUNCH');
+  });
+  const instance = await adapter(() => true);
+  await expect(instance.launch(selection, new AbortController().signal)).rejects.toThrow(
+    'REACHED_OWNED_LAUNCH',
+  );
+  expect(setup.launch).toHaveBeenCalledTimes(1);
+  expect(setup.launch.mock.calls[0]?.[4]).toBe(setup.config.gpuDevice);
   await instance.close();
 });

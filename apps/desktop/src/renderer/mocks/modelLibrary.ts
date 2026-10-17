@@ -4,13 +4,15 @@ export interface DemoModel {
   readonly name: string;
   readonly identifier: string;
   readonly description: string;
-  readonly family: 'qwen' | 'llama' | 'mistral' | 'phi' | 'gemma';
+  readonly family: 'qwen' | 'llama' | 'mistral' | 'phi' | 'gemma' | 'unknown';
   readonly quantization: string;
   readonly size: string;
   readonly architecture: string;
   readonly parameters: string;
   readonly context: string;
   readonly ready: boolean;
+  readonly lastUsedAt?: number;
+  readonly blockCount?: number | null;
 }
 
 /** Renderer-only state: the active ID denotes a simulation, not an engine session. */

@@ -10,9 +10,10 @@ test('panel scrolling retains its padded frame and contains a neutral scrollbar'
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
   await page.getByRole('button', { name: 'Select mac-studio' }).click();
   const panel = page.getByRole('complementary', { name: 'Cluster panel' });
+  await panel.locator('summary').filter({ hasText: 'Device details' }).click();
   const content = panel.getByRole('region', { name: 'Cluster panel content' });
   for (const width of [1280, 1000]) {
-    await page.setViewportSize({ width, height: width === 1000 ? 620 : 720 });
+    await page.setViewportSize({ width, height: 480 });
     await page.evaluate(
       () =>
         new Promise<void>((resolve) =>
@@ -63,7 +64,7 @@ test('panel scrolling retains its padded frame and contains a neutral scrollbar'
         ),
     );
     expect(await page.screenshot({ clip })).toEqual(hiddenRail);
-    // The Mac fixture overflows by only 85px at the larger viewport; require real scrolling,
+    // A short viewport with device details expanded retains real scrolling in the compact editor,
     // then exercise its actual middle and bottom instead of assuming a minimum content length.
     expect(scrollbar.overflow).toBeGreaterThan(0);
     await content.evaluate((element) => {
@@ -88,7 +89,7 @@ test('panel scrolling retains its padded frame and contains a neutral scrollbar'
     ).toBeInViewport();
     await page.screenshot({ path: `test-results/cluster-panel-bottom-${width}.png` });
   }
-  await panel.getByRole('button', { name: 'Cluster overview', exact: true }).click();
+  await panel.getByRole('button', { name: 'Back to cluster overview', exact: true }).click();
   const overviewFrame = await panel.boundingBox();
   const overviewHeader = await panel.locator('header').boundingBox();
   if (!overviewFrame || !overviewHeader) throw new Error('Overview frame or header is missing');

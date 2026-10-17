@@ -33,7 +33,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
 }
 .railBottom {
   gap: 16px;
@@ -60,9 +60,6 @@
 }
 .rail button:focus-visible {
   outline-color: #ababab;
-}
-.rail button.home {
-  margin-bottom: 2px;
 }
 .rail button:disabled {
   opacity: 0.8;
@@ -115,6 +112,10 @@
   flex: 1;
   overflow: auto;
   padding: 20px 26px 12px 27px;
+}
+.main:has(> [data-model-configuration]) {
+  padding: 0;
+  overflow: hidden;
 }
 /* Keep the native scroll strip clear of the workspace's rounded ends. */
 .main::-webkit-scrollbar {

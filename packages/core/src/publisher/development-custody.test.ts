@@ -22,13 +22,24 @@ it('renews expired role metadata with increasing versions, unchanged keys and ca
     previous = path.join(directory, 'previous'),
     renewed = path.join(directory, 'renewed');
   vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(Date.now() - 8 * 86400000);
+  const issuedAt = Date.now() - 31 * 86400000;
+  vi.setSystemTime(issuedAt);
   await initializeCustody(store);
   await publishDevelopmentMetadata(store, inventory, previous);
   const root = await readFile(path.join(store, 'public-root.json'));
   const verifier = createFixtureVerifier(root),
     state = path.join(directory, 'state');
   await verifier.verify(previous, state);
+  for (const role of ['targets', 'snapshot', 'timestamp']) {
+    const value = JSON.parse(await readFile(path.join(previous, `${role}.json`), 'utf8')) as {
+      signed: { expires: string };
+    };
+    expect(Date.parse(value.signed.expires)).toBe(issuedAt + 30 * 86400000);
+  }
+  vi.setSystemTime(issuedAt + 29 * 86400000);
+  expect((await verifier.verify(previous, state)).packageId).toBe(inventory.packageId);
+  vi.setSystemTime(issuedAt + 30 * 86400000);
+  await expect(verifier.verify(previous, state)).rejects.toThrow('PACKAGE_VERIFICATION_FAILED');
   vi.useRealTimers();
   await expect(verifier.verify(previous, state)).rejects.toThrow('PACKAGE_VERIFICATION_FAILED');
   const original = await readFile(path.join(previous, 'timestamp.json'), 'utf8');

@@ -1,17 +1,10 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import {
-  Home,
-  Network,
-  LibraryBig,
-  Database,
-  ChartNoAxesCombined,
-  Settings,
-  Ellipsis,
-  Download,
-  MessagesSquare,
-  Server,
-} from 'lucide-react';
+import { Download, MessagesSquare } from 'lucide-react';
+import { Network } from '@phosphor-icons/react/dist/csr/Network';
+import { HardDrives } from '@phosphor-icons/react/dist/csr/HardDrives';
+import { GearSix } from '@phosphor-icons/react/dist/csr/GearSix';
+import { ChatGptRailIcon } from '../components/ChatGptRailIcon';
 import type { Destination } from './navigation';
 import styles from './AppShell.module.css';
 
@@ -22,11 +15,12 @@ interface AppShellProps {
   children: ReactNode;
 }
 
-const navigationIconProps = { size: 20, strokeWidth: 1.75 };
+const navigationIconProps = { size: 20, 'aria-hidden': true } as const;
 
 export function AppShell({ destination, onNavigate, demo, children }: AppShellProps) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const splitPanel = destination === 'Chat' || destination === 'Settings';
+  const splitPanel =
+    destination === 'Chat' || destination === 'Settings' || destination === 'Cluster';
   return (
     <div className={styles.shell}>
       <div className={styles.titlebar}>
@@ -43,13 +37,12 @@ export function AppShell({ destination, onNavigate, demo, children }: AppShellPr
         <div className={styles.railTop}>
           <button
             type="button"
-            className={styles.home}
             aria-label="Chat"
             aria-current={destination === 'Chat' ? 'page' : undefined}
             title="Chat"
             onClick={() => onNavigate('Chat')}
           >
-            <Home {...navigationIconProps} />
+            <ChatGptRailIcon icon="home" selected={destination === 'Chat'} />
           </button>
           <button
             type="button"
@@ -58,7 +51,10 @@ export function AppShell({ destination, onNavigate, demo, children }: AppShellPr
             title="Cluster"
             onClick={() => onNavigate('Cluster')}
           >
-            <Network {...navigationIconProps} />
+            <Network
+              {...navigationIconProps}
+              weight={destination === 'Cluster' ? 'fill' : 'regular'}
+            />
           </button>
           <button
             type="button"
@@ -67,7 +63,7 @@ export function AppShell({ destination, onNavigate, demo, children }: AppShellPr
             title="Models"
             onClick={() => onNavigate('Models')}
           >
-            <LibraryBig {...navigationIconProps} />
+            <ChatGptRailIcon icon="books" selected={destination === 'Models'} />
           </button>
           <button
             type="button"
@@ -76,23 +72,10 @@ export function AppShell({ destination, onNavigate, demo, children }: AppShellPr
             title="API"
             onClick={() => onNavigate('API')}
           >
-            <Server {...navigationIconProps} />
-          </button>
-          <button
-            type="button"
-            disabled
-            aria-label="Storage — not available yet"
-            title="Storage comes with storage integration"
-          >
-            <Database {...navigationIconProps} />
-          </button>
-          <button
-            type="button"
-            disabled
-            aria-label="Metrics — not available yet"
-            title="Metrics comes with runtime integration"
-          >
-            <ChartNoAxesCombined {...navigationIconProps} />
+            <HardDrives
+              {...navigationIconProps}
+              weight={destination === 'API' ? 'fill' : 'regular'}
+            />
           </button>
           <button
             type="button"
@@ -101,7 +84,10 @@ export function AppShell({ destination, onNavigate, demo, children }: AppShellPr
             title="Settings"
             onClick={() => onNavigate('Settings')}
           >
-            <Settings {...navigationIconProps} />
+            <GearSix
+              {...navigationIconProps}
+              weight={destination === 'Settings' ? 'fill' : 'regular'}
+            />
           </button>
           <div
             className={styles.overflow}
@@ -119,7 +105,7 @@ export function AppShell({ destination, onNavigate, demo, children }: AppShellPr
               aria-expanded={moreOpen}
               onClick={() => setMoreOpen(!moreOpen)}
             >
-              <Ellipsis {...navigationIconProps} />
+              <ChatGptRailIcon icon="more" />
             </button>
             {moreOpen && (
               <div className={styles.moreMenu} aria-label="Additional screens">

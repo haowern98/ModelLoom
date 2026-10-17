@@ -14,7 +14,7 @@ function request(n: number, conversationId = `conversation-${n}`): RequestIdenti
     attemptId: `attempt-${n}`,
   };
 }
-function fixture() {
+function fixture(activeLimit = 4) {
   const started: string[] = [];
   const cancellations: string[] = [];
   const work = new Map<
@@ -38,7 +38,10 @@ function fixture() {
       };
     },
   };
-  const admission = new GenerationAdmission(session, executor);
+  const admission = new GenerationAdmission(session, executor, {
+    ...GENERATION_POLICY,
+    activeLimit,
+  });
   return { admission, executor, started, cancellations, work };
 }
 // This helper also verifies that rejected submissions never manufacture a completion promise.
@@ -212,3 +215,40 @@ describe('bounded core generation admission', () => {
     expect(f.admission.requiresCleanup).toBe(true);
   });
 });
+
+it.each([1, 2])(
+  'uses %i captured native slots and keeps cancelled active capacity until settlement',
+  async (slots) => {
+    const f = fixture(slots);
+    const submitted = Array.from({ length: slots + 8 }, (_, n) =>
+      accepted(f.admission.submit(request(n))),
+    );
+    expect(f.started).toHaveLength(slots);
+    expect(f.admission.submit(request(slots + 8))).toEqual({ accepted: false, code: 'QUEUE_FULL' });
+    expect(f.admission.cancel('caller', `request-${slots + 1}`)).toBe('requested');
+    expect(await submitted[slots + 1]!.done).toEqual({
+      status: 'cancelled',
+      reason: 'USER_CANCELLED',
+    });
+    expect(f.admission.cancel('caller', 'request-0')).toBe('requested');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.started).toHaveLength(slots);
+    f.work.get('request-0')!.resolve(completed);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await submitted[0]!.done).toEqual({ status: 'cancelled', reason: 'USER_CANCELLED' });
+    expect(f.started.at(-1)).toBe(`request-${slots}`);
+    f.work.get(`request-${slots}`)!.resolve(completed);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.started.at(-1)).toBe(`request-${slots + 2}`);
+  },
+);
+it.each([0, -1, 1.5, 1025, NaN, Infinity])(
+  'rejects invalid native slot capacity %s',
+  (activeLimit) => {
+    const f = fixture();
+    expect(
+      () => new GenerationAdmission(session, f.executor, { ...GENERATION_POLICY, activeLimit }),
+    ).toThrow('INVALID_CONTROL');
+    expect(f.started).toHaveLength(0);
+  },
+);

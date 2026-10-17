@@ -59,9 +59,12 @@ and quantization. No model substitution or automatic context reduction.
 
 ## Expiry, rotation and recovery
 
-Development metadata lifetimes are: root 90 days, targets 7 days, snapshot
-2 days and timestamp 1 day. These are local development choices, not TUF
-defaults. Expiry blocks activation until fresh metadata is explicitly signed;
+The user's 2026-10-15 PROCEED changes development metadata lifetimes to:
+root 90 days; targets, snapshot and timestamp 30 days each. This removes daily
+renewal while retaining signature, exact-file integrity, version and clock checks.
+These are local development choices, not TUF defaults or production policy.
+The existing root retains its original expiry and is not renewed by this change.
+Expiry still blocks activation until fresh metadata is explicitly signed;
 never disable expiry or roll the clock backward. Each update advances versions
 and preserves the client's clock/version floors.
 
@@ -87,10 +90,13 @@ Before general live admission: verify generated role separation/thresholds; exer
 wrong-root, altered inventory/dependency, expired/replayed metadata and rotation
 rejection; inspect the actual Bonsai/runtime compatibility; validate its exact
 memory report; then run the owned lifecycle tests with mining left running.
-The current publisher supports initialization, identity checks and initial
-publication into a new repository only. It refuses existing or partially
-initialized stores and refuses repository reuse. Updates and custody recovery
-remain planned; no command silently resets trusted metadata or regenerates keys.
+The current publisher supports initialization, identity checks, initial publication
+and metadata renewal into a new repository. Renewal verifies the previous signatures
+and inventory, advances metadata versions and retains the same public root and keys.
+Initialization refuses existing or partially initialized stores; publication and
+renewal refuse repository reuse.
+Root rotation and custody recovery remain planned; no command silently resets
+trusted metadata or regenerates keys.
 Only after the live checks pass connect the existing controls to the tested core. Record
 actual results, including incomplete gates, before committing or publishing.
 

@@ -17,7 +17,7 @@ export const GENERATION_POLICY = Object.freeze({
   generationMs: 300_000,
   cancellationMs: 5_000,
 });
-export type GenerationPolicy = typeof GENERATION_POLICY;
+export type GenerationPolicy = Readonly<Record<keyof typeof GENERATION_POLICY, number>>;
 
 /** Constructed by trusted core/host code, never supplied as renderer authority. */
 export interface RequestIdentity extends Identity {

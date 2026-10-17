@@ -1,0 +1,208 @@
+0.02.396.080 I llama_prepare_model_devices: using device CUDA0 (NVIDIA GeForce RTX 4060 Ti) (0000:04:00.0) - 15235 MiB free
+0.02.396.110 I llama_prepare_model_devices: using device CUDA1 (NVIDIA GeForce RTX 3060 Laptop GPU) (0000:01:00.0) - 5130 MiB free
+0.02.969.280 D load_tensors: layer   0 assigned to device CUDA0, is_swa = 0
+0.02.969.281 D load_tensors: layer   1 assigned to device CUDA0, is_swa = 0
+0.02.969.282 D load_tensors: layer   2 assigned to device CUDA0, is_swa = 0
+0.02.969.283 D load_tensors: layer   3 assigned to device CUDA0, is_swa = 0
+0.02.969.283 D load_tensors: layer   4 assigned to device CUDA0, is_swa = 0
+0.02.969.284 D load_tensors: layer   5 assigned to device CUDA0, is_swa = 0
+0.02.969.285 D load_tensors: layer   6 assigned to device CUDA0, is_swa = 0
+0.02.969.286 D load_tensors: layer   7 assigned to device CUDA0, is_swa = 0
+0.02.969.287 D load_tensors: layer   8 assigned to device CUDA0, is_swa = 0
+0.02.969.287 D load_tensors: layer   9 assigned to device CUDA0, is_swa = 0
+0.02.969.288 D load_tensors: layer  10 assigned to device CUDA0, is_swa = 0
+0.02.969.289 D load_tensors: layer  11 assigned to device CUDA0, is_swa = 0
+0.02.969.290 D load_tensors: layer  12 assigned to device CUDA0, is_swa = 0
+0.02.969.290 D load_tensors: layer  13 assigned to device CUDA0, is_swa = 0
+0.02.969.291 D load_tensors: layer  14 assigned to device CUDA0, is_swa = 0
+0.02.969.292 D load_tensors: layer  15 assigned to device CUDA0, is_swa = 0
+0.02.969.292 D load_tensors: layer  16 assigned to device CUDA0, is_swa = 0
+0.02.969.293 D load_tensors: layer  17 assigned to device CUDA0, is_swa = 0
+0.02.969.294 D load_tensors: layer  18 assigned to device CUDA0, is_swa = 0
+0.02.969.295 D load_tensors: layer  19 assigned to device CUDA0, is_swa = 0
+0.02.969.295 D load_tensors: layer  20 assigned to device CUDA0, is_swa = 0
+0.02.969.296 D load_tensors: layer  21 assigned to device CUDA0, is_swa = 0
+0.02.969.297 D load_tensors: layer  22 assigned to device CUDA0, is_swa = 0
+0.02.969.298 D load_tensors: layer  23 assigned to device CUDA0, is_swa = 0
+0.02.969.298 D load_tensors: layer  24 assigned to device CUDA0, is_swa = 0
+0.02.969.299 D load_tensors: layer  25 assigned to device CUDA0, is_swa = 0
+0.02.969.300 D load_tensors: layer  26 assigned to device CUDA0, is_swa = 0
+0.02.969.300 D load_tensors: layer  27 assigned to device CUDA0, is_swa = 0
+0.02.969.301 D load_tensors: layer  28 assigned to device CUDA0, is_swa = 0
+0.02.969.302 D load_tensors: layer  29 assigned to device CUDA0, is_swa = 0
+0.02.969.303 D load_tensors: layer  30 assigned to device CUDA0, is_swa = 0
+0.02.969.304 D load_tensors: layer  31 assigned to device CUDA0, is_swa = 0
+0.02.969.304 D load_tensors: layer  32 assigned to device CUDA0, is_swa = 0
+0.02.969.305 D load_tensors: layer  33 assigned to device CUDA0, is_swa = 0
+0.02.969.306 D load_tensors: layer  34 assigned to device CUDA0, is_swa = 0
+0.02.969.307 D load_tensors: layer  35 assigned to device CUDA0, is_swa = 0
+0.02.969.307 D load_tensors: layer  36 assigned to device CUDA0, is_swa = 0
+0.02.969.308 D load_tensors: layer  37 assigned to device CUDA0, is_swa = 0
+0.02.969.309 D load_tensors: layer  38 assigned to device CUDA0, is_swa = 0
+0.02.969.310 D load_tensors: layer  39 assigned to device CUDA0, is_swa = 0
+0.02.969.311 D load_tensors: layer  40 assigned to device CUDA0, is_swa = 0
+0.02.969.311 D load_tensors: layer  41 assigned to device CUDA0, is_swa = 0
+0.02.969.312 D load_tensors: layer  42 assigned to device CUDA0, is_swa = 0
+0.02.969.313 D load_tensors: layer  43 assigned to device CUDA0, is_swa = 0
+0.02.969.313 D load_tensors: layer  44 assigned to device CUDA0, is_swa = 0
+0.02.969.314 D load_tensors: layer  45 assigned to device CUDA0, is_swa = 0
+0.02.969.315 D load_tensors: layer  46 assigned to device CUDA0, is_swa = 0
+0.02.969.316 D load_tensors: layer  47 assigned to device CUDA0, is_swa = 0
+0.02.969.316 D load_tensors: layer  48 assigned to device CUDA0, is_swa = 0
+0.02.969.317 D load_tensors: layer  49 assigned to device CUDA1, is_swa = 0
+0.02.969.318 D load_tensors: layer  50 assigned to device CUDA1, is_swa = 0
+0.02.969.319 D load_tensors: layer  51 assigned to device CUDA1, is_swa = 0
+0.02.969.319 D load_tensors: layer  52 assigned to device CUDA1, is_swa = 0
+0.02.969.320 D load_tensors: layer  53 assigned to device CUDA1, is_swa = 0
+0.02.969.321 D load_tensors: layer  54 assigned to device CUDA1, is_swa = 0
+0.02.969.322 D load_tensors: layer  55 assigned to device CUDA1, is_swa = 0
+0.02.969.322 D load_tensors: layer  56 assigned to device CUDA1, is_swa = 0
+0.02.969.323 D load_tensors: layer  57 assigned to device CUDA1, is_swa = 0
+0.02.969.324 D load_tensors: layer  58 assigned to device CUDA1, is_swa = 0
+0.02.969.324 D load_tensors: layer  59 assigned to device CUDA1, is_swa = 0
+0.02.969.325 D load_tensors: layer  60 assigned to device CUDA1, is_swa = 0
+0.02.969.326 D load_tensors: layer  61 assigned to device CUDA1, is_swa = 0
+0.02.969.327 D load_tensors: layer  62 assigned to device CUDA1, is_swa = 0
+0.02.969.327 D load_tensors: layer  63 assigned to device CUDA1, is_swa = 0
+0.02.969.328 D load_tensors: layer  64 assigned to device CUDA1, is_swa = 0
+0.02.969.329 D load_tensors: layer  65 assigned to device CUDA1, is_swa = 0
+0.03.602.351 D done_getting_tensors: tensor 'token_embd.weight' (q3_K) (and 0 others) cannot be used with preferred buffer type CUDA_Host, using CPU instead
+0.07.692.301 I load_tensors: offloading output layer to GPU
+0.07.692.315 I load_tensors: offloaded 66/66 layers to GPU
+0.07.692.322 I load_tensors:   CPU_Mapped model buffer size =   521.00 MiB
+0.07.692.325 I load_tensors:        CUDA0 model buffer size =  8786.30 MiB
+0.07.692.326 I load_tensors:        CUDA1 model buffer size =  3940.05 MiB
+0.23.951.673 D llama_kv_cache: layer   0: filtered
+0.23.951.690 D llama_kv_cache: layer   1: filtered
+0.23.951.691 D llama_kv_cache: layer   2: filtered
+0.23.951.703 D llama_kv_cache: layer   3: dev = CUDA0
+0.23.952.646 D llama_kv_cache: layer   4: filtered
+0.23.952.657 D llama_kv_cache: layer   5: filtered
+0.23.952.658 D llama_kv_cache: layer   6: filtered
+0.23.952.663 D llama_kv_cache: layer   7: dev = CUDA0
+0.23.952.679 D llama_kv_cache: layer   8: filtered
+0.23.952.680 D llama_kv_cache: layer   9: filtered
+0.23.952.681 D llama_kv_cache: layer  10: filtered
+0.23.952.682 D llama_kv_cache: layer  11: dev = CUDA0
+0.23.952.686 D llama_kv_cache: layer  12: filtered
+0.23.952.687 D llama_kv_cache: layer  13: filtered
+0.23.952.687 D llama_kv_cache: layer  14: filtered
+0.23.952.690 D llama_kv_cache: layer  15: dev = CUDA0
+0.23.952.742 D llama_kv_cache: layer  16: filtered
+0.23.952.743 D llama_kv_cache: layer  17: filtered
+0.23.952.743 D llama_kv_cache: layer  18: filtered
+0.23.952.745 D llama_kv_cache: layer  19: dev = CUDA0
+0.23.952.751 D llama_kv_cache: layer  20: filtered
+0.23.952.752 D llama_kv_cache: layer  21: filtered
+0.23.952.752 D llama_kv_cache: layer  22: filtered
+0.23.952.753 D llama_kv_cache: layer  23: dev = CUDA0
+0.23.952.760 D llama_kv_cache: layer  24: filtered
+0.23.952.761 D llama_kv_cache: layer  25: filtered
+0.23.952.761 D llama_kv_cache: layer  26: filtered
+0.23.952.762 D llama_kv_cache: layer  27: dev = CUDA0
+0.23.952.771 D llama_kv_cache: layer  28: filtered
+0.23.952.772 D llama_kv_cache: layer  29: filtered
+0.23.952.772 D llama_kv_cache: layer  30: filtered
+0.23.952.773 D llama_kv_cache: layer  31: dev = CUDA0
+0.23.952.779 D llama_kv_cache: layer  32: filtered
+0.23.952.779 D llama_kv_cache: layer  33: filtered
+0.23.952.780 D llama_kv_cache: layer  34: filtered
+0.23.952.781 D llama_kv_cache: layer  35: dev = CUDA0
+0.23.952.997 D llama_kv_cache: layer  36: filtered
+0.23.953.012 D llama_kv_cache: layer  37: filtered
+0.23.953.016 D llama_kv_cache: layer  38: filtered
+0.23.953.020 D llama_kv_cache: layer  39: dev = CUDA0
+0.23.953.114 D llama_kv_cache: layer  40: filtered
+0.23.953.123 D llama_kv_cache: layer  41: filtered
+0.23.953.123 D llama_kv_cache: layer  42: filtered
+0.23.953.126 D llama_kv_cache: layer  43: dev = CUDA0
+0.23.953.135 D llama_kv_cache: layer  44: filtered
+0.23.953.135 D llama_kv_cache: layer  45: filtered
+0.23.953.136 D llama_kv_cache: layer  46: filtered
+0.23.953.137 D llama_kv_cache: layer  47: dev = CUDA0
+0.23.953.146 D llama_kv_cache: layer  48: filtered
+0.23.953.179 D llama_kv_cache: layer  49: filtered
+0.23.953.181 D llama_kv_cache: layer  50: filtered
+0.23.953.183 D llama_kv_cache: layer  51: dev = CUDA1
+0.23.953.208 D llama_kv_cache: layer  52: filtered
+0.23.953.209 D llama_kv_cache: layer  53: filtered
+0.23.953.210 D llama_kv_cache: layer  54: filtered
+0.23.953.211 D llama_kv_cache: layer  55: dev = CUDA1
+0.23.953.219 D llama_kv_cache: layer  56: filtered
+0.23.953.219 D llama_kv_cache: layer  57: filtered
+0.23.953.220 D llama_kv_cache: layer  58: filtered
+0.23.953.221 D llama_kv_cache: layer  59: dev = CUDA1
+0.23.953.223 D llama_kv_cache: layer  60: filtered
+0.23.953.224 D llama_kv_cache: layer  61: filtered
+0.23.953.224 D llama_kv_cache: layer  62: filtered
+0.23.953.225 D llama_kv_cache: layer  63: dev = CUDA1
+0.23.953.230 D llama_kv_cache: layer  64: filtered
+0.23.954.977 I llama_kv_cache:      CUDA0 KV buffer size =   204.00 MiB
+0.23.962.629 I llama_kv_cache:      CUDA1 KV buffer size =    68.00 MiB
+0.23.968.044 D llama_memory_recurrent, layer   0: dev = CUDA0
+0.23.968.058 D llama_memory_recurrent, layer   1: dev = CUDA0
+0.23.968.060 D llama_memory_recurrent, layer   2: dev = CUDA0
+0.23.968.062 D llama_memory_recurrent: layer   3: skipped
+0.23.968.063 D llama_memory_recurrent, layer   4: dev = CUDA0
+0.23.968.064 D llama_memory_recurrent, layer   5: dev = CUDA0
+0.23.968.065 D llama_memory_recurrent, layer   6: dev = CUDA0
+0.23.968.066 D llama_memory_recurrent: layer   7: skipped
+0.23.968.067 D llama_memory_recurrent, layer   8: dev = CUDA0
+0.23.968.068 D llama_memory_recurrent, layer   9: dev = CUDA0
+0.23.968.069 D llama_memory_recurrent, layer  10: dev = CUDA0
+0.23.968.070 D llama_memory_recurrent: layer  11: skipped
+0.23.968.071 D llama_memory_recurrent, layer  12: dev = CUDA0
+0.23.968.072 D llama_memory_recurrent, layer  13: dev = CUDA0
+0.23.968.073 D llama_memory_recurrent, layer  14: dev = CUDA0
+0.23.968.074 D llama_memory_recurrent: layer  15: skipped
+0.23.968.075 D llama_memory_recurrent, layer  16: dev = CUDA0
+0.23.968.076 D llama_memory_recurrent, layer  17: dev = CUDA0
+0.23.968.077 D llama_memory_recurrent, layer  18: dev = CUDA0
+0.23.968.078 D llama_memory_recurrent: layer  19: skipped
+0.23.968.078 D llama_memory_recurrent, layer  20: dev = CUDA0
+0.23.968.079 D llama_memory_recurrent, layer  21: dev = CUDA0
+0.23.968.086 D llama_memory_recurrent, layer  22: dev = CUDA0
+0.23.968.087 D llama_memory_recurrent: layer  23: skipped
+0.23.968.088 D llama_memory_recurrent, layer  24: dev = CUDA0
+0.23.968.089 D llama_memory_recurrent, layer  25: dev = CUDA0
+0.23.968.093 D llama_memory_recurrent, layer  26: dev = CUDA0
+0.23.968.096 D llama_memory_recurrent: layer  27: skipped
+0.23.968.096 D llama_memory_recurrent, layer  28: dev = CUDA0
+0.23.968.099 D llama_memory_recurrent, layer  29: dev = CUDA0
+0.23.968.100 D llama_memory_recurrent, layer  30: dev = CUDA0
+0.23.968.101 D llama_memory_recurrent: layer  31: skipped
+0.23.968.102 D llama_memory_recurrent, layer  32: dev = CUDA0
+0.23.968.103 D llama_memory_recurrent, layer  33: dev = CUDA0
+0.23.968.104 D llama_memory_recurrent, layer  34: dev = CUDA0
+0.23.968.105 D llama_memory_recurrent: layer  35: skipped
+0.23.968.105 D llama_memory_recurrent, layer  36: dev = CUDA0
+0.23.968.106 D llama_memory_recurrent, layer  37: dev = CUDA0
+0.23.968.107 D llama_memory_recurrent, layer  38: dev = CUDA0
+0.23.968.111 D llama_memory_recurrent: layer  39: skipped
+0.23.968.111 D llama_memory_recurrent, layer  40: dev = CUDA0
+0.23.968.112 D llama_memory_recurrent, layer  41: dev = CUDA0
+0.23.968.113 D llama_memory_recurrent, layer  42: dev = CUDA0
+0.23.968.118 D llama_memory_recurrent: layer  43: skipped
+0.23.968.118 D llama_memory_recurrent, layer  44: dev = CUDA0
+0.23.968.119 D llama_memory_recurrent, layer  45: dev = CUDA0
+0.23.968.120 D llama_memory_recurrent, layer  46: dev = CUDA0
+0.23.968.121 D llama_memory_recurrent: layer  47: skipped
+0.23.968.122 D llama_memory_recurrent, layer  48: dev = CUDA0
+0.23.968.123 D llama_memory_recurrent, layer  49: dev = CUDA1
+0.23.968.128 D llama_memory_recurrent, layer  50: dev = CUDA1
+0.23.968.129 D llama_memory_recurrent: layer  51: skipped
+0.23.968.129 D llama_memory_recurrent, layer  52: dev = CUDA1
+0.23.968.130 D llama_memory_recurrent, layer  53: dev = CUDA1
+0.23.968.134 D llama_memory_recurrent, layer  54: dev = CUDA1
+0.23.968.135 D llama_memory_recurrent: layer  55: skipped
+0.23.968.135 D llama_memory_recurrent, layer  56: dev = CUDA1
+0.23.968.136 D llama_memory_recurrent, layer  57: dev = CUDA1
+0.23.968.137 D llama_memory_recurrent, layer  58: dev = CUDA1
+0.23.968.138 D llama_memory_recurrent: layer  59: skipped
+0.23.968.139 D llama_memory_recurrent, layer  60: dev = CUDA1
+0.23.968.139 D llama_memory_recurrent, layer  61: dev = CUDA1
+0.23.968.143 D llama_memory_recurrent, layer  62: dev = CUDA1
+0.23.968.144 D llama_memory_recurrent: layer  63: skipped
+0.23.977.527 I llama_memory_recurrent:      CUDA0 RS buffer size =   230.67 MiB
+0.23.983.028 I llama_memory_recurrent:      CUDA1 RS buffer size =    68.58 MiB
+0.25.474.289 I srv  llama_server: model loaded

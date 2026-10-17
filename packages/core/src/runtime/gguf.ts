@@ -5,7 +5,55 @@ export interface GGUFInfo {
   readonly architecture: string;
   readonly contextLimit: number;
   readonly tensors: number;
+  /** Indexed repeating-block metadata only; executable profile support is checked separately. */
+  readonly blockCount: number | null;
+  /** Extra NextN blocks are allocated but not executed in ordinary decoder inference. */
+  readonly nextnPredictLayers?: number;
+  /** Template capability hint only; the template itself is never exposed. */
+  readonly thinkingSupported?: boolean;
+  readonly name?: string;
+  readonly quantization?: string;
+  readonly parameters?: string;
 }
+// llama_ftype IDs from the pinned llama.cpp 4f31296 include/llama.h; unknown IDs stay unknown.
+const fileTypes: Readonly<Record<number, string>> = {
+  0: 'F32',
+  1: 'F16',
+  2: 'Q4_0',
+  3: 'Q4_1',
+  7: 'Q8_0',
+  8: 'Q5_0',
+  9: 'Q5_1',
+  10: 'Q2_K',
+  11: 'Q3_K_S',
+  12: 'Q3_K_M',
+  13: 'Q3_K_L',
+  14: 'Q4_K_S',
+  15: 'Q4_K_M',
+  16: 'Q5_K_S',
+  17: 'Q5_K_M',
+  18: 'Q6_K',
+  19: 'IQ2_XXS',
+  20: 'IQ2_XS',
+  21: 'Q2_K_S',
+  22: 'IQ3_XS',
+  23: 'IQ3_XXS',
+  24: 'IQ1_S',
+  25: 'IQ4_NL',
+  26: 'IQ3_S',
+  27: 'IQ3_M',
+  28: 'IQ2_S',
+  29: 'IQ2_M',
+  30: 'IQ4_XS',
+  31: 'IQ1_M',
+  32: 'BF16',
+  36: 'TQ1_0',
+  37: 'TQ2_0',
+  38: 'MXFP4_MOE',
+  39: 'NVFP4',
+  40: 'Q1_0',
+  41: 'Q2_0',
+};
 /** Inspect GGUF v3 metadata within 16 MiB; this is not tensor validation or a memory planner. */
 export async function inspectGGUF(file: string): Promise<GGUFInfo> {
   const invalid = (): never => {
@@ -89,11 +137,53 @@ export async function inspectGGUF(file: string): Promise<GGUFInfo> {
     const after = await handle.stat();
     if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ino !== stat.ino)
       return invalid();
+    const display = (key: string) => {
+      const value = metadata.get(key);
+      return typeof value === 'string' &&
+        value.trim() &&
+        value.length <= 256 &&
+        !Array.from(value).some(
+          (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+        )
+        ? value.trim()
+        : undefined;
+    };
+    const name = display('general.name'),
+      parameters = display('general.size_label'),
+      fileType = metadata.get('general.file_type');
+    const blocks = metadata.get(`${architecture}.block_count`);
+    const blockCount =
+      typeof blocks === 'number' &&
+      Number.isSafeInteger(blocks) &&
+      blocks > 0 &&
+      blocks < 2147483647
+        ? blocks
+        : null;
+    const nextnKey = `${architecture}.nextn_predict_layers`,
+      nextn = metadata.get(nextnKey),
+      template = metadata.get('tokenizer.chat_template');
+    if (
+      metadata.has(nextnKey) &&
+      (typeof nextn !== 'number' ||
+        !Number.isSafeInteger(nextn) ||
+        nextn < 0 ||
+        blockCount === null ||
+        nextn >= blockCount)
+    )
+      return invalid();
     return Object.freeze({
       architecture,
       contextLimit: Number(contextLimit),
       tensors,
+      blockCount,
+      ...(typeof nextn === 'number' ? { nextnPredictLayers: nextn } : {}),
+      ...(typeof template === 'string'
+        ? { thinkingSupported: /\benable_thinking\b/u.test(template) }
+        : {}),
       sha256: hash.digest('hex'),
+      ...(name ? { name } : {}),
+      ...(parameters ? { parameters } : {}),
+      ...(typeof fileType === 'number' ? { quantization: fileTypes[fileType] ?? 'Unknown' } : {}),
     });
   } catch {
     return invalid();

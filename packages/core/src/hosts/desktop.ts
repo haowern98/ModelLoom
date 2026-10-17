@@ -20,6 +20,8 @@ import {
 import type { ConfigurationReply } from '../model-configuration/wire.js';
 import { decodeApiOwnerCommand, decodeApiOwnerReply } from '../local-api/wire.js';
 import type { ApiOwnerCommand, ApiOwnerReply } from '../local-api/wire.js';
+import { decodeClusterCommand, decodeClusterReply } from '../cluster/wire.js';
+import type { ClusterReply } from '../cluster/wire.js';
 
 /** Captured Electron utility child. This capability is constructed by trusted main, never IPC. */
 export interface UtilityChild {
@@ -34,6 +36,7 @@ export interface DesktopFixtureHost {
   close(): Promise<void>;
   chat?(caller: string, command: unknown): Promise<ChatReply>;
   configuration?(caller: string, command: unknown): Promise<ConfigurationReply>;
+  cluster?(caller: string, command: unknown): Promise<ClusterReply>;
   api?(caller: string, command: unknown): Promise<ApiOwnerReply>;
   changed?(listener: () => void): () => void;
 }
@@ -90,6 +93,15 @@ export async function createDesktopEngineHost(
   >();
   const observers = new Set<() => void>();
   let configurationId = 0;
+  let clusterId = 0;
+  const clusterPending = new Map<
+    number,
+    {
+      resolve: (reply: ClusterReply) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
   let apiId = 0;
   const apiPending = new Map<
     number,
@@ -161,6 +173,11 @@ export async function createDesktopEngineHost(
         item.reject(new Error('CORE_EXITED'));
       }
       configurationPending.clear();
+      for (const item of clusterPending.values()) {
+        clearTimeout(item.timer);
+        item.reject(Error('CORE_EXITED'));
+      }
+      clusterPending.clear();
       for (const item of apiPending.values()) {
         clearTimeout(item.timer);
         item.reject(new Error('CORE_EXITED'));
@@ -176,6 +193,22 @@ export async function createDesktopEngineHost(
     void (async () => {
       if (typeof input !== 'string') throw new Error('INVALID_CONTROL');
       const envelope = decodeObject(input);
+      if (envelope.type === 'cluster-reply') {
+        exact(envelope, ['type', 'id', 'reply']);
+        if (
+          typeof envelope.id !== 'number' ||
+          !Number.isSafeInteger(envelope.id) ||
+          Buffer.byteLength(input) > 131072
+        )
+          throw Error('INVALID_CONTROL');
+        const item = clusterPending.get(envelope.id);
+        if (!item) return;
+        const reply = decodeClusterReply(envelope.reply);
+        clearTimeout(item.timer);
+        clusterPending.delete(envelope.id);
+        item.resolve(reply);
+        return;
+      }
       if (envelope.type === 'api-reply') {
         exact(envelope, ['type', 'id', 'reply']);
         if (typeof envelope.id !== 'number' || Buffer.byteLength(input) > 131072)
@@ -240,7 +273,7 @@ export async function createDesktopEngineHost(
               .waitReady(new AbortController().signal)
               .then(
                 () => phase(command.selection, 'ready'),
-                () => undefined,
+                () => phase(command.selection, 'failed'),
               )
               .catch(() => {
                 utility.kill();
@@ -335,6 +368,32 @@ export async function createDesktopEngineHost(
   }
   return {
     close,
+    cluster(caller, input) {
+      if (
+        !alive ||
+        closing ||
+        !deployment.chatSetup ||
+        caller !== deployment.chatSetup.caller ||
+        clusterPending.size >= 16
+      )
+        return Promise.resolve({ ok: false, error: 'NOT_READY' });
+      const command = decodeClusterCommand(input),
+        id = ++clusterId;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          clusterPending.delete(id);
+          reject(Error('CORE_TIMEOUT'));
+        }, 15000);
+        clusterPending.set(id, { resolve, reject, timer });
+        try {
+          send({ type: 'cluster-command', id, caller, command });
+        } catch {
+          clearTimeout(timer);
+          clusterPending.delete(id);
+          reject(Error('CORE_EXITED'));
+        }
+      });
+    },
     api(caller, input) {
       if (
         !alive ||

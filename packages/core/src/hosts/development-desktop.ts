@@ -7,7 +7,8 @@ import {
   DEVELOPMENT_MEMORY_REPORTS,
 } from '../runtime-package/development-policy.js';
 import { createDevelopmentRuntimeVerifier } from '../runtime-package/verifier.js';
-import { installExpanded } from '../runtime-package/install.js';
+import { installExpanded, requireInstalledLive } from '../runtime-package/install.js';
+import type { InstalledPackage } from '../runtime-package/install.js';
 import { inspectGGUF } from '../runtime/gguf.js';
 import { checkCudaResources } from '../runtime/gpu-resources.js';
 import { discoverResources } from './resource-probe.js';
@@ -15,6 +16,18 @@ import { confirmExit, ownershipBinding } from './windows-ownership.js';
 import { realEngineAdapter } from './real-engine.js';
 import { createDesktopEngineHost } from './desktop.js';
 import type { UtilityFork } from './desktop.js';
+import type { ModelSource } from '../model-configuration/model-source.js';
+import type { ModelConfigurationRecord } from '../model-configuration/contracts.js';
+import type { ClusterDraft, SavedClusterConfiguration, GpuRun } from '../cluster/contracts.js';
+import { resolveClusterLoad } from '../cluster/effective-load.js';
+import { autoPlace } from '../cluster/auto-place.js';
+import {
+  createStockClusterReport,
+  checkStockClusterResources,
+  requireStockClusterProfile,
+} from '../cluster/stock-profile.js';
+import type { StockClusterReport } from '../cluster/stock-profile.js';
+import { runPlacementEstimator, withPlacementModel } from './placement-estimator.js';
 /** Explicit Windows development deployment. Trusted main selects fixed build assets and state;
  * renderer commands cannot choose a repository, verifier, report, executable or arguments.
  * Ordinary builds keep the development verifier closed. Production packaging is separate.
@@ -31,15 +44,77 @@ export function developmentDesktopDependencies(
   const configuration = report.configuration,
     modelSha256 = report.modelSha256;
   const deploymentId = `desktop-development-${randomUUID()}`;
+  let verifiedBackends: readonly string[] | undefined;
+  let sharedMemoryConfirmed = false;
+  let preflightGeneration = 0;
+  let installation: Promise<InstalledPackage> | undefined;
+  const installClusterRuntime = async () => {
+    installation ??= (async () => {
+      const capability = await createDevelopmentRuntimeVerifier().verify(
+        path.join(base, 'repository'),
+        path.join(stateBase, 'desktop-verification'),
+      );
+      return installExpanded(
+        capability,
+        path.join(base, 'candidate'),
+        path.join(stateBase, 'installed'),
+      );
+    })();
+    try {
+      const installed = await installation;
+      requireInstalledLive(installed);
+      // Estimation and engine launch independently revalidate and seal every installed file.
+      return installed;
+    } catch (error) {
+      installation = undefined;
+      throw error;
+    }
+  };
+  async function estimateCluster(
+    file: string,
+    saved: SavedClusterConfiguration,
+    signal: AbortSignal,
+  ) {
+    const load = resolveClusterLoad(saved, report!.artifact);
+    requireStockClusterProfile(load);
+    const installed = await installClusterRuntime();
+    return withPlacementModel(file, async (info, inspection) => {
+      if (
+        info.sha256 !== load.modelSha256 ||
+        info.blockCount !== load.blockCount ||
+        load.contextPerSlot > info.contextLimit
+      )
+        throw Error('INVALID_CONFIGURATION');
+      return createStockClusterReport(
+        load,
+        await runPlacementEstimator(
+          installed,
+          file,
+          path.join(stateBase, 'planning-cache'),
+          load,
+          signal,
+          inspection,
+        ),
+        info.nextnPredictLayers ?? 0,
+      );
+    });
+  }
   /** History has its own retained core containment, independent of verified engine assets.
    * The engine adapter is prepared only by trusted main after import/resource admission.
    * Both owners close on core failure or Quit; no synthetic engine is supplied at startup.
    */
-  async function createHistoryHost() {
+  async function createHistoryHost(source?: ModelSource) {
+    const selectedConfiguration = source
+      ? {
+          ...configuration,
+          modelSha256: source.modelId,
+          contextPerSlot: Math.min(configuration.contextPerSlot, source.contextLimit),
+        }
+      : configuration;
     const native = ownershipBinding(),
       root = native.createDeployment();
     let adapter: ReturnType<typeof realEngineAdapter> | undefined;
-    let preparedFile: string | undefined;
+    let preparedFile: string | undefined, preparedFingerprint: string | undefined;
     let preparation: Promise<void> | undefined;
     let closed = false,
       closing: Promise<void> | undefined;
@@ -57,29 +132,62 @@ export function developmentDesktopDependencies(
       })();
       return closing;
     };
-    const prepare = (file: string) => {
+    const prepare = (
+      file: string,
+      selected?: SavedClusterConfiguration,
+      budget?: StockClusterReport,
+      allowSharedMemory = false,
+      confirmMemory?: () => Promise<boolean>,
+    ) => {
       const previous = preparation ?? Promise.resolve();
       preparation = previous
         .catch(() => undefined)
         .then(async () => {
           if (closed) throw new Error('CORE_EXITED');
-          if (adapter && preparedFile === file) return;
+          const load = selected ? resolveClusterLoad(selected, report!.artifact) : undefined;
+          if (!selected && adapter && preparedFile === file && preparedFingerprint === undefined)
+            return;
           await adapter?.close();
           adapter = undefined;
           preparedFile = undefined;
           native.privateDirectory(path.resolve(stateBase));
-          const capability = await createDevelopmentRuntimeVerifier().verify(
-            path.join(base, 'repository'),
-            path.join(stateBase, 'desktop-verification'),
-          );
-          const installed = await installExpanded(
-            capability,
-            path.join(base, 'candidate'),
-            path.join(stateBase, 'installed'),
-          );
+          const installed = await installClusterRuntime();
+          const inventory = requireInstalledLive(installed);
+          verifiedBackends = [`${inventory.backend} (${inventory.version})`];
           if (closed) throw new Error('CORE_EXITED');
-          adapter = realEngineAdapter(installed, file, configuration, 18478);
+          let clusterConsent = allowSharedMemory;
+          adapter = realEngineAdapter(
+            installed,
+            file,
+            load
+              ? {
+                  ...selectedConfiguration,
+                  modelSha256: load.modelSha256,
+                  contextPerSlot: load.contextPerSlot,
+                  slots: load.slots,
+                  gpuLayers: load.blockCount + 1,
+                  gpuDevice: load.placement.orderedUuids[0]!,
+                  cacheK: load.cacheK,
+                  cacheV: load.cacheV,
+                }
+              : selectedConfiguration,
+            18478,
+            () => {
+              if (load) {
+                const confirmed = clusterConsent;
+                clusterConsent = false;
+                return confirmed;
+              }
+              const confirmed = sharedMemoryConfirmed;
+              sharedMemoryConfirmed = false;
+              return confirmed;
+            },
+            load && budget
+              ? { load, report: budget, ...(confirmMemory ? { confirmMemory } : {}) }
+              : undefined,
+          );
           preparedFile = file;
+          preparedFingerprint = load?.fingerprint;
         });
       return preparation;
     };
@@ -111,40 +219,226 @@ export function developmentDesktopDependencies(
                   provenance: {
                     packageId: 'llama-cuda-development',
                     upstreamCommit: '4f31296a907d73f3409f720429bcf31111615d77',
-                    configuration,
+                    configuration: selectedConfiguration,
                   },
                 },
               }
             : {}),
         },
         deploymentId,
-        { deploymentId, packageId: 'llama-cuda-development', modelId: modelSha256 },
+        {
+          deploymentId,
+          packageId: 'llama-cuda-development',
+          modelId: source?.modelId ?? modelSha256,
+        },
       );
-      return { ...host, prepare };
+      return {
+        ...host,
+        prepare,
+        prepareCluster: (
+          file: string,
+          saved: SavedClusterConfiguration,
+          budget: StockClusterReport,
+          allowSharedMemory: boolean,
+          confirmMemory?: () => Promise<boolean>,
+        ) => prepare(file, saved, budget, allowSharedMemory, confirmMemory),
+      };
     } catch (error) {
       await close();
       throw error;
     }
   }
-  return {
+  const dependencies = {
+    /** Installed and verifier-accepted inventory only; hardware brands do not imply backend support. */
+    runtimeBackends: () => verifiedBackends,
     enabled: true as const,
     expectedHash: report.modelSha256,
     packageId: 'llama-cuda-development',
+    clusterArtifact: report.artifact,
+    async planCluster(file: string, draft: ClusterDraft, blockCount: number, signal: AbortSignal) {
+      return withPlacementModel(file, async (info, inspection) => {
+        if (info.sha256 !== draft.modelId || info.blockCount !== blockCount)
+          throw Error('MODEL_FILE_UNAVAILABLE');
+        const installed = await installClusterRuntime();
+        const snapshot = await discoverResources(signal);
+        const ids =
+          snapshot.gpus
+            ?.filter((g) => g.total !== null && g.free !== null && g.mig !== 'Enabled')
+            .sort((a, b) => b.free! - a.free!)
+            .slice(0, 2)
+            .map((g) => g.uuid) ?? [];
+        let overflow: { runs: readonly GpuRun[]; pressure: number } | undefined;
+        let evaluated = 0;
+        const ordered = [...ids].sort();
+        const free = ordered.map((uuid) => snapshot.gpus!.find((g) => g.uuid === uuid)!.free!);
+        const preferredCut =
+          free.length === 2
+            ? Math.max(
+                1,
+                Math.min(
+                  blockCount - 1,
+                  Math.round((blockCount * free[0]!) / Math.max(1, free[0]! + free[1]!)),
+                ),
+              )
+            : undefined;
+        const result = await autoPlace(
+          blockCount,
+          ids,
+          async (runs) => {
+            if (++evaluated > 10) return null;
+            const saved: SavedClusterConfiguration = {
+              id: randomUUID(),
+              name: 'Auto assign',
+              revision: 1,
+              modelId: draft.modelId,
+              blockCount,
+              profileId: 'b11306-four-slot',
+              load: draft.load,
+              runs,
+            };
+            const load = resolveClusterLoad(saved, report.artifact);
+            requireStockClusterProfile(load);
+            const budget = createStockClusterReport(
+              load,
+              await runPlacementEstimator(
+                installed,
+                file,
+                path.join(stateBase, 'planning-cache'),
+                load,
+                signal,
+                inspection,
+              ),
+              info.nextnPredictLayers ?? 0,
+            );
+            const fresh = await discoverResources(signal);
+            const admission = checkStockClusterResources(load, budget, fresh);
+            if (
+              admission.code === 'NEEDS_RESOURCE_EVIDENCE' ||
+              admission.code === 'INCOMPATIBLE_DRIVER'
+            )
+              throw Error(admission.code);
+            const pressure = Math.max(
+              ...budget.devices.map(
+                (d) => d.bytes / Math.max(1, fresh.gpus!.find((g) => g.uuid === d.uuid)!.free!),
+              ),
+            );
+            if (
+              admission.code === 'SHARED_GPU_MEMORY_CONFIRMATION' &&
+              (!overflow || pressure < overflow.pressure)
+            )
+              overflow = { runs, pressure };
+            return admission.code === 'ADMITTED'
+              ? {
+                  runs,
+                  pressure: Math.max(
+                    ...budget.devices.map(
+                      (d) => d.bytes / fresh.gpus!.find((g) => g.uuid === d.uuid)!.free!,
+                    ),
+                  ),
+                }
+              : null;
+          },
+          signal,
+          Date.now() + 120000,
+          preferredCut,
+        );
+        if (result.code === 'PROPOSED') return result.runs;
+        if (overflow && (result.code === 'NO_FIT' || result.code === 'INCOMPLETE'))
+          return overflow.runs;
+        throw Error(
+          result.code === 'CANCELLED'
+            ? 'PLANNING_CANCELLED'
+            : result.code === 'INCOMPLETE'
+              ? 'PLANNING_INCOMPLETE'
+              : 'INSUFFICIENT_RESOURCES',
+        );
+      });
+    },
+    async planModel(
+      file: string,
+      record: ModelConfigurationRecord,
+      signal: AbortSignal,
+    ): Promise<SavedClusterConfiguration> {
+      const info = await inspectGGUF(file);
+      if (info.sha256 !== record.modelId || !info.blockCount) throw Error('MODEL_FILE_UNAVAILABLE');
+      const load = {
+        defaults: record.load,
+        preferences: record.preferences,
+        cacheK: 'q8_0' as const,
+        cacheV: record.load.flashAttention ? ('q8_0' as const) : ('f16' as const),
+      };
+      const runs = await dependencies.planCluster(
+        file,
+        {
+          key: `model:${record.modelId}`,
+          configurationId: null,
+          modelId: record.modelId,
+          revision: record.revision,
+          baseSavedRevision: null,
+          load,
+          runs: [],
+        },
+        info.blockCount,
+        signal,
+      );
+      return {
+        id: randomUUID(),
+        name: 'Model defaults',
+        revision: record.revision,
+        modelId: record.modelId,
+        blockCount: info.blockCount,
+        profileId: 'b11306-four-slot',
+        load,
+        runs,
+      };
+    },
+    async preflightCluster(
+      file: string,
+      saved: SavedClusterConfiguration,
+      signal: AbortSignal,
+      allowSharedMemory = false,
+    ) {
+      const budget = await estimateCluster(file, saved, signal);
+      const admission = checkStockClusterResources(
+        resolveClusterLoad(saved, report.artifact),
+        budget,
+        await discoverResources(signal),
+        allowSharedMemory,
+      );
+      if (admission.code !== 'ADMITTED') throw Error(admission.code);
+      return budget;
+    },
     deploymentId,
     async inspect(file: string) {
       const native = ownershipBinding();
       const lock = native.sealFiles([path.resolve(file)]);
       try {
         const info = await inspectGGUF(file);
-        if (
-          info.sha256 !== report.modelSha256 ||
-          info.contextLimit < report.configuration.contextPerSlot
-        )
-          throw new Error('UNSUPPORTED_MODEL');
-        const size = (await lstat(file)).size;
-        return { sha256: info.sha256, size: `${(size / 1e9).toFixed(2)} GB` };
+        const stat = await lstat(file);
+        return {
+          ...info,
+          size: `${(stat.size / 1e9).toFixed(2)} GB`,
+          sizeBytes: stat.size,
+          modifiedMs: stat.mtimeMs,
+        };
       } finally {
         native.releaseFiles(lock);
+      }
+    },
+    /** Reconcile a saved source without hashing/loading a large model during startup. */
+    async available(source: ModelSource): Promise<boolean> {
+      const native = ownershipBinding();
+      let lock: ReturnType<typeof native.sealFiles> | undefined;
+      try {
+        lock = native.sealFiles([source.file]);
+        const stat = await lstat(source.file);
+        return (
+          stat.isFile() && stat.size === source.sizeBytes && stat.mtimeMs === source.modifiedMs
+        );
+      } catch {
+        return false;
+      } finally {
+        if (lock) native.releaseFiles(lock);
       }
     },
     async device() {
@@ -162,15 +456,20 @@ export function developmentDesktopDependencies(
           : {}),
       };
     },
-    async preflight() {
+    async preflight(allowSharedMemory = false) {
+      const generation = ++preflightGeneration;
+      sharedMemoryConfirmed = false;
       const result = checkCudaResources(
         report.configuration,
         report.artifact,
         report,
         await discoverResources(),
         '551.78',
+        allowSharedMemory,
       );
+      if (generation !== preflightGeneration) throw new Error('START_FAILED');
       if (result.code !== 'ADMITTED') throw new Error(result.code);
+      sharedMemoryConfirmed = allowSharedMemory;
     },
     createHistoryHost,
     async createHost(file: string) {
@@ -185,4 +484,5 @@ export function developmentDesktopDependencies(
       }
     },
   };
+  return dependencies;
 }

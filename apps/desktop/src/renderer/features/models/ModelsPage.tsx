@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Upload, Compass, Box } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { SearchField } from '../../components/SearchField';
@@ -14,6 +14,8 @@ interface ModelsPageProps {
   onConfigure: (model: DemoModel) => void;
   onInfo: (title: string, text: string) => void;
   onImport?: () => void;
+  indexing?: string;
+  restoring?: boolean;
 }
 
 export function ModelsPage({
@@ -24,8 +26,15 @@ export function ModelsPage({
   onConfigure,
   onInfo,
   onImport,
+  indexing,
+  restoring = false,
 }: ModelsPageProps) {
   const [query, setQuery] = useState('');
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const filtered = library.models.filter((model) =>
     `${model.name} ${model.description} ${model.architecture}`
       .toLowerCase()
@@ -35,7 +44,15 @@ export function ModelsPage({
   return (
     <section className={styles.page} aria-labelledby="models-heading">
       <header className={styles.header}>
-        <h1 id="models-heading">Models</h1>
+        <div className={styles.title}>
+          <h1 id="models-heading">Models</h1>
+          {restoring && (
+            <span role="status" className={styles.restoring}>
+              <span className={styles.spinner} aria-hidden="true" />
+              Updating library…
+            </span>
+          )}
+        </div>
         <div className={styles.toolbar}>
           <SearchField label="Find model" value={query} onChange={setQuery} />
           <Button
@@ -43,6 +60,7 @@ export function ModelsPage({
             className={`${styles.iconAction} ${styles.importAction}`}
             aria-label="Import GGUF"
             title="Import GGUF"
+            disabled={Boolean(indexing) || restoring}
             onClick={() =>
               onImport
                 ? onImport()
@@ -75,17 +93,41 @@ export function ModelsPage({
         <span>Last used</span>
       </div>
       <div className={styles.library}>
+        {indexing && (
+          <ModelRow
+            model={{
+              id: 'pending-import',
+              name: indexing,
+              identifier: '',
+              description: '',
+              family: 'unknown',
+              quantization: '',
+              size: '',
+              architecture: '',
+              parameters: '',
+              context: '',
+              ready: false,
+            }}
+            active={false}
+            indexing
+            onRemove={() => undefined}
+            onDetails={() => undefined}
+            onConfigure={() => undefined}
+          />
+        )}
         {models.map((model) => (
           <ModelRow
             key={model.id}
+            now={now}
             model={model}
             active={model.id === library.activeModelId}
+            unavailable={!demo && !model.ready}
             onRemove={() => onRemove(model)}
             onDetails={() => onDetails(model)}
             onConfigure={() => onConfigure(model)}
           />
         ))}
-        {models.length === 0 && (
+        {models.length === 0 && !indexing && !restoring && (
           <div className={styles.empty}>
             <Box size={34} />
             <h2>

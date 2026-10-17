@@ -1,5 +1,25 @@
 # ModelLoom development guide
 
+**Cluster configuration implementation, 2026-10-16:** Raw drafts and named
+configurations use the caller-bound `modelLoomCluster` bridge and protected
+schema-4 utility database.
+
+The implemented Windows development slice uses the verified, unmodified b11306
+runtime for the exact Bonsai 64-block profile: context 7680 per slot, four slots,
+q8_0 K/V caches, flash attention on, batch 2048/microbatch 512 and one or two
+NVIDIA GPUs on this PC.
+Other load tuples remain rejected. It does not open production root custody,
+change signatures or modify llama.cpp. Auto place refreshes resources and runs the
+stock fit estimator, preferring one GPU, then checking both GPU orders and cuts
+from the centre outward until the first feasible proposal. Review, Save and Run
+remain separate actions. Run captures the saved ID/revision, model, load settings
+and ranges, preflights before stopping an active model, and rechecks dirty state
+and revision in core. Exact UUID launch and complete stock debug startup checks
+bind PCI identities, all 64 blocks, output, cache/state and allowed input fallback.
+The UI shows verified active ranges. Quit joins estimator cleanup.
+See [native validation](research/cluster-placement-native-validation.md) for dated
+evidence and remaining application-host validation.
+
 **Status:** Windows development runtime, durable Chat, model configuration and the initial loopback API implemented; distributed and production/release integration pending
 **Updated:** 2026-10-14
 

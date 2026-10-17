@@ -38,6 +38,7 @@ it('shows an unloaded local worker before any model import, without requiring GP
   expect(command.mock.calls.every(([input]) => input?.action === 'snapshot')).toBe(true);
   await user.click(device.getByRole('button', { name: 'Actions for own-pc' }));
   await user.click(screen.getByRole('button', { name: 'Device details' }));
+  await user.click(await screen.findByText('Device details', { selector: 'summary span' }));
   expect(screen.getByText('Windows', { selector: 'dd' })).toBeVisible();
   expect(screen.getAllByText('This device', { selector: 'dd' })).toHaveLength(2);
 });
@@ -70,6 +71,17 @@ it('displays the detected GPU model beside the observed VRAM without loading a m
           role: 'Coordinator',
           gpuMemoryGiB: 16,
           gpuName: 'NVIDIA GeForce RTX 4060 Ti',
+          inventory: {
+            sampledAt: Date.now(),
+            gpus: [
+              {
+                id: 'gpu-0',
+                name: 'NVIDIA GeForce RTX 4060 Ti',
+                pciVendorId: '10de',
+                totalMemoryBytes: 16 * 2 ** 30,
+              },
+            ],
+          },
         },
       }),
   };
@@ -77,7 +89,8 @@ it('displays the detected GPU model beside the observed VRAM without loading a m
   await user.click(screen.getByRole('button', { name: 'Cluster' }));
   const device = within(await screen.findByRole('article', { name: 'own-gpu-pc' }));
   expect(device.getByText('NVIDIA GeForce RTX 4060 Ti')).toBeVisible();
-  expect(device.getByText('16.0 GiB VRAM')).toBeVisible();
+  expect(device.getByText('16.0 GiB dedicated memory')).toBeVisible();
+  expect(device.getByRole('heading', { name: 'GPU' })).toBeVisible();
   expect(device.queryByText('NVIDIA GPU')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Run model' })).toBeDisabled();
 });
@@ -134,7 +147,7 @@ describe('Models milestone', () => {
     const temperature = screen.getByRole('spinbutton', { name: 'Temperature' });
     await user.clear(temperature);
     await user.type(temperature, '0.6');
-    await user.click(screen.getByRole('button', { name: 'Save defaults' }));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(screen.getByRole('status')).toHaveTextContent('Defaults saved for this demo session');
     await user.click(screen.getByRole('button', { name: 'Back to Models' }));
     expect(screen.getByRole('button', { name: 'Configure Llama 3.1 8B' })).toHaveFocus();

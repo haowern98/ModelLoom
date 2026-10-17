@@ -7,6 +7,7 @@ import { createDemoDefaults } from '../features/models/configuration';
 import type { DemoConfiguration } from '../features/models/configuration';
 import { fromModelEditor, toModelEditor } from '../features/models/live-configuration';
 import type { ConfigurationReply } from '../../shared/model-configuration';
+import { useClusterConfigurations } from '../features/cluster/useClusterConfigurations';
 import { ClusterPage } from '../features/cluster/ClusterPage';
 import { ChatPage } from '../features/chat/ChatPage';
 import { ApiPage } from '../features/api/ApiPage';
@@ -20,6 +21,7 @@ import type { DemoModel } from '../mocks/modelLibrary';
 import { Dialog } from '../components/Dialog';
 import { Button } from '../components/Button';
 import { useRuntime } from './useRuntime';
+import { supportedDeviceGpus } from '../../shared/runtime';
 import { useLiveChat } from '../features/chat/useLiveChat';
 
 type Modal =
@@ -27,6 +29,7 @@ type Modal =
 
 export function App() {
   const runtime = useRuntime();
+  const clusterConfigurations = useClusterConfigurations(window.modelLoomCluster);
   const live = runtime.view?.enabled === true;
   const liveChat = useLiveChat(live, runtime.view?.phase === 'ready');
   const demo = __DEMO_DATA_ENABLED__;
@@ -55,22 +58,25 @@ export function App() {
   >({});
   const configurationOpen = useRef(0);
   const restoreConfigurationFocus = useRef<string | null>(null);
-  const importedModel: DemoModel | undefined = runtime.view?.model
-    ? {
-        ...runtime.view.model,
-        identifier: 'prism-ml/bonsai-27b',
-        description: 'Imported and hash-verified Bonsai 27B Q1_0',
-        family: 'qwen',
-        quantization: 'Q1_0',
-        architecture: 'qwen35',
-        parameters: '27B',
-        context: '262144',
-        ready: true,
-      }
-    : undefined;
+  const importedModels: readonly DemoModel[] = (
+    runtime.view?.models ?? (runtime.view?.model ? [runtime.view.model] : [])
+  ).map((model) => ({
+    ...model,
+    identifier: model.filename ?? model.name,
+    description: model.unavailable
+      ? 'File unavailable. Re-import this model.'
+      : 'Indexed GGUF model',
+    family: 'unknown',
+    quantization: model.quantization ?? 'Unknown',
+    architecture: model.architecture ?? 'Unknown',
+    parameters: model.parameters ?? 'Unknown',
+    context: model.contextLimit ? String(model.contextLimit) : 'Unknown',
+    ready: model.unavailable !== true,
+  }));
+  const importedModel = importedModels.find((model) => model.id === runtime.view?.model?.id);
   const displayLibrary = local
     ? {
-        models: importedModel ? [importedModel] : [],
+        models: importedModels,
         activeModelId: runtime.view?.phase === 'ready' ? (importedModel?.id ?? null) : null,
       }
     : library;
@@ -118,6 +124,7 @@ export function App() {
   }, [placement.launch, library.models, live]);
 
   const [dismissedRuntimeError, setDismissedRuntimeError] = useState<string | null>(null);
+  const memoryWarning = runtime.view?.memoryWarning;
   const displayedModal =
     modal ??
     (runtime.view?.error && runtime.view.error !== dismissedRuntimeError
@@ -198,6 +205,8 @@ export function App() {
                 onImport: () => {
                   void runtime.run({ action: 'import' });
                 },
+                ...(runtime.view?.indexing ? { indexing: runtime.view.indexing } : {}),
+                restoring: runtime.view?.restoring ?? false,
               }
             : {})}
           onRemove={(model) =>
@@ -258,6 +267,7 @@ export function App() {
       ) : destination === 'Cluster' ? (
         <ClusterPage
           demo={demo && !local}
+          {...(local && window.modelLoomCluster ? { configurations: clusterConfigurations } : {})}
           joining={joining}
           onJoining={dispatchJoining}
           devices={
@@ -269,28 +279,33 @@ export function App() {
                       name: localDevice.name,
                       role: localDevice.role,
                       os: localDevice.os,
+                      ...(localDevice.inventory ? { inventory: localDevice.inventory } : {}),
                       address: 'This device',
                       hardware: [
                         {
                           id: 'local-cpu',
                           label: 'CPU',
                           name: localDevice.cpuName,
-                          detail: `${localDevice.threads} threads`,
+                          detail:
+                            localDevice.threads > 0
+                              ? `${localDevice.inventory?.cpuCores !== undefined ? `${localDevice.inventory.cpuCores} cores · ` : ''}${localDevice.threads} threads`
+                              : 'Unavailable',
                           memoryGb: 0,
                           kind: 'cpu',
                         },
-                        ...(localDevice.gpuMemoryGiB !== undefined
-                          ? [
-                              {
-                                id: 'local-gpu',
-                                label: 'GPU',
-                                name: localDevice.gpuName ?? 'GPU name unavailable',
-                                detail: `${localDevice.gpuMemoryGiB.toFixed(1)} GiB VRAM`,
-                                memoryGb: localDevice.gpuMemoryGiB,
-                                kind: 'gpu' as const,
-                              },
-                            ]
-                          : []),
+                        ...supportedDeviceGpus(localDevice.inventory?.gpus ?? []).map(
+                          (gpu, index, gpus) => ({
+                            id: `local-${gpu.id}`,
+                            label: gpus.length > 1 ? `GPU ${index}` : 'GPU',
+                            name: gpu.name,
+                            detail:
+                              gpu.totalMemoryBytes !== undefined
+                                ? `${(gpu.totalMemoryBytes / 2 ** 30).toFixed(1)} GiB dedicated memory`
+                                : 'Dedicated memory unavailable',
+                            memoryGb: (gpu.totalMemoryBytes ?? 0) / 2 ** 30,
+                            kind: 'gpu' as const,
+                          }),
+                        ),
                       ],
                     },
                   ]
@@ -318,11 +333,29 @@ export function App() {
           {...(local
             ? {
                 localRuntime: {
+                  activeCluster: runtime.view?.activeCluster ?? null,
                   loading:
                     runtime.loading ||
                     runtime.view?.phase === 'starting' ||
                     runtime.view?.phase === 'loading',
-                  onChoose: (model: DemoModel) => setLocalSelection(model.id),
+                  onChoose: (model: DemoModel) => {
+                    setLocalSelection(model.id);
+                    void clusterConfigurations.selectModel(model.id);
+                  },
+                  onRunConfiguration: (configurationId: string, revision: number) => {
+                    void runtime.run({ action: 'run-configuration', configurationId, revision });
+                  },
+                  onRunDraft: (target: { key: string; revision: number; modelId: string }) => {
+                    setDismissedRuntimeError(null);
+                    void (async () => {
+                      if (runtime.view?.phase === 'ready') await runtime.run({ action: 'stop' });
+                      await runtime.run({
+                        action: 'load',
+                        modelId: `model-${target.modelId}`,
+                        draft: { key: target.key, revision: target.revision },
+                      });
+                    })();
+                  },
                   onRun: () => {
                     setDismissedRuntimeError(null);
                     if (localSelection)
@@ -363,7 +396,34 @@ export function App() {
           onApi={() => navigate('API')}
         />
       )}
-      {displayedModal && (
+      {memoryWarning && (
+        <Dialog
+          initialFocus="cancel"
+          title="Not enough available memory"
+          onClose={() => void runtime.answerMemory(memoryWarning.id, false)}
+        >
+          <p>
+            This configuration is estimated to need more memory than is currently available. Loading
+            may fail or run slowly. Your model and settings will stay the same.
+          </p>
+          <footer>
+            <Button
+              data-dialog-cancel
+              autoFocus
+              onClick={() => void runtime.answerMemory(memoryWarning.id, false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => void runtime.answerMemory(memoryWarning.id, true)}
+            >
+              Load anyway
+            </Button>
+          </footer>
+        </Dialog>
+      )}
+      {!memoryWarning && displayedModal && (
         <Dialog
           title={
             displayedModal.type === 'info'

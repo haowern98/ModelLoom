@@ -1,4 +1,4 @@
-/** Disabled manual values are retained for the editor and never substituted for native defaults. */
+/** Disabled manual values are retained for the editor; each setting defines its disabled behavior. */
 export interface OptionalNumber {
   readonly enabled: boolean;
   readonly value: number;
@@ -59,6 +59,7 @@ export interface NativeGenerationParameters {
   readonly repeat_penalty: number;
   readonly presence_penalty: number;
   readonly seed: number;
+  /** -1 means no reply-length cap; context capacity still bounds generation. */
   readonly max_tokens: number;
   readonly stop: readonly string[];
 }
@@ -78,6 +79,7 @@ export interface ActiveLoadSnapshot {
   readonly revision: number;
   readonly profileId: string;
   readonly load: LoadDefaults;
+  readonly preferences?: AdvancedPreferences;
 }
 /** Capture before queue admission; saving defaults cannot change this value. */
 export interface ResolvedRequestSettings {
@@ -180,12 +182,14 @@ export function decodeResolvedRequestSettings(
   const decoded = Object.fromEntries(
     Object.entries(ranges).map(([key, rule]) => [
       key,
-      number(
-        parameters[key],
-        rule[0],
-        key === 'max_tokens' && capabilities ? capabilities.maxOutputTokens : rule[1],
-        rule[2],
-      ),
+      key === 'max_tokens' && parameters[key] === -1
+        ? -1
+        : number(
+            parameters[key],
+            rule[0],
+            key === 'max_tokens' && capabilities ? capabilities.maxOutputTokens : rule[1],
+            rule[2],
+          ),
     ]),
   ) as unknown as Omit<NativeGenerationParameters, 'stop'>;
   return Object.freeze({
@@ -314,19 +318,7 @@ export function decodeModelConfiguration(
     'thinking',
     'stopStrings',
   ]);
-  const preferences = object(value.preferences, [
-    'reasoningBudget',
-    'reasoningMessage',
-    'overflow',
-    'ropeBase',
-    'ropeScale',
-    'customTemplate',
-    'chatTemplate',
-    'argumentsEnabled',
-    'argumentsText',
-  ]);
-  if (!['truncate-middle', 'stop', 'rolling'].includes(String(preferences.overflow)))
-    return invalid();
+  const preferences = decodeAdvancedPreferences(value.preferences);
   const decoded: ModelConfigurationRecord = Object.freeze({
     schemaVersion: 1,
     modelId: value.modelId,
@@ -353,17 +345,7 @@ export function decodeModelConfiguration(
       thinking: generation.thinking === null ? null : boolean(generation.thinking),
       stopStrings: strings(generation.stopStrings),
     }),
-    preferences: Object.freeze({
-      reasoningBudget: optional(preferences.reasoningBudget, 1, 2147483647, true),
-      reasoningMessage: text(preferences.reasoningMessage, 4096),
-      overflow: preferences.overflow as AdvancedPreferences['overflow'],
-      ropeBase: optional(preferences.ropeBase, 1, 1e12),
-      ropeScale: optional(preferences.ropeScale, 0.01, 1e6),
-      customTemplate: boolean(preferences.customTemplate),
-      chatTemplate: text(preferences.chatTemplate, 16000),
-      argumentsEnabled: boolean(preferences.argumentsEnabled),
-      argumentsText: text(preferences.argumentsText, 4096),
-    }),
+    preferences,
   });
   if (
     decoded.load.physicalBatch > decoded.load.evaluationBatch ||
@@ -371,4 +353,32 @@ export function decodeModelConfiguration(
   )
     return invalid();
   return decoded;
+}
+
+/** Closed advanced settings data. Launch compilation separately rejects unsupported modes. */
+export function decodeAdvancedPreferences(input: unknown): AdvancedPreferences {
+  const preferences = object(input, [
+    'reasoningBudget',
+    'reasoningMessage',
+    'overflow',
+    'ropeBase',
+    'ropeScale',
+    'customTemplate',
+    'chatTemplate',
+    'argumentsEnabled',
+    'argumentsText',
+  ]);
+  if (!['truncate-middle', 'stop', 'rolling'].includes(String(preferences.overflow)))
+    return invalid();
+  return Object.freeze({
+    reasoningBudget: optional(preferences.reasoningBudget, 1, 2147483647, true),
+    reasoningMessage: text(preferences.reasoningMessage, 4096),
+    overflow: preferences.overflow as AdvancedPreferences['overflow'],
+    ropeBase: optional(preferences.ropeBase, 1, 1e12),
+    ropeScale: optional(preferences.ropeScale, 0.01, 1e6),
+    customTemplate: boolean(preferences.customTemplate),
+    chatTemplate: text(preferences.chatTemplate, 16000),
+    argumentsEnabled: boolean(preferences.argumentsEnabled),
+    argumentsText: text(preferences.argumentsText, 4096),
+  });
 }

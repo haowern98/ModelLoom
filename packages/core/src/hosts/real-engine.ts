@@ -20,7 +20,11 @@ import { isDeepStrictEqual } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { confirmExit, ownershipBinding } from './windows-ownership.js';
-import { fixedArguments } from './runtime-arguments.js';
+import { fixedArguments, clusterServerArguments } from './runtime-arguments.js';
+import type { ClusterEffectiveLoad } from '../cluster/effective-load.js';
+import type { StockClusterReport } from '../cluster/stock-profile.js';
+import { checkStockClusterResources } from '../cluster/stock-profile.js';
+import { verifyStockPlacement } from '../cluster/stock-placement.js';
 import { checkOwnedReadiness } from './readiness.js';
 import { readOwnedSlots } from './slot-status.js';
 import { OwnedSlotMonitor } from './slot-monitor.js';
@@ -37,20 +41,46 @@ export interface RealEngineAdapter extends EngineAdapter {
   /** Captured fixed Chat transport; credential/endpoint never leave the owner. */
   chat(engine: OwnedEngine): ChatTransport;
 }
-/** Shared adapter gated by package authority and exact reviewed memory reports.
+/** Shared adapter gated by package authority and an exact configuration-bound resource report.
  * Development reports require both a development capability and the explicit development build.
+ * The optional trusted-owner callback consumes a one-use memory warning confirmation;
+ * it is checked with fresh resources before creation and never comes from renderer data.
  */
 export function realEngineAdapter(
   installed: InstalledPackage,
   model: string,
   configuration: RuntimeConfiguration,
   port: number,
+  takeSharedMemoryConfirmation: () => boolean = () => false,
+  cluster?: {
+    readonly load: ClusterEffectiveLoad;
+    readonly report: StockClusterReport;
+    readonly confirmMemory?: () => Promise<boolean>;
+  },
 ): RealEngineAdapter {
   const inventory = requireInstalledLive(installed);
   // Fixed argument/readiness behavior has only been inspected for this exact upstream source.
   if (inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77')
     throw new Error('UNSUPPORTED_RUNTIME');
   const cfg = Object.freeze(structuredClone(configuration));
+  if (
+    cluster &&
+    (installedRealm(installed) !== 'development' ||
+      !DEVELOPMENT_BUILD ||
+      inventory.packageId !== 'llama-cuda-development')
+  )
+    throw Error('NEEDS_RESOURCE_EVIDENCE');
+  if (
+    cluster &&
+    (inventory.artifact !== cluster.load.artifact ||
+      inventory.backend !== 'cuda' ||
+      cluster.load.modelSha256 !== cfg.modelSha256 ||
+      cluster.load.contextPerSlot !== cfg.contextPerSlot ||
+      cluster.load.slots !== cfg.slots ||
+      cluster.load.cacheK !== cfg.cacheK ||
+      cluster.load.cacheV !== cfg.cacheV)
+  )
+    throw Error('NEEDS_RESOURCE_EVIDENCE');
   const reports =
     installedRealm(installed) === 'development' && DEVELOPMENT_BUILD
       ? DEVELOPMENT_MEMORY_REPORTS
@@ -62,7 +92,7 @@ export function realEngineAdapter(
       isDeepStrictEqual(entry.configuration, cfg),
   );
   if (
-    !report ||
+    (!cluster && !report) ||
     (inventory.backend === 'cpu'
       ? cfg.gpuLayers !== 0 || cfg.gpuDevice !== undefined
       : !cfg.gpuDevice || cfg.gpuLayers === 0 || !inventory.minimumDriver)
@@ -115,6 +145,15 @@ export function realEngineAdapter(
         const info = await inspectGGUF(model);
         if (info.sha256 !== cfg.modelSha256 || cfg.contextPerSlot > info.contextLimit)
           throw new Error('INVALID_CONFIGURATION');
+        if (
+          cluster &&
+          (info.blockCount !== cluster.load.blockCount ||
+            cluster.report.cacheLayers.some(
+              (kind, i) =>
+                (kind === 'none') !== i >= cluster.load.blockCount - (info.nextnPredictLayers ?? 0),
+            ))
+        )
+          throw Error('PLACEMENT_MISMATCH');
         if (signal.aborted || closed) throw new Error('START_FAILED');
         const secret = randomBytes(32).toString('base64url'),
           alias = `model-${randomUUID()}`;
@@ -127,28 +166,71 @@ export function realEngineAdapter(
         if (signal.aborted || closed) throw new Error('START_FAILED');
         // Metadata may expire while a large GGUF is hashed. Recheck immediately before creation.
         requireInstalledLive(installed);
-        const admission =
+        const resources =
           inventory.backend === 'cuda'
+            ? await discoverResources(signal)
+            : { ram: native.availableMemory(), gpus: null };
+        let admission = cluster
+          ? checkStockClusterResources(
+              cluster.load,
+              cluster.report,
+              resources,
+              takeSharedMemoryConfirmation(),
+            )
+          : inventory.backend === 'cuda'
             ? checkCudaResources(
                 cfg,
                 inventory.artifact,
                 report,
-                await discoverResources(signal),
+                resources,
                 inventory.minimumDriver!,
+                takeSharedMemoryConfirmation(),
               )
             : checkResources(cfg, inventory.artifact, inventory.backend, report, {
                 ram: native.availableMemory(),
                 vram: 0,
               });
+        if (
+          cluster &&
+          admission.code === 'SHARED_GPU_MEMORY_CONFIRMATION' &&
+          cluster.confirmMemory
+        ) {
+          if (signal.aborted || closed || !(await cluster.confirmMemory()))
+            throw Error('START_FAILED');
+          if (signal.aborted || closed) throw Error('START_FAILED');
+          admission = checkStockClusterResources(
+            cluster.load,
+            cluster.report,
+            await discoverResources(signal),
+            true,
+          );
+        }
         if (admission.code !== 'ADMITTED') throw new Error(admission.code);
         if (signal.aborted || closed) throw new Error('START_FAILED');
         requireInstalledLive(installed);
         const server = path.join(installed.directory, inventory.entrypoint);
         const helper = path.join(installed.directory, inventory.helper);
-        const args = [server, ...fixedArguments(model, cfg, port, keyFile, alias)];
-        const child = cfg.gpuDevice
-          ? native.launchCudaConsole(root, helper, args, cacheDirectory, cfg.gpuDevice)
-          : native.launchConsole(root, helper, args, cacheDirectory);
+        const args = [
+          server,
+          ...(cluster
+            ? [
+                ...clusterServerArguments(model, cluster.load, port, keyFile, alias),
+                '--log-verbosity',
+                '5',
+              ]
+            : fixedArguments(model, cfg, port, keyFile, alias)),
+        ];
+        const child = cluster
+          ? native.launchCudaPlanConsole(
+              root,
+              helper,
+              args,
+              cacheDirectory,
+              cluster.load.placement.orderedUuids,
+            )
+          : cfg.gpuDevice
+            ? native.launchCudaConsole(root, helper, args, cacheDirectory, cfg.gpuDevice)
+            : native.launchConsole(root, helper, args, cacheDirectory);
         const files = packageLock,
           selectedModel = modelLock,
           credentials = credential;
@@ -160,7 +242,9 @@ export function realEngineAdapter(
           credentialDelivered = false,
           captured = false,
           ready = false,
-          line = '';
+          line = '',
+          startupLog = '',
+          startupFault: Error | undefined;
         let statusStopDeadline: number | undefined;
         let slotPreparation: Promise<OwnedSlotMonitor> | undefined;
         let resolveExit!: (receipt: EngineExit) => void, rejectExit!: (error: Error) => void;
@@ -180,6 +264,7 @@ export function realEngineAdapter(
               statusStopDeadline = undefined;
             }
             const observation = native.observe(child);
+            const wasCaptured = captured;
             if (observation.pid && !ownedPids.includes(observation.pid))
               ownedPids.push(observation.pid);
             // A rejected startup capture can terminate the server before its receipt is admitted.
@@ -194,12 +279,17 @@ export function realEngineAdapter(
                 native.captureServer(child, Number(receipt[1]), server);
                 if (!ownedPids.includes(Number(receipt[1]))) ownedPids.push(Number(receipt[1]));
                 captured = true;
+                startupLog = line.slice(newline + 1);
                 line = '';
               }
             }
             if (captured && observation.exitCode === -1 && !credentialDelivered)
               credentialDelivered = native.deliverCredential(credentials, child);
-            // Runtime output is drained and discarded, never exposed as credential-bearing diagnostics.
+            if (cluster && captured && !ready) {
+              // The first captured chunk's remainder is already retained above.
+              if (wasCaptured) startupLog += observation.output;
+              if (Buffer.byteLength(startupLog) > 4194304) throw Error('PLACEMENT_MISMATCH');
+            }
             if (observation.exitCode !== -1 && observation.activeProcesses === 0) {
               ended = true;
               finishing = true;
@@ -212,7 +302,8 @@ export function realEngineAdapter(
               pids.delete(child);
               resolveExit({ code: observation.exitCode, signal: null });
             }
-          } catch {
+          } catch (error) {
+            startupFault = error instanceof Error ? error : Error('START_FAILED');
             try {
               native.forceStop(child);
             } catch {
@@ -227,6 +318,7 @@ export function realEngineAdapter(
           exited,
           async waitReady(abort) {
             while (!ready) {
+              if (startupFault) throw startupFault;
               if (abort.aborted || ended) throw new Error('START_FAILED');
               if (captured) {
                 try {
@@ -239,6 +331,15 @@ export function realEngineAdapter(
                     () => !ended && native.ownedListener(child, port),
                     abort,
                   );
+                  if (cluster) {
+                    // Authenticated readiness follows complete model allocation logs.
+                    verifyStockPlacement(
+                      startupLog,
+                      cluster.load,
+                      (resources.gpus ?? []).map((g) => ({ uuid: g.uuid, pciBus: g.bus })),
+                      cluster.report.cacheLayers,
+                    );
+                  }
                   // Concurrent readiness callers share one status preparation/monitor.
                   slotPreparation ??= (async () => {
                     const owns = () => !ended && !finishing && native.ownedListener(child, port);
@@ -269,14 +370,17 @@ export function realEngineAdapter(
                       owns: () => !ended && !finishing && native.ownedListener(child, port),
                       monitor,
                       exited: exited.then(() => undefined),
-                      ...(inventory.packageId === 'llama-cuda-development' && cfg.slots === 4
+                      ...(inventory.packageId === 'llama-cuda-development'
                         ? {
                             configuration: {
-                              capabilities: createConfigurationProfile({
-                                packageId: inventory.packageId,
-                                upstreamCommit: inventory.upstreamCommit,
-                                configuration: cfg,
-                              }).capabilities,
+                              capabilities: createConfigurationProfile(
+                                {
+                                  packageId: inventory.packageId,
+                                  upstreamCommit: inventory.upstreamCommit,
+                                  configuration: cfg,
+                                },
+                                info,
+                              ).capabilities,
                               modelId: cfg.modelSha256,
                               contextLength: cfg.contextPerSlot,
                             },
@@ -286,9 +390,11 @@ export function realEngineAdapter(
                   );
                   native.releaseCredential(credentials);
                   ready = true;
+                  startupLog = '';
                   return;
-                } catch {
-                  if (abort.aborted || ended) throw new Error('START_FAILED');
+                } catch (error) {
+                  if (error instanceof Error && error.message === 'PLACEMENT_MISMATCH') throw error;
+                  if (abort.aborted || ended) throw new Error('START_FAILED', { cause: error });
                 }
               }
               await new Promise<void>((resolve) => setTimeout(resolve, 50));

@@ -2,6 +2,23 @@ import { expect, it } from 'vitest';
 import * as runtime from './runtime';
 
 const decode = (value: unknown) => Reflect.get(runtime, 'decodeRuntimeCommand')?.(value);
+it('accepts only a bounded draft reference rather than renderer-provided allocation JSON', () => {
+  const command = {
+    action: 'load',
+    modelId: `model-${'a'.repeat(64)}`,
+    draft: { key: `model:${'a'.repeat(64)}`, revision: 2 },
+  };
+  expect(decode(command)).toEqual(command);
+  for (const draft of [
+    null,
+    {},
+    { ...command.draft, revision: 0 },
+    { ...command.draft, revision: 1.2 },
+    { ...command.draft, key: '../model' },
+    { ...command.draft, runs: [] },
+  ])
+    expect(() => decode({ ...command, draft })).toThrow('INVALID_CONTROL');
+});
 it('accepts only import, snapshot, stop, and a bounded opaque model ID', () => {
   for (const action of ['import', 'snapshot', 'stop'])
     expect(decode({ action })).toEqual({ action });

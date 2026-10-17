@@ -1,0 +1,553 @@
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { expect, it, vi } from 'vitest';
+import { useClusterConfigurations } from './useClusterConfigurations';
+import type {
+  ClusterBridge,
+  ClusterCommand,
+  ClusterReply,
+  CapturedClusterLoad,
+  ClusterDraft,
+  SavedClusterConfiguration,
+} from '../../../shared/cluster-configuration';
+const load = { defaults: {}, cacheK: 'f16', cacheV: 'f16' } as CapturedClusterLoad;
+
+it('retains the selected configuration and its edits when deletion fails', async () => {
+  const fixture = historyBridge();
+  const original = fixture.bridge.command;
+  fixture.bridge.command = vi.fn((command) =>
+    command.action === 'delete'
+      ? Promise.resolve({ ok: false as const, error: 'CONFIGURATION_UNAVAILABLE' as const })
+      : original(command),
+  );
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
+  await act(async () => expect(await result.current.remove(fixture.configuration)).toBe(false));
+  expect(result.current.saved).toEqual(fixture.configuration);
+  expect(result.current.raw?.runs[0]?.last).toBe('6');
+  expect(result.current.configurations).toEqual([fixture.configuration]);
+  expect(result.current.error).toContain('Could not delete');
+});
+
+it('restores the independent model draft after deleting the selected saved configuration', async () => {
+  const fixture = historyBridge();
+  const original = fixture.bridge.command;
+  fixture.bridge.command = vi.fn((command) =>
+    command.action === 'delete'
+      ? Promise.resolve({
+          ok: true as const,
+          configurations: [],
+          configuration: null,
+          draft: null,
+          load: null,
+          issues: [],
+        })
+      : original(command),
+  );
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectModel(fixture.configuration.modelId));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  await act(async () => expect(await result.current.remove(fixture.configuration)).toBe(true));
+  expect(result.current.saved).toBeNull();
+  expect(result.current.raw?.runs[0]?.last).toBe('6');
+  expect(result.current.configurations).toEqual([]);
+  expect(result.current.selection?.configurationId).toBeNull();
+});
+
+it('does not mark placement dirty or add Undo when only hydrated model defaults differ', async () => {
+  const fixture = historyBridge();
+  const original = fixture.bridge.command;
+  fixture.bridge.command = vi.fn(async (command) => {
+    const reply = await original(command);
+    if (command.action !== 'read' || !reply.ok || !reply.configuration) return reply;
+    const configuration = reply.configuration;
+    return {
+      ...reply,
+      draft: {
+        key: `config:${configuration.id}`,
+        configurationId: configuration.id,
+        revision: 2,
+        baseSavedRevision: configuration.revision,
+        modelId: configuration.modelId,
+        load: { ...configuration.load, cacheV: 'q8_0' as const },
+        runs: configuration.runs.map((run) => ({
+          uuid: run.uuid,
+          first: String(run.first),
+          last: String(run.last),
+        })),
+      },
+    };
+  });
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  expect(result.current.raw?.load.cacheV).toBe('q8_0');
+  expect(result.current.dirty).toBe(false);
+  expect(result.current.canUndo).toBe(false);
+});
+
+it('refuses empty drafts without automatic assignment and keeps prepared drafts runnable without Save', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  const qwen = 'b'.repeat(64);
+  const bonsai = 'a'.repeat(64);
+  await act(() => result.current.selectModel(qwen));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '7' }]));
+  await act(() => result.current.selectModel(bonsai));
+  await act(async () => {
+    expect(await result.current.prepareRun()).toBeNull();
+  });
+  expect(
+    fixture.command.mock.calls
+      .filter(([command]) => command.action === 'auto-place')
+      .map(([command]) => ('key' in command ? command.key : null)),
+  ).toEqual([]);
+  act(() => result.current.edit([{ uuid: 'gpu', first: '', last: '' }]));
+  await act(async () => expect(await result.current.prepareRun()).toBeNull());
+  expect(result.current.dirty).toBe(false);
+  await act(() => result.current.selectModel(qwen));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
+  await act(async () => {
+    const first = result.current.prepareRun();
+    expect(await result.current.prepareRun()).toBeNull();
+    expect(await first).toEqual({ key: `model:${qwen}`, revision: 2, modelId: qwen });
+  });
+  expect(fixture.command.mock.calls.some(([command]) => command.action === 'save')).toBe(false);
+});
+
+it('does not apply a late automatic assignment to a different selected model', async () => {
+  const fixture = historyBridge();
+  const original = fixture.bridge.command;
+  let release!: () => void;
+  fixture.bridge.command = vi.fn(async (command) => {
+    if (command.action === 'auto-place')
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    return original(command);
+  });
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectModel('b'.repeat(64)));
+  let planning!: Promise<void>;
+  act(() => {
+    planning = result.current.autoPlace();
+  });
+  await waitFor(() => expect(release).toBeDefined());
+  await act(() => result.current.selectModel('a'.repeat(64)));
+  await act(async () => {
+    release();
+    await planning;
+  });
+  expect(result.current.selection?.modelId).toBe('a'.repeat(64));
+  expect(result.current.raw?.runs).toEqual([]);
+  expect(result.current.planning).toBe(false);
+  expect(fixture.command.mock.calls.some(([command]) => command.action === 'save')).toBe(false);
+});
+
+it('refuses a run when a pending manual edit has no durable acknowledgement', async () => {
+  const fixture = historyBridge();
+  const original = fixture.bridge.command;
+  fixture.bridge.command = vi.fn((command) =>
+    command.action === 'edit'
+      ? Promise.resolve({ ok: false as const, error: 'CONFIGURATION_UNAVAILABLE' as const })
+      : original(command),
+  );
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectModel('a'.repeat(64)));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '7' }]));
+  await act(async () => {
+    expect(await result.current.prepareRun()).toBeNull();
+  });
+  expect(result.current.error).toContain('durably saved');
+  expect(
+    fixture.command.mock.calls.some(
+      ([command]) => command.action === 'save' || command.action === 'auto-place',
+    ),
+  ).toBe(false);
+});
+
+function historyBridge() {
+  let configuration: SavedClusterConfiguration = {
+    id: 'saved',
+    name: 'Laptop',
+    revision: 1,
+    modelId: 'a'.repeat(64),
+    blockCount: 8,
+    profileId: 'test',
+    load,
+    runs: [{ uuid: 'gpu', first: 0, last: 7 }],
+  };
+  const drafts = new Map<string, ClusterDraft>();
+  let rejectAuto = false;
+  const respond = (input: ClusterCommand): ClusterReply => {
+    const reply = (draft: ClusterDraft | null) => ({
+      ok: true as const,
+      configurations: [configuration],
+      configuration,
+      draft,
+      load,
+      issues: [],
+    });
+    if (input.action === 'list') return reply(null);
+    if (input.action === 'read')
+      return {
+        ...reply(
+          drafts.get(
+            input.configurationId ? `config:${input.configurationId}` : `model:${input.modelId}`,
+          ) ?? null,
+        ),
+        configuration: input.configurationId ? configuration : null,
+      };
+    if (input.action === 'edit') {
+      const previous = drafts.get(input.key);
+      expect(input.expectedRevision).toBe(previous?.revision ?? null);
+      const draft = {
+        key: input.key,
+        configurationId: input.key.startsWith('config:') ? 'saved' : null,
+        revision: (previous?.revision ?? 0) + 1,
+        baseSavedRevision: configuration.revision,
+        ...input.edit,
+      };
+      drafts.set(input.key, draft);
+      return reply(draft);
+    }
+    if (input.action === 'auto-place') {
+      if (rejectAuto) return { ok: false, error: 'INSUFFICIENT_RESOURCES' };
+      const previous = drafts.get(input.key)!;
+      const draft = {
+        ...previous,
+        revision: previous.revision + 1,
+        runs: [{ uuid: 'gpu', first: '0', last: '7' }],
+      };
+      drafts.set(input.key, draft);
+      return reply(draft);
+    }
+    if (input.action === 'save') {
+      const draft = drafts.get(input.key)!;
+      if (draft.runs.some((run) => run.first === '-' || run.last === '-'))
+        return {
+          ...reply(draft),
+          issues: [{ uuid: 'gpu', field: 'last', code: 'invalid-integer' }],
+        };
+      configuration = {
+        ...configuration,
+        revision: configuration.revision + 1,
+        runs: draft.runs.map((run) => ({
+          uuid: run.uuid,
+          first: Number(run.first),
+          last: Number(run.last),
+        })),
+      };
+      return reply(draft);
+    }
+    return reply(null);
+  };
+  const command = vi.fn<ClusterBridge['command']>((input) => Promise.resolve(respond(input)));
+  return {
+    bridge: { command },
+    command,
+    configuration,
+    failAuto: () => {
+      rejectAuto = true;
+    },
+  };
+}
+
+it('undoes and redoes exact raw text through the durable write queue and clears branched redo', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  expect(result.current.canUndo).toBe(false);
+  expect(result.current.canRedo).toBe(false);
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '-' }]));
+  expect(result.current.canUndo).toBe(true);
+  act(() => result.current.undo());
+  expect(result.current.raw?.runs[0]?.last).toBe('7');
+  expect(result.current.canRedo).toBe(true);
+  act(() => result.current.redo());
+  expect(result.current.raw?.runs[0]?.last).toBe('-');
+  await waitFor(() => expect(result.current.pending).toBe(false));
+  expect(
+    fixture.command.mock.calls
+      .filter(([input]) => input.action === 'edit')
+      .map(([input]) => (input.action === 'edit' ? input.edit.runs[0]?.last : null)),
+  ).toEqual(['-', '7', '-']);
+  act(() => result.current.undo());
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
+  expect(result.current.canRedo).toBe(false);
+  await waitFor(() => expect(result.current.pending).toBe(false));
+});
+
+it('keeps independent history when changing model and configuration selection', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
+  await waitFor(() => expect(result.current.pending).toBe(false));
+  await act(() => result.current.selectModel('b'.repeat(64)));
+  expect(result.current.canUndo).toBe(false);
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '3' }]));
+  await waitFor(() => expect(result.current.pending).toBe(false));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  expect(result.current.raw?.runs[0]?.last).toBe('6');
+  act(() => result.current.undo());
+  expect(result.current.raw?.runs[0]?.last).toBe('7');
+  await act(() => result.current.selectModel('b'.repeat(64)));
+  expect(result.current.raw?.runs[0]?.last).toBe('3');
+  act(() => result.current.undo());
+  expect(result.current.raw?.runs).toEqual([]);
+  await waitFor(() => expect(result.current.pending).toBe(false));
+});
+
+it('retains invalid draft history on failed Save and resets history only after successful Save', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '-' }]));
+  await act(async () => {
+    expect(await result.current.save(null)).toBe(false);
+  });
+  expect(result.current.raw?.runs[0]?.last).toBe('-');
+  expect(result.current.canUndo).toBe(true);
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
+  await act(async () => {
+    expect(await result.current.save(null)).toBe(true);
+  });
+  expect(result.current.canUndo).toBe(false);
+  expect(result.current.canRedo).toBe(false);
+  expect(result.current.dirty).toBe(false);
+});
+
+it('makes successful auto assignment one undoable draft change and preserves history on failure', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '3' }]));
+  await act(() => result.current.autoPlace());
+  expect(result.current.raw?.runs[0]?.last).toBe('7');
+  await act(() => result.current.autoPlace());
+  act(() => result.current.undo());
+  expect(result.current.raw?.runs[0]?.last).toBe('3');
+  fixture.failAuto();
+  await act(() => result.current.autoPlace());
+  expect(result.current.raw?.runs[0]?.last).toBe('3');
+  expect(result.current.canRedo).toBe(true);
+  act(() => result.current.undo());
+  expect(result.current.raw?.runs[0]?.last).toBe('7');
+  expect(result.current.canUndo).toBe(false);
+  expect(fixture.command.mock.calls.some(([input]) => input.action === 'save')).toBe(false);
+  await waitFor(() => expect(result.current.pending).toBe(false));
+});
+it('treats saved GPU row order as presentation while preserving raw editor strings', async () => {
+  const configuration = {
+    id: 'saved',
+    name: 'Laptop',
+    revision: 1,
+    modelId: 'a'.repeat(64),
+    blockCount: 8,
+    profileId: 'test',
+    load,
+    runs: [
+      { uuid: 'a', first: 0, last: 3 },
+      { uuid: 'b', first: 4, last: 7 },
+    ],
+  };
+  const draft = {
+    key: 'config:saved',
+    configurationId: 'saved',
+    modelId: configuration.modelId,
+    revision: 2,
+    baseSavedRevision: 1,
+    load,
+    runs: [
+      { uuid: 'b', first: '4', last: '7' },
+      { uuid: 'a', first: '0', last: '3' },
+    ],
+  };
+  const bridge: ClusterBridge = {
+    command: () =>
+      Promise.resolve({
+        ok: true,
+        configurations: [configuration],
+        configuration,
+        draft,
+        load,
+        issues: [],
+      }),
+  };
+  const { result } = renderHook(() => useClusterConfigurations(bridge));
+  await act(async () => {
+    await result.current.selectConfiguration(configuration);
+  });
+  expect(result.current.dirty).toBe(false);
+  expect(result.current.raw?.runs).toEqual(draft.runs);
+});
+it('serializes writes without overwriting newer raw text', async () => {
+  let acknowledge: () => void = () => {};
+  const command = vi.fn(async (input: ClusterCommand) => {
+    if (input.action === 'read')
+      return { ok: true, configurations: [], configuration: null, draft: null, load, issues: [] };
+    if (input.action === 'edit') {
+      if (input.expectedRevision === null)
+        await new Promise<void>((resolve) => {
+          acknowledge = resolve;
+        });
+      return {
+        ok: true,
+        configurations: [],
+        configuration: null,
+        load,
+        issues: [],
+        draft: {
+          key: input.key,
+          configurationId: null,
+          revision: (input.expectedRevision ?? 0) + 1,
+          baseSavedRevision: null,
+          ...input.edit,
+        },
+      };
+    }
+    return {
+      ok: true,
+      configurations: [],
+      configuration: null,
+      draft: null,
+      load: null,
+      issues: [],
+    };
+  }) as ClusterBridge['command'];
+  const bridge = { command };
+  const { result } = renderHook(() => useClusterConfigurations(bridge));
+  await act(async () => {
+    await result.current.selectModel('a'.repeat(64));
+  });
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '1' }]));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'edit', expectedRevision: null }),
+    ),
+  );
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '-' }]));
+  expect(result.current.raw?.runs[0]?.last).toBe('-');
+  act(() => result.current.undo());
+  expect(result.current.raw?.runs[0]?.last).toBe('1');
+  act(() => result.current.redo());
+  expect(result.current.raw?.runs[0]?.last).toBe('-');
+  expect(vi.mocked(command).mock.calls.filter(([c]) => c.action === 'edit')).toHaveLength(1);
+  await act(async () => {
+    acknowledge();
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(result.current.draft?.revision).toBe(4));
+  expect(result.current.raw?.runs[0]?.last).toBe('-');
+  expect(
+    vi
+      .mocked(command)
+      .mock.calls.filter(([input]) => input.action === 'edit')
+      .map(([input]) => (input.action === 'edit' ? input.expectedRevision : null)),
+  ).toEqual([null, 1, 2, 3]);
+});
+
+it('restores a saved configuration as a clean baseline without creating a draft or loading', async () => {
+  const configuration = {
+    id: 'saved',
+    name: 'Laptop',
+    revision: 2,
+    modelId: 'a'.repeat(64),
+    blockCount: 8,
+    profileId: 'test',
+    load,
+    runs: [{ uuid: 'gpu', first: 0, last: 7 }],
+  };
+  const command = vi.fn<ClusterBridge['command']>().mockResolvedValue({
+    ok: true,
+    configurations: [configuration],
+    configuration,
+    draft: null,
+    load,
+    issues: [],
+  });
+  const bridge = { command };
+  const { result } = renderHook(() => useClusterConfigurations(bridge));
+  await act(async () => {
+    await result.current.selectConfiguration(configuration);
+  });
+  expect(result.current.dirty).toBe(false);
+  expect(result.current.raw?.runs).toEqual([{ uuid: 'gpu', first: '0', last: '7' }]);
+  expect(result.current.raw?.load).toEqual(configuration.load);
+  expect(
+    command.mock.calls.every(([input]) => input.action === 'list' || input.action === 'read'),
+  ).toBe(true);
+});
+
+it('keeps failed raw edits visible and never calls a failed write Saved', async () => {
+  const command = vi.fn<ClusterBridge['command']>((input) =>
+    Promise.resolve(
+      input.action === 'edit'
+        ? { ok: false, error: 'CONFIGURATION_UNAVAILABLE' }
+        : { ok: true, configurations: [], configuration: null, draft: null, load, issues: [] },
+    ),
+  );
+  const bridge = { command };
+  const { result } = renderHook(() => useClusterConfigurations(bridge));
+  await act(async () => {
+    await result.current.selectModel('a'.repeat(64));
+  });
+  act(() => result.current.edit([{ uuid: 'gpu', first: '-', last: '' }]));
+  await waitFor(() => expect(result.current.error).toBe('CONFIGURATION_UNAVAILABLE'));
+  expect(result.current.raw?.runs[0]?.first).toBe('-');
+  expect(result.current.dirty).toBe(true);
+  expect(result.current.draft).toBe(null);
+  await act(async () => {
+    await result.current.save('Laptop');
+  });
+  expect(command.mock.calls.some(([input]) => input.action === 'save')).toBe(false);
+  await act(async () => {
+    await result.current.selectModel('b'.repeat(64));
+    await result.current.selectModel('a'.repeat(64));
+  });
+  expect(result.current.raw?.runs[0]?.first).toBe('-');
+});
+it('retains the editor after updating an existing saved configuration', async () => {
+  const configuration = {
+    id: 'saved',
+    name: 'Laptop',
+    revision: 2,
+    modelId: 'a'.repeat(64),
+    blockCount: 8,
+    profileId: 'test',
+    load,
+    runs: [{ uuid: 'gpu', first: 0, last: 6 }],
+  };
+  const draft = {
+    key: 'config:saved',
+    configurationId: 'saved',
+    modelId: configuration.modelId,
+    revision: 1,
+    baseSavedRevision: 2,
+    load,
+    runs: [{ uuid: 'gpu', first: '0', last: '7' }],
+  };
+  const command = vi.fn<ClusterBridge['command']>((input) =>
+    Promise.resolve({
+      ok: true,
+      configurations: [configuration],
+      configuration,
+      draft: input.action === 'read' ? null : draft,
+      load,
+      issues: [],
+    }),
+  );
+  const bridge = { command };
+  const { result } = renderHook(() => useClusterConfigurations(bridge));
+  await act(async () => {
+    await result.current.selectConfiguration(configuration);
+  });
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '7' }]));
+  await waitFor(() => expect(result.current.draft).not.toBeNull());
+  await act(async () => {
+    await result.current.save(null);
+  });
+  expect(result.current.saved?.id).toBe('saved');
+  expect(result.current.raw?.runs[0]?.last).toBe('7');
+});

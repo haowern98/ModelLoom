@@ -7,12 +7,15 @@ import { decodeOutcome, decodeSpeeds, GENERATION_LIMITS } from '../generation/co
 import type { GenerationSpeeds, TerminalOutcome } from '../generation/contracts.js';
 import type { RuntimeConfiguration } from '../runtime/preflight.js';
 import { checkResources } from '../runtime/preflight.js';
+import { decodeSavedClusterConfiguration } from '../cluster/contracts.js';
+import type { SavedClusterConfiguration } from '../cluster/contracts.js';
 import { openHistoryDirectory } from './windows-directory.js';
 import type { TrustedHistoryRoot } from './windows-directory.js';
 export interface Provenance {
   readonly packageId: string;
   readonly upstreamCommit: string;
   readonly configuration: RuntimeConfiguration;
+  readonly cluster?: SavedClusterConfiguration;
 }
 export interface Attempt {
   readonly id: string;
@@ -128,7 +131,10 @@ function inputText(value: unknown, blank: boolean): string {
 function provenance(value: Provenance): Provenance {
   if (
     !value ||
-    Object.keys(value).sort().join(',') !== 'configuration,packageId,upstreamCommit' ||
+    Object.keys(value).sort().join(',') !==
+      (value.cluster === undefined
+        ? 'configuration,packageId,upstreamCommit'
+        : 'cluster,configuration,packageId,upstreamCommit') ||
     !/^[a-f0-9]{40}$/u.test(value.upstreamCommit)
   )
     throw new Error('INVALID_HISTORY');
@@ -151,10 +157,22 @@ function provenance(value: Provenance): Provenance {
       'INVALID_CONFIGURATION'
   )
     throw new Error('INVALID_HISTORY');
+  const cluster =
+    value.cluster === undefined ? undefined : decodeSavedClusterConfiguration(value.cluster);
+  if (
+    cluster &&
+    (cluster.modelId !== cfg.modelSha256 ||
+      cluster.load.defaults.contextLength !== cfg.contextPerSlot ||
+      cluster.load.defaults.concurrency !== cfg.slots ||
+      cluster.load.cacheK !== cfg.cacheK ||
+      cluster.load.cacheV !== cfg.cacheV)
+  )
+    throw Error('INVALID_HISTORY');
   return Object.freeze({
     packageId: value.packageId,
     upstreamCommit: value.upstreamCommit,
     configuration: Object.freeze(structuredClone(cfg)),
+    ...(cluster ? { cluster } : {}),
   });
 }
 function field(row: Row, name: string): string {

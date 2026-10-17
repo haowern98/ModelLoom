@@ -3,9 +3,40 @@ import {
   createModelConfiguration,
   decodeModelConfiguration,
   decodeGenerationOverrides,
+  decodeResolvedRequestSettings,
 } from './contracts.js';
 
 import { capabilities, record } from './test-fixtures.js';
+import { resolveRequestSettings } from './resolve.js';
+
+it('retains unlimited captured requests without accepting negative caller overrides', () => {
+  const source = record();
+  const captured = resolveRequestSettings(
+    source,
+    {
+      modelId: source.modelId,
+      revision: 1,
+      profileId: capabilities.profileId,
+      load: source.load,
+    },
+    {},
+    capabilities,
+  );
+  expect(
+    decodeResolvedRequestSettings(JSON.parse(JSON.stringify(captured)), capabilities).parameters
+      .max_tokens,
+  ).toBe(-1);
+  for (const max_tokens of [-2, 0, 1.5, Infinity])
+    expect(() =>
+      decodeResolvedRequestSettings(
+        { ...captured, parameters: { ...captured.parameters, max_tokens } },
+        capabilities,
+      ),
+    ).toThrow('INVALID_CONFIGURATION');
+  expect(() => decodeGenerationOverrides({ max_tokens: -1 }, capabilities)).toThrow(
+    'INVALID_CONFIGURATION',
+  );
+});
 
 it('initializes actual profile defaults instead of importing the preview editor values', () => {
   const profile = {

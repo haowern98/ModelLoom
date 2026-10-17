@@ -1,15 +1,11 @@
 import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import {
-  Activity,
-  ChevronDown,
-  Cpu,
-  Database,
-  Network,
-  SlidersHorizontal,
-  Sun,
-} from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
+import { Cpu } from '@phosphor-icons/react/dist/csr/Cpu';
+import { Database } from '@phosphor-icons/react/dist/csr/Database';
+import { Network } from '@phosphor-icons/react/dist/csr/Network';
 import { Button } from '../../components/Button';
+import { ChatGptSidebarIcon } from '../../components/ChatGptSidebarIcon';
 import { Dialog } from '../../components/Dialog';
 import { SearchField } from '../../components/SearchField';
 import styles from './SettingsPage.module.css';
@@ -20,7 +16,7 @@ export type SettingsCategory =
 const categories = [
   {
     name: 'Appearance',
-    icon: Sun,
+    icon: 'appearance',
     keywords:
       'theme light dark system accent colour density status metrics reduce motion contextual help',
   },
@@ -31,8 +27,8 @@ const categories = [
   },
   { name: 'Storage', icon: Database, keywords: 'model cache folder location limits cleanup' },
   { name: 'Network', icon: Network, keywords: 'LAN Tailscale Headscale connectivity API access' },
-  { name: 'Diagnostics', icon: Activity, keywords: 'health logs metrics export' },
-  { name: 'Advanced', icon: SlidersHorizontal, keywords: 'advanced options' },
+  { name: 'Diagnostics', icon: 'diagnostics', keywords: 'health logs metrics export' },
+  { name: 'Advanced', icon: 'advanced', keywords: 'advanced options' },
 ] as const;
 
 const appearanceUnavailable = 'Appearance changes are not available yet.';
@@ -242,7 +238,12 @@ export function SettingsPage({
             if (event.key === 'Escape') setQuery('');
           }}
         >
-          <SearchField label="Search settings" value={query} onChange={setQuery} />
+          <SearchField
+            label="Search settings"
+            value={query}
+            onChange={setQuery}
+            icon={<ChatGptSidebarIcon icon="search" />}
+          />
         </div>
         <nav className={styles.categories} aria-label="Settings categories">
           <p className={styles.categoryLabel}>Preferences</p>
@@ -256,7 +257,11 @@ export function SettingsPage({
                 details.current?.scrollTo({ top: 0 });
               }}
             >
-              <item.icon size={16} aria-hidden="true" />
+              {typeof item.icon === 'string' ? (
+                <ChatGptSidebarIcon icon={item.icon} />
+              ) : (
+                <item.icon size={16} weight="regular" aria-hidden="true" />
+              )}
               {item.name}
             </button>
           ))}

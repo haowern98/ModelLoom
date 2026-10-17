@@ -1,5 +1,28 @@
 # Windows runtime activation
 
+**Later 2026-10-16 user correction:** llama.cpp modifications are permitted for
+isolated tests only and forbidden in the production app. Do not install or select
+an instrumented diagnostic binary through the app's normal runtime path. The
+proposed custom-placement-receipt application runtime is superseded; production
+verification uses the unmodified runtime and retains existing activation checks.
+
+**Cluster configuration implementation, 2026-10-16:**
+
+The implemented Windows development slice uses the verified, unmodified b11306
+runtime for the exact Bonsai 64-block profile: context 7680 per slot, four slots,
+q8_0 K/V caches, flash attention on, batch 2048/microbatch 512 and one or two
+NVIDIA GPUs on this PC.
+Other load tuples remain rejected. It does not open production root custody,
+change signatures or modify llama.cpp. Auto place refreshes resources and runs the
+stock fit estimator, preferring one GPU, then checking both GPU orders and cuts
+from the centre outward until the first feasible proposal. Review, Save and Run
+remain separate actions. Run captures the saved ID/revision, model, load settings
+and ranges, preflights before stopping an active model, and rechecks dirty state
+and revision in core. Exact UUID launch and complete stock debug startup checks
+bind PCI identities, all 64 blocks, output, cache/state and allowed input fallback.
+The UI shows verified active ranges. Quit joins estimator cleanup.
+See [native validation](research/cluster-placement-native-validation.md).
+
 The shared core contains a gated Windows x64 activation adapter and an explicit development desktop connection for the exact tested Bonsai configuration. Ordinary builds and packaged production activation remain closed. The independent headless fixture harness remains available; separate development CLI diagnostics exercise the real runtime. This work implements parts of ADR-0004 and S15-S17; release acceptance remains pending.
 
 **Reconciled 2026-10-10:** The development desktop also connects durable Chat
@@ -58,6 +81,8 @@ and [later four-slot/Chat evidence](local-generation.md).
 Each call queries afresh with a two-second timeout, a 64 KiB combined stdout/stderr limit and a 64-device limit. Timeout, overflow and cancellation terminate only the captured diagnostic child and wait for its closed pipes; unconfirmed cleanup fails after two further seconds. No executable-name or later PID search is used. Failed discovery produces unknown GPU data, not cached capacity or zero VRAM. Malformed rows, invalid UTF-8, duplicate identities, overflow and impossible free/total amounts are rejected. `[N/A]` memory stays unknown. WDDM free memory is a management snapshot, not a reserved Windows allocation budget or a guarantee that loading will succeed.
 
 `checkCudaResources` retains the existing exact model/build/configuration checks and requires a validated `deviceVram` budget in bytes for every selected physical UUID. The sum must match the report's weights/KV/scratch VRAM, and each GPU must fit its own budget; another GPU cannot compensate for a shortage. Missing devices, unknown memory, active MIG partitioning or incomplete placement produce `NEEDS_RESOURCE_EVIDENCE`. The inventory's `minimumDriver` means the installed NVIDIA driver version, not the CUDA toolkit/banner version; a lower numeric version produces `INCOMPATIBLE_DRIVER`. RAM/VRAM shortage still produces `INSUFFICIENT_RESOURCES`. Context, quantization, cache types, slots, seed and temperature are never changed to fit.
+
+The 2026-10-16 authorized [3060 shared-memory test](research/runtime-shared-memory-2026-10-16/live-3060/README.md) adds a confirmed exception for single-GPU WDDM VRAM shortage. A compatible driver and exact report remain required. Admission reserves the existing host/cache RAM budget, the full GPU allocation as possible RAM backing, and 1.5 GiB headroom. Insufficient RAM still blocks. The desktop asks **Use system RAM?** before proceeding; Continue triggers fresh preflight and an owner-only one-use confirmation at final native creation. No context, precision, model or CPU layer placement is substituted. Driver fallback can still fail, so this is not an allocation guarantee or cross-platform evidence. No new model/device report is authorized by the diagnostic.
 
 Run `pnpm --filter @modelloom/core probe:resources` under the pinned host for a development-only JSON snapshot. It builds the local broker/hosts and exits nonzero when RAM or NVIDIA discovery is unknown. It cannot load a model or turn a caller-provided estimate into approved planner evidence. The native CUDA launch accepts exactly one validated full UUID, sets `CUDA_VISIBLE_DEVICES` only in the owned child and addresses it as CUDA0 with split-mode none. Ambient CUDA/LLAMA overrides remain excluded. Native tests verify selected visibility, invalid-input rejection and independent-child survival.
 

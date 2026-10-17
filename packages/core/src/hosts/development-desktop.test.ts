@@ -3,6 +3,7 @@ import path from 'node:path';
 import { developmentDesktopDependencies } from './development-desktop.js';
 import type * as DevelopmentPolicy from '../runtime-package/development-policy.js';
 import type { DesktopDeployment } from './desktop.js';
+import { discoverResources } from './resource-probe.js';
 
 const startup = vi.hoisted(() => ({
   admit: vi.fn(),
@@ -27,7 +28,10 @@ vi.mock('./windows-ownership.js', () => ({
 vi.mock('../runtime-package/verifier.js', () => ({
   createDevelopmentRuntimeVerifier: () => ({ verify: startup.verify }),
 }));
-vi.mock('../runtime-package/install.js', () => ({ installExpanded: startup.install }));
+vi.mock('../runtime-package/install.js', () => ({
+  installExpanded: startup.install,
+  requireInstalledLive: () => ({ backend: 'cuda', version: 'observed-version' }),
+}));
 vi.mock('./real-engine.js', () => ({ realEngineAdapter: startup.adapter }));
 vi.mock('./desktop.js', () => ({
   createDesktopEngineHost: (_fork: unknown, deployment: DesktopDeployment) => {
@@ -41,7 +45,7 @@ vi.mock('../runtime-package/development-policy.js', async (original) => ({
   DEVELOPMENT_BUILD: true,
 }));
 vi.mock('./resource-probe.js', () => ({
-  discoverResources: () =>
+  discoverResources: vi.fn(() =>
     Promise.resolve({
       ram: 10 * 2 ** 30,
       gpus: [
@@ -55,6 +59,7 @@ vi.mock('./resource-probe.js', () => ({
         },
       ],
     }),
+  ),
 }));
 beforeEach(() => vi.clearAllMocks());
 
@@ -104,6 +109,7 @@ it('starts an owned history core without package verification, installation or e
   );
   const host = await deps.createHistoryHost();
   expect(startup.verify).not.toHaveBeenCalled();
+  expect(deps.runtimeBackends()).toBeUndefined();
   expect(startup.install).not.toHaveBeenCalled();
   expect(startup.adapter).not.toHaveBeenCalled();
   const deployment = startup.deployment!;
@@ -150,6 +156,27 @@ it('does not confer engine launch authority when package preparation fails', asy
   await host.close();
   await expect(host.prepare('approved.gguf')).rejects.toThrow('CORE_EXITED');
   expect(startup.verify).toHaveBeenCalledTimes(1);
+});
+
+it('reuses the verifier-issued installation across model preparations without repeating package copies', async () => {
+  const deps = developmentDesktopDependencies(() => {
+    throw Error('UNEXPECTED_FORK');
+  }, 'unused');
+  const host = await deps.createHistoryHost();
+  const installed = { packageId: deps.packageId, directory: 'verified-installation' };
+  startup.verify.mockResolvedValueOnce('verified-capability');
+  startup.install.mockResolvedValueOnce(installed);
+  const first = { close: vi.fn(() => Promise.resolve()) };
+  const second = { close: vi.fn(() => Promise.resolve()) };
+  startup.adapter.mockReturnValueOnce(first).mockReturnValueOnce(second);
+  await host.prepare('first.gguf');
+  await host.prepare('second.gguf');
+  expect(startup.verify).toHaveBeenCalledTimes(1);
+  expect(startup.install).toHaveBeenCalledTimes(1);
+  expect(first.close).toHaveBeenCalledTimes(1);
+  expect(startup.adapter.mock.calls.at(-1)?.[0]).toBe(installed);
+  await host.close();
+  expect(second.close).toHaveBeenCalledTimes(1);
 });
 
 it('waits for pending package preparation on close without granting late engine authority', async () => {
@@ -207,6 +234,7 @@ it('binds the admitted engine after verification and closes it with the history 
   startup.install.mockResolvedValueOnce(installed);
   startup.adapter.mockReturnValueOnce(adapter);
   await host.prepare('approved.gguf');
+  expect(deps.runtimeBackends()).toEqual(['cuda (observed-version)']);
   expect(startup.install).toHaveBeenCalledWith(
     'verified-capability',
     expect.any(String),
@@ -217,7 +245,44 @@ it('binds the admitted engine after verification and closes it with the history 
     'approved.gguf',
     expect.objectContaining({ slots: 4 }),
     18478,
+    expect.any(Function),
+    undefined,
   );
+  const takeConfirmation = startup.adapter.mock.calls.at(-1)![4] as () => boolean;
+  expect(takeConfirmation()).toBe(false);
+  const sharedSnapshot = {
+    ram: 32 * 2 ** 30,
+    gpuQuery: 'OK',
+    gpus: [
+      {
+        uuid: 'GPU-22c23971-dacf-2123-2169-ad70d8f6729a',
+        bus: '00000000:04:00.0',
+        driver: '617.14',
+        total: 16 * 2 ** 30,
+        free: 5 * 2 ** 30,
+        mig: '[N/A]' as const,
+        driverModel: 'WDDM' as const,
+      },
+    ],
+  };
+  vi.mocked(discoverResources).mockResolvedValueOnce(sharedSnapshot);
+  await deps.preflight(true);
+  expect(takeConfirmation()).toBe(true);
+  expect(takeConfirmation()).toBe(false);
+  let release!: (snapshot: typeof sharedSnapshot) => void;
+  vi.mocked(discoverResources).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const stalePreflight = deps.preflight(true);
+  void stalePreflight.catch(() => undefined);
+  vi.mocked(discoverResources).mockResolvedValueOnce(sharedSnapshot);
+  await expect(deps.preflight()).rejects.toThrow('SHARED_GPU_MEMORY_CONFIRMATION');
+  release(sharedSnapshot);
+  await expect(stalePreflight).rejects.toThrow('START_FAILED');
+  expect(takeConfirmation()).toBe(false);
   expect(await startup.deployment!.adapter.launch(selection, new AbortController().signal)).toBe(
     engine,
   );

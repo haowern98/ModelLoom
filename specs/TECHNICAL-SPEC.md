@@ -110,11 +110,32 @@ Unit tests live beside the component they test. Create directories when needed. 
 - T01 (P3-P4, P8): Maintain one active model identity with its runtime, context/sampling settings, selected devices, and applied placement. A library selection, pending placement, or installed runtime update cannot silently change it.
 - T02 (P8): Route Chat and API through one bounded coordination policy using LM Studio's configurable concurrent predictions/continuous batching as the reference under [ADR-0003](decisions/0003-lm-studio-behavior-reference.md). One active model can serve multiple isolated requests. D09 verifies concurrency, queue ownership/capacity, wait bounds, fairness, overload, cancellation, and restart semantics; do not invent a serial-only default or duplicate engine scheduling without evidence. Validate cluster memory/context and unchanged-quality behavior before selecting actual limits. Pending requests must not be silently served by a newly switched model.
 - T03 (P4, P6): Distinguish stopped, preparation/loading, ready, generating, stopping, interrupted, and failed states. The exact event names belong to the reviewed contract. A partially generated answer cannot become completed after worker failure.
-- T04 (P8): Keep the editable pending proposal and applied placement separate. The 2026-10-04 Cluster revision removes a separate UI save requirement; Run snapshots and validates the selected proposal for initial loading. Apply pending changes through a user-requested restart after preflight; stop/cancel or otherwise resolve active and queued requests according to the approved policy.
+- T04 (P8): Keep durable raw drafts, validated saved configurations and immutable verified active placement separate. The 2026-10-16 revision requires Save before Run for manual and automatic proposals. Save validates exact block coverage without reserving current VRAM. Run captures the saved revision, effective settings and ordered physical GPU identities, then refreshes package/model/resource/placement evidence. Edits and selection changes invalidate pending preparation. Apply through an explicit confirmed restart; Stop/Cancel remain reachable with dirty drafts. The first bounded slice is local one/two-device NVIDIA CUDA; it does not establish AMD, remote placement or multi-GPU correctness.
 - T05 (P1, P6): Bound retries and process restart attempts. Report exhausted recovery with a useful action. A restart must not duplicate a request, replay an interrupted generation secretly, create orphan workers, or race a shutdown/runtime switch.
 - T06 (P1, P4): Reconcile state after lost event connections and process restarts. A stale running badge is not proof of a live model, API, or worker.
 
 ## 6. Models, placement, and storage
+
+**2026-10-16 runtime boundary:** Production ModelLoom must use unmodified
+llama.cpp. The user permits source instrumentation for isolated tests only;
+modified diagnostic binaries cannot enter normal application runtime installs or
+load paths. Custom diagnostic reporting is not a production runtime dependency.
+Preserve signature/file verification. The following bounded development method
+uses stock runtime evidence; broader production placement remains unaccepted.
+
+The implemented Windows development slice uses the verified, unmodified b11306
+runtime for the exact Bonsai 64-block profile: context 7680 per slot, four slots,
+q8_0 K/V caches, flash attention on, batch 2048/microbatch 512 and one or two
+NVIDIA GPUs on this PC.
+Other load tuples remain rejected. It does not open production root custody,
+change signatures or modify llama.cpp. Auto place refreshes resources and runs the
+stock fit estimator, preferring one GPU, then checking both GPU orders and cuts
+from the centre outward until the first feasible proposal. Review, Save and Run
+remain separate actions. Run captures the saved ID/revision, model, load settings
+and ranges, preflights before stopping an active model, and rechecks dirty state
+and revision in core. Exact UUID launch and complete stock debug startup checks
+bind PCI identities, all 64 blocks, output, cache/state and allowed input fallback.
+The UI shows verified active ranges. Quit joins estimator cleanup.
 
 - T07 (P3): Read actual GGUF identity, architecture, quantization, file size, supported context metadata, and runtime capabilities. Unsupported combinations fail preflight with a reason; do not guess compatibility from a model display name.
 - T08 (P3): Estimate weights, context/KV-related memory, and runtime/backend overhead for selected placement. Label estimates and report actual measurements separately. Do not sum Apple unified memory and discrete VRAM as interchangeable capacity.

@@ -1,5 +1,10 @@
 import { useRef, useState } from 'react';
-import { Cpu, Gpu, Apple, Pencil, EllipsisVertical, Plus } from 'lucide-react';
+import { Cpu } from '@phosphor-icons/react/dist/csr/Cpu';
+import { GraphicsCard as Gpu } from '@phosphor-icons/react/dist/csr/GraphicsCard';
+import { AppleLogo as Apple } from '@phosphor-icons/react/dist/csr/AppleLogo';
+import { Pencil } from '@phosphor-icons/react/dist/csr/Pencil';
+import { DotsThreeVertical as EllipsisVertical } from '@phosphor-icons/react/dist/csr/DotsThreeVertical';
+import { Plus } from '@phosphor-icons/react/dist/csr/Plus';
 import type { DemoDevice, SampleRange } from '../../mocks/cluster';
 import { Button } from '../../components/Button';
 import styles from './ClusterPage.module.css';
@@ -11,6 +16,7 @@ interface DeviceCardProps {
   layerCount: number;
   loading: boolean;
   proposed: boolean;
+  savedAssignment?: boolean;
   active: boolean;
   localReady?: boolean;
   onEdit: (hardwareId: string) => void;
@@ -28,8 +34,9 @@ export function DeviceCard({
   layerCount,
   loading,
   proposed,
+  savedAssignment = false,
   active,
-  localReady = false,
+
   onEdit,
   onDetails,
   onRename,
@@ -151,7 +158,7 @@ export function DeviceCard({
                   <div className={styles.assignment}>
                     <div
                       className={styles.bar}
-                      title={range ? 'Sample allocation share, not measured memory use' : undefined}
+                      title={range ? 'Layer allocation share, not measured memory use' : undefined}
                     >
                       {range && (
                         <span
@@ -163,11 +170,9 @@ export function DeviceCard({
                     </div>
                     <div className={styles.rangeRow}>
                       <span>
-                        {localReady && hardware.kind === 'gpu'
-                          ? 'Full GPU offload'
-                          : range
-                            ? `${proposed ? 'Planned layers' : 'Layers'} ${range.first} – ${range.last}`
-                            : 'Unassigned'}
+                        {range
+                          ? `${proposed && !savedAssignment ? 'Planned layers' : 'Layers'} ${range.first} – ${range.last}`
+                          : 'Unassigned'}
                       </span>
                       <button
                         type="button"

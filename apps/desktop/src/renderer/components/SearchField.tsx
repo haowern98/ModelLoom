@@ -1,16 +1,18 @@
 import { Search } from 'lucide-react';
+import type { ReactNode } from 'react';
 import styles from './SearchField.module.css';
 
 interface SearchFieldProps {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  icon?: ReactNode;
 }
 
-export function SearchField({ label, value, onChange }: SearchFieldProps) {
+export function SearchField({ label, value, onChange, icon }: SearchFieldProps) {
   return (
     <label className={styles.field}>
-      <Search size={16} aria-hidden="true" />
+      {icon ?? <Search size={16} aria-hidden="true" />}
       <input
         type="search"
         aria-label={label}

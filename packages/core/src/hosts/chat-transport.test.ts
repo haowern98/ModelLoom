@@ -147,6 +147,23 @@ it('uses the captured closed settings for template accounting and native generat
   ).toThrow('INVALID_CONTROL');
   expect(f.requests).toHaveLength(2);
 });
+
+it('sends the unlimited sentinel when the saved reply-length limit is off', async () => {
+  const f = await fixture();
+  const source = record();
+  const settings = resolveRequestSettings(
+    source,
+    { modelId: source.modelId, revision: 1, profileId: capabilities.profileId, load: source.load },
+    {},
+    capabilities,
+  );
+  await f.transport.tokenCount(messages, new AbortController().signal, settings);
+  const run = f.transport.start(identity, messages, () => undefined, settings);
+  await new Promise<void>((resolve) => setTimeout(resolve, 150));
+  f.release();
+  await run.settled;
+  expect(f.requests.map((request) => request.body.max_tokens)).toEqual([-1, -1]);
+});
 it('waits for captured engine exit when listener loss rejects slot proof first', async () => {
   const f = await fixture();
   const run = f.transport.start(identity, messages, () => undefined);

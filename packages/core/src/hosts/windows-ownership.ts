@@ -44,6 +44,14 @@ interface Binding {
     temporaryDirectory: string,
     gpuUuid: string,
   ): object;
+  /** Ordered physical visibility for a bounded one/two-device plan. */
+  launchCudaPlanConsole(
+    root: object,
+    executable: string,
+    args: readonly string[],
+    temporaryDirectory: string,
+    orderedUuids: readonly string[],
+  ): object;
   observe(child: object): Observation;
   requestStop(child: object): void;
   abortFixture(child: object): void;
@@ -70,6 +78,7 @@ const operations = [
   'launch',
   'launchConsole',
   'launchCudaConsole',
+  'launchCudaPlanConsole',
   'observe',
   'requestStop',
   'abortFixture',

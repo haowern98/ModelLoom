@@ -4,7 +4,7 @@
   --toast-text: #f3f3f3;
   position: absolute;
   z-index: 20;
-  top: 8px;
+  top: 24px;
   left: 50%;
   transform: translateX(-50%);
   width: max-content;
