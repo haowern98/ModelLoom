@@ -1,7 +1,9 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { ArrowLeft, X } from 'lucide-react';
 import { Button } from '../../components/Button';
+import { Toast } from '../../components/Toast';
+import type { ToastMessage } from '../../components/Toast';
 import type { DemoModel } from '../../mocks/modelLibrary';
 import { createDemoDefaults, numericSettings, validateDemoDefaults } from './configuration';
 import type {
@@ -77,6 +79,10 @@ export function ModelConfigurationPage({
   const { draft, saved } = configuration;
   const formId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
+  const resetFallback = useRef<HTMLButtonElement>(null);
+  const notificationId = useRef(0);
+  const [notification, setNotification] = useState<ToastMessage | null>(null);
+  const dismissNotification = useCallback(() => setNotification(null), []);
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
@@ -89,6 +95,7 @@ export function ModelConfigurationPage({
 
   const patch = (values: Partial<DemoModelDefaults>) => {
     onChange({ ...draft, ...values });
+    dismissNotification();
     setMessage('');
     setErrors({});
   };
@@ -212,6 +219,7 @@ export function ModelConfigurationPage({
   };
   const save = async () => {
     if (saving) return;
+    dismissNotification();
     const next = draft.stopInput
       ? {
           ...draft,
@@ -248,11 +256,15 @@ export function ModelConfigurationPage({
     setMessage('Saving defaults…');
     try {
       await onSave(next);
-      setMessage(
-        live
+      setMessage('');
+      setNotification({
+        id: ++notificationId.current,
+        kind: 'success',
+        message: live
           ? 'Defaults saved. New requests will use these settings.'
           : 'Defaults saved for this demo session.',
-      );
+        origin: null,
+      });
     } catch (error) {
       const messages: Record<string, string> = {
         STALE_CONFIGURATION: 'These settings changed. Reopen configuration before saving again.',
@@ -273,6 +285,14 @@ export function ModelConfigurationPage({
 
   return (
     <div className={styles.page} data-model-configuration>
+      {notification && (
+        <Toast
+          key={notification.id}
+          notification={notification}
+          fallbackRef={resetFallback}
+          onDismiss={dismissNotification}
+        />
+      )}
       <div className={styles.scroller} data-configuration-scroll>
         <div className={styles.content}>
           <header className={styles.header}>
@@ -564,47 +584,26 @@ export function ModelConfigurationPage({
                 inactive: 'Auto',
               })}
               {numeric('seed', { optional: 'seed', inactive: 'Random' })}
-              <Row
-                label="llama.cpp Arguments Override"
-                id="config-arguments"
-                description={
-                  live
-                    ? 'Runtime argument overrides are not available for this model profile.'
-                    : 'Stored as text only; no arguments are executed.'
-                }
-              >
-                {toggle(
-                  'config-arguments',
-                  draft.argumentsEnabled,
-                  (argumentsEnabled) => patch({ argumentsEnabled }),
-                  Boolean(live),
-                )}
-              </Row>
-              {draft.argumentsEnabled && (
-                <div className={styles.textRow}>
-                  <label htmlFor="config-arguments-text">Arguments</label>
-                  <textarea
-                    id="config-arguments-text"
-                    disabled={Boolean(live)}
-                    maxLength={8000}
-                    placeholder="Enter argument overrides…"
-                    value={draft.argumentsText}
-                    onChange={(event) => patch({ argumentsText: event.target.value })}
-                  />
-                  <p className={styles.description}>Stored as text only; no command is executed.</p>
-                </div>
-              )}
             </Section>
           </form>
         </div>
       </div>
-      <footer className={styles.footer} role="group" aria-label="Model configuration actions">
-        <p
-          className={styles.feedback}
-          role={Object.keys(errors).length || saveFailed ? 'alert' : 'status'}
-        >
-          {message}
-        </p>
+      <footer
+        ref={(footer) => {
+          resetFallback.current = footer?.querySelector('button') ?? null;
+        }}
+        className={styles.footer}
+        role="group"
+        aria-label="Model configuration actions"
+      >
+        {message && (
+          <p
+            className={styles.feedback}
+            role={Object.keys(errors).length || saveFailed ? 'alert' : 'status'}
+          >
+            {message}
+          </p>
+        )}
         <Button
           className={styles.reset}
           onClick={() => patch(structuredClone(live?.resetDefaults ?? createDemoDefaults()))}
