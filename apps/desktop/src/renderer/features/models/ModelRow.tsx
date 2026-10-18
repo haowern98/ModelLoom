@@ -118,7 +118,7 @@ export function ModelRow({
                   type="button"
                   disabled={active}
                   title={
-                    active ? 'Stop the demo model in Cluster before removing this entry' : undefined
+                    active ? 'Stop this model in Cluster before removing its entry' : undefined
                   }
                   onClick={() => openAction(onRemove)}
                 >

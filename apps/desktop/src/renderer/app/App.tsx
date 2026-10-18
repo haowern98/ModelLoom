@@ -102,10 +102,15 @@ export function App() {
     restoreConfigurationFocus.current = null;
   }, [destination, configurationModel]);
 
-  const navigate = (next: Destination) => {
+  const commitNavigation = (next: Destination) => {
     configurationOpen.current++;
     setConfigurationModelId(null);
     setDestination(next);
+  };
+  const navigate = (next: Destination) => {
+    if (destination === 'Cluster' && next !== 'Cluster')
+      void clusterConfigurations.requestLeave(() => commitNavigation(next));
+    else commitNavigation(next);
   };
 
   useEffect(() => {
@@ -219,15 +224,7 @@ export function App() {
                 restoring: runtime.view?.restoring ?? false,
               }
             : {})}
-          onRemove={(model) =>
-            live
-              ? setModal({
-                  type: 'info',
-                  title: 'Remove model',
-                  text: 'Model removal is not connected in this first local runtime slice.',
-                })
-              : setModal({ type: 'remove', model })
-          }
+          onRemove={(model) => setModal({ type: 'remove', model })}
           onDetails={(model) => setModal({ type: 'details', model })}
           onConfigure={(model) => {
             if (live) {
@@ -349,7 +346,6 @@ export function App() {
                     runtime.view?.phase === 'starting' ||
                     runtime.view?.phase === 'loading',
                   onChoose: (model: DemoModel) => {
-                    setLocalSelection(model.id);
                     void clusterConfigurations.selectModel(model.id);
                   },
                   onRunConfiguration: (configurationId: string, revision: number) => {
@@ -455,15 +451,17 @@ export function App() {
           {displayedModal.type === 'remove' && (
             <>
               <p>
-                Remove <strong>{displayedModal.model.name}</strong> from this sample library? No
-                model files will be deleted.
+                Remove <strong>{displayedModal.model.name}</strong> from this{' '}
+                {live ? 'model' : 'sample'} library? No model files will be deleted.
               </p>
               <footer>
                 <Button onClick={closeModal}>Cancel</Button>
                 <Button
                   variant="primary"
                   onClick={() => {
-                    dispatch({ type: 'remove', modelId: displayedModal.model.id });
+                    if (live)
+                      void runtime.run({ action: 'remove', modelId: displayedModal.model.id });
+                    else dispatch({ type: 'remove', modelId: displayedModal.model.id });
                     setModal(null);
                   }}
                 >
