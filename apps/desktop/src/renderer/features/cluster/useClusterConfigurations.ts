@@ -166,6 +166,35 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
       refresh();
     });
   };
+  /** Rehydrate load settings after model defaults change, preserving exact placement edits/history. */
+  const refreshModel = async (modelId: string) => {
+    if (!bridge) return;
+    const id = modelId.replace(/^model-/u, '');
+    await Promise.all(
+      [...entries.current.values()]
+        .filter((entry) => entry.raw.modelId === id)
+        .map((entry) =>
+          enqueue(entry, async () => {
+            const reply = success(
+              await bridge.command({
+                action: 'read',
+                modelId: id,
+                configurationId: entry.saved?.id ?? null,
+              }),
+            );
+            const load = reply.load;
+            if (!load) throw Error('Configuration settings unavailable.');
+            entry.raw = { ...entry.raw, load };
+            entry.past = entry.past.map((edit) => ({ ...edit, load }));
+            entry.future = entry.future.map((edit) => ({ ...edit, load }));
+            entry.saved = reply.configuration;
+            entry.draft = reply.draft;
+            configurations.current = reply.configurations;
+            refresh();
+          }),
+        ),
+    );
+  };
   const edit = (runs: readonly RawGpuRun[]) => {
     const entry = current();
     if (!entry || !bridge || entry.busy || planning.current) return;
@@ -430,6 +459,7 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     selectModel: (modelId: string) => select(modelId.replace(/^model-/u, ''), null),
     selectConfiguration: (configuration: SavedClusterConfiguration) =>
       select(configuration.modelId, configuration.id),
+    refreshModel,
     edit,
     undo: () => moveHistory('undo'),
     redo: () => moveHistory('redo'),

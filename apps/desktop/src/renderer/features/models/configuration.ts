@@ -78,7 +78,7 @@ export function createDemoDefaults(): DemoModelDefaults {
     flashAttention: true,
     thinking: true,
     reasoningMessage: 'I have to answer now.',
-    overflow: 'truncate-middle',
+    overflow: 'stop',
     stopStrings: [],
     stopInput: '',
     customTemplate: false,

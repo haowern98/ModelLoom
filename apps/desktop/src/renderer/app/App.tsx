@@ -189,12 +189,22 @@ export function App() {
                     : (current[modelId]?.draft ?? saved),
               },
             }));
+            await clusterConfigurations.refreshModel(record.modelId);
+            return { pendingReload: reply.pendingReload };
           }}
           onBack={() => {
             restoreConfigurationFocus.current = `Configure ${configurationModel.name}`;
             setConfigurationModelId(null);
           }}
-          onCluster={() => navigate('Cluster')}
+          onCluster={() => {
+            if (local) {
+              setLocalSelection(configurationModel.id);
+              void clusterConfigurations.selectModel(configurationModel.id);
+            } else if (placement.modelId !== configurationModel.id) {
+              dispatchPlacement({ type: 'choose', modelId: configurationModel.id, mode: 'manual' });
+            }
+            navigate('Cluster');
+          }}
         />
       ) : destination === 'Models' ? (
         <ModelsPage

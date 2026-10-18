@@ -6,6 +6,7 @@ import { Toast } from '../../components/Toast';
 import type { ToastMessage } from '../../components/Toast';
 import type { DemoModel } from '../../mocks/modelLibrary';
 import { createDemoDefaults, numericSettings, validateDemoDefaults } from './configuration';
+import { ConfigurationNumberInput, ConfigurationSelect } from './ConfigurationControls';
 import type {
   DemoConfiguration,
   DemoModelDefaults,
@@ -18,7 +19,7 @@ interface ModelConfigurationPageProps {
   model: DemoModel;
   configuration: DemoConfiguration;
   onChange: (draft: DemoModelDefaults) => void;
-  onSave: (draft: DemoModelDefaults) => void | Promise<void>;
+  onSave: (draft: DemoModelDefaults) => void | Promise<void | { pendingReload: boolean }>;
   live?: {
     maxOutputTokens: number;
     thinkingSupported: boolean;
@@ -85,6 +86,7 @@ export function ModelConfigurationPage({
   const dismissNotification = useCallback(() => setNotification(null), []);
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
+  const [templateExpanded, setTemplateExpanded] = useState(draft.customTemplate);
   const [saveFailed, setSaveFailed] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<NumericSetting, string>>>({});
   const changed = JSON.stringify(draft) !== JSON.stringify(saved);
@@ -187,23 +189,19 @@ export function ModelConfigurationPage({
               style={{ '--range-fill': `${fraction * 100}%` } as CSSProperties}
             />
           )}
-          {disabled && options.inactive ? (
-            <input id={id} type="text" value={options.inactive} disabled />
-          ) : (
-            <input
-              id={id}
-              type="number"
-              inputMode={rule.step === 1 ? 'numeric' : 'decimal'}
-              min={rule.min}
-              max={rule.max}
-              step="any"
-              value={draft.numbers[key]}
-              disabled={Boolean(disabled)}
-              aria-invalid={Boolean(errors[key])}
-              aria-describedby={errors[key] ? `${id}-error` : undefined}
-              onChange={(event) => number(key, event.target.value)}
-            />
-          )}
+          <ConfigurationNumberInput
+            id={id}
+            label={rule.label}
+            min={rule.min}
+            max={rule.max}
+            step={rule.step}
+            value={draft.numbers[key]}
+            disabled={Boolean(disabled)}
+            inactive={options.inactive}
+            invalid={Boolean(errors[key])}
+            describedBy={errors[key] ? `${id}-error` : undefined}
+            onChange={(value) => number(key, value)}
+          />
         </div>
         {errors[key] && (
           <p id={`${id}-error`} className={styles.error}>
@@ -238,7 +236,13 @@ export function ModelConfigurationPage({
     setErrors(invalid);
     const first = (Object.keys(invalid) as NumericSetting[])[0];
     if (first) {
-      setMessage('Check the highlighted settings before saving.');
+      setMessage('');
+      setNotification({
+        id: ++notificationId.current,
+        kind: 'error',
+        message: 'Check the highlighted settings before saving.',
+        origin: document.getElementById(`config-${first}`),
+      });
       document.getElementById(`config-${first}`)?.focus();
       return;
     }
@@ -255,13 +259,15 @@ export function ModelConfigurationPage({
     setSaveFailed(false);
     setMessage('Saving defaults…');
     try {
-      await onSave(next);
+      const acknowledgement = await onSave(next);
       setMessage('');
       setNotification({
         id: ++notificationId.current,
         kind: 'success',
         message: live
-          ? 'Defaults saved. New requests will use these settings.'
+          ? acknowledgement?.pendingReload
+            ? 'Defaults saved. Reload the model to apply load settings. New requests use saved generation settings.'
+            : 'Defaults saved. New requests will use these settings.'
           : 'Defaults saved for this demo session.',
         origin: null,
       });
@@ -399,20 +405,17 @@ export function ModelConfigurationPage({
                 description="When off, replies have no length cap. The loaded context limit still applies."
                 extra={optional('responseLength')}
               >
-                <input
+                <ConfigurationNumberInput
                   id="config-responseLength"
-                  type="number"
+                  label="Maximum Response Length"
                   min={1}
                   max={live?.maxOutputTokens}
-                  step="any"
-                  aria-label="Maximum Response Length"
+                  step={1}
                   value={draft.numbers.responseLength}
                   disabled={!draft.enabled.responseLength}
-                  aria-invalid={Boolean(errors.responseLength)}
-                  aria-describedby={
-                    errors.responseLength ? 'config-responseLength-error' : undefined
-                  }
-                  onChange={(event) => number('responseLength', event.target.value)}
+                  invalid={Boolean(errors.responseLength)}
+                  describedBy={errors.responseLength ? 'config-responseLength-error' : undefined}
+                  onChange={(value) => number('responseLength', value)}
                 />
                 {errors.responseLength && (
                   <p id="config-responseLength-error" className={styles.error}>
@@ -425,16 +428,20 @@ export function ModelConfigurationPage({
                 id="config-overflow"
                 description={
                   live
-                    ? 'Requests beyond the context limit are rejected.'
+                    ? 'Applies the next time the model is loaded.'
                     : 'Stores a preference only in this demo.'
                 }
               >
-                <select
+                <ConfigurationSelect
                   id="config-overflow"
-                  disabled={Boolean(live)}
+                  label="Context Overflow"
                   value={draft.overflow}
-                  onChange={(event) => {
-                    const overflow = event.target.value;
+                  options={[
+                    { value: 'truncate-middle', label: 'Truncate Middle' },
+                    { value: 'stop', label: 'Stop at Limit' },
+                    { value: 'rolling', label: 'Rolling Window' },
+                  ]}
+                  onChange={(overflow) => {
                     if (
                       overflow === 'truncate-middle' ||
                       overflow === 'stop' ||
@@ -442,11 +449,7 @@ export function ModelConfigurationPage({
                     )
                       patch({ overflow });
                   }}
-                >
-                  <option value="truncate-middle">Truncate Middle</option>
-                  <option value="stop">Stop at Limit</option>
-                  <option value="rolling">Rolling Window</option>
-                </select>
+                />
               </Row>
               <Row
                 label="Stop Strings"
@@ -539,9 +542,13 @@ export function ModelConfigurationPage({
                     : 'Speculative decoding is not connected in this demo.'
                 }
               >
-                <select id="config-speculative" disabled value="off">
-                  <option value="off">Off</option>
-                </select>
+                <ConfigurationSelect
+                  id="config-speculative"
+                  label="Method"
+                  disabled
+                  value="off"
+                  options={[{ value: 'off', label: 'Off' }]}
+                />
               </Row>
             </Section>
             <Section title="Advanced">
@@ -552,16 +559,15 @@ export function ModelConfigurationPage({
               {numeric('presencePenalty', { optional: 'presencePenalty' })}
               <div className={styles.textRow}>
                 <details
-                  open={draft.customTemplate}
+                  open={templateExpanded}
                   onToggle={(event) => {
-                    const customTemplate = event.currentTarget.open;
-                    if (customTemplate !== draft.customTemplate) patch({ customTemplate });
+                    setTemplateExpanded(event.currentTarget.open);
                   }}
                 >
                   <summary>
                     <span>Chat Template</span>
                     <span className={styles.templateValue}>
-                      {draft.chatTemplate ? 'Custom' : 'Model default'}
+                      {draft.customTemplate ? 'Custom' : 'Model default'}
                     </span>
                   </summary>
                   <p className={styles.description}>
@@ -574,7 +580,10 @@ export function ModelConfigurationPage({
                     placeholder="Leave empty to use the model default"
                     maxLength={16000}
                     value={draft.chatTemplate}
-                    onChange={(event) => patch({ chatTemplate: event.target.value })}
+                    onChange={(event) => {
+                      const chatTemplate = event.target.value;
+                      patch({ chatTemplate, customTemplate: Boolean(chatTemplate.trim()) });
+                    }}
                   />
                 </details>
               </div>
