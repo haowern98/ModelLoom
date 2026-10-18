@@ -60,6 +60,7 @@ it('enables bounded prompt caching and checkpoints by default for CPU and CUDA',
   ]) {
     const args = fixedArguments('model.gguf', selected, 9999, 'key', 'alias');
     for (const [flag, value] of [
+      ['--slot-prompt-similarity', '0'],
       ['--cache-ram', '768'],
       ['--ctx-checkpoints', '2'],
     ] as const)

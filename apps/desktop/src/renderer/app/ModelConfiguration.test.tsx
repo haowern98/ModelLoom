@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
@@ -39,6 +39,13 @@ describe('Model configuration demo', () => {
     expect(temperature).toHaveAttribute('aria-invalid', 'true');
     expect(temperature).toHaveFocus();
     expect(screen.getByRole('alert')).toHaveTextContent('Check the highlighted settings');
+    const actions = screen.getByRole('group', { name: 'Model configuration actions' });
+    expect(within(actions).queryByRole('alert')).not.toBeInTheDocument();
+    expect(temperature).toHaveAccessibleDescription('Temperature: enter a number from 0 to 2.');
+    await user.click(screen.getByRole('button', { name: 'Dismiss notification' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(temperature).toHaveAttribute('aria-invalid', 'true');
+    expect(temperature).toHaveAccessibleDescription('Temperature: enter a number from 0 to 2.');
     await user.type(temperature, '0.6');
     const physical = screen.getByRole('spinbutton', { name: 'Physical Batch Size' });
     await user.clear(physical);
@@ -111,5 +118,23 @@ describe('Model configuration demo', () => {
     );
     await user.click(screen.getByRole('button', { name: /Remove stop string.*END/ }));
     expect(screen.queryByRole('button', { name: /Remove stop string/ })).not.toBeInTheDocument();
+  });
+  it('opens and closes the template without dirtying defaults and keeps cleared text open', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));
+    expect(screen.getByRole('combobox', { name: 'Context Overflow' })).toHaveValue('stop');
+    await user.click(screen.getByText('Chat Template', { exact: true }));
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    const editor = screen.getByRole('textbox', { name: 'Chat Template text' });
+    await user.type(editor, 'custom');
+    await user.click(screen.getByText('Chat Template', { exact: true }));
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+    await user.click(screen.getByText('Chat Template', { exact: true }));
+    expect(editor).toHaveValue('custom');
+    await user.clear(editor);
+    expect(editor).toBeVisible();
+    expect(screen.getByText('Model default', { exact: true })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
   });
 });

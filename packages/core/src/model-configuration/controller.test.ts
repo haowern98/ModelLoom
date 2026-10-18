@@ -153,3 +153,43 @@ it('captures immutable next-load preferences and reports their changes as pendin
     await controller.command('window', { action: 'read', modelId: first.record.modelId }),
   ).toMatchObject({ ok: true, pendingReload: false });
 });
+
+it.each(['stop', 'truncate-middle', 'rolling'] as const)(
+  'saves and captures the validated %s overflow policy',
+  async (overflow) => {
+    const { controller } = setup();
+    const first = await controller.command('window', { action: 'read', modelId: record().modelId });
+    if (!first.ok) throw Error('Expected configuration');
+    const saved = await controller.command('window', {
+      action: 'save',
+      modelId: first.record.modelId,
+      expectedRevision: 0,
+      record: { ...first.record, preferences: { ...first.record.preferences, overflow } },
+    });
+    expect(saved).toMatchObject({ ok: true, record: { preferences: { overflow } } });
+    expect(await controller.captureLoad(first.record.modelId)).toMatchObject({
+      preferences: { overflow },
+    });
+  },
+);
+
+it.each(['automatic', 'argumentsEnabled'] as const)(
+  'still refuses unsupported %s',
+  async (field) => {
+    const { controller } = setup();
+    const first = await controller.command('window', { action: 'read', modelId: record().modelId });
+    if (!first.ok) throw Error('Expected configuration');
+    const changed =
+      field === 'automatic'
+        ? { ...first.record, load: { ...first.record.load, automatic: true } }
+        : { ...first.record, preferences: { ...first.record.preferences, argumentsEnabled: true } };
+    expect(
+      await controller.command('window', {
+        action: 'save',
+        modelId: first.record.modelId,
+        expectedRevision: 0,
+        record: changed,
+      }),
+    ).toEqual({ ok: false, error: 'UNSUPPORTED_SETTING' });
+  },
+);

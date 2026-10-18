@@ -9,6 +9,8 @@ const state = vi.hoisted(() => ({
   launch: vi.fn(),
   stopped: false,
   release: vi.fn(),
+  output: undefined as string | undefined,
+  ready: vi.fn(),
 }));
 const uuid = 'GPU-22c23971-dacf-2123-2169-ad70d8f6729a';
 vi.mock('../runtime-package/development-policy.js', () => ({
@@ -46,12 +48,17 @@ vi.mock('./windows-ownership.js', () => ({
     privateDirectory: () => {},
     launchCudaPlanConsole: state.launch,
     captureServer: () => {},
-    observe: () => ({
-      output: 'ENGINE 100\n',
-      pid: 100,
-      exitCode: state.stopped ? 0 : -1,
-      activeProcesses: state.stopped ? 0 : 1,
-    }),
+    ownedListener: () => true,
+    observe: () => {
+      const output = state.output ?? 'ENGINE 100\n';
+      if (state.output !== undefined) state.output = '';
+      return {
+        output,
+        pid: 100,
+        exitCode: state.stopped ? 0 : -1,
+        activeProcesses: state.stopped ? 0 : 1,
+      };
+    },
     forceStop: () => {
       state.stopped = true;
     },
@@ -62,15 +69,28 @@ vi.mock('./windows-ownership.js', () => ({
     coresExited: () => state.stopped,
   }),
 }));
+vi.mock('./readiness.js', () => ({ checkOwnedReadiness: state.ready }));
+vi.mock('./slot-monitor.js', () => ({
+  OwnedSlotMonitor: class {
+    initialize() {
+      return Promise.resolve();
+    }
+  },
+}));
 import { realEngineAdapter } from './real-engine.js';
 
 afterEach(() => {
   state.stopped = false;
+  state.output = undefined;
+  state.ready.mockReset();
   state.discover.mockReset();
   state.launch.mockReset();
   state.release.mockReset();
 });
-function fixture(confirmMemory: () => Promise<boolean>) {
+function fixture(
+  confirmMemory: () => Promise<boolean>,
+  overflow: 'stop' | 'rolling' | 'truncate-middle' = 'stop',
+) {
   const load = resolveClusterLoad(
     {
       id: '12345678-1234-4234-8234-123456789abc',
@@ -79,7 +99,12 @@ function fixture(confirmMemory: () => Promise<boolean>) {
       modelId: 'a'.repeat(64),
       blockCount: 64,
       profileId: 'b11306-four-slot',
-      load: { defaults: record().load, cacheK: 'q8_0', cacheV: 'q8_0' },
+      load: {
+        defaults: record().load,
+        preferences: { ...record().preferences, overflow },
+        cacheK: 'q8_0',
+        cacheV: 'q8_0',
+      },
       runs: [{ uuid, first: 0, last: 63 }],
     },
     'b11306-cuda12.4-msvc14.44-dev1',
@@ -167,3 +192,110 @@ it.each(['cancel', 'abort', 'driver'] as const)(
     await f.adapter.close();
   },
 );
+
+function allocationLog() {
+  return [
+    `llama_prepare_model_devices: using device CUDA0 (GPU) (0000:04:00.0) - 100 MiB free`,
+    ...Array.from(
+      { length: 65 },
+      (_, i) => `load_tensors: layer ${i} assigned to device CUDA0, is_swa = 0`,
+    ),
+    'load_tensors: offloading output layer to GPU',
+    'load_tensors: offloaded 65/65 layers to GPU',
+    'load_tensors: CUDA0 model buffer size = 100.00 MiB',
+    ...Array.from({ length: 64 }, (_, i) => `llama_kv_cache: layer ${i}: dev = CUDA0`),
+    'llama_kv_cache: CUDA0 KV buffer size = 10.00 MiB',
+    'srv llama_server: model loaded',
+    '',
+  ].join('\n');
+}
+it.each(['before-marker', 'partial-marker', 'partial-trailer'])(
+  'waits for the complete allocation log after HTTP readiness (%s)',
+  async (mode) => {
+    const f = fixture(() => Promise.resolve(true));
+    state.discover.mockResolvedValue(f.snapshot);
+    state.launch.mockReturnValue({});
+    const log = allocationLog();
+    const cut =
+      mode === 'before-marker'
+        ? log.indexOf('srv llama_server:')
+        : mode === 'partial-marker'
+          ? log.length - 3
+          : log.length;
+    state.output =
+      'ENGINE 100\n' + log.slice(0, cut) + (mode === 'partial-trailer' ? 'next par' : '');
+    const engine = await f.adapter.launch(f.selection, new AbortController().signal);
+    state.output = '';
+    let first = true;
+    state.ready.mockImplementation(() => {
+      if (first) {
+        first = false;
+        // Deliver the remaining native chunk only after the first readiness attempt.
+        setTimeout(() => {
+          state.output = log.slice(cut) + (mode === 'partial-trailer' ? 'tial line\n' : '');
+        }, 15);
+      }
+      return Promise.resolve();
+    });
+    try {
+      await expect(engine.waitReady(new AbortController().signal)).resolves.toBeUndefined();
+      expect(state.ready.mock.calls.length).toBeGreaterThan(1);
+    } finally {
+      await engine.forceStop();
+      await engine.exited;
+      await f.adapter.close();
+    }
+  },
+);
+
+it.each(['mismatch', 'cancel'] as const)('does not admit %s allocation evidence', async (mode) => {
+  const f = fixture(() => Promise.resolve(true));
+  state.discover.mockResolvedValue(f.snapshot);
+  state.launch.mockReturnValue({});
+  state.output =
+    'ENGINE 100\n' +
+    (mode === 'mismatch'
+      ? allocationLog().replace(
+          'layer 0 assigned to device CUDA0',
+          'layer 0 assigned to device CPU',
+        )
+      : 'load_tensors: pending\n');
+  const engine = await f.adapter.launch(f.selection, new AbortController().signal);
+  state.ready.mockResolvedValue(undefined);
+  const abort = new AbortController();
+  if (mode === 'cancel') setTimeout(() => abort.abort(), 30);
+  try {
+    await expect(engine.waitReady(abort.signal)).rejects.toThrow(
+      mode === 'mismatch' ? 'PLACEMENT_MISMATCH' : 'START_FAILED',
+    );
+  } finally {
+    await engine.forceStop();
+    await engine.exited;
+    await f.adapter.close();
+  }
+});
+
+it('confirms owned exit after an unsupported startup warning instead of repeating the fault', async () => {
+  vi.useFakeTimers();
+  const f = fixture(() => Promise.resolve(true), 'rolling');
+  state.discover.mockResolvedValue(f.snapshot);
+  state.launch.mockReturnValue({});
+  state.output =
+    'ENGINE 100\ncommon_init_: KV cache shifting is not supported for this context, disabling KV cache shifting\n';
+  try {
+    const engine = await f.adapter.launch(f.selection, new AbortController().signal);
+    await expect(engine.waitReady(new AbortController().signal)).rejects.toThrow(
+      'UNSUPPORTED_SETTING',
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await Promise.race([engine.exited, Promise.resolve('NO_EXIT_RECEIPT')])).toEqual({
+      code: 0,
+      signal: null,
+    });
+    expect(f.adapter.children()).toEqual([]);
+  } finally {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    await f.adapter.close();
+  }
+});

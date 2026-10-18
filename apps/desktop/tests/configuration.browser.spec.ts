@@ -325,8 +325,11 @@ for (const font of ['system', 'Arial fallback']) {
       // Chromium does not expose native range-thumb computed styles; inspect their captures.
       await expect(slider).toHaveCSS('background-image', /rgb\(255, 255, 255\)/);
       await expect(
-        page.getByRole('spinbutton', { name: 'CPU Thread Pool Size', exact: true }),
+        page.getByRole('spinbutton', { name: 'CPU Thread Pool Size', exact: true }).locator('..'),
       ).toHaveCSS('height', '28px');
+      await expect(
+        page.getByRole('spinbutton', { name: 'CPU Thread Pool Size', exact: true }).locator('..'),
+      ).toHaveCSS('width', '108px');
       await expect(
         page.getByRole('spinbutton', { name: 'CPU Thread Pool Size', exact: true }),
       ).toHaveCSS('font-size', '13px');

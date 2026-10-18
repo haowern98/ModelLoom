@@ -76,6 +76,14 @@ it.each([
   (value: ReturnType<typeof record>) => ({ ...value, revision: -1 }),
   (value: ReturnType<typeof record>) => ({
     ...value,
+    preferences: { ...value.preferences, overflow: ['rolling'] },
+  }),
+  (value: ReturnType<typeof record>) => ({
+    ...value,
+    preferences: { ...value.preferences, overflow: { toString: () => 'rolling' } },
+  }),
+  (value: ReturnType<typeof record>) => ({
+    ...value,
     generation: { ...value.generation, temperature: NaN },
   }),
   (value: ReturnType<typeof record>) => ({

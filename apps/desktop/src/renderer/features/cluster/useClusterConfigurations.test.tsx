@@ -11,6 +11,37 @@ import type {
 } from '../../../shared/cluster-configuration';
 const load = { defaults: {}, cacheK: 'f16', cacheV: 'f16' } as CapturedClusterLoad;
 
+it('refreshes captured model settings without losing unsaved placement text or Undo history', async () => {
+  const fixture = historyBridge();
+  const original = fixture.bridge.command;
+  let updated = false;
+  const nextLoad = { ...load, defaults: { ...load.defaults, contextLength: 2048 } };
+  fixture.bridge.command = vi.fn(async (command) => {
+    const reply = await original(command);
+    if (!updated || command.action !== 'read' || !reply.ok) return reply;
+    return {
+      ...reply,
+      load: nextLoad,
+      configuration: reply.configuration ? { ...reply.configuration, load: nextLoad } : null,
+      draft: reply.draft ? { ...reply.draft, load: nextLoad } : null,
+    };
+  });
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '-' }]));
+  updated = true;
+  await act(() => result.current.refreshModel(fixture.configuration.modelId));
+  expect(result.current.raw?.load).toEqual(nextLoad);
+  expect(result.current.draft?.load).toEqual(nextLoad);
+  expect(result.current.raw?.runs[0]?.last).toBe('-');
+  expect(result.current.dirty).toBe(true);
+  act(() => result.current.undo());
+  await waitFor(() => expect(result.current.pending).toBe(false));
+  expect(result.current.raw?.runs[0]?.last).toBe('7');
+  expect(result.current.raw?.load).toEqual(nextLoad);
+  expect(result.current.dirty).toBe(false);
+});
+
 it('retains the selected configuration and its edits when deletion fails', async () => {
   const fixture = historyBridge();
   const original = fixture.bridge.command;
