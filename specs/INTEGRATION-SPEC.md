@@ -8,6 +8,15 @@
 
 ## 1. Scope and contract status
 
+**2026-10-18 Library removal:** The live desktop confirms removal of an indexed
+model entry through the existing sender-checked runtime bridge. The renderer sends
+only the model identity; main verifies library membership and rejects removal of
+the active model or during conflicting operations. The caller-bound utility removes
+the import and source rows in one reserved transaction. Main updates its library
+only after acknowledgement. Removal persists across restart and never deletes the
+GGUF, model defaults, saved placements or chat history. Reimport restores access to
+retained settings. Storage failures retain the entry and allow an explicit retry.
+
 **2026-10-16 Cluster configuration amendment:** The local desktop adds a closed,
 sender-checked `modelloom:cluster` bridge through the existing owned utility and
 protected configuration database, upgraded transactionally from schemas 1/2/3 to
@@ -333,13 +342,25 @@ launch. An unnamed session allocation is not inserted into the named
 configuration list. Play on an empty selected-model draft opens the existing
 automatic/manual placement dialog. Auto-place only prepares assignments; manual
 placement opens the editor. The same Play button loads prepared assignments.
-Switching models retains each unsaved draft and never loads or creates a named
-configuration. Undo to empty assignments restores the choice on the next Play.
+The 2026-10-18 explicit-save revision supersedes draft retention across navigation.
+Switching models or saved configurations, or leaving Cluster, prompts when assignment
+edits differ from the saved baseline. The shared modal has Save changes and Discard
+changes buttons plus a top-right X. X or Escape keeps the current selection and edits.
+Save switches only after successful persistence; a new configuration asks for its
+name, while existing configurations update in place. Failed Save or Discard stays
+on the current editor with recoverable feedback. Discard clears a never-saved
+assignment or restores the last saved ranges, and clears Undo/Redo history.
+Manual edits and Undo/Redo stay in renderer memory. Only explicit Save, Auto place
+or Run synchronizes the session draft needed by the owner. Auto place resolves the
+model from the exact draft key, independently of the runtime's current model.
+Explicit Discard resets the owner draft when present. Session drafts are cleared
+by the configuration owner on close and after interrupted startup. Explicitly saved configurations persist. Undo to empty assignments
+restores the choice on the next Play.
 Stop, Quit and model switches invalidate pending work. Named Save remains an
 explicit separate action. This supersedes
 earlier development behavior requiring a named Save before every Run.
 
-Cluster records, including durable drafts, persist placement fields only. They
+Cluster records, including acknowledged session drafts, store placement fields only. They
 do not embed per-model load or advanced settings. Owner replies hydrate current
 model settings for planning and session capture. Existing embedded settings are
 validated and removed transactionally while preserving model identity, names,
