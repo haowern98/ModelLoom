@@ -1,6 +1,7 @@
 /** Narrow, data-only renderer contract. No paths, configuration, process IDs or credentials. */
 export type RuntimeCommand =
   | { action: 'import' | 'snapshot' | 'stop' }
+  | { action: 'remove'; modelId: string }
   | { action: 'load'; modelId: string; draft?: { key: string; revision: number } }
   | { action: 'run-configuration'; configurationId: string; revision: number }
   | { action: 'memory-decision'; id: string; loadAnyway: boolean };
@@ -86,6 +87,13 @@ export function decodeRuntimeCommand(value: unknown): RuntimeCommand {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new Error('INVALID_CONTROL');
   const record: Record<string, unknown> = Object.fromEntries(Object.entries(value));
+  if (
+    record.action === 'remove' &&
+    Object.keys(record).length === 2 &&
+    typeof record.modelId === 'string' &&
+    /^model-[a-f0-9]{64}$/u.test(record.modelId)
+  )
+    return { action: 'remove', modelId: record.modelId };
   if (
     record.action === 'memory-decision' &&
     Object.keys(record).length === 3 &&

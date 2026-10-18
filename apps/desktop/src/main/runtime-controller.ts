@@ -111,6 +111,8 @@ const messages: Record<string, string> = {
     'Runtime verification failed. Check the signed development package and its expiry.',
   UNSUPPORTED_MODEL: 'This GGUF is not compatible with the selected runtime.',
   INVALID_MODEL_ID: 'Select the imported model.',
+  REMOVE_ACTIVE_MODEL: 'Stop this model in Cluster before removing its entry.',
+  LIBRARY_REMOVE_FAILED: 'The model entry could not be removed. Try again.',
   BUSY: 'Stop the current model before importing or loading another model.',
   CLEANUP_FAILED: 'Owned runtime exit could not be confirmed. Loading is blocked.',
   CONFIGURATION_UNAVAILABLE:
@@ -137,6 +139,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
   let enginePreparation: Promise<void> | undefined;
   let restoration: Promise<void> | undefined;
   let importPreparation: Promise<void> | undefined;
+  let removalPreparation: Promise<void> | undefined;
   let historyFailed = false;
   const sources = new Map<string, ModelSource>();
   function updateModel(model: RuntimeModel): void {
@@ -467,11 +470,23 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           if (!deps.planCluster) throw Error('NEEDS_MODEL_METADATA');
           const operation = new AbortController();
           planning = operation;
+          const configurationId = command.key.startsWith('config:') ? command.key.slice(7) : null;
+          let modelId = command.key.slice(6);
+          if (configurationId) {
+            const listed = decodeClusterReply(await host.cluster(caller, { action: 'list' }));
+            if (!listed.ok) return listed;
+            const configuration = listed.configurations.find(
+              (entry) => entry.id === configurationId,
+            );
+            if (!configuration) throw Error('UNKNOWN_CONFIGURATION');
+            modelId = configuration.modelId;
+          }
+          if (!sources.has(`model-${modelId}`)) throw Error('UNKNOWN_MODEL');
           const read = decodeClusterReply(
             await host.cluster(caller, {
               action: 'read',
-              modelId: currentModelId(),
-              configurationId: command.key.startsWith('config:') ? command.key.slice(7) : null,
+              modelId,
+              configurationId,
             }),
           );
           if (!read.ok) return read;
@@ -595,6 +610,42 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           // has no knowledge of main's preflight failure and must not erase that evidence.
           if (host && view.phase !== 'failed') await send('snapshot');
           await observeModelUse();
+        } else if (command.action === 'remove') {
+          if (
+            importing ||
+            view.restoring ||
+            runningConfiguration ||
+            clusterOperations.size ||
+            !['stopped', 'failed', 'ready'].includes(view.phase)
+          )
+            throw Error('BUSY');
+          if (!sources.has(command.modelId)) throw Error('INVALID_MODEL_ID');
+          if (view.phase === 'ready' && view.model?.id === command.modelId)
+            throw Error('REMOVE_ACTIVE_MODEL');
+          importing = true;
+          const work = (async () => {
+            if (preparation) await preparation;
+            if (quitting || !host?.api) throw Error('LIBRARY_REMOVE_FAILED');
+            const request = { action: 'removeImport' as const, modelId: command.modelId.slice(6) };
+            const reply = decodeApiOwnerReply(await host.api(caller, request), request);
+            if (!reply.ok || !('removed' in reply)) throw Error('LIBRARY_REMOVE_FAILED');
+            sources.delete(command.modelId);
+            const selected = view.model?.id === command.modelId;
+            if (selected) file = null;
+            view = {
+              ...view,
+              model: selected ? null : view.model,
+              models: (view.models ?? []).filter((model) => model.id !== command.modelId),
+              error: null,
+            };
+          })();
+          removalPreparation = work;
+          try {
+            await work;
+          } finally {
+            importing = false;
+            removalPreparation = undefined;
+          }
         } else if (command.action === 'import') {
           if (importing || runningConfiguration || !['stopped', 'failed'].includes(view.phase))
             throw new Error('BUSY');
@@ -675,7 +726,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
             view = { ...view, indexing: null };
           }
         } else if (command.action === 'run-configuration') {
-          if (runningConfiguration) throw Error('BUSY');
+          if (runningConfiguration || importing) throw Error('BUSY');
           runningConfiguration = true;
           ownsConfigurationRun = true;
           if (clusterCleanupFailed) throw Error('CLEANUP_FAILED');
@@ -1008,6 +1059,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           ...view,
           phase:
             command.action === 'snapshot' ||
+            command.action === 'remove' ||
             (command.action === 'run-configuration' && loadingEpoch === undefined) ||
             rejected
               ? view.phase
@@ -1033,7 +1085,11 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       ++epoch;
       const pendingDevice = deviceProbe;
       // A pending picker owns no model handles; only selected-file indexing must settle.
-      await Promise.allSettled([restoration, view.indexing ? importPreparation : undefined]);
+      await Promise.allSettled([
+        restoration,
+        removalPreparation,
+        view.indexing ? importPreparation : undefined,
+      ]);
       await usageProbe;
       await Promise.allSettled([...clusterOperations]);
       if (preparation) {
