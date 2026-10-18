@@ -86,6 +86,7 @@ export function openModelConfigurationStore(
     );
     if (database.prepare('PRAGMA journal_mode').get()?.journal_mode !== 'persist')
       return configurationUnavailable();
+    store.cluster.clearSessionDrafts();
     const opened = database;
     let closed = false;
     return {
@@ -94,9 +95,13 @@ export function openModelConfigurationStore(
         if (!closed) {
           closed = true;
           try {
-            opened.close();
+            store.cluster.clearSessionDrafts();
           } finally {
-            guard.close();
+            try {
+              opened.close();
+            } finally {
+              guard.close();
+            }
           }
         }
       },
@@ -286,6 +291,19 @@ export class ModelConfigurationStore {
               .prepare('INSERT OR REPLACE INTO model_sources VALUES(?,?)')
               .run(modelId, JSON.stringify(decoded));
           return stored;
+        });
+      }),
+    );
+  }
+
+  /** Forget the library index only; retain model defaults, history and the user's GGUF. */
+  removeImport(modelId: string): Promise<void> {
+    return Promise.resolve().then(() =>
+      this.safe(() => {
+        if (!/^[a-f0-9]{64}$/u.test(modelId)) throw Error('INVALID_CONFIGURATION');
+        return this.transaction(() => {
+          this.database.prepare('DELETE FROM model_sources WHERE model_id=?').run(modelId);
+          this.database.prepare('DELETE FROM model_imports WHERE model_id=?').run(modelId);
         });
       }),
     );

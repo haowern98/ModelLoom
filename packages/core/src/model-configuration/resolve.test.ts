@@ -2,6 +2,25 @@ import { expect, it } from 'vitest';
 import { decodeModelConfiguration } from './contracts.js';
 import { resolveRequestSettings } from './resolve.js';
 import { capabilities, record } from './test-fixtures.js';
+import { decodeResolvedRequestSettings } from './contracts.js';
+
+it('captures overflow from the active load and keeps older snapshots compatible', () => {
+  const source = record();
+  const loaded = {
+    ...active(),
+    preferences: { ...source.preferences, overflow: 'rolling' as const },
+  };
+  const captured = resolveRequestSettings(source, loaded, {}, capabilities);
+  expect(captured.overflow).toBe('rolling');
+  expect(resolveRequestSettings(source, active(), {}, capabilities).overflow).toBe('stop');
+  const legacy = { ...captured };
+  delete legacy.overflow;
+  expect(decodeResolvedRequestSettings(legacy, capabilities)).toEqual(legacy);
+  for (const overflow of ['unknown', null, true, ['rolling'], { toString: () => 'rolling' }])
+    expect(() => decodeResolvedRequestSettings({ ...captured, overflow }, capabilities)).toThrow(
+      'INVALID_CONFIGURATION',
+    );
+});
 
 function active() {
   return {

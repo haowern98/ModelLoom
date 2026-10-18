@@ -36,7 +36,11 @@
   gap: 8px;
 }
 .railBottom {
-  gap: 16px;
+  height: 28px;
+  justify-content: center;
+}
+.railBottom button {
+  flex-shrink: 0;
 }
 .rail button {
   display: grid;
@@ -53,8 +57,7 @@
   color: var(--rail-selected-icon);
   background: var(--rail-highlight);
 }
-.rail button[aria-current='page'],
-.rail button[aria-expanded='true'] {
+.rail button[aria-current='page'] {
   color: var(--rail-selected-icon);
   background: var(--rail-highlight);
 }
@@ -63,21 +66,6 @@
 }
 .rail button:disabled {
   opacity: 0.8;
-}
-.rail button.download {
-  width: 27px;
-  height: 27px;
-  border-radius: 50%;
-  background: #087dff;
-  color: white;
-}
-.rail button.avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #a4ab83;
-  color: white;
-  font-size: var(--font-size-status);
 }
 .foreground {
   grid-column: 2;
@@ -127,31 +115,6 @@
 .main::-webkit-scrollbar-thumb:vertical {
   border: 2px solid transparent;
   background-clip: padding-box;
-}
-.overflow {
-  position: relative;
-}
-.moreMenu {
-  position: absolute;
-  z-index: 10;
-  left: calc(100% + 6px);
-  top: 0;
-  width: 140px;
-  padding: 5px;
-  background: #262626;
-  border: 1px solid #383838;
-  border-radius: 10px;
-  box-shadow: 0 10px 30px #0007;
-}
-.rail .moreMenu button {
-  font-size: var(--font-size-control);
-  width: 100%;
-  display: flex;
-  gap: 12px;
-  justify-content: flex-start;
-  padding: 0 12px;
-  color: var(--text);
-  border-radius: 6px;
 }
 @media (max-width: 850px) {
   .main {

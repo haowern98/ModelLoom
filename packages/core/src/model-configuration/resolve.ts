@@ -58,6 +58,7 @@ export function resolveRequestSettings(
       parameters,
       systemPrompt: generation.systemPrompt,
       thinking: generation.thinking,
+      overflow: active.preferences?.overflow ?? 'stop',
     },
     capabilities,
   );

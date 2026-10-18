@@ -15,6 +15,7 @@ it('keeps API management caller-bound and registers an import independently of p
     capabilities,
     record().load,
   );
+  let ready = false;
   const api = new ApiController(
     store,
     'window',
@@ -23,7 +24,7 @@ it('keeps API management caller-bound and registers an import independently of p
     () => {
       throw new Error('CREDENTIAL_UNAVAILABLE');
     },
-    () => false,
+    () => ready,
     () => undefined,
     0,
   );
@@ -105,6 +106,26 @@ it('keeps API management caller-bound and registers an import independently of p
   expect(await api.command('forged', { action: 'readImportSource' })).toEqual({
     ok: false,
     error: 'NOT_READY',
+  });
+  expect(await api.command('forged', { action: 'removeImport', modelId: source.modelId })).toEqual({
+    ok: false,
+    error: 'NOT_READY',
+  });
+  ready = true;
+  expect(await api.command('window', { action: 'removeImport', modelId: source.modelId })).toEqual({
+    ok: false,
+    error: 'NOT_READY',
+  });
+  ready = false;
+  expect(await store.readImport(source.modelId)).not.toBeNull();
+  expect(await api.command('window', { action: 'removeImport', modelId: source.modelId })).toEqual({
+    ok: true,
+    removed: true,
+  });
+  expect(await store.readImport(source.modelId)).toBeNull();
+  expect(await api.command('window', { action: 'readImportSource' })).toEqual({
+    ok: true,
+    source: null,
   });
   receive(JSON.stringify({ type: 'command', text: JSON.stringify({ id: 1, action: 'quit' }) }));
   await new Promise<void>((resolve) => setImmediate(resolve));

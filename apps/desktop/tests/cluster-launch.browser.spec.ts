@@ -95,7 +95,7 @@ test('auto placement is unloaded, loading can be cancelled and completes across 
   await page.getByRole('button', { name: 'Models', exact: true }).click();
   await page.clock.runFor(1000);
   await page.getByRole('button', { name: 'Actions for Llama 3.1 8B' }).click();
-  await expect(page.getByRole('button', { name: 'Remove demo entry' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Remove model entry' })).toBeDisabled();
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Stop model' })).toBeVisible();
   await expect(page.getByText('Layers 24 – 31', { exact: true })).toBeVisible();
@@ -106,7 +106,7 @@ test('model menu supports keyboard choices, cancellation and removed library ent
 }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Actions for Gemma 2 9B' }).click();
-  await page.getByRole('button', { name: 'Remove demo entry' }).click();
+  await page.getByRole('button', { name: 'Remove model entry' }).click();
   await page.getByRole('button', { name: 'Remove entry', exact: true }).click();
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
   const selector = page.getByRole('button', { name: 'Selected demo model: Qwen3.8-27B' });

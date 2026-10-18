@@ -110,7 +110,7 @@ test('row menus and configuration explain their actions and restore keyboard foc
   const actions = page.getByRole('button', { name: 'Actions for Qwen3.8-27B' });
   await actions.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('button', { name: 'Remove demo entry' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Remove model entry' })).toBeDisabled();
   await page.keyboard.press('Tab');
   await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Qwen3.8-27B' });
@@ -134,7 +134,7 @@ test('row menus and configuration explain their actions and restore keyboard foc
   await expect(page.getByRole('button', { name: 'Configure Llama 3.1 8B' })).toBeFocused();
   const llamaActions = page.getByRole('button', { name: 'Actions for Llama 3.1 8B' });
   await llamaActions.click();
-  await page.getByRole('button', { name: 'Remove demo entry' }).click();
+  await page.getByRole('button', { name: 'Remove model entry' }).click();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('article', { name: 'Llama 3.1 8B' })).toBeVisible();
   await expect(llamaActions).toBeFocused();

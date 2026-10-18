@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { fitContext } from './context-overflow.js';
 import { requireApiCaller } from './api-authority.js';
 import type { ApiCaller } from './api-authority.js';
 import { decodeExecutionIdentity, decodeGenerationChunk, GENERATION_LIMITS } from './contracts.js';
@@ -154,11 +155,16 @@ export class ApiGeneration {
     );
     requireApiCaller(entry.caller);
     if (entry.abort.signal.aborted || this.closed) throw new Error('NOT_READY');
-    const tokens = await this.count(entry.messages, entry.abort.signal, settings);
-    if (!Number.isSafeInteger(tokens) || tokens < 0) throw new Error('TOKEN_COUNT_FAILED');
     const outputLimit = settings.parameters.max_tokens;
-    if (tokens + (outputLimit === -1 ? 1 : outputLimit) > settings.contextLength)
-      throw new Error('CONTEXT_FULL');
+    const policy = settings.overflow ?? 'stop';
+    entry.messages = await fitContext(
+      entry.messages,
+      policy,
+      settings.contextLength,
+      policy === 'stop' ? (outputLimit === -1 ? 1 : outputLimit) : 4,
+      (candidate) => this.count(candidate, entry.abort.signal, settings),
+      entry.abort.signal,
+    );
     requireApiCaller(entry.caller);
     if (entry.abort.signal.aborted || this.closed) throw new Error('NOT_READY');
     const receipt = this.admission.submit(entry.identity);
@@ -193,7 +199,8 @@ export class ApiGeneration {
               (!chunk.usage ||
                 (entry.settings!.parameters.max_tokens !== -1 &&
                   chunk.usage.completion_tokens > entry.settings!.parameters.max_tokens) ||
-                chunk.usage.total_tokens > entry.settings!.contextLength)
+                ((entry.settings!.overflow ?? 'stop') === 'stop' &&
+                  chunk.usage.total_tokens > entry.settings!.contextLength))
             )
               throw new Error('INVALID_STREAM');
             entry.terminal = chunk;

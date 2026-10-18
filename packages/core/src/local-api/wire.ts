@@ -13,6 +13,7 @@ const actions = [
 export type ApiManagementCommand = { readonly action: (typeof actions)[number] };
 export type ApiOwnerCommand =
   | ApiManagementCommand
+  | { readonly action: 'removeImport'; readonly modelId: string }
   | { readonly action: 'readLibraryEntry'; readonly after: string | null }
   | {
       readonly action: 'registerImport';
@@ -43,6 +44,7 @@ export interface ApiManagementBridge {
 }
 export type ApiOwnerReply =
   | ApiManagementReply
+  | { readonly ok: true; readonly removed: true }
   | { readonly ok: true; readonly registered: true }
   | { readonly ok: true; readonly source: ModelSource | null }
   | {
@@ -53,6 +55,11 @@ export type ApiOwnerReply =
 export function decodeApiOwnerReply(input: unknown, command: ApiOwnerCommand): ApiOwnerReply {
   if (input && typeof input === 'object' && Reflect.get(input, 'ok') === false)
     return decodeApiManagementReply(input);
+  if (command.action === 'removeImport') {
+    const value = object(input, ['ok', 'removed']);
+    if (value.ok !== true || value.removed !== true) return invalid();
+    return Object.freeze({ ok: true, removed: true });
+  }
   if (command.action === 'readLibraryEntry') {
     const value = object(input, ['ok', 'entry']);
     if (value.ok !== true) return invalid();
@@ -129,6 +136,12 @@ export function decodeApiManagementCommand(input: unknown): ApiManagementCommand
 }
 /** Main-only import data is not admitted by the renderer bridge decoder. */
 export function decodeApiOwnerCommand(input: unknown): ApiOwnerCommand {
+  if (input && typeof input === 'object' && Reflect.get(input, 'action') === 'removeImport') {
+    const value = object(input, ['action', 'modelId']);
+    if (typeof value.modelId !== 'string' || !/^[a-f0-9]{64}$/u.test(value.modelId))
+      return invalid();
+    return Object.freeze({ action: 'removeImport', modelId: value.modelId });
+  }
   if (input && typeof input === 'object' && Reflect.get(input, 'action') === 'readLibraryEntry') {
     const value = object(input, ['action', 'after']);
     if (

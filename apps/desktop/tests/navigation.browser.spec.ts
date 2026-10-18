@@ -8,7 +8,6 @@ test('sidebar uses neutral selection, consistent icons and distinct keyboard foc
   const models = rail.getByRole('button', { name: 'Models', exact: true });
   const cluster = rail.getByRole('button', { name: 'Cluster', exact: true });
   const home = rail.getByRole('button', { name: 'Chat', exact: true });
-  const more = rail.getByRole('button', { name: 'More navigation' });
 
   await page.mouse.move(500, 40);
   await expect(models).toHaveAttribute('aria-current', 'page');
@@ -20,17 +19,16 @@ test('sidebar uses neutral selection, consistent icons and distinct keyboard foc
   await expect(home).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(cluster).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(cluster).toHaveCSS('color', 'rgb(139, 139, 139)');
-  for (const name of ['Chat', 'Cluster', 'Models', 'API', 'Settings', 'More navigation']) {
+  for (const name of ['Chat', 'Cluster', 'Models', 'API', 'Settings']) {
     const icon = rail.getByRole('button', { name, exact: true }).locator('svg');
     await expect(icon).toHaveCSS('width', '20px');
     await expect(icon).toHaveCSS('height', '20px');
     await expect(icon).toHaveAttribute('aria-hidden', 'true');
     expect(await icon.locator('path').count()).toBeGreaterThan(0);
   }
-  await expect(rail.getByRole('button', { name: /Downloads/ }).locator('svg')).toHaveCSS(
-    'width',
-    '16px',
-  );
+  await expect(
+    rail.getByRole('button', { name: /Downloads|Local profile|More navigation/ }),
+  ).toHaveCount(0);
   await cluster.hover();
   await expect(cluster).toHaveCSS('background-color', 'rgb(47, 47, 47)');
   await expect(models).toHaveAttribute('aria-current', 'page');
@@ -46,14 +44,6 @@ test('sidebar uses neutral selection, consistent icons and distinct keyboard foc
   await expect(cluster).toHaveAttribute('aria-current', 'page');
   await page.keyboard.press('Enter');
   await expect(models).toHaveAttribute('aria-current', 'page');
-  await more.click();
-  await expect(more).toHaveCSS('background-color', 'rgb(47, 47, 47)');
-  await expect(
-    rail.getByLabel('Additional screens').getByRole('button', { name: 'API', exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    rail.getByLabel('Additional screens').getByRole('button', { name: 'Chat', exact: true }),
-  ).toBeVisible();
   await rail.getByRole('button', { name: 'API', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'API', exact: true })).toBeVisible();
   await expect(rail.getByRole('button', { name: 'API', exact: true })).toHaveAttribute(
@@ -64,7 +54,6 @@ test('sidebar uses neutral selection, consistent icons and distinct keyboard foc
     'background-color',
     'rgb(47, 47, 47)',
   );
-  await expect(more).toHaveAttribute('aria-expanded', 'false');
   for (const width of [1280, 1000]) {
     await page.setViewportSize({ width, height: width === 1000 ? 620 : 720 });
     await rail.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -76,6 +65,7 @@ test('sidebar uses neutral selection, consistent icons and distinct keyboard foc
     const bounds = await settings.boundingBox();
     expect(bounds?.width).toBe(36);
     expect(bounds?.height).toBe(36);
+    expect(bounds!.y + bounds!.height / 2).toBeCloseTo(page.viewportSize()!.height - 27);
     await rail.getByRole('button', { name: 'Cluster', exact: true }).click();
     await page.mouse.move(500, 40);
     await page.screenshot({ path: `test-results/sidebar-neutral-${width}.png` });

@@ -1,6 +1,4 @@
-import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { Download, MessagesSquare } from 'lucide-react';
 import { Network } from '@phosphor-icons/react/dist/csr/Network';
 import { HardDrives } from '@phosphor-icons/react/dist/csr/HardDrives';
 import { GearSix } from '@phosphor-icons/react/dist/csr/GearSix';
@@ -18,7 +16,6 @@ interface AppShellProps {
 const navigationIconProps = { size: 20, 'aria-hidden': true } as const;
 
 export function AppShell({ destination, onNavigate, demo, children }: AppShellProps) {
-  const [moreOpen, setMoreOpen] = useState(false);
   const splitPanel =
     destination === 'Chat' || destination === 'Settings' || destination === 'Cluster';
   return (
@@ -77,6 +74,8 @@ export function AppShell({ destination, onNavigate, demo, children }: AppShellPr
               weight={destination === 'API' ? 'fill' : 'regular'}
             />
           </button>
+        </div>
+        <div className={styles.railBottom}>
           <button
             type="button"
             aria-label="Settings"
@@ -88,59 +87,6 @@ export function AppShell({ destination, onNavigate, demo, children }: AppShellPr
               {...navigationIconProps}
               weight={destination === 'Settings' ? 'fill' : 'regular'}
             />
-          </button>
-          <div
-            className={styles.overflow}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') setMoreOpen(false);
-            }}
-            onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget)) setMoreOpen(false);
-            }}
-          >
-            <button
-              type="button"
-              aria-label="More navigation"
-              title="More"
-              aria-expanded={moreOpen}
-              onClick={() => setMoreOpen(!moreOpen)}
-            >
-              <ChatGptRailIcon icon="more" />
-            </button>
-            {moreOpen && (
-              <div className={styles.moreMenu} aria-label="Additional screens">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onNavigate('Chat');
-                    setMoreOpen(false);
-                  }}
-                >
-                  <MessagesSquare size={16} />
-                  Chat
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-        <div className={styles.railBottom}>
-          <button
-            type="button"
-            className={styles.download}
-            disabled
-            aria-label="Downloads — not available yet"
-            title="Downloads comes with model integration"
-          >
-            <Download size={16} />
-          </button>
-          <button
-            type="button"
-            className={styles.avatar}
-            disabled
-            aria-label="Local profile — not available yet"
-            title="Local profile"
-          >
-            WW
           </button>
         </div>
       </aside>

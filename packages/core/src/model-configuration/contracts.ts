@@ -91,6 +91,8 @@ export interface ResolvedRequestSettings {
   readonly parameters: NativeGenerationParameters;
   readonly systemPrompt: string;
   readonly thinking: boolean | null;
+  /** Absent on older history snapshots, which always stopped at the context limit. */
+  readonly overflow?: AdvancedPreferences['overflow'];
 }
 
 function invalid(): never {
@@ -164,7 +166,14 @@ export function decodeResolvedRequestSettings(
     'parameters',
     'systemPrompt',
     'thinking',
+    ...(input && typeof input === 'object' && Object.hasOwn(input, 'overflow') ? ['overflow'] : []),
   ]);
+  if (
+    Object.hasOwn(value, 'overflow') &&
+    (typeof value.overflow !== 'string' ||
+      !['stop', 'truncate-middle', 'rolling'].includes(value.overflow))
+  )
+    return invalid();
   if (
     typeof value.modelId !== 'string' ||
     !/^[a-f0-9]{64}$/u.test(value.modelId) ||
@@ -201,6 +210,9 @@ export function decodeResolvedRequestSettings(
     parameters: Object.freeze({ ...decoded, stop: strings(parameters.stop) }),
     systemPrompt: text(value.systemPrompt, 16000),
     thinking: value.thinking === null ? null : boolean(value.thinking),
+    ...(Object.hasOwn(value, 'overflow')
+      ? { overflow: value.overflow as AdvancedPreferences['overflow'] }
+      : {}),
   });
 }
 
@@ -368,7 +380,10 @@ export function decodeAdvancedPreferences(input: unknown): AdvancedPreferences {
     'argumentsEnabled',
     'argumentsText',
   ]);
-  if (!['truncate-middle', 'stop', 'rolling'].includes(String(preferences.overflow)))
+  if (
+    typeof preferences.overflow !== 'string' ||
+    !['truncate-middle', 'stop', 'rolling'].includes(preferences.overflow)
+  )
     return invalid();
   return Object.freeze({
     reasoningBudget: optional(preferences.reasoningBudget, 1, 2147483647, true),

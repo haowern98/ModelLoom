@@ -26,7 +26,12 @@ export function clusterServerArguments(
     keyFile,
     '--no-ui',
     '--slots',
-    '--no-context-shift',
+    // Slots are assigned by ModelLoom. Avoid native RAM-cache swapping that blocks /slots replies.
+    '--slot-prompt-similarity',
+    '0',
+    load.preferences && load.preferences.overflow !== 'stop'
+      ? '--context-shift'
+      : '--no-context-shift',
     '--no-agent',
     '--no-ui-mcp-proxy',
     '--no-mmproj',
@@ -40,7 +45,7 @@ export function clusterServerArguments(
     ...(load.preferences?.reasoningBudget.enabled
       ? ['--reasoning-budget', String(load.preferences.reasoningBudget.value)]
       : []),
-    ...(load.preferences?.reasoningMessage
+    ...(load.preferences?.reasoningBudget.enabled && load.preferences.reasoningMessage
       ? ['--reasoning-budget-message', load.preferences.reasoningMessage]
       : []),
     ...(load.preferences?.customTemplate
@@ -108,6 +113,9 @@ export function fixedArguments(
     keyFile,
     '--no-ui',
     '--slots',
+    // Keep in-slot KV reuse without synchronous cross-prompt RAM-cache restoration.
+    '--slot-prompt-similarity',
+    '0',
     '--no-context-shift',
     '--no-agent',
     '--no-ui-mcp-proxy',
@@ -141,4 +149,14 @@ export function fixedArguments(
     '--temp',
     String(cfg.temperature),
   ]);
+}
+
+/** Refuse a selected overflow policy when the native context cannot implement it. */
+export function requireContextShiftSupport(load: ClusterEffectiveLoad, startupLog: string): void {
+  if (
+    load.preferences &&
+    load.preferences.overflow !== 'stop' &&
+    /(?:ctx_shift|KV cache shifting) is not supported/u.test(startupLog)
+  )
+    throw Error('UNSUPPORTED_SETTING');
 }

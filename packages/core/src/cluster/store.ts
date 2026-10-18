@@ -33,6 +33,11 @@ export class ClusterStore {
     private readonly profileId: string,
     private readonly currentLoad: (modelId: string) => CapturedClusterLoad,
   ) {}
+  /** Session drafts are not saved configurations; discard them at owner startup and shutdown. */
+  clearSessionDrafts(): void {
+    if (!this.readSafe(() => this.db.prepare('SELECT 1 FROM cluster_drafts LIMIT 1').get())) return;
+    this.writeSafe(() => this.db.prepare('DELETE FROM cluster_drafts').run());
+  }
   /** Existing cluster records retain placement and revisions, but no embedded model preferences. */
   removeEmbeddedSettings(): void {
     const pending = this.readSafe(() => {

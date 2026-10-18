@@ -215,7 +215,6 @@ describe('Cluster demo', () => {
       }),
     ).toBeVisible();
     expect(screen.getAllByRole('article')).toHaveLength(4);
-    await user.click(screen.getByRole('button', { name: 'More navigation' }));
     await user.click(screen.getByRole('button', { name: 'API' }));
     expect(screen.getByText('No API server is running.')).toBeVisible();
   });

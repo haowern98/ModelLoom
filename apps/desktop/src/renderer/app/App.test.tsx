@@ -162,15 +162,15 @@ describe('Models milestone', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Actions for Qwen3.8-27B' }));
-    expect(screen.getByRole('button', { name: 'Remove demo entry' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove model entry' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Stop demo model' })).not.toBeInTheDocument();
     await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
     await user.click(screen.getByRole('button', { name: 'Stop model' }));
     await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Actions for Qwen3.8-27B' }));
-    await user.click(screen.getByRole('button', { name: 'Remove demo entry' }));
-    expect(screen.getByRole('dialog', { name: 'Remove demo entry?' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Remove model entry' }));
+    expect(screen.getByRole('dialog', { name: 'Remove model entry?' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Remove entry' }));
     expect(screen.queryByRole('article', { name: 'Qwen3.8-27B' })).not.toBeInTheDocument();
   });

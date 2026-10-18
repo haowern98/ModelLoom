@@ -1,5 +1,10 @@
 import type { ModelConfigurationRecord } from '../../../shared/model-configuration';
-import type { DemoModelDefaults, NumericSetting, OptionalSetting } from './configuration';
+import {
+  numericSettings,
+  type DemoModelDefaults,
+  type NumericSetting,
+  type OptionalSetting,
+} from './configuration';
 
 /** Populate the existing editor from committed runtime data, never sample defaults. */
 export function toModelEditor(record: ModelConfigurationRecord): DemoModelDefaults {
@@ -59,9 +64,35 @@ export function fromModelEditor(
     if (!raw.trim() || !Number.isFinite(Number(raw))) throw Error('INVALID_CONFIGURATION');
     return Number(raw);
   };
+  const original = toModelEditor(source);
+  const retainedNumber = (field: NumericSetting, inactive: boolean): number => {
+    const raw = draft.numbers[field];
+    const value = Number(raw);
+    const rule: { min: number; max?: number; step: number } = numericSettings[field];
+    // Match the persisted contract even when an inactive field is not locally validated.
+    const contractMax: Partial<Record<NumericSetting, number>> = {
+      repeatPenalty: 100,
+      responseLength: 2147483647,
+      reasoningBudget: 2147483647,
+      ropeBase: 1e12,
+      ropeScale: 1e6,
+    };
+    const maximum = rule.max ?? contractMax[field];
+    const valid =
+      raw.trim() &&
+      Number.isFinite(value) &&
+      value >= rule.min &&
+      (maximum === undefined || value <= maximum) &&
+      (rule.step !== 1 || Number.isSafeInteger(value));
+    if (inactive && !valid) return Number(original.numbers[field]);
+    return number(field);
+  };
   const optional = (field: OptionalSetting) => ({
     enabled: draft.enabled[field],
-    value: number(field),
+    value: retainedNumber(
+      field,
+      !draft.enabled[field] || (field === 'reasoningBudget' && !draft.thinking),
+    ),
   });
   return {
     schemaVersion: 1,
@@ -69,7 +100,7 @@ export function fromModelEditor(
     revision: source.revision,
     load: {
       automatic: draft.automatic,
-      contextLength: number('contextLength'),
+      contextLength: retainedNumber('contextLength', draft.automatic),
       threads: draft.numbers.threads === '' ? null : number('threads'),
       evaluationBatch: number('evaluationBatch'),
       physicalBatch: number('physicalBatch'),

@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { createOwnedChatTransport } from './chat-transport.js';
@@ -43,7 +43,13 @@ const terminal =
   }) +
   '\n\ndata: [DONE]\n\n';
 async function fixture(
-  options: { malformed?: boolean; oversized?: boolean; status?: number } = {},
+  options: {
+    malformed?: boolean;
+    oversized?: boolean;
+    status?: number;
+    overflow?: 'stop' | 'rolling' | 'truncate-middle';
+    incompatible?: 'render' | 'tokens' | 'empty' | 'schema' | 'oversized';
+  } = {},
 ) {
   const requests: { url: string; auth: string | undefined; body: Record<string, unknown> }[] = [];
   const server = createServer((req, res) => {
@@ -56,14 +62,39 @@ async function fixture(
         body: JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>,
       });
       res.writeHead(options.status ?? 200);
+      const body = requests.at(-1)!.body;
+      const prefix = body.add_generation_prompt === false;
       res.end(
-        req.url?.endsWith('input_tokens')
-          ? options.oversized
-            ? ' '.repeat(65537)
-            : '{"input_tokens":9,"object":"response.input_tokens"}'
-          : options.malformed
-            ? 'data: broken\n\n'
-            : terminal,
+        req.url === '/apply-template'
+          ? options.incompatible === 'oversized'
+            ? ' '.repeat(4194305)
+            : JSON.stringify({
+                prompt: prefix
+                  ? options.incompatible === 'empty'
+                    ? ''
+                    : options.incompatible === 'render'
+                      ? 'different'
+                      : 'protected'
+                  : 'protected suffix',
+              })
+          : req.url === '/tokenize'
+            ? JSON.stringify({
+                tokens:
+                  options.incompatible === 'schema'
+                    ? ['bad']
+                    : body.content === 'protected'
+                      ? options.incompatible === 'tokens'
+                        ? [8, 2]
+                        : [1, 2]
+                      : [1, 2, 3],
+              })
+            : req.url?.endsWith('input_tokens')
+              ? options.oversized
+                ? ' '.repeat(65537)
+                : '{"input_tokens":9,"object":"response.input_tokens"}'
+              : options.malformed
+                ? 'data: broken\n\n'
+                : terminal,
       );
     });
   });
@@ -88,6 +119,7 @@ async function fixture(
     },
   );
   await monitor.initialize();
+  const start = vi.spyOn(monitor, 'start');
   const transport = createOwnedChatTransport({
     port: address.port,
     key: 'test-key',
@@ -96,11 +128,17 @@ async function fixture(
     owns: () => owns,
     monitor,
     exited,
-    configuration: { capabilities, modelId: record().modelId, contextLength: 7680 },
+    configuration: {
+      capabilities,
+      modelId: record().modelId,
+      contextLength: 7680,
+      overflow: options.overflow ?? 'stop',
+    },
   });
   return {
     transport,
     requests,
+    start,
     cleanup: () => cleanup,
     loseListener: () => {
       owns = false;
@@ -111,6 +149,116 @@ async function fixture(
     },
   };
 }
+it.each(['rolling', 'truncate-middle'] as const)(
+  'dispatches %s with a native-counted protected prefix and validates the loaded policy',
+  async (overflow) => {
+    const f = await fixture({ overflow });
+    const source = record();
+    const settings = resolveRequestSettings(
+      source,
+      {
+        modelId: source.modelId,
+        revision: 1,
+        profileId: capabilities.profileId,
+        load: source.load,
+        preferences: { ...source.preferences, overflow },
+      },
+      {},
+      capabilities,
+    );
+    const context = [
+      { role: 'system' as const, content: 'Instruction' },
+      { role: 'user' as const, content: 'First question' },
+      { role: 'assistant' as const, content: 'First answer' },
+      { role: 'user' as const, content: 'Current question' },
+    ];
+    const run = f.transport.start(identity, context, () => undefined, settings);
+    await new Promise<void>((yes) => setTimeout(yes, 150));
+    f.release();
+    await run.settled;
+    expect(f.requests.map((request) => request.url)).toEqual([
+      '/apply-template',
+      '/apply-template',
+      '/tokenize',
+      '/tokenize',
+      '/v1/chat/completions',
+    ]);
+    expect(f.requests[0]!.body.messages).toEqual(context);
+    expect(f.requests[1]!.body.messages).toEqual(context.slice(0, overflow === 'rolling' ? 1 : 3));
+    expect(f.requests[1]!.body.add_generation_prompt).toBe(false);
+    expect(f.requests[2]!.body).toEqual({
+      content: 'protected suffix',
+      add_special: false,
+      parse_special: true,
+    });
+    expect(f.requests[3]!.body).toEqual({
+      content: 'protected',
+      add_special: false,
+      parse_special: true,
+    });
+    expect(f.requests[4]!.body).toMatchObject({ messages: context, n_keep: 2, n_discard: 0 });
+    expect(f.requests.every((request) => request.auth === 'Bearer test-key')).toBe(true);
+    expect(() =>
+      f.transport.start(identity, context, () => undefined, { ...settings, overflow: 'stop' }),
+    ).toThrow('INVALID_CONTROL');
+  },
+);
+it.each(['render', 'tokens', 'empty', 'schema', 'oversized'] as const)(
+  'rejects incompatible protected %s before reserving a native slot',
+  async (incompatible) => {
+    const f = await fixture({ overflow: 'rolling', incompatible });
+    const source = record();
+    const settings = resolveRequestSettings(
+      source,
+      {
+        modelId: source.modelId,
+        revision: 1,
+        profileId: capabilities.profileId,
+        load: source.load,
+        preferences: { ...source.preferences, overflow: 'rolling' },
+      },
+      {},
+      capabilities,
+    );
+    const run = f.transport.start(
+      identity,
+      [{ role: 'system', content: 'Rules' }, ...messages],
+      () => undefined,
+      settings,
+    );
+    await expect(run.settled).resolves.toEqual({ status: 'failed', reason: 'INVALID_STREAM' });
+    expect(f.start).not.toHaveBeenCalled();
+    expect(f.cleanup()).toBe(0);
+    expect(f.requests.some((request) => request.url === '/v1/chat/completions')).toBe(false);
+  },
+);
+it('cancels prefix preparation without acquiring or cleaning up a native slot', async () => {
+  const f = await fixture({ overflow: 'rolling' });
+  const source = record();
+  const settings = resolveRequestSettings(
+    source,
+    {
+      modelId: source.modelId,
+      revision: 1,
+      profileId: capabilities.profileId,
+      load: source.load,
+      preferences: { ...source.preferences, overflow: 'rolling' },
+    },
+    {},
+    capabilities,
+  );
+  const run = f.transport.start(
+    identity,
+    [{ role: 'system', content: 'Rules' }, ...messages],
+    () => undefined,
+    settings,
+  );
+  await run.cancel();
+  await expect(run.settled).resolves.toEqual({ status: 'cancelled', reason: 'USER_CANCELLED' });
+  expect(f.start).not.toHaveBeenCalled();
+  expect(f.cleanup()).toBe(0);
+  expect(f.requests.some((request) => request.url === '/v1/chat/completions')).toBe(false);
+});
 it('uses the captured closed settings for template accounting and native generation', async () => {
   const f = await fixture();
   const settings = resolveRequestSettings(

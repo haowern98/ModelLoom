@@ -11,6 +11,9 @@ import type { RuntimeDependencies } from './runtime-controller';
 import { localDeviceSnapshot } from './local-device';
 import type { developmentDesktopDependencies } from '../../../../packages/core/src/hosts/development-desktop.js';
 
+// Vite serves changing modules at stable URLs; stale Chromium cache can break startup.
+if (MAIN_WINDOW_VITE_DEV_SERVER_URL) app.commandLine.appendSwitch('disable-http-cache');
+
 let controller: ReturnType<typeof createRuntimeController> | undefined;
 let quitting = false,
   quitConfirmed = false;

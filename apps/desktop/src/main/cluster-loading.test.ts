@@ -15,6 +15,101 @@ import {
 const modelId = 'a'.repeat(64);
 const uuid = 'GPU-11111111-1111-1111-1111-111111111111';
 const configId = '11111111-1111-4111-8111-111111111111';
+it('auto assigns independent unnamed model drafts without using the runtime selection', async () => {
+  const { controller, deps, host, initialize, draft } = setup();
+  const second = 'b'.repeat(64);
+  try {
+    await initialize();
+    deps.inspect.mockResolvedValueOnce({
+      sha256: second,
+      size: '14 GB',
+      blockCount: 65,
+      contextLimit: 32768,
+    });
+    await controller.command({ action: 'import' });
+    const drafts = new Map<string, ClusterDraft>(
+      [modelId, second].map((id) => [
+        id,
+        {
+          ...draft(),
+          key: `model:${id}`,
+          modelId: id,
+          configurationId: null,
+          baseSavedRevision: null,
+          revision: 1,
+          runs: [],
+        },
+      ]),
+    );
+    host.cluster.mockImplementation((_caller, command) => {
+      let selected = command.action === 'read' ? drafts.get(command.modelId) : undefined;
+      if (command.action === 'edit') {
+        const previous = drafts.get(command.edit.modelId)!;
+        expect(command.expectedRevision).toBe(previous.revision);
+        selected = { ...previous, ...command.edit, revision: previous.revision + 1 };
+        drafts.set(selected.modelId, selected);
+      }
+      return Promise.resolve({
+        ok: true,
+        configurations: [],
+        configuration: null,
+        draft: selected ?? null,
+        load: selected?.load ?? null,
+        issues: [],
+      });
+    });
+    deps.planCluster.mockImplementation((_file, _draft, blocks) =>
+      Promise.resolve([{ uuid, first: 0, last: blocks - 1 }]),
+    );
+    for (const id of [modelId, second]) {
+      const reply = await controller.cluster({
+        action: 'auto-place',
+        key: `model:${id}`,
+        revision: 1,
+      });
+      expect(reply.ok).toBe(true);
+      if (reply.ok) expect(reply.draft?.modelId).toBe(id);
+    }
+    expect(drafts.get(modelId)?.runs[0]?.last).toBe('63');
+    expect(drafts.get(second)?.runs[0]?.last).toBe('64');
+    expect(host.cluster.mock.calls.some(([, command]) => command.action === 'save')).toBe(false);
+  } finally {
+    await controller.quit();
+  }
+});
+it('plans the draft model instead of the different model most recently imported into the runtime', async () => {
+  const { controller, deps, host, initialize } = setup();
+  try {
+    await initialize();
+    deps.inspect.mockResolvedValueOnce({
+      sha256: 'b'.repeat(64),
+      size: '14 GB',
+      blockCount: 65,
+      contextLimit: 32768,
+    });
+    await controller.command({ action: 'import' });
+    host.cluster.mockClear();
+    const reply = await controller.cluster({
+      action: 'auto-place',
+      key: `config:${configId}`,
+      revision: 1,
+    });
+    expect(reply.ok).toBe(true);
+    expect(host.cluster).toHaveBeenCalledWith(expect.any(String), {
+      action: 'read',
+      modelId,
+      configurationId: configId,
+    });
+    expect(deps.planCluster).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ modelId }),
+      64,
+      expect.any(AbortSignal),
+    );
+  } finally {
+    await controller.quit();
+  }
+});
 it('runs an older indexed model configuration without dropping the newly imported model', async () => {
   const { controller, deps, host, initialize, run } = setup();
   try {
@@ -254,7 +349,7 @@ it('Auto assign writes raw ranges through owner CAS without saving or loading', 
   expect(result.ok).toBe(true);
   expect(f.draft().revision).toBe(2);
   expect(f.draft().runs).toEqual([{ uuid, first: '0', last: '63' }]);
-  expect(f.host.cluster.mock.calls.map(([, c]) => c.action)).toEqual(['read', 'edit']);
+  expect(f.host.cluster.mock.calls.map(([, c]) => c.action)).toEqual(['list', 'read', 'edit']);
   expect(f.host.command).not.toHaveBeenCalled();
   await f.controller.quit();
 });

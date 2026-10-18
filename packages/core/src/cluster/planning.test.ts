@@ -3,7 +3,7 @@ import { autoPlace } from './auto-place.js';
 import { resolveClusterLoad, clusterLoadArguments } from './effective-load.js';
 import { parseClusterEstimate } from './estimate.js';
 import { record } from '../model-configuration/test-fixtures.js';
-import { clusterServerArguments } from '../hosts/runtime-arguments.js';
+import { clusterServerArguments, requireContextShiftSupport } from '../hosts/runtime-arguments.js';
 const a = 'GPU-12345678-1234-1234-1234-123456789abc',
   b = 'GPU-87654321-1234-1234-1234-123456789abc';
 const saved = {
@@ -26,6 +26,14 @@ it('binds the complete tuple and exact ordered split without changing request sa
   expect(args.slice(args.indexOf('--fit'), args.indexOf('--fit') + 2)).toEqual(['--fit', 'off']);
   expect(args.filter((a) => a === '--ctx-size')).toHaveLength(1);
   expect(args).toContain('--no-context-shift');
+  for (const [flag, value] of [
+    ['--slot-prompt-similarity', '0'],
+    ['--cache-ram', '768'],
+    ['--ctx-checkpoints', '2'],
+  ] as const) {
+    expect(args.filter((arg) => arg === flag)).toHaveLength(1);
+    expect(args[args.indexOf(flag) + 1]).toBe(value);
+  }
   expect(args).toContain('CUDA0,CUDA1');
   expect(args).not.toContain('--temp');
   expect(load.fingerprint).toBe(
@@ -84,8 +92,7 @@ it.each([
     argumentsEnabled: true,
     argumentsText: '--host 0.0.0.0 --api-key stolen',
   },
-  { ...record().preferences, overflow: 'rolling' as const },
-  { ...record().preferences, overflow: 'truncate-middle' as const },
+  { ...record().preferences, customTemplate: true, chatTemplate: '   ' },
 ])('rejects unsupported preferences before compiling native arguments', (preferences) => {
   expect(() =>
     resolveClusterLoad({ ...saved, load: { ...saved.load, preferences } }, 'test-artifact'),
@@ -275,3 +282,65 @@ it('checks cancellation and deadline after a feasible two-GPU estimate before re
     Date.now = originalNow;
   }
 });
+
+it.each(['stop', 'truncate-middle', 'rolling'] as const)(
+  'compiles exactly one context shift mode for %s',
+  (overflow) => {
+    const preferences = { ...record().preferences, overflow };
+    const load = resolveClusterLoad(
+      { ...saved, load: { ...saved.load, preferences } },
+      'test-artifact',
+    );
+    const args = clusterServerArguments('E:\\model.gguf', load, 18080, 'private-key-file', 'model');
+    expect(args.filter((arg) => arg === '--context-shift' || arg === '--no-context-shift')).toEqual(
+      [overflow === 'stop' ? '--no-context-shift' : '--context-shift'],
+    );
+  },
+);
+
+it('omits inactive reasoning budget and its message without discarding stored text', () => {
+  const preferences = { ...record().preferences, reasoningMessage: 'Saved message --host example' };
+  const load = resolveClusterLoad(
+    { ...saved, load: { ...saved.load, preferences } },
+    'test-artifact',
+  );
+  const args = clusterServerArguments('E:\\model.gguf', load, 18080, 'private-key-file', 'model');
+  expect(args).not.toContain('--reasoning-budget');
+  expect(args).not.toContain('--reasoning-budget-message');
+  expect(load.preferences?.reasoningMessage).toBe(preferences.reasoningMessage);
+});
+
+it.each(['stop', 'truncate-middle', 'rolling'] as const)(
+  'requires native shift support only for the selected %s policy',
+  (overflow) => {
+    const load = resolveClusterLoad(
+      { ...saved, load: { ...saved.load, preferences: { ...record().preferences, overflow } } },
+      'test-artifact',
+    );
+    expect(() => requireContextShiftSupport(load, 'server is ready')).not.toThrow();
+    const unsupported = () =>
+      requireContextShiftSupport(
+        load,
+        'srv init: ctx_shift is not supported by this context, disabling',
+      );
+    if (overflow === 'stop') expect(unsupported).not.toThrow();
+    else expect(unsupported).toThrow('UNSUPPORTED_SETTING');
+  },
+);
+
+it.each(['stop', 'truncate-middle', 'rolling'] as const)(
+  'recognizes the pinned runtime common_init warning for %s',
+  (overflow) => {
+    const load = resolveClusterLoad(
+      { ...saved, load: { ...saved.load, preferences: { ...record().preferences, overflow } } },
+      'test-artifact',
+    );
+    const unsupported = () =>
+      requireContextShiftSupport(
+        load,
+        '0.15.670.126 W cmn  common_init_: KV cache shifting is not supported for this context, disabling KV cache shifting\n',
+      );
+    if (overflow === 'stop') expect(unsupported).not.toThrow();
+    else expect(unsupported).toThrow('UNSUPPORTED_SETTING');
+  },
+);

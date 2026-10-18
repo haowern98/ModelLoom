@@ -45,19 +45,14 @@ it.each(destinations)(
   },
 );
 
-it('keeps ChatGPT dots while More is open and closes the menu on Escape', async () => {
-  const user = userEvent.setup();
+it('keeps only the five available navigation destinations', () => {
   render(
     <AppShell destination="Models" onNavigate={vi.fn()} demo={false}>
       Content
     </AppShell>,
   );
-  const more = screen.getByRole('button', { name: 'More navigation' });
-  const outline = more.querySelector('svg')?.innerHTML;
-  await user.click(more);
-  expect(more).toHaveAttribute('aria-expanded', 'true');
-  expect(more.querySelector('svg')?.innerHTML).toBe(outline);
-  await user.keyboard('{Escape}');
-  expect(more).toHaveAttribute('aria-expanded', 'false');
-  expect(more.querySelector('svg')?.innerHTML).toBe(outline);
+  const rail = within(screen.getByRole('complementary', { name: 'Main navigation' }));
+  expect(rail.getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(
+    destinations,
+  );
 });

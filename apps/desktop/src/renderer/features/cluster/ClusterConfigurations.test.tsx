@@ -25,7 +25,7 @@ const model = {
   blockCount: 8,
 };
 
-it('requires assignment choice before Play, preserves unsaved model drafts, and prompts again after Undo clears them', async () => {
+it('confirms unsaved model switches, discards assignments, and plans the next model independently', async () => {
   const database = new DatabaseSync(':memory:');
   const qwenId = 'b'.repeat(64);
   const bonsaiId = record().modelId;
@@ -104,6 +104,14 @@ it('requires assignment choice before Play, preserves unsaved model drafts, and 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Selected local model: Qwen' }));
     await user.click(screen.getByRole('menuitem', { name: /Bonsai/ }));
+    expect(screen.getByRole('dialog', { name: 'Unsaved changes' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Close dialog' }));
+    expect(screen.getByRole('button', { name: 'Selected local model: Qwen' })).toBeVisible();
+    expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('15');
+    await user.click(screen.getByRole('button', { name: 'Selected local model: Qwen' }));
+    await user.click(screen.getByRole('menuitem', { name: /Bonsai/ }));
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+    await screen.findByRole('button', { name: 'Selected local model: Bonsai' });
     expect(onRunDraft).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('Planned layers 0 – 15')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Run model' }));
@@ -123,11 +131,18 @@ it('requires assignment choice before Play, preserves unsaved model drafts, and 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Selected local model: Bonsai' }));
     await user.click(screen.getByRole('menuitem', { name: /Qwen/ }));
-    expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('15');
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+    await screen.findByRole('button', { name: 'Selected local model: Qwen' });
+    expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('');
     expect(onRunDraft).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', { name: 'Selected local model: Qwen' }));
     await user.click(screen.getByRole('menuitem', { name: /Bonsai/ }));
-    expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('7');
+    expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: 'Run model' }));
+    await user.click(screen.getByRole('button', { name: 'Auto place' }));
+    await waitFor(() =>
+      expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('7'),
+    );
     expect(onRunDraft).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', { name: 'Run model' }));
     await waitFor(() =>
@@ -141,7 +156,7 @@ it('requires assignment choice before Play, preserves unsaved model drafts, and 
       command.mock.calls
         .filter(([input]) => input.action === 'auto-place')
         .map(([input]) => ('key' in input ? input.key : null)),
-    ).toEqual([`model:${bonsaiId}`]);
+    ).toEqual([`model:${bonsaiId}`, `model:${bonsaiId}`]);
     expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('7');
     expect(screen.queryByText('Planned layers 0 – 15')).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

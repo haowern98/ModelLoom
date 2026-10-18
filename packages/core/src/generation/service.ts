@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ApiGeneration } from './api-execution.js';
+import { fitContext } from './context-overflow.js';
 import type { ApiGenerationInput, ApiGenerationHandle } from './api-execution.js';
 import type { ApiCaller } from './api-authority.js';
 import { decodeResolvedRequestSettings } from '../model-configuration/contracts.js';
@@ -224,25 +225,28 @@ export class GenerationService {
           settings.modelId !== current.modelId ||
           settings.profileId !== current.profileId ||
           settings.contextLength !== current.contextLength ||
+          (settings.overflow ?? 'stop') !== (current.overflow ?? 'stop') ||
           settings.modelId !== this.deps.provenance.configuration.modelSha256
         )
           throw new Error('SETTINGS_UNAVAILABLE');
       }
       const context = this.context(conversation, decoded.text, retry?.turnId);
-      const messages = settings?.systemPrompt
+      const untrimmed = settings?.systemPrompt
         ? Object.freeze([
             Object.freeze({ role: 'system' as const, content: settings.systemPrompt }),
             ...context,
           ])
         : context;
-      const tokens = await this.count(messages, signal, settings);
-      if (!Number.isSafeInteger(tokens) || tokens < 0) throw new Error('INVALID_TOKEN_COUNT');
       const outputLimit = settings?.parameters.max_tokens ?? GENERATION_LIMITS.maxOutputTokens;
-      if (
-        tokens + (outputLimit === -1 ? 1 : outputLimit) >
-        this.deps.provenance.configuration.contextPerSlot
-      )
-        throw new Error('CONTEXT_FULL');
+      const policy = settings?.overflow ?? 'stop';
+      const messages = await fitContext(
+        untrimmed,
+        policy,
+        this.deps.provenance.configuration.contextPerSlot,
+        policy === 'stop' ? (outputLimit === -1 ? 1 : outputLimit) : 4,
+        (candidate) => this.count(candidate, signal, settings),
+        signal,
+      );
       if (signal.aborted) throw new Error('NOT_READY');
       if (retry)
         await this.deps.history.retry(
