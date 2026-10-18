@@ -11,6 +11,80 @@ import type {
 } from '../../../shared/cluster-configuration';
 const load = { defaults: {}, cacheK: 'f16', cacheV: 'f16' } as CapturedClusterLoad;
 
+it('switches after a successful Save without requiring another persistence operation', async () => {
+  const fixture = historyBridge();
+  const original = fixture.bridge.command;
+  fixture.bridge.command = vi.fn((command) =>
+    command.action === 'discard'
+      ? Promise.resolve({ ok: false as const, error: 'CONFIGURATION_UNAVAILABLE' as const })
+      : original(command),
+  );
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
+  await act(() => result.current.selectModel('b'.repeat(64)));
+  await act(async () => expect(await result.current.saveAndLeave(null)).toBe(true));
+  expect(result.current.selection?.modelId).toBe('b'.repeat(64));
+  await act(() => result.current.selectModel(fixture.configuration.modelId));
+  expect(result.current.dirty).toBe(false);
+  await act(() => result.current.selectModel('b'.repeat(64)));
+  expect(result.current.selection?.modelId).toBe('b'.repeat(64));
+  expect(
+    vi.mocked(fixture.bridge.command).mock.calls.some(([input]) => input.action === 'discard'),
+  ).toBe(false);
+});
+
+it('keeps manual assignment edits in memory until an explicit save, plan or run', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectModel('a'.repeat(64)));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '3' }]));
+  act(() => result.current.undo());
+  act(() => result.current.redo());
+  await act(() => Promise.resolve());
+  expect(result.current.raw?.runs[0]?.last).toBe('3');
+  expect(
+    fixture.command.mock.calls.some(
+      ([input]) => input.action === 'edit' || input.action === 'save',
+    ),
+  ).toBe(false);
+});
+
+it('prompts before switching an unsaved automatic assignment and discards it only on confirmation', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  const first = 'a'.repeat(64),
+    second = 'b'.repeat(64);
+  await act(() => result.current.selectModel(first));
+  await act(() => result.current.autoPlace());
+  await act(() => result.current.selectModel(second));
+  expect(result.current.selection?.modelId).toBe(first);
+  expect(result.current.leaveRequested).toBe(true);
+  act(() => result.current.cancelLeave());
+  expect(result.current.raw?.runs[0]?.last).toBe('7');
+  await act(() => result.current.selectModel(second));
+  await act(() => result.current.discardAndLeave());
+  expect(result.current.selection?.modelId).toBe(second);
+  await act(() => result.current.selectModel(first));
+  expect(result.current.raw?.runs).toEqual([]);
+  expect(result.current.canUndo).toBe(false);
+});
+
+it('restores saved assignments after discarding edits and blocks departure after failed Save', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '-' }]));
+  await act(() => result.current.selectModel('b'.repeat(64)));
+  await act(async () => expect(await result.current.saveAndLeave(null)).toBe(false));
+  expect(result.current.selection?.modelId).toBe(fixture.configuration.modelId);
+  expect(result.current.raw?.runs[0]?.last).toBe('-');
+  await act(() => result.current.discardAndLeave());
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  expect(result.current.raw?.runs[0]?.last).toBe('7');
+  expect(result.current.dirty).toBe(false);
+});
+
 it('refreshes captured model settings without losing unsaved placement text or Undo history', async () => {
   const fixture = historyBridge();
   const original = fixture.bridge.command;
@@ -32,7 +106,7 @@ it('refreshes captured model settings without losing unsaved placement text or U
   updated = true;
   await act(() => result.current.refreshModel(fixture.configuration.modelId));
   expect(result.current.raw?.load).toEqual(nextLoad);
-  expect(result.current.draft?.load).toEqual(nextLoad);
+  expect(result.current.draft).toBeNull();
   expect(result.current.raw?.runs[0]?.last).toBe('-');
   expect(result.current.dirty).toBe(true);
   act(() => result.current.undo());
@@ -125,6 +199,7 @@ it('refuses empty drafts without automatic assignment and keeps prepared drafts 
   await act(() => result.current.selectModel(qwen));
   act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '7' }]));
   await act(() => result.current.selectModel(bonsai));
+  await act(() => result.current.discardAndLeave());
   await act(async () => {
     expect(await result.current.prepareRun()).toBeNull();
   });
@@ -141,12 +216,12 @@ it('refuses empty drafts without automatic assignment and keeps prepared drafts 
   await act(async () => {
     const first = result.current.prepareRun();
     expect(await result.current.prepareRun()).toBeNull();
-    expect(await first).toEqual({ key: `model:${qwen}`, revision: 2, modelId: qwen });
+    expect(await first).toEqual({ key: `model:${qwen}`, revision: 1, modelId: qwen });
   });
   expect(fixture.command.mock.calls.some(([command]) => command.action === 'save')).toBe(false);
 });
 
-it('does not apply a late automatic assignment to a different selected model', async () => {
+it('blocks selection during planning and requires confirmation before leaving its result', async () => {
   const fixture = historyBridge();
   const original = fixture.bridge.command;
   let release!: () => void;
@@ -169,13 +244,15 @@ it('does not apply a late automatic assignment to a different selected model', a
     release();
     await planning;
   });
-  expect(result.current.selection?.modelId).toBe('a'.repeat(64));
+  expect(result.current.selection?.modelId).toBe('b'.repeat(64));
+  await act(() => result.current.selectModel('a'.repeat(64)));
+  await act(() => result.current.discardAndLeave());
   expect(result.current.raw?.runs).toEqual([]);
   expect(result.current.planning).toBe(false);
   expect(fixture.command.mock.calls.some(([command]) => command.action === 'save')).toBe(false);
 });
 
-it('refuses a run when a pending manual edit has no durable acknowledgement', async () => {
+it('refuses Run when its explicit draft synchronization fails', async () => {
   const fixture = historyBridge();
   const original = fixture.bridge.command;
   fixture.bridge.command = vi.fn((command) =>
@@ -189,7 +266,7 @@ it('refuses a run when a pending manual edit has no durable acknowledgement', as
   await act(async () => {
     expect(await result.current.prepareRun()).toBeNull();
   });
-  expect(result.current.error).toContain('durably saved');
+  expect(result.current.error).toBe('CONFIGURATION_UNAVAILABLE');
   expect(
     fixture.command.mock.calls.some(
       ([command]) => command.action === 'save' || command.action === 'auto-place',
@@ -253,6 +330,24 @@ function historyBridge() {
       drafts.set(input.key, draft);
       return reply(draft);
     }
+    if (input.action === 'discard') {
+      const previous = drafts.get(input.key)!;
+      if (!previous.configurationId) {
+        drafts.delete(input.key);
+        return reply(null);
+      }
+      const draft = {
+        ...previous,
+        revision: previous.revision + 1,
+        runs: configuration.runs.map((run) => ({
+          uuid: run.uuid,
+          first: String(run.first),
+          last: String(run.last),
+        })),
+      };
+      drafts.set(input.key, draft);
+      return reply(draft);
+    }
     if (input.action === 'save') {
       const draft = drafts.get(input.key)!;
       if (draft.runs.some((run) => run.first === '-' || run.last === '-'))
@@ -262,6 +357,7 @@ function historyBridge() {
         };
       configuration = {
         ...configuration,
+        modelId: draft.modelId,
         revision: configuration.revision + 1,
         runs: draft.runs.map((run) => ({
           uuid: run.uuid,
@@ -269,7 +365,16 @@ function historyBridge() {
           last: Number(run.last),
         })),
       };
-      return reply(draft);
+      const savedDraft = {
+        ...draft,
+        key: `config:${configuration.id}`,
+        configurationId: configuration.id,
+        revision: draft.revision + 1,
+        baseSavedRevision: configuration.revision,
+      };
+      drafts.delete(input.key);
+      drafts.set(savedDraft.key, savedDraft);
+      return reply(savedDraft);
     }
     return reply(null);
   };
@@ -281,10 +386,23 @@ function historyBridge() {
     failAuto: () => {
       rejectAuto = true;
     },
+    clearDrafts: () => drafts.clear(),
   };
 }
 
-it('undoes and redoes exact raw text through the durable write queue and clears branched redo', async () => {
+it('synchronizes explicit Save after the utility has recreated its session drafts', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
+  await act(async () => expect(await result.current.save(null)).toBe(true));
+  fixture.clearDrafts();
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '5' }]));
+  await act(async () => expect(await result.current.save(null)).toBe(true));
+  expect(result.current.raw?.runs[0]?.last).toBe('5');
+});
+
+it('undoes and redoes exact raw text in memory and clears branched redo', async () => {
   const fixture = historyBridge();
   const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
   await act(() => result.current.selectConfiguration(fixture.configuration));
@@ -302,32 +420,29 @@ it('undoes and redoes exact raw text through the durable write queue and clears 
     fixture.command.mock.calls
       .filter(([input]) => input.action === 'edit')
       .map(([input]) => (input.action === 'edit' ? input.edit.runs[0]?.last : null)),
-  ).toEqual(['-', '7', '-']);
+  ).toEqual([]);
   act(() => result.current.undo());
   act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
   expect(result.current.canRedo).toBe(false);
   await waitFor(() => expect(result.current.pending).toBe(false));
 });
 
-it('keeps independent history when changing model and configuration selection', async () => {
+it('discards each model editor history explicitly before changing selection', async () => {
   const fixture = historyBridge();
   const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
   await act(() => result.current.selectConfiguration(fixture.configuration));
   act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
-  await waitFor(() => expect(result.current.pending).toBe(false));
   await act(() => result.current.selectModel('b'.repeat(64)));
+  expect(result.current.leaveRequested).toBe(true);
+  await act(() => result.current.discardAndLeave());
   expect(result.current.canUndo).toBe(false);
   act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '3' }]));
-  await waitFor(() => expect(result.current.pending).toBe(false));
   await act(() => result.current.selectConfiguration(fixture.configuration));
-  expect(result.current.raw?.runs[0]?.last).toBe('6');
-  act(() => result.current.undo());
+  await act(() => result.current.discardAndLeave());
   expect(result.current.raw?.runs[0]?.last).toBe('7');
+  expect(result.current.canUndo).toBe(false);
   await act(() => result.current.selectModel('b'.repeat(64)));
-  expect(result.current.raw?.runs[0]?.last).toBe('3');
-  act(() => result.current.undo());
   expect(result.current.raw?.runs).toEqual([]);
-  await waitFor(() => expect(result.current.pending).toBe(false));
 });
 
 it('retains invalid draft history on failed Save and resets history only after successful Save', async () => {
@@ -347,6 +462,40 @@ it('retains invalid draft history on failed Save and resets history only after s
   expect(result.current.canUndo).toBe(false);
   expect(result.current.canRedo).toBe(false);
   expect(result.current.dirty).toBe(false);
+});
+
+it('saves edits to the existing configuration before switching without creating another one', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
+  await act(() => result.current.selectModel('b'.repeat(64)));
+  await act(async () => expect(await result.current.saveAndLeave(null)).toBe(true));
+  expect(result.current.selection?.modelId).toBe('b'.repeat(64));
+  await act(() => result.current.selectModel(fixture.configuration.modelId));
+  expect(result.current.selection?.configurationId).toBe(fixture.configuration.id);
+  expect(result.current.raw?.runs[0]?.last).toBe('6');
+  expect(result.current.dirty).toBe(false);
+  expect(result.current.configurations).toHaveLength(1);
+});
+
+it('saves a named automatic assignment only after the user chooses Save changes', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  const first = 'a'.repeat(64),
+    second = 'b'.repeat(64);
+  await act(() => result.current.selectModel(first));
+  await act(() => result.current.autoPlace());
+  await act(() => result.current.selectModel(second));
+  expect(fixture.command.mock.calls.some(([input]) => input.action === 'save')).toBe(false);
+  await act(async () => expect(await result.current.saveAndLeave('Qwen placement')).toBe(true));
+  expect(result.current.selection?.modelId).toBe(second);
+  await act(() => result.current.selectModel(first));
+  expect(result.current.raw?.runs).toEqual([{ uuid: 'gpu', first: '0', last: '7' }]);
+  expect(result.current.dirty).toBe(false);
+  expect(fixture.command).toHaveBeenCalledWith(
+    expect.objectContaining({ action: 'save', name: 'Qwen placement' }),
+  );
 });
 
 it('makes successful auto assignment one undoable draft change and preserves history on failure', async () => {
@@ -413,70 +562,37 @@ it('treats saved GPU row order as presentation while preserving raw editor strin
   expect(result.current.dirty).toBe(false);
   expect(result.current.raw?.runs).toEqual(draft.runs);
 });
-it('serializes writes without overwriting newer raw text', async () => {
-  let acknowledge: () => void = () => {};
-  const command = vi.fn(async (input: ClusterCommand) => {
-    if (input.action === 'read')
-      return { ok: true, configurations: [], configuration: null, draft: null, load, issues: [] };
-    if (input.action === 'edit') {
-      if (input.expectedRevision === null)
-        await new Promise<void>((resolve) => {
-          acknowledge = resolve;
-        });
-      return {
-        ok: true,
-        configurations: [],
-        configuration: null,
-        load,
-        issues: [],
-        draft: {
-          key: input.key,
-          configurationId: null,
-          revision: (input.expectedRevision ?? 0) + 1,
-          baseSavedRevision: null,
-          ...input.edit,
-        },
-      };
-    }
-    return {
-      ok: true,
-      configurations: [],
-      configuration: null,
-      draft: null,
-      load: null,
-      issues: [],
-    };
-  }) as ClusterBridge['command'];
-  const bridge = { command };
-  const { result } = renderHook(() => useClusterConfigurations(bridge));
-  await act(async () => {
-    await result.current.selectModel('a'.repeat(64));
+it('synchronizes the final editor text once on Save and blocks edits during its acknowledgement', async () => {
+  const fixture = historyBridge();
+  const original = fixture.bridge.command;
+  let release!: () => void;
+  fixture.bridge.command = vi.fn(async (command) => {
+    if (command.action === 'edit')
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    return original(command);
   });
-  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '1' }]));
-  await waitFor(() =>
-    expect(command).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'edit', expectedRevision: null }),
-    ),
-  );
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
   act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '-' }]));
-  expect(result.current.raw?.runs[0]?.last).toBe('-');
-  act(() => result.current.undo());
-  expect(result.current.raw?.runs[0]?.last).toBe('1');
-  act(() => result.current.redo());
-  expect(result.current.raw?.runs[0]?.last).toBe('-');
-  expect(vi.mocked(command).mock.calls.filter(([c]) => c.action === 'edit')).toHaveLength(1);
-  await act(async () => {
-    acknowledge();
-    await Promise.resolve();
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '6' }]));
+  expect(fixture.bridge.command).not.toHaveBeenCalledWith(
+    expect.objectContaining({ action: 'edit' }),
+  );
+  let saving!: Promise<boolean>;
+  act(() => {
+    saving = result.current.save(null);
   });
-  await waitFor(() => expect(result.current.draft?.revision).toBe(4));
-  expect(result.current.raw?.runs[0]?.last).toBe('-');
-  expect(
-    vi
-      .mocked(command)
-      .mock.calls.filter(([input]) => input.action === 'edit')
-      .map(([input]) => (input.action === 'edit' ? input.expectedRevision : null)),
-  ).toEqual([null, 1, 2, 3]);
+  await waitFor(() => expect(release).toBeDefined());
+  act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '4' }]));
+  expect(result.current.raw?.runs[0]?.last).toBe('6');
+  await act(async () => {
+    release();
+    expect(await saving).toBe(true);
+  });
+  expect(fixture.command.mock.calls.filter(([input]) => input.action === 'edit')).toHaveLength(1);
+  expect(result.current.dirty).toBe(false);
 });
 
 it('restores a saved configuration as a clean baseline without creating a draft or loading', async () => {
@@ -525,13 +641,14 @@ it('keeps failed raw edits visible and never calls a failed write Saved', async 
     await result.current.selectModel('a'.repeat(64));
   });
   act(() => result.current.edit([{ uuid: 'gpu', first: '-', last: '' }]));
-  await waitFor(() => expect(result.current.error).toBe('CONFIGURATION_UNAVAILABLE'));
+  expect(result.current.error).toBeNull();
   expect(result.current.raw?.runs[0]?.first).toBe('-');
   expect(result.current.dirty).toBe(true);
   expect(result.current.draft).toBe(null);
   await act(async () => {
     await result.current.save('Laptop');
   });
+  expect(result.current.error).toBe('CONFIGURATION_UNAVAILABLE');
   expect(command.mock.calls.some(([input]) => input.action === 'save')).toBe(false);
   await act(async () => {
     await result.current.selectModel('b'.repeat(64));
@@ -575,7 +692,7 @@ it('retains the editor after updating an existing saved configuration', async ()
     await result.current.selectConfiguration(configuration);
   });
   act(() => result.current.edit([{ uuid: 'gpu', first: '0', last: '7' }]));
-  await waitFor(() => expect(result.current.draft).not.toBeNull());
+  expect(result.current.draft).toBeNull();
   await act(async () => {
     await result.current.save(null);
   });
