@@ -365,10 +365,10 @@ test('canvas never draws an outline while keyboard controls and control focus st
   await expect(canvas).toHaveCSS('outline-style', 'none');
   await page.mouse.up();
   await expect(canvas).toHaveCSS('outline-style', 'none');
-  const moreNavigation = page.getByRole('button', { name: 'More navigation', exact: true });
-  await moreNavigation.focus();
-  await expect(moreNavigation).toHaveCSS('outline-style', 'solid');
-  await expect(moreNavigation).toHaveCSS('outline-width', '2px');
+  const settings = page.getByRole('button', { name: 'Settings', exact: true });
+  await settings.focus();
+  await expect(settings).toHaveCSS('outline-style', 'solid');
+  await expect(settings).toHaveCSS('outline-width', '2px');
   await page.keyboard.press('Tab');
   await expect(page.getByRole('button', { name: 'Add device', exact: true })).toBeFocused();
   await expect(page.getByRole('button', { name: 'Add device', exact: true })).toHaveCSS(
