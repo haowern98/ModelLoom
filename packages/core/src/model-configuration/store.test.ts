@@ -32,6 +32,31 @@ const librarySource = (modelId: string) => ({
   parameters: '4B',
 });
 
+it('forgets only the selected library entry durably and permits reimport with retained defaults', async () => {
+  const { store, database, known } = setup();
+  const first = librarySource(record().modelId);
+  const second = librarySource('b'.repeat(64));
+  known.add(second.modelId);
+  await store.recordImport(first.modelId, 123, first);
+  await store.recordImport(second.modelId, 124, second);
+  const saved = await store.save(first.modelId, 0, await store.read(first.modelId));
+  await expect(store.removeImport('../model')).rejects.toThrow('INVALID_CONFIGURATION');
+  await store.removeImport(first.modelId);
+  const reopened = new ModelConfigurationStore(
+    database,
+    () => {},
+    (id) => known.has(id),
+    capabilities,
+    record().load,
+  );
+  expect(await reopened.readImport(first.modelId)).toBeNull();
+  expect(await reopened.readImportSource(first.modelId)).toBeNull();
+  expect(await reopened.readLibraryEntry(null)).toEqual({ source: second, lastUsedAt: null });
+  expect(await reopened.read(first.modelId)).toEqual(saved);
+  await reopened.recordImport(first.modelId, 125, first);
+  expect(await reopened.readImportSource(first.modelId)).toEqual(first);
+});
+
 it('restores every indexed model in identity order with independent usage after reopening', async () => {
   const { store, database, known } = setup();
   const first = librarySource('a'.repeat(64));
