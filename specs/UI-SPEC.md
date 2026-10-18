@@ -294,6 +294,28 @@ Editor validation rejects empty/nonfinite values, nonintegers in count fields an
 
 The approved 2026-10-17 save-feedback revision replaces the bottom success message with the shared green success toast from section 2.3, centred 24px below the main content's top edge. Show it only after Save succeeds, retaining the honest session-only wording in the demo and requiring core acknowledgement for imported models. Keep Reset defaults and Save changes in their existing fixed bottom bar without moving or resizing them. Saving progress, validation explanations and save failures retain their existing feedback. The toast supports close, five-second expiry and paused expiry during hover or keyboard focus; dismissing it does not change saved settings.
 
+### Model configuration wiring revision, 2026-10-17
+
+For imported models, Save commits the existing protected per-model record. Generation settings apply to new requests; context, threads, batches, concurrency, Flash Attention, RoPE, reasoning budget/message, template and overflow preferences apply after explicit reload. When the owner reports pending load changes, the existing green save notification explains that reload is required. No control causes automatic reload or changes an admitted request.
+
+Context Overflow offers all three choices, with **Stop at Limit** as the default. Stop rejects a prompt that cannot fit its requested reply budget and stops generation at the loaded context boundary. **Truncate Middle** removes older middle turns while retaining the system instructions, first user turn and newest input. **Rolling Window** removes the oldest turns while retaining system instructions and newest input. Trimming affects only the request, never stored conversation text. Both continuing modes use the pinned runtime's supported context shift during generation; a native context that cannot shift is rejected before readiness instead of silently using a different policy. Protected prefixes must be compatible with the selected native template.
+
+Opening or closing Chat Template changes only editor expansion. Nonblank template text enables the custom template; clearing it restores the model default. Inactive numeric controls retain their previous valid saved values if their pending input is invalid. Their valid manual values remain retained while disabled. Reasoning Budget Message is passed only with an enabled reasoning budget.
+
+Set in Cluster selects the model being configured without loading it. Successful model-default saves refresh cached Cluster load settings while preserving pending layer assignments and Undo history. These changes preserve the existing layout, typography and control sizes. Automatic hardware optimization, speculative decoding and removed raw argument overrides remain outside this revision.
+
+### Model configuration control consistency, 2026-10-17
+
+Both configuration dropdowns use Cluster's Choose model pill and popup design,
+including its chevron, surfaces, rounding, hover/selection treatment and keyboard
+dismissal. Centre the 32px pill within the existing 28px settings slot so adjacent
+content does not move. Keep the disabled speculative method unavailable.
+
+Numeric fields use Assign Layers' separate up/down caret buttons within their
+existing 108×28px footprint. Preserve native numeric editing, each setting's
+integer or decimal step, bounds, optional/disabled state, sliders and validation.
+Keep all other labels, fonts, spacing, section geometry and runtime wiring unchanged.
+
 ## 5. Cluster screen
 
 ### Approved sidebar revision, 2026-10-15

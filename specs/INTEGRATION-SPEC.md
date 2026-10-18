@@ -368,11 +368,33 @@ Saved generation settings apply to newly admitted requests. Supported context,
 thread, batch, concurrency and Flash Attention controls, RoPE frequency base and
 frequency scale, reasoning budget/message and custom Jinja template apply on the
 next model load. Native arguments are compiled from a fixed supported allowlist;
-arbitrary arguments, unimplemented overflow modes, speculative decoding and
+arbitrary arguments, speculative decoding and
 automatic tuning remain unavailable. The 2026-10-17 correction keeps model
 settings separate from saved Cluster placements. Every Run resolves current
 settings, then captures them immutably for that active load. Later edits do not
 alter an already active load or admitted request.
+
+The 2026-10-17 configuration wiring revision enables Stop at Limit (default),
+Truncate Middle and Rolling Window. The active load's overflow policy is captured
+with request settings before admission and retained for queueing/history/Retry.
+Legacy snapshots without that field keep Stop at Limit semantics. Both Chat and
+the stateless API use exact native template token counts before admission;
+trimming changes request copies only. System instructions and newest user input
+are protected; Truncate Middle also protects the first user turn. An input whose
+protected text cannot fit is rejected rather than shortened silently.
+
+Continuing modes select native context shift on load and a validated protected
+prefix for each request. Unsupported native context shifting fails readiness.
+Only existing owned/private native routes perform template/token accounting;
+no public route or caller-controlled endpoint is added. Explicit reply limits
+remain enforced, while cumulative usage may exceed resident context capacity
+when shifting is enabled. Stop at Limit retains its existing capacity checks.
+
+Expanding the template editor does not activate a custom template. Saving
+nonblank text selects it; clearing it selects the model default. Disabled
+reasoning budgets do not forward the retained budget message. Model Save
+acknowledgement controls the reload notice, and successful saves refresh cached
+Cluster load settings without discarding placement drafts or Undo history.
 
 Generation admission captures the actual configured native slot count, bounded
 to integers from 1 through 1024, plus eight pending requests. Cancellation alone
