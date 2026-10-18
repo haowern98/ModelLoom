@@ -29,6 +29,7 @@ import { DeviceCard } from './DeviceCard';
 import { ClusterCanvas } from './ClusterCanvas';
 import { ClusterPanel } from './ClusterPanel';
 import { ClusterModelPicker } from './ClusterModelPicker';
+import { UnsavedClusterChangesDialog } from './UnsavedClusterChangesDialog';
 import { ClusterSidebar } from './ClusterSidebar';
 import type { ClusterView } from './ClusterSidebar';
 import { ClusterViews } from './ClusterViews';
@@ -326,7 +327,7 @@ export function ClusterPage({
       className={styles.page}
       aria-labelledby="cluster-heading"
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && panelOpen && !modal) {
+        if (event.key === 'Escape' && panelOpen && !modal && !configurations?.leaveRequested) {
           event.stopPropagation();
           closePanel();
         }
@@ -431,7 +432,11 @@ export function ClusterPage({
                 models={models}
                 selectedModel={selectedModel}
                 activeModelId={activeModel?.id}
-                disabled={(!demo && !localRuntime) || loading}
+                disabled={
+                  (!demo && !localRuntime) ||
+                  loading ||
+                  Boolean(configurations?.planning || configurations?.pending)
+                }
                 onChoose={(model) =>
                   localRuntime
                     ? localRuntime.onChoose(model)
@@ -734,6 +739,16 @@ export function ClusterPage({
           )}
         </div>
       </div>
+      {configurations?.leaveRequested && (
+        <UnsavedClusterChangesDialog
+          modelName={selectedModel?.name ?? 'Configuration'}
+          saved={Boolean(configurations.saved)}
+          busy={configurations.leaving}
+          onClose={configurations.cancelLeave}
+          onSave={configurations.saveAndLeave}
+          onDiscard={configurations.discardAndLeave}
+        />
+      )}
       {modal && (
         <Dialog
           title={modal.type === 'name' ? 'Save configuration' : title}
