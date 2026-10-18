@@ -20,7 +20,7 @@ export class ApiController {
     private readonly modelId: string,
     capabilities: RuntimeSettingCapabilities,
     protection: () => ApiKeyProtection,
-    ready: () => boolean,
+    private readonly ready: () => boolean,
     chat: () => ChatController | undefined,
     port?: number,
   ) {
@@ -62,6 +62,13 @@ export class ApiController {
   private async handle(input: unknown): Promise<ApiOwnerReply> {
     try {
       const command = decodeApiOwnerCommand(input);
+      if (command.action === 'removeImport') {
+        if (command.modelId === this.modelId && this.ready())
+          return { ok: false, error: 'NOT_READY' };
+        await this.store.removeImport(command.modelId);
+        if (command.modelId === this.modelId) this.imported = null;
+        return { ok: true, removed: true };
+      }
       if (command.action === 'readLibraryEntry')
         return { ok: true, entry: await this.store.readLibraryEntry(command.after) };
       if (command.action === 'readModelUsage')
