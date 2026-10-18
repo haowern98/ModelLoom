@@ -2,6 +2,16 @@ import { expect, it } from 'vitest';
 import * as runtime from './runtime';
 
 const decode = (value: unknown) => Reflect.get(runtime, 'decodeRuntimeCommand')?.(value);
+it('admits removal by exact library identity without accepting paths or deletion options', () => {
+  const command = { action: 'remove', modelId: `model-${'a'.repeat(64)}` };
+  expect(decode(command)).toEqual(command);
+  for (const input of [
+    { ...command, path: 'E:/model.gguf' },
+    { ...command, deleteFile: true },
+    { ...command, modelId: 'model-forged' },
+  ])
+    expect(() => decode(input)).toThrow('INVALID_CONTROL');
+});
 it('accepts only a bounded draft reference rather than renderer-provided allocation JSON', () => {
   const command = {
     action: 'load',
