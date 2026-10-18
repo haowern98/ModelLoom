@@ -16,7 +16,6 @@ type Entry = {
   saved: SavedClusterConfiguration | null;
   draft: ClusterDraft | null;
   sequence: number;
-  acknowledged: number;
   tail: Promise<void>;
   error: string | null;
   issues: readonly AssignmentIssue[];
@@ -48,7 +47,7 @@ function sameEdit(left: ClusterEdit, right: ClusterEdit): boolean {
 function hasAssignments(edit: ClusterEdit): boolean {
   return edit.runs.some((run) => Boolean(run.first.trim() || run.last.trim()));
 }
-/** Acknowledged drafts survive page unmount; each key owns a serial durable write queue. */
+/** Assignment edits stay in memory; Save, planning and Run explicitly synchronize a session draft. */
 export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
   const [snapshot, setSnapshot] = useState<{
     entry: Entry | undefined;
@@ -57,6 +56,7 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     error: string | null;
   }>({ entry: undefined, configurations: [], planning: false, error: null });
   const entries = useRef(new Map<string, Entry>());
+  const modelSelections = useRef(new Map<string, string>());
   const selected = useRef<string | null>(null);
   const selectionGeneration = useRef(0);
   const planning = useRef(false);
@@ -64,6 +64,10 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
   const configurations = useRef<readonly SavedClusterConfiguration[]>([]);
   const readError = useRef<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const departure = useRef<(() => void | Promise<void>) | null>(null);
+  const [leaveRequested, setLeaveRequested] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const resolvingDeparture = useRef(false);
   const refresh = () => {
     const entry = selected.current ? entries.current.get(selected.current) : undefined;
     setSnapshot({
@@ -104,6 +108,7 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
       void bridge.command({ action: 'cancel-planning' }).catch(() => {});
     }
     const key = configurationId ? `config:${configurationId}` : `model:${modelId}`;
+    modelSelections.current.set(modelId, key);
     selected.current = key;
     readError.current = null;
     refresh();
@@ -128,7 +133,6 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
           saved: reply.configuration,
           draft: reply.draft,
           sequence: 0,
-          acknowledged: 0,
           tail: Promise.resolve(),
           error: null,
           issues: [],
@@ -149,22 +153,6 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     entry.error = null;
     entry.issues = [];
     refresh();
-    const sequence = entry.sequence;
-    void enqueue(entry, async () => {
-      const reply = success(
-        await bridge.command({
-          action: 'edit',
-          key: entry.key,
-          expectedRevision: entry.draft?.revision ?? null,
-          edit: raw,
-        }),
-      );
-      if (!reply.draft) throw Error('Draft acknowledgement missing.');
-      entry.draft = reply.draft;
-      entry.acknowledged = sequence;
-      if (sequence === entry.sequence) entry.error = null;
-      refresh();
-    });
   };
   /** Rehydrate load settings after model defaults change, preserving exact placement edits/history. */
   const refreshModel = async (modelId: string) => {
@@ -220,12 +208,25 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     write(entry, raw);
   };
   const ensureDraft = async (entry: Entry) => {
-    if (!entry.draft) {
+    // Utility ownership can restart between explicit actions; retain saved-revision conflicts.
+    const latest = success(
+      await bridge!.command({
+        action: 'read',
+        modelId: entry.raw.modelId,
+        configurationId: entry.saved?.id ?? null,
+      }),
+    );
+    if (entry.saved && latest.configuration?.revision !== entry.saved.revision)
+      throw Error('STALE_CONFIGURATION');
+    if (entry.draft && latest.draft && entry.draft.revision !== latest.draft.revision)
+      throw Error('STALE_CONFIGURATION');
+    entry.draft = latest.draft;
+    if (!entry.draft || !sameEdit(entry.raw, entry.draft)) {
       const reply = success(
         await bridge!.command({
           action: 'edit',
           key: entry.key,
-          expectedRevision: null,
+          expectedRevision: entry.draft?.revision ?? null,
           edit: entry.raw,
         }),
       );
@@ -242,8 +243,6 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     refresh();
     let saved = false;
     await enqueue(entry, async () => {
-      if (entry.acknowledged !== entry.sequence)
-        throw Error('Changes have not been durably saved. Edit again to retry.');
       await ensureDraft(entry);
       const sequence = entry.sequence;
       const reply = success(
@@ -266,6 +265,8 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
       entry.saved = reply.configuration;
       entry.draft = reply.draft;
       const nextKey = `config:${reply.configuration.id}`;
+      if (modelSelections.current.get(entry.raw.modelId) === entry.key)
+        modelSelections.current.set(entry.raw.modelId, nextKey);
       entries.current.set(nextKey, entry);
       if (nextKey !== entry.key) entries.current.delete(entry.key);
       if (selected.current === entry.key) selected.current = nextKey;
@@ -284,23 +285,76 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
   };
   const discard = async () => {
     const entry = current();
-    if (!entry || !bridge) return;
+    if (!entry) return true;
+    if (!bridge || entry.busy || planning.current) return false;
     const sequence = entry.sequence;
+    let discarded = false;
     await enqueue(entry, async () => {
-      if (!entry.draft) return;
-      const reply = success(
-        await bridge.command({ action: 'discard', key: entry.key, revision: entry.draft.revision }),
-      );
-      entry.draft = reply.draft;
+      if (entry.draft) {
+        const reply = success(
+          await bridge.command({
+            action: 'discard',
+            key: entry.key,
+            revision: entry.draft.revision,
+          }),
+        );
+        entry.draft = reply.draft;
+      }
       if (sequence === entry.sequence) {
         entry.raw = entry.saved ? baseline(entry.saved) : { ...entry.raw, runs: [] };
         entry.past = [];
         entry.future = [];
         entry.issues = [];
         entry.error = null;
+        discarded = true;
       }
       refresh();
     });
+    return discarded;
+  };
+  const dirty = (entry: Entry | undefined) =>
+    !!entry &&
+    (entry.saved ? !sameEdit(entry.raw, baseline(entry.saved)) : hasAssignments(entry.raw));
+  const requestLeave = async (action: () => void | Promise<void>) => {
+    if (departure.current || resolvingDeparture.current || planning.current || current()?.busy)
+      return;
+    if (dirty(current())) {
+      departure.current = action;
+      setLeaveRequested(true);
+      return;
+    }
+    const entry = current();
+    if (entry) {
+      entry.past = [];
+      entry.future = [];
+      entry.error = null;
+      entry.issues = [];
+      refresh();
+    }
+    await action();
+  };
+  const cancelLeave = () => {
+    if (resolvingDeparture.current) return;
+    departure.current = null;
+    setLeaveRequested(false);
+  };
+  const finishLeave = async (saveName: string | null | undefined) => {
+    const action = departure.current;
+    if (!action || resolvingDeparture.current) return false;
+    resolvingDeparture.current = true;
+    setLeaving(true);
+    try {
+      if (saveName === undefined) {
+        if (!(await discard())) return false;
+      } else if (!(await save(saveName))) return false;
+      departure.current = null;
+      setLeaveRequested(false);
+      await action();
+      return true;
+    } finally {
+      resolvingDeparture.current = false;
+      setLeaving(false);
+    }
   };
   const remove = async (configuration: SavedClusterConfiguration): Promise<boolean> => {
     if (!bridge || deleting || planning.current) return false;
@@ -320,6 +374,8 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
       );
       configurations.current = reply.configurations;
       entries.current.delete(key);
+      if (modelSelections.current.get(configuration.modelId) === key)
+        modelSelections.current.delete(configuration.modelId);
       if (selected.current === key) await select(configuration.modelId, null);
       refresh();
       return true;
@@ -340,11 +396,11 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     if (!entry || !bridge || entry.busy || planning.current) return;
     const generation = selectionGeneration.current;
     planning.current = true;
+    entry.error = null;
+    entry.issues = [];
     refresh();
     await enqueue(entry, async () => {
       if (generation !== selectionGeneration.current) return;
-      if (entry.acknowledged !== entry.sequence)
-        throw Error('Changes have not been durably saved. Edit again to retry.');
       await ensureDraft(entry);
       const sequence = entry.sequence;
       const result = await bridge.command({
@@ -398,8 +454,6 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     try {
       await entry.tail;
       if (!isCurrent()) throw Error('Model selection changed. Run the selected model again.');
-      if (entry.acknowledged !== entry.sequence)
-        throw Error('Changes have not been durably saved. Edit again to retry.');
       if (!hasAssignments(entry.raw))
         throw Error('Choose automatic or manual layer assignment first.');
       entry.busy = true;
@@ -407,8 +461,6 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
       let target: { key: string; revision: number; modelId: string } | null = null;
       await enqueue(entry, async () => {
         if (!isCurrent()) throw Error('Model selection changed. Run the selected model again.');
-        if (entry.acknowledged !== entry.sequence)
-          throw Error('Changes have not been durably saved. Edit again to retry.');
         await ensureDraft(entry);
         if (!isCurrent()) throw Error('Model selection changed. Run the selected model again.');
         if (
@@ -445,20 +497,33 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     draft: entry?.draft ?? null,
     saved: entry?.saved ?? null,
     hasAssignments: !!entry && hasAssignments(entry.raw),
-    dirty:
-      !!entry &&
-      (entry.saved ? !sameEdit(entry.raw, baseline(entry.saved)) : hasAssignments(entry.raw)),
+    dirty: dirty(entry),
     planning: snapshot.planning,
-    pending: deleting || (!!entry && (entry.busy || entry.sequence !== entry.acknowledged)),
+    pending: deleting || leaving || !!entry?.busy,
     saving: deleting || (entry?.busy ?? false),
     deleting,
     canUndo: !!entry?.past.length && !entry.busy && !snapshot.planning,
     canRedo: !!entry?.future.length && !entry.busy && !snapshot.planning,
     error: entry?.error ?? snapshot.error,
     issues: entry?.issues ?? [],
-    selectModel: (modelId: string) => select(modelId.replace(/^model-/u, ''), null),
-    selectConfiguration: (configuration: SavedClusterConfiguration) =>
-      select(configuration.modelId, configuration.id),
+    selectModel: (modelId: string) => {
+      const id = modelId.replace(/^model-/u, '');
+      const entry = entries.current.get(modelSelections.current.get(id) ?? '');
+      const configurationId = entry?.saved?.id ?? null;
+      const key = configurationId ? `config:${configurationId}` : `model:${id}`;
+      if (selected.current === key) return Promise.resolve();
+      return requestLeave(() => select(id, configurationId));
+    },
+    selectConfiguration: (configuration: SavedClusterConfiguration) => {
+      if (selected.current === `config:${configuration.id}`) return Promise.resolve();
+      return requestLeave(() => select(configuration.modelId, configuration.id));
+    },
+    requestLeave,
+    leaveRequested,
+    leaving,
+    cancelLeave,
+    saveAndLeave: (name: string | null) => finishLeave(name),
+    discardAndLeave: () => finishLeave(undefined),
     refreshModel,
     edit,
     undo: () => moveHistory('undo'),
