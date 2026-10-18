@@ -132,7 +132,7 @@ test('API matches configuration geometry and scroll margins at desktop widths', 
         .getByRole('heading', { name: 'Server logs', exact: true })
         .scrollIntoViewIfNeeded();
       await expect(page.getByRole('region', { name: 'Server logs', exact: true })).toBeInViewport();
-      await expect(page.getByRole('button', { name: 'More navigation' })).toBeInViewport();
+      await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeInViewport();
       await main.evaluate((node) => {
         node.scrollTop = 0;
       });
