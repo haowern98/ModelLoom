@@ -6,6 +6,21 @@ import {
   decodeApiOwnerReply,
 } from './wire.js';
 
+it('keeps entry removal owner-only and rejects arbitrary paths and extra fields', () => {
+  const command = { action: 'removeImport' as const, modelId: 'a'.repeat(64) };
+  expect(decodeApiOwnerCommand(command)).toEqual(command);
+  expect(() => decodeApiManagementCommand(command)).toThrow('INVALID_CONTROL');
+  expect(decodeApiOwnerReply({ ok: true, removed: true }, command)).toEqual({
+    ok: true,
+    removed: true,
+  });
+  for (const input of [
+    { ...command, modelId: '../model' },
+    { ...command, file: 'E:/model.gguf' },
+  ])
+    expect(() => decodeApiOwnerCommand(input)).toThrow('INVALID_CONTROL');
+});
+
 it('keeps paged library restoration owner-only and validates cursor progress and entry data', () => {
   const source = {
     modelId: 'b'.repeat(64),
