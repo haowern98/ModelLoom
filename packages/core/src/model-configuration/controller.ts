@@ -42,11 +42,7 @@ export class ConfigurationController {
       const capabilities = await this.caps(command.modelId);
       if (command.action === 'save') {
         decodeModelConfiguration(command.record, capabilities);
-        if (
-          command.record.load.automatic ||
-          command.record.preferences.argumentsEnabled ||
-          command.record.preferences.overflow !== 'stop'
-        )
+        if (command.record.load.automatic || command.record.preferences.argumentsEnabled)
           throw Error('UNSUPPORTED_SETTING');
         if (command.record.generation.thinking !== null && !capabilities.thinking)
           throw Error('UNSUPPORTED_SETTING');

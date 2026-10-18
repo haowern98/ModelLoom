@@ -41,7 +41,6 @@ export function resolveClusterLoad(
   if (
     preferences &&
     (preferences.argumentsEnabled ||
-      preferences.overflow !== 'stop' ||
       (preferences.customTemplate && !preferences.chatTemplate.trim()))
   )
     throw Error('UNSUPPORTED_SETTING');

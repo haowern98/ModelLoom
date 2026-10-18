@@ -5,6 +5,7 @@ import { decodeResolvedRequestSettings } from '../model-configuration/contracts.
 import type {
   ResolvedRequestSettings,
   RuntimeSettingCapabilities,
+  AdvancedPreferences,
 } from '../model-configuration/contracts.js';
 import { request } from 'node:http';
 import type { IncomingMessage } from 'node:http';
@@ -24,6 +25,7 @@ export interface OwnedChatOptions {
     readonly capabilities: RuntimeSettingCapabilities;
     readonly modelId: string;
     readonly contextLength: number;
+    readonly overflow?: AdvancedPreferences['overflow'];
   };
 }
 /** Only trusted owner construction supplies endpoint, credential and slot monitor. */
@@ -46,6 +48,8 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
     messages: Parameters<ChatTransport['tokenCount']>[0],
     slot?: number,
     input?: ResolvedRequestSettings,
+    keep?: number,
+    addGenerationPrompt = true,
   ): string {
     let settings: ResolvedRequestSettings | undefined;
     if (input !== undefined) {
@@ -53,7 +57,8 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
       settings = decodeResolvedRequestSettings(input, options.configuration.capabilities);
       if (
         settings.modelId !== options.configuration.modelId ||
-        settings.contextLength !== options.configuration.contextLength
+        settings.contextLength !== options.configuration.contextLength ||
+        (settings.overflow ?? 'stop') !== (options.configuration.overflow ?? 'stop')
       )
         throw new Error('INVALID_CONTROL');
     }
@@ -84,6 +89,7 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
     const value = JSON.stringify({
       model: alias,
       messages,
+      ...(addGenerationPrompt ? {} : { add_generation_prompt: false }),
       ...(settings ? settings.parameters : {}),
       ...(settings?.thinking === null || settings === undefined
         ? {}
@@ -95,13 +101,18 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
             ...(settings ? { stream_options: { include_usage: true } } : { max_tokens: 512 }),
             n: 1,
             id_slot: slot,
+            ...(keep === undefined ? {} : { n_keep: keep, n_discard: 0 }),
           }),
     });
     if (Buffer.byteLength(value) > 1048576) throw new Error('INVALID_CONTROL');
     return value;
   }
   function post(
-    route: '/v1/chat/completions' | '/v1/chat/completions/input_tokens',
+    route:
+      | '/v1/chat/completions'
+      | '/v1/chat/completions/input_tokens'
+      | '/apply-template'
+      | '/tokenize',
     data: string,
     signal: AbortSignal,
   ): Promise<IncomingMessage> {
@@ -133,54 +144,147 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
       req.end(data);
     });
   }
-  return {
-    async tokenCount(messages, signal, settings) {
-      try {
-        const abort = new AbortController();
-        const cancel = () => abort.abort();
-        signal.addEventListener('abort', cancel, { once: true });
-        if (signal.aborted) abort.abort();
-        const timer = setTimeout(cancel, 120000);
-        try {
-          const response = await post(
-            '/v1/chat/completions/input_tokens',
-            body(messages, undefined, settings),
-            abort.signal,
-          );
-          let size = 0;
-          const chunks: Buffer[] = [];
-          for await (const raw of response) {
-            const chunk = raw as Buffer;
-            size += chunk.length;
-            if (size > 65536) {
-              response.destroy();
-              throw new Error('TOKEN_COUNT_FAILED');
-            }
-            chunks.push(chunk);
-          }
-          const value: unknown = JSON.parse(
-            new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)),
-          );
-          if (
-            !owns() ||
-            abort.signal.aborted ||
-            !value ||
-            typeof value !== 'object' ||
-            !('input_tokens' in value) ||
-            typeof value.input_tokens !== 'number' ||
-            !Number.isSafeInteger(value.input_tokens) ||
-            value.input_tokens < 0
-          )
-            throw new Error('TOKEN_COUNT_FAILED');
-          return value.input_tokens;
-        } finally {
-          clearTimeout(timer);
-          signal.removeEventListener('abort', cancel);
+  /** Check the native rendered/tokenized prefix before acquiring any generation slot. */
+  async function protectedPrefix(
+    messages: readonly ChatMessage[],
+    settings: ResolvedRequestSettings,
+    signal: AbortSignal,
+  ): Promise<number> {
+    let end = messages[0]?.role === 'system' ? 1 : 0;
+    if (settings.overflow === 'truncate-middle') {
+      while (end < messages.length && messages[end]?.role !== 'user') end++;
+      end++;
+      while (end < messages.length && messages[end]?.role !== 'user') end++;
+    }
+    if (!end) return 0;
+    const abort = new AbortController();
+    const cancel = () => abort.abort();
+    signal.addEventListener('abort', cancel, { once: true });
+    if (signal.aborted) abort.abort();
+    const timer = setTimeout(cancel, 120000);
+    const read = async (route: '/apply-template' | '/tokenize', data: string): Promise<unknown> => {
+      const response = await post(route, data, abort.signal);
+      let size = 0;
+      const chunks: Buffer[] = [];
+      for await (const raw of response) {
+        const chunk = raw as Buffer;
+        size += chunk.length;
+        if (size > 4194304) {
+          response.destroy();
+          throw Error('INVALID_STREAM');
         }
-      } catch {
-        throw new Error('TOKEN_COUNT_FAILED');
+        chunks.push(chunk);
       }
-    },
+      if (abort.signal.aborted || !owns()) throw Error('NOT_READY');
+      return JSON.parse(
+        new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)),
+      ) as unknown;
+    };
+    const render = async (context: readonly ChatMessage[], generationPrompt: boolean) => {
+      const value = await read(
+        '/apply-template',
+        body(context, undefined, settings, undefined, generationPrompt),
+      );
+      if (
+        !value ||
+        typeof value !== 'object' ||
+        !('prompt' in value) ||
+        typeof value.prompt !== 'string' ||
+        /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value.prompt)
+      )
+        throw Error('INVALID_STREAM');
+      return value.prompt;
+    };
+    const tokenize = async (content: string): Promise<readonly number[]> => {
+      const value = await read(
+        '/tokenize',
+        JSON.stringify({ content, add_special: false, parse_special: true }),
+      );
+      if (
+        !value ||
+        typeof value !== 'object' ||
+        !('tokens' in value) ||
+        !Array.isArray(value.tokens) ||
+        value.tokens.some(
+          (token: unknown) =>
+            typeof token !== 'number' || !Number.isSafeInteger(token) || token < 0,
+        )
+      )
+        throw Error('INVALID_STREAM');
+      return value.tokens as number[];
+    };
+    try {
+      const full = await render(messages, true);
+      const prefix = await render(messages.slice(0, end), false);
+      if (!prefix || !full.startsWith(prefix)) throw Error('INVALID_STREAM');
+      const fullTokens = await tokenize(full);
+      const prefixTokens = await tokenize(prefix);
+      if (
+        !prefixTokens.length ||
+        prefixTokens.some((token, index) => token !== fullTokens[index]) ||
+        prefixTokens.length > settings.contextLength - 4
+      )
+        throw Error('INVALID_STREAM');
+      return prefixTokens.length;
+    } finally {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', cancel);
+    }
+  }
+  async function countTokens(
+    messages: readonly ChatMessage[],
+    signal: AbortSignal,
+    settings?: ResolvedRequestSettings,
+    addGenerationPrompt = true,
+  ): Promise<number> {
+    try {
+      const abort = new AbortController();
+      const cancel = () => abort.abort();
+      signal.addEventListener('abort', cancel, { once: true });
+      if (signal.aborted) abort.abort();
+      const timer = setTimeout(cancel, 120000);
+      try {
+        const response = await post(
+          '/v1/chat/completions/input_tokens',
+          body(messages, undefined, settings, undefined, addGenerationPrompt),
+          abort.signal,
+        );
+        let size = 0;
+        const chunks: Buffer[] = [];
+        for await (const raw of response) {
+          const chunk = raw as Buffer;
+          size += chunk.length;
+          if (size > 65536) {
+            response.destroy();
+            throw new Error('TOKEN_COUNT_FAILED');
+          }
+          chunks.push(chunk);
+        }
+        const value: unknown = JSON.parse(
+          new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)),
+        );
+        if (
+          !owns() ||
+          abort.signal.aborted ||
+          !value ||
+          typeof value !== 'object' ||
+          !('input_tokens' in value) ||
+          typeof value.input_tokens !== 'number' ||
+          !Number.isSafeInteger(value.input_tokens) ||
+          value.input_tokens < 0
+        )
+          throw new Error('TOKEN_COUNT_FAILED');
+        return value.input_tokens;
+      } finally {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', cancel);
+      }
+    } catch {
+      throw new Error('TOKEN_COUNT_FAILED');
+    }
+  }
+  const transport: ChatTransport = {
+    tokenCount: (messages, signal, settings) => countTokens(messages, signal, settings),
     start(input, messages, progress, settings) {
       const identity = decodeExecutionIdentity(input);
       if (
@@ -193,31 +297,31 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
       body(messages, 0, settings); // Validate before any native reservation or request exists.
       const abort = new AbortController();
       let outcome: TerminalOutcome = { status: 'failed', reason: 'EXECUTION_FAILED' };
-      const release = monitor.start(async (slot) => {
-        let response: IncomingMessage | undefined;
-        try {
-          response = await post(
-            '/v1/chat/completions',
-            body(messages, slot, settings),
-            abort.signal,
-          );
-          for await (const chunk of parseGenerationStream(response, abort.signal)) {
-            if (chunk.type === 'terminal') outcome = chunk.outcome;
-            await progress(chunk);
+      const execute = (keep?: number): Promise<TerminalOutcome> => {
+        const release = monitor.start(async (slot) => {
+          let response: IncomingMessage | undefined;
+          try {
+            response = await post(
+              '/v1/chat/completions',
+              body(messages, slot, settings, keep),
+              abort.signal,
+            );
+            for await (const chunk of parseGenerationStream(response, abort.signal)) {
+              if (chunk.type === 'terminal') outcome = chunk.outcome;
+              await progress(chunk);
+            }
+            if (!owns()) throw new Error('NOT_READY');
+            return 'terminal';
+          } catch {
+            outcome = abort.signal.aborted
+              ? { status: 'cancelled', reason: 'USER_CANCELLED' }
+              : { status: 'failed', reason: 'INVALID_STREAM' };
+            response?.destroy();
+            abort.abort();
+            return 'aborted';
           }
-          if (!owns()) throw new Error('NOT_READY');
-          return 'terminal';
-        } catch {
-          outcome = abort.signal.aborted
-            ? { status: 'cancelled', reason: 'USER_CANCELLED' }
-            : { status: 'failed', reason: 'INVALID_STREAM' };
-          response?.destroy();
-          abort.abort();
-          return 'aborted';
-        }
-      });
-      return {
-        settled: release.then(
+        });
+        return release.then(
           (receipt) =>
             receipt === 'engine-exited'
               ? { status: 'interrupted', reason: 'ENGINE_EXITED' }
@@ -241,11 +345,36 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
               if (timer) clearTimeout(timer);
             }
           },
-        ),
+        );
+      };
+      const prepare = async (): Promise<{ keep: number } | { failed: TerminalOutcome }> => {
+        try {
+          const keep = await protectedPrefix(messages, settings!, abort.signal);
+          if (abort.signal.aborted || !owns()) throw Error('NOT_READY');
+          return { keep };
+        } catch {
+          return {
+            failed: abort.signal.aborted
+              ? { status: 'cancelled', reason: 'USER_CANCELLED' }
+              : { status: 'failed', reason: 'INVALID_STREAM' },
+          };
+        }
+      };
+      return {
+        settled:
+          settings && (settings.overflow ?? 'stop') !== 'stop'
+            ? prepare().then((result): TerminalOutcome | Promise<TerminalOutcome> => {
+                if ('failed' in result) return result.failed;
+                if (abort.signal.aborted) return { status: 'cancelled', reason: 'USER_CANCELLED' };
+                if (!owns()) return { status: 'failed', reason: 'INVALID_STREAM' };
+                return execute(result.keep);
+              })
+            : execute(),
         cancel() {
           abort.abort();
         },
       };
     },
   };
+  return transport;
 }

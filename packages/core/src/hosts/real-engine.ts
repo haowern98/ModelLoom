@@ -20,7 +20,11 @@ import { isDeepStrictEqual } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { confirmExit, ownershipBinding } from './windows-ownership.js';
-import { fixedArguments, clusterServerArguments } from './runtime-arguments.js';
+import {
+  fixedArguments,
+  clusterServerArguments,
+  requireContextShiftSupport,
+} from './runtime-arguments.js';
 import type { ClusterEffectiveLoad } from '../cluster/effective-load.js';
 import type { StockClusterReport } from '../cluster/stock-profile.js';
 import { checkStockClusterResources } from '../cluster/stock-profile.js';
@@ -285,10 +289,11 @@ export function realEngineAdapter(
             }
             if (captured && observation.exitCode === -1 && !credentialDelivered)
               credentialDelivered = native.deliverCredential(credentials, child);
-            if (cluster && captured && !ready) {
+            if (cluster && captured && !ready && !startupFault) {
               // The first captured chunk's remainder is already retained above.
               if (wasCaptured) startupLog += observation.output;
               if (Buffer.byteLength(startupLog) > 4194304) throw Error('PLACEMENT_MISMATCH');
+              requireContextShiftSupport(cluster.load, startupLog);
             }
             if (observation.exitCode !== -1 && observation.activeProcesses === 0) {
               ended = true;
@@ -332,7 +337,12 @@ export function realEngineAdapter(
                     abort,
                   );
                   if (cluster) {
-                    // Authenticated readiness follows complete model allocation logs.
+                    // HTTP readiness can precede draining the native allocation log.
+                    if (
+                      !startupLog.endsWith('\n') ||
+                      !/(?:^|\n)[^\r\n]*llama_server: model loaded[^\r\n]*\r?\n/u.test(startupLog)
+                    )
+                      throw Error('NOT_READY');
                     verifyStockPlacement(
                       startupLog,
                       cluster.load,
@@ -383,6 +393,7 @@ export function realEngineAdapter(
                               ).capabilities,
                               modelId: cfg.modelSha256,
                               contextLength: cfg.contextPerSlot,
+                              overflow: cluster?.load.preferences?.overflow ?? 'stop',
                             },
                           }
                         : {}),
