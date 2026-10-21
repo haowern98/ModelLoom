@@ -6,6 +6,7 @@ import type { JoiningProps } from './ClusterJoiningPanel';
 import styles from './ClusterViews.module.css';
 import settings from '../settings/SettingsPage.module.css';
 import { DeviceInventory } from './DeviceInventory';
+import { LivePeerConnections } from './LivePeers';
 
 export type ClusterView = 'devices' | 'connections' | 'requests' | 'add' | 'join' | 'share';
 type Link = (typeof demoLinks)[number];
@@ -51,7 +52,7 @@ export function ClusterViews(props: ClusterViewsProps) {
               <p className={styles.subtitle}>
                 {demo
                   ? 'Sample connections · these values are not measurements.'
-                  : 'Network connections will appear here.'}
+                  : 'Approved PCs and shared hardware.'}
               </p>
             )}
           </div>
@@ -64,7 +65,8 @@ export function ClusterViews(props: ClusterViewsProps) {
           )}
         </header>
         {view === 'devices' && <DeviceInventory devices={devices} demo={demo} local={local} />}
-        {view === 'connections' && (
+        {view === 'connections' && !demo && <LivePeerConnections />}
+        {view === 'connections' && demo && (
           <>
             {demo && links.length > 0 && (
               <div className={settings.group}>
@@ -96,7 +98,7 @@ export function ClusterViews(props: ClusterViewsProps) {
                   })}
               </div>
             )}
-            {(!demo || !links.length) && (
+            {!links.length && (
               <div className={settings.group}>
                 <div className={settings.row}>
                   <p className={settings.description}>
@@ -107,22 +109,7 @@ export function ClusterViews(props: ClusterViewsProps) {
             )}
           </>
         )}
-        {view === 'requests' &&
-          (demo ? (
-            <PendingRequests {...props} settingsLayout />
-          ) : (
-            <section className={settings.section}>
-              <h2>Participation requests</h2>
-              <div className={settings.group}>
-                <div className={settings.row}>
-                  <p className={settings.description}>
-                    Incoming invitations and requests require networking integration. No request
-                    source is connected.
-                  </p>
-                </div>
-              </div>
-            </section>
-          ))}
+        {view === 'requests' && <PendingRequests {...props} settingsLayout />}
         {(view === 'add' || view === 'join' || view === 'share') && (
           <div className={styles.joining} key={view}>
             <ClusterJoiningPanel {...props} kind={view} expanded />

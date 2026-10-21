@@ -125,7 +125,13 @@ export function DeviceInventory({
               <Property
                 label="Device status"
                 value={
-                  local ? 'This device' : demo ? 'Sample · connection not verified' : 'Unavailable'
+                  local
+                    ? device.id === 'local'
+                      ? 'This device'
+                      : 'Approved remote device'
+                    : demo
+                      ? 'Sample · connection not verified'
+                      : 'Unavailable'
                 }
               />
             </dl>

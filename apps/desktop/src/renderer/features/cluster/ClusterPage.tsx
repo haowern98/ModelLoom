@@ -44,6 +44,15 @@ type Modal =
   | { type: 'name' }
   | { type: 'delete'; configuration: SavedClusterConfiguration };
 const configurationErrors: Readonly<Record<string, string>> = {
+  GPU_BUSY: 'The selected GPU is in use by another ModelLoom workload. Stop it and try again.',
+  PEER_UNAVAILABLE: 'The other PC disconnected. Check its connection and sharing, then try again.',
+  PEER_NOT_APPROVED: 'Verify and approve both app identities before assigning a remote GPU.',
+  GPU_NOT_SHARED: 'The selected GPU is no longer shared. Choose a currently shared GPU.',
+  INCOMPATIBLE_RUNTIME:
+    'Both PCs need the same compatible stock RPC runtime. Update and reconnect.',
+  RPC_PACKAGE_REQUIRED:
+    'A verified peer runtime is required on both PCs before using a remote GPU.',
+  UNSUPPORTED_PEER_GPU: 'Share one GPU on the other PC for the current peer runtime.',
   CLEANUP_FAILED:
     'Runtime shutdown could not be confirmed. Restart the app before trying another allocation.',
   NEEDS_RESOURCE_EVIDENCE:
@@ -65,6 +74,7 @@ const configurationErrors: Readonly<Record<string, string>> = {
 
 interface ClusterPageProps extends JoiningProps {
   demo: boolean;
+  pendingPeerRequests?: number;
   configurations?: ClusterConfigurations;
   devices: readonly DemoDevice[];
   onRenameDevice: (id: string, name: string) => void;
@@ -97,6 +107,7 @@ export function ClusterPage({
   onStop,
   localRuntime,
   configurations,
+  pendingPeerRequests = 0,
 }: ClusterPageProps) {
   const [configurationName, setConfigurationName] = useState('');
   const [validatedDemoInputs, setValidatedDemoInputs] = useState<readonly LayerInput[] | null>(
@@ -162,7 +173,7 @@ export function ClusterPage({
   };
   const pendingRequests = demo
     ? incomingExamples.filter((request) => !joining.decisions[request.id]).length
-    : 0;
+    : pendingPeerRequests;
   const currentSelection: ClusterSelection =
     selection.type === 'device'
       ? {
@@ -180,13 +191,16 @@ export function ClusterPage({
       ? model.id.replace(/^model-/u, '') === configurations.selection.modelId
       : model.id === placement.modelId,
   );
-  const executableGpus = devices.flatMap((device) =>
-    (device.inventory?.gpus ?? []).flatMap((gpu) =>
+  const executableGpus = devices.flatMap((device) => [
+    ...device.hardware.flatMap((hardware) =>
+      hardware.assignmentId ? [{ hardwareId: hardware.id, uuid: hardware.assignmentId }] : [],
+    ),
+    ...(device.inventory?.gpus ?? []).flatMap((gpu) =>
       gpu.executionIdentity
         ? [{ hardwareId: `local-${gpu.id}`, uuid: gpu.executionIdentity.uuid }]
         : [],
     ),
-  );
+  ]);
   const editorInputs = configurations
     ? executableGpus.map((gpu) => ({
         hardwareId: gpu.hardwareId,

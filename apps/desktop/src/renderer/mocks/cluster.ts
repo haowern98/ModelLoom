@@ -7,6 +7,8 @@ export interface DemoHardware {
   readonly detail: string;
   readonly memoryGb: number;
   readonly kind: 'cpu' | 'gpu' | 'unified';
+  /** Trusted execution identity, when this row represents discovered hardware. */
+  readonly assignmentId?: string;
 }
 
 export interface DemoDevice {

@@ -6,6 +6,7 @@ import type { ConnectionMode, DemoJoining, JoiningAction } from '../../mocks/clu
 import styles from './ClusterPage.module.css';
 import settings from '../settings/SettingsPage.module.css';
 import checkboxStyles from '../../components/Checkbox.module.css';
+import { LivePeerPanel, LivePeerRequests } from './LivePeers';
 
 export interface JoiningProps {
   demo: boolean;
@@ -21,7 +22,7 @@ export function PendingRequests({
   settingsLayout = false,
 }: JoiningProps & { settingsLayout?: boolean }) {
   const heading = useRef<HTMLHeadingElement>(null);
-  if (!demo) return null;
+  if (!demo) return <LivePeerRequests />;
   const pending = incomingExamples.filter((request) => !joining.decisions[request.id]).length;
   const Heading = settingsLayout ? 'h2' : 'h3';
   return (
@@ -107,6 +108,7 @@ export function ClusterJoiningPanel({
   useEffect(() => {
     if (expanded && manualOpen) addressInput.current?.focus();
   }, [expanded, manualOpen]);
+  if (!demo) return <LivePeerPanel kind={kind} expanded={expanded} />;
   if (kind === 'share') {
     return (
       <>

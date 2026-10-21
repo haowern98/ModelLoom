@@ -9,7 +9,7 @@ import type { demoLinks } from '../../mocks/cluster';
 import styles from './ClusterPage.module.css';
 import { DeviceNameEditor } from './DeviceNameEditor';
 import { LayerNumberInput } from './LayerNumberInput';
-import { ClusterJoiningPanel, PendingRequests } from './ClusterJoiningPanel';
+import { ClusterJoiningPanel } from './ClusterJoiningPanel';
 import type { JoiningProps } from './ClusterJoiningPanel';
 import { connectionLabels } from '../../mocks/clusterJoining';
 
@@ -224,7 +224,12 @@ export function ClusterPanel({
             )}
             {selection.type === 'device' && (
               <p className={styles.deviceSubtitle}>
-                {local ? 'This device' : 'Sample device'} · {selection.device.role}
+                {local
+                  ? selection.device.role === 'Coordinator'
+                    ? 'This device'
+                    : 'Remote device'
+                  : 'Sample device'}{' '}
+                · {selection.device.role}
               </p>
             )}
           </div>
@@ -278,7 +283,6 @@ export function ClusterPanel({
                 )}
               </dl>
             </section>
-            <PendingRequests demo={demo} joining={joining} onJoining={onJoining} />
             <section className={styles.panelSection}>
               <h3>Layer assignment</h3>
               {devices.map((device) => (
@@ -314,7 +318,13 @@ export function ClusterPanel({
                 </div>
                 <div>
                   <dt>Connection</dt>
-                  <dd>{local ? 'This device' : 'Not verified'}</dd>
+                  <dd>
+                    {local
+                      ? selection.device.id === 'local'
+                        ? 'This device'
+                        : 'Approved remote device'
+                      : 'Not verified'}
+                  </dd>
                 </div>
               </dl>
             </details>

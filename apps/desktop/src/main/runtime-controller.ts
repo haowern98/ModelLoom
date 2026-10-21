@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { decodePeerCommand, decodePeerReply } from '../shared/peers';
+import type { PeerReply } from '../shared/peers';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { decodeRuntimeCommand } from '../shared/runtime';
@@ -32,6 +34,7 @@ import type {
 import type { StockClusterReport } from '../../../../packages/core/src/cluster/stock-profile';
 import type { ModelConfigurationRecord } from '../../../../packages/core/src/model-configuration/contracts';
 interface Host {
+  peers?(caller: string, input: unknown): Promise<PeerReply>;
   command(text: string): Promise<Record<string, unknown>>;
   close(): Promise<void>;
   chat?(caller: string, input: unknown): Promise<ChatReply>;
@@ -52,6 +55,9 @@ interface Host {
 /** Trusted main dependencies; none of these capabilities are renderer inputs. */
 interface ActivationDependencies {
   enabled: true;
+  peers?(input: unknown): Promise<PeerReply>;
+  closePeers?(): Promise<void>;
+  beginPeerQuit?(): Promise<void>;
   expectedHash: string;
   packageId: string;
   clusterArtifact?: string;
@@ -95,6 +101,16 @@ export type RuntimeDependencies =
       device?(): Promise<RuntimeDevice>;
     };
 const messages: Record<string, string> = {
+  GPU_BUSY:
+    'A selected GPU is already in use by another ModelLoom workload. Stop it before loading.',
+  RPC_PACKAGE_REQUIRED:
+    'A verified peer runtime is required on both PCs before using a remote GPU.',
+  INCOMPATIBLE_RUNTIME:
+    'Both PCs must use the same compatible stock RPC runtime. Update the peer runtime and reconnect.',
+  PEER_UNAVAILABLE: 'The other PC disconnected. Check its connection and sharing, then try again.',
+  PEER_NOT_APPROVED: 'Verify and approve this app identity on both PCs before using its GPU.',
+  GPU_NOT_SHARED: 'The selected GPU is no longer shared. Select a currently shared GPU.',
+  UNSUPPORTED_PEER_GPU: 'Share one GPU on this PC for the current peer runtime.',
   INSUFFICIENT_RESOURCES:
     'Not enough available RAM or GPU memory for the selected settings. Free memory and try again.',
   INCOMPATIBLE_DRIVER: 'The GPU driver is incompatible with this runtime.',
@@ -416,6 +432,19 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       view.error = messages.CLEANUP_FAILED!;
   };
   return {
+    async peers(input: unknown): Promise<PeerReply> {
+      const command = decodePeerCommand(input);
+      if (quitting || !deps.enabled) return { ok: false, error: 'NOT_READY' };
+      try {
+        if (preparation) await preparation;
+        if (quitting) return { ok: false, error: 'NOT_READY' };
+        if (deps.enabled && deps.peers) return decodePeerReply(await deps.peers(command));
+        if (!host?.peers) return { ok: false, error: 'NOT_READY' };
+        return decodePeerReply(await host.peers(caller, command));
+      } catch {
+        return { ok: false, error: 'PEER_UNAVAILABLE' };
+      }
+    },
     async cluster(input: unknown): Promise<ClusterReply> {
       const command = decodeClusterCommand(input);
       if (
@@ -1079,50 +1108,64 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       clusterLoading?.abort();
       planning?.abort();
       quitting = true;
-      memoryDecision?.resolve(false);
-      unsubscribe?.();
-      chatListeners.clear();
-      ++epoch;
-      const pendingDevice = deviceProbe;
-      // A pending picker owns no model handles; only selected-file indexing must settle.
-      await Promise.allSettled([
-        restoration,
-        removalPreparation,
-        view.indexing ? importPreparation : undefined,
-      ]);
-      await usageProbe;
-      await Promise.allSettled([...clusterOperations]);
-      if (preparation) {
-        try {
-          host = await preparation;
-        } catch {
-          /* No host was created. */
+      const peerDraining = deps.enabled ? deps.beginPeerQuit?.() : undefined;
+      void peerDraining?.catch(() => undefined);
+      try {
+        memoryDecision?.resolve(false);
+        unsubscribe?.();
+        chatListeners.clear();
+        ++epoch;
+        const pendingDevice = deviceProbe;
+        // A pending picker owns no model handles; only selected-file indexing must settle.
+        await Promise.allSettled([
+          restoration,
+          removalPreparation,
+          view.indexing ? importPreparation : undefined,
+        ]);
+        await usageProbe;
+        await Promise.allSettled([...clusterOperations]);
+        if (preparation) {
+          try {
+            host = await preparation;
+          } catch {
+            /* No host was created. */
+          }
+        }
+        if (enginePreparation) {
+          try {
+            await enginePreparation;
+          } catch {
+            /* Failed preparation grants no engine authority. */
+          }
+        }
+        if (host) {
+          try {
+            await send('quit');
+          } catch (error: unknown) {
+            if (!(error instanceof Error) || error.message !== 'CORE_EXITED') throw error;
+            // A dead core cannot acknowledge Quit; retained main ownership still confirms every exit.
+          }
+          await host.close();
+        }
+        // Do not delay engine shutdown; diagnostic children still settle before main exits.
+        if (pendingDevice)
+          await pendingDevice.catch(() => {
+            deviceCleanupFailed = true;
+          });
+        view = { ...view, phase: 'stopped' };
+        if (deviceCleanupFailed) throw new Error('QUERY_CLEANUP_FAILED');
+        if (clusterCleanupFailed) throw new Error('CLEANUP_FAILED');
+      } finally {
+        // Model shutdown releases its GPU reservations through the still-live peer owner.
+        if (deps.enabled) {
+          try {
+            // A full owner close can settle an earlier failed sharing drain.
+            await (deps.closePeers ? peerDraining?.catch(() => undefined) : peerDraining);
+          } finally {
+            await deps.closePeers?.();
+          }
         }
       }
-      if (enginePreparation) {
-        try {
-          await enginePreparation;
-        } catch {
-          /* Failed preparation grants no engine authority. */
-        }
-      }
-      if (host) {
-        try {
-          await send('quit');
-        } catch (error: unknown) {
-          if (!(error instanceof Error) || error.message !== 'CORE_EXITED') throw error;
-          // A dead core cannot acknowledge Quit; retained main ownership still confirms every exit.
-        }
-        await host.close();
-      }
-      // Do not delay engine shutdown; diagnostic children still settle before main exits.
-      if (pendingDevice)
-        await pendingDevice.catch(() => {
-          deviceCleanupFailed = true;
-        });
-      view = { ...view, phase: 'stopped' };
-      if (deviceCleanupFailed) throw new Error('QUERY_CLEANUP_FAILED');
-      if (clusterCleanupFailed) throw new Error('CLEANUP_FAILED');
     },
   };
 }

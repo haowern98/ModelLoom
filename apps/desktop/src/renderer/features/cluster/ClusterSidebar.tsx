@@ -97,7 +97,9 @@ export function ClusterSidebar({
               <ChatGptSidebarIcon icon="device" />
               <span className={styles.deviceText}>
                 <span className={styles.deviceName}>{device.name}</span>
-                <span className={styles.secondary}>{local ? 'This device' : device.role}</span>
+                <span className={styles.secondary}>
+                  {local && device.id === 'local' ? 'This device' : device.role}
+                </span>
               </span>
             </button>
           ))}

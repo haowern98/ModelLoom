@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { decodePeerCommand, decodePeerReply } from '../shared/peers';
 import { decodeApiManagementCommand, decodeApiManagementReply } from '../shared/local-api';
 import { decodeRuntimeCommand } from '../shared/runtime';
 import { decodeChatCommand, decodeChatReply } from '../shared/chat';
@@ -8,6 +9,13 @@ import {
   decodeConfigurationReply,
 } from '../shared/model-configuration';
 /** Sandbox bridge exposes a closed data API, never ipcRenderer or a generic channel. */
+contextBridge.exposeInMainWorld(
+  'modelLoomPeers',
+  Object.freeze({
+    command: (input: unknown) =>
+      ipcRenderer.invoke('modelloom:peers', decodePeerCommand(input)).then(decodePeerReply),
+  }),
+);
 contextBridge.exposeInMainWorld(
   'modelLoomCluster',
   Object.freeze({
