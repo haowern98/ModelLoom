@@ -23,3 +23,41 @@ it('offers approved PC cards before the add card and selects the clicked PC', as
   await userEvent.click(buttons[0]!);
   expect(onChoose).toHaveBeenCalledWith(device);
 });
+
+it('measures device and GPU lines independently and clears overflow when the text fits', () => {
+  const longName = 'A device with a name longer than the available card width';
+  const gpu = demoDevices[1]!.hardware.find((hardware) => hardware.kind !== 'cpu')!;
+  const gpuLine = `${gpu.name} · ${gpu.memoryGb.toFixed(1)} GiB`;
+  let width = 100;
+  const clientWidth = vi
+    .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+    .mockImplementation(() => width);
+  const scrollWidth = vi
+    .spyOn(HTMLElement.prototype, 'scrollWidth', 'get')
+    .mockImplementation(function (this: HTMLElement) {
+      return (this.textContent?.length ?? 0) * 8;
+    });
+  try {
+    const device = { ...demoDevices[1]!, name: 'ptss', hardware: [gpu] };
+    const view = render(
+      <CanvasDevicePicker devices={[device]} onChoose={vi.fn()} onAdd={vi.fn()} />,
+    );
+    const viewport = (text: string) => screen.getByText(text).parentElement!;
+    expect(viewport('ptss')).not.toHaveAttribute('data-overflow');
+    expect(viewport(gpuLine)).toHaveAttribute('data-overflow', 'true');
+    view.rerender(
+      <CanvasDevicePicker
+        devices={[{ ...device, name: longName }]}
+        onChoose={vi.fn()}
+        onAdd={vi.fn()}
+      />,
+    );
+    expect(viewport(longName)).toHaveAttribute('data-overflow', 'true');
+    width = 1000;
+    view.rerender(<CanvasDevicePicker devices={[device]} onChoose={vi.fn()} onAdd={vi.fn()} />);
+    expect(viewport('ptss')).not.toHaveAttribute('data-overflow');
+  } finally {
+    clientWidth.mockRestore();
+    scrollWidth.mockRestore();
+  }
+});

@@ -120,6 +120,15 @@ it('keeps a newly approved peer off the canvas until its PC card is chosen', asy
   await user.click(within(panel).getByRole('button', { name: 'Add Approved PC to canvas' }));
   expect(screen.getByRole('article', { name: 'Approved PC' })).toBeVisible();
   expect(screen.queryByRole('complementary', { name: 'Cluster panel' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: `Actions for ${local.name}` }));
+  expect(screen.queryByRole('button', { name: 'Remove from canvas' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: `Actions for ${local.name}` }));
+  await user.click(screen.getByRole('button', { name: 'Actions for Approved PC' }));
+  await user.click(screen.getByRole('button', { name: 'Remove from canvas' }));
+  expect(screen.queryByRole('article', { name: 'Approved PC' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Inspect Approved PC' })).toBeVisible();
+  await user.click(screen.getByRole('button', { name: `Add device near ${local.name}` }));
+  await user.click(screen.getByRole('button', { name: 'Add Approved PC to canvas' }));
   await user.click(screen.getByRole('button', { name: `Add device near ${local.name}` }));
   const empty = screen.getByRole('complementary', { name: 'Cluster panel' });
   expect(
@@ -127,6 +136,34 @@ it('keeps a newly approved peer off the canvas until its PC card is chosen', asy
   ).not.toBeInTheDocument();
   await user.click(within(empty).getByRole('button', { name: 'Add device in Connections' }));
   expect(screen.getByRole('tabpanel', { name: 'Add device' })).toBeVisible();
+});
+
+it('disables remote removal while a model is loading or running', async () => {
+  const user = userEvent.setup();
+  const model = createDemoLibrary().models[0]!;
+  const props = {
+    demo: true,
+    joining: createDemoJoining(),
+    onJoining: vi.fn(),
+    devices: demoDevices,
+    onRenameDevice: vi.fn(),
+    models: [],
+    placement: createDemoPlacement(null),
+    dispatch: vi.fn(),
+    onStop: vi.fn(),
+  };
+  const runtime = { loading: false, onChoose: vi.fn(), onRun: vi.fn() };
+  const view = render(<ClusterPage {...props} activeModel={undefined} localRuntime={runtime} />);
+  await user.click(screen.getByRole('button', { name: 'Actions for ml-workstation' }));
+  expect(screen.getByRole('button', { name: 'Remove from canvas' })).toBeEnabled();
+  view.rerender(<ClusterPage {...props} activeModel={model} localRuntime={runtime} />);
+  expect(screen.getByRole('button', { name: 'Remove from canvas' })).toBeDisabled();
+  view.rerender(
+    <ClusterPage {...props} activeModel={undefined} localRuntime={{ ...runtime, loading: true }} />,
+  );
+  expect(screen.getByRole('button', { name: 'Remove from canvas' })).toBeDisabled();
+  view.rerender(<ClusterPage {...props} activeModel={undefined} localRuntime={runtime} />);
+  expect(screen.getByRole('button', { name: 'Remove from canvas' })).toBeEnabled();
 });
 
 it('keeps device details collapsed and uses the header back control and outer panel toggle', async () => {
