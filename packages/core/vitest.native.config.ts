@@ -3,6 +3,11 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: [
+      'src/peers/windows-identity.test.ts',
+      'src/peers/node-integration.test.ts',
+      'src/peers/owner-integration.test.ts',
+      'src/peers/rpc-integration.test.ts',
+      'src/peers/relay-integration.test.ts',
       'src/hosts/chat-native.test.ts',
       'src/history/windows-directory.test.ts',
       'src/model-configuration/windows-directory.test.ts',
