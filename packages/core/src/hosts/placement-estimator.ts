@@ -9,6 +9,10 @@ import { clusterLoadArguments } from '../cluster/effective-load.js';
 import type { ClusterEffectiveLoad } from '../cluster/effective-load.js';
 import { parseClusterEstimate } from '../cluster/estimate.js';
 import type { CandidateEstimate } from '../cluster/estimate.js';
+import { decodeClusterDevice } from '../cluster/device-id.js';
+import { createPeerRelays } from './peer-relays.js';
+import type { OpenPeerRpc } from './peer-relays.js';
+import { GENERATION_POLICY } from '../generation/contracts.js';
 // Failed cleanup must retain file identities instead of reopening replaceable binaries.
 const unsettledLocks = new Set<object>();
 const inspections = new WeakMap<object, { readonly file: string; readonly info: GGUFInfo }>();
@@ -36,6 +40,7 @@ async function settleEstimator(
   modelLock: object | undefined,
   root: object | undefined,
   child: object | undefined,
+  retainOutput: (text: string) => void,
 ): Promise<void> {
   let cleaned = !child;
   try {
@@ -43,6 +48,7 @@ async function settleEstimator(
     if (child) {
       await confirmExit(() => {
         const s = native.observe(child);
+        retainOutput(s.output);
         return s.activeProcesses === 0 && s.exitCode !== -1;
       });
       cleaned = true;
@@ -65,6 +71,8 @@ export async function runPlacementEstimator(
   load: ClusterEffectiveLoad,
   signal: AbortSignal,
   inspection?: object,
+  openPeer?: OpenPeerRpc,
+  reserveLocal?: (devices: readonly string[]) => Promise<{ release(): Promise<void> }>,
 ): Promise<CandidateEstimate> {
   if (signal.aborted) throw Error('PLANNING_CANCELLED');
   const inventory = requireInstalledLive(installed);
@@ -78,6 +86,9 @@ export async function runPlacementEstimator(
   const files = await revalidateInstalled(installed),
     native = ownershipBinding();
   let root: object | undefined, child: object | undefined, modelLock: object | undefined;
+  let relays: Awaited<ReturnType<typeof createPeerRelays>> | undefined;
+  let reservation: { release(): Promise<void> } | undefined;
+  let output = '';
   try {
     modelLock = native.sealFiles([path.resolve(model)]);
     const retained = inspection === undefined ? undefined : inspections.get(inspection);
@@ -89,22 +100,18 @@ export async function runPlacementEstimator(
       throw Error('INVALID_CONFIGURATION');
     if (signal.aborted) throw Error('PLANNING_CANCELLED');
     requireInstalledLive(installed);
+    const local = load.placement.orderedUuids.filter(
+      (id) => decodeClusterDevice(id).kind === 'local',
+    );
+    if (local.length) reservation = await reserveLocal?.(local);
+    if (signal.aborted) throw Error('PLANNING_CANCELLED');
     root = native.createDeployment();
     native.privateDirectory(temporaryDirectory);
     const executable = path.join(installed.directory, 'llama-fit-params.exe');
-    child = native.launchCudaPlanConsole(
-      root,
-      path.join(installed.directory, inventory.helper),
-      [executable, '--model', model, '--fit-print', 'on', ...clusterLoadArguments(load)],
-      temporaryDirectory,
-      load.placement.orderedUuids,
-    );
-    let output = '',
-      captured = false;
-    const deadline = Date.now() + 30000;
-    for (;;) {
-      if (signal.aborted) throw Error('PLANNING_CANCELLED');
-      if (Date.now() >= deadline) throw Error('PLANNING_INCOMPLETE');
+    let captured = false,
+      serverPid: number | undefined;
+    const observe = () => {
+      if (!child) throw Error('NOT_READY');
       const observation = native.observe(child);
       output += observation.output;
       if (Buffer.byteLength(output) > 65536) throw Error('INVALID_ESTIMATE');
@@ -114,7 +121,45 @@ export async function runPlacementEstimator(
           throw Error('INVALID_ESTIMATE');
         native.captureServer(child, Number(match[1]), executable);
         captured = true;
+        serverPid = Number(match[1]);
       }
+      return observation;
+    };
+    relays = await createPeerRelays(
+      load.placement.orderedUuids,
+      (pid) => observe().exitCode === -1 && serverPid === pid,
+      openPeer,
+    );
+    const args = [
+      executable,
+      '--model',
+      model,
+      '--fit-print',
+      'on',
+      ...relays.arguments,
+      ...clusterLoadArguments(load),
+    ];
+    child = local.length
+      ? native.launchCudaPlanConsole(
+          root,
+          path.join(installed.directory, inventory.helper),
+          args,
+          temporaryDirectory,
+          local,
+        )
+      : native.launchConsole(
+          root,
+          path.join(installed.directory, inventory.helper),
+          args,
+          temporaryDirectory,
+        );
+    // Remote enumeration launches verified workers for several stock RPC queries.
+    const remote = local.length !== load.placement.orderedUuids.length;
+    const deadline = Date.now() + (remote ? GENERATION_POLICY.generationMs : 30000);
+    for (;;) {
+      if (signal.aborted) throw Error('PLANNING_CANCELLED');
+      if (Date.now() >= deadline) throw Error('PLANNING_INCOMPLETE');
+      const observation = observe();
       if (observation.exitCode !== -1 && observation.activeProcesses === 0) {
         if (observation.exitCode !== 0 || !captured) throw Error('INVALID_ESTIMATE');
         const rows = output.trimEnd().split(/\r?\n/u).slice(1);
@@ -128,8 +173,24 @@ export async function runPlacementEstimator(
       }
       await delay(10);
     }
+  } catch (failure) {
+    if (!(failure instanceof Error)) throw failure;
+    // Keep native diagnostics with the trusted owner; the renderer receives only the existing code.
+    const reported = new Error(failure.message, { cause: failure });
+    Object.defineProperty(reported, 'estimatorOutput', {
+      get: () => output,
+    });
+    throw reported;
   } finally {
     // Never release package/model locks until all owned estimator processes exited.
-    await settleEstimator(native, files, modelLock, root, child);
+    await Promise.allSettled([
+      settleEstimator(native, files, modelLock, root, child, (text) => {
+        output = (output + text).slice(-16384);
+      }),
+      relays?.close(),
+    ]).then(async (cleanup) => {
+      if (cleanup[0]?.status === 'fulfilled') await reservation?.release();
+      if (cleanup.some((result) => result.status === 'rejected')) throw Error('CLEANUP_FAILED');
+    });
   }
 }

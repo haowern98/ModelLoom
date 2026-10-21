@@ -5,6 +5,7 @@ import {
   decodeSavedClusterConfiguration,
   decodeConfigurationName,
 } from './contracts.js';
+import { decodeClusterDevice } from './device-id.js';
 import type {
   AssignmentIssue,
   CapturedClusterLoad,
@@ -37,6 +38,13 @@ const errors = [
   'INSUFFICIENT_RESOURCES',
   'INCOMPATIBLE_DRIVER',
   'CLEANUP_FAILED',
+  'GPU_BUSY',
+  'PEER_UNAVAILABLE',
+  'PEER_NOT_APPROVED',
+  'GPU_NOT_SHARED',
+  'INCOMPATIBLE_RUNTIME',
+  'RPC_PACKAGE_REQUIRED',
+  'UNSUPPORTED_PEER_GPU',
 ] as const;
 export type ClusterError = (typeof errors)[number];
 export type ClusterReply =
@@ -154,10 +162,11 @@ export function decodeClusterReply(input: unknown): ClusterReply {
       return fail();
     const issues: AssignmentIssue[] = v.issues.map((input: unknown) => {
       const i = object(input, ['uuid', 'field', 'code']);
+      if (i.uuid !== null) {
+        if (typeof i.uuid !== 'string') return fail();
+        decodeClusterDevice(i.uuid);
+      }
       if (
-        (i.uuid !== null &&
-          (typeof i.uuid !== 'string' ||
-            !/^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(i.uuid))) ||
         !['first', 'last', 'coverage', 'load'].includes(String(i.field)) ||
         ![
           'invalid-integer',

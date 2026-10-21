@@ -1,9 +1,9 @@
 import type { ClusterEffectiveLoad } from './effective-load.js';
+import { clusterDeviceNames, decodeClusterDevice } from './device-id.js';
 
-export interface PhysicalPlacementDevice {
-  readonly uuid: string;
-  readonly pciBus: string;
-}
+export type PhysicalPlacementDevice =
+  | { readonly uuid: string; readonly pciBus: string; readonly rpcEndpoint?: never }
+  | { readonly uuid: string; readonly rpcEndpoint: string; readonly pciBus?: never };
 export type BlockCacheKind = 'kv' | 'recurrent' | 'auto' | 'none';
 export interface StockAllocationObservation {
   readonly fingerprint: string;
@@ -50,14 +50,20 @@ export function verifyStockPlacement(
   const executed = cacheLayers.findIndex((k) => k === 'none');
   const executionCount = executed < 0 ? n : executed;
   if (executionCount < 1 || cacheLayers.slice(executionCount).some((k) => k !== 'none')) fail();
-  const expectedPci = ids.map((id) => {
+  const names = clusterDeviceNames(ids);
+  const expectedIdentity = ids.map((id) => {
     const rows = physical.filter((p) => p.uuid.toLowerCase() === id.toLowerCase());
-    return rows.length === 1 ? pci(rows[0]!.pciBus) : fail();
+    if (rows.length !== 1) return fail();
+    const row = rows[0]!;
+    if (decodeClusterDevice(id).kind === 'local') return row.pciBus ? pci(row.pciBus) : fail();
+    const match = /^127\.0\.0\.1:([1-9][0-9]{3,4})$/u.exec(row.rpcEndpoint ?? '');
+    return match && Number(match[1]) >= 1024 && Number(match[1]) <= 65535
+      ? row.rpcEndpoint!
+      : fail();
   });
-  if (new Set(expectedPci).size !== ids.length) fail();
+  if (new Set(expectedIdentity).size !== ids.length) fail();
   const device = (s: string): number => {
-    const m = /^CUDA([01])$/u.exec(s),
-      i = m ? Number(m[1]) : -1;
+    const i = names.indexOf(s);
     return i >= 0 && i < ids.length ? i : fail();
   };
   const expected = (i: number): number => {
@@ -85,12 +91,17 @@ export function verifyStockPlacement(
     let m: RegExpExecArray | null;
     if (line.includes('llama_prepare_model_devices: using device')) {
       m =
-        /llama_prepare_model_devices: using device (CUDA\d+) \([^\r\n]*\) \(([^()]+)\) - \d+ MiB free\s*$/u.exec(
+        /llama_prepare_model_devices: using device ((?:CUDA|RPC)\d+) \(([^\r\n]*)\) \(([^()]+)\) - \d+ MiB free\s*$/u.exec(
           line,
         );
       if (!m) fail();
       const i = device(m![1]!);
-      if (pci(m![2]!) !== expectedPci[i]) fail();
+      if (
+        names[i]!.startsWith('RPC')
+          ? m![2] !== expectedIdentity[i] || m![3] !== 'unknown id'
+          : pci(m![3]!) !== expectedIdentity[i]
+      )
+        fail();
       unique(seenDevices, i);
     } else if (line.includes('load_tensors: layer')) {
       m = /load_tensors: layer\s+(\d+) assigned to device (\S+), is_swa = [01]\s*$/u.exec(line);
@@ -102,9 +113,11 @@ export function verifyStockPlacement(
     } else if (line.includes('cannot be used with preferred buffer type')) {
       if (
         moved ||
-        !/done_getting_tensors: tensor 'token_embd\.weight' \([A-Za-z0-9_]+\) \(and 0 others\) cannot be used with preferred buffer type CUDA_Host, using CPU instead\s*$/u.test(
-          line,
-        )
+        !(
+          names.every((name) => name.startsWith('RPC'))
+            ? /done_getting_tensors: tensor 'token_embd\.weight' \([A-Za-z0-9_]+\) \(and 0 others\) cannot be used with preferred buffer type CPU_REPACK, using CPU instead\s*$/u
+            : /done_getting_tensors: tensor 'token_embd\.weight' \([A-Za-z0-9_]+\) \(and 0 others\) cannot be used with preferred buffer type CUDA_Host, using CPU instead\s*$/u
+        ).test(line)
       )
         fail();
       moved = true;
@@ -135,15 +148,20 @@ export function verifyStockPlacement(
       cache[kind].set(i, d);
     } else if (
       (m =
-        /(?:load_tensors:|llama_kv_cache:|llama_memory_recurrent:)\s+(CUDA\d+) (model|KV|RS) buffer size =\s+(\d+(?:\.\d+)?) MiB\s*$/u.exec(
+        /(?:load_tensors:|llama_kv_cache:|llama_memory_recurrent:)\s+((?:CUDA|RPC)\d+(?:\[127\.0\.0\.1:\d+\])?) (model|KV|RS) buffer size =\s+(\d+(?:\.\d+)?) MiB\s*$/u.exec(
           line,
         ))
     ) {
       if (!(Number(m[3]) > 0)) fail();
-      unique(
-        buffers[m[2] === 'model' ? 'model' : m[2] === 'KV' ? 'kv' : 'recurrent'],
-        device(m[1]!),
-      );
+      const bufferDevice = /^((?:CUDA|RPC)\d+)(?:\[([^\]]+)\])?$/u.exec(m[1]!);
+      if (!bufferDevice) fail();
+      const bufferIndex = device(bufferDevice![1]!);
+      if (
+        names[bufferIndex]!.startsWith('RPC') &&
+        bufferDevice![2] !== expectedIdentity[bufferIndex]
+      )
+        fail();
+      unique(buffers[m[2] === 'model' ? 'model' : m[2] === 'KV' ? 'kv' : 'recurrent'], bufferIndex);
     } else if (/(?:llama_kv_cache:|llama_memory_recurrent:).* (?:KV|RS) buffer size/u.test(line)) {
       // Any extra cache buffer outside the selected CUDA devices is a fallback.
       fail();

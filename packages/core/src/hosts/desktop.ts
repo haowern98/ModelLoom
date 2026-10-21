@@ -1,7 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import type { EngineAdapter, OwnedEngine } from '../runtime/engine-adapter.js';
 import type { Selection } from '../runtime/contracts.js';
-import { MAX_CONTROL_BYTES } from '../runtime/contracts.js';
+import { MAX_CONTROL_BYTES, LIFECYCLE_POLICY } from '../runtime/contracts.js';
+import { GENERATION_POLICY } from '../generation/contracts.js';
 import { createFixtureDeployment } from './fixture-engine.js';
 import type { FixtureMode } from './fixture-engine.js';
 import { decodeBroker, decodeReply, selectionKey } from './broker-protocol.js';
@@ -21,6 +22,8 @@ import type { ConfigurationReply } from '../model-configuration/wire.js';
 import { decodeApiOwnerCommand, decodeApiOwnerReply } from '../local-api/wire.js';
 import type { ApiOwnerCommand, ApiOwnerReply } from '../local-api/wire.js';
 import { decodeClusterCommand, decodeClusterReply } from '../cluster/wire.js';
+import { decodePeerCommand, decodePeerReply } from '../peers/wire.js';
+import type { PeerReply } from '../peers/wire.js';
 import type { ClusterReply } from '../cluster/wire.js';
 
 /** Captured Electron utility child. This capability is constructed by trusted main, never IPC. */
@@ -37,12 +40,15 @@ export interface DesktopFixtureHost {
   chat?(caller: string, command: unknown): Promise<ChatReply>;
   configuration?(caller: string, command: unknown): Promise<ConfigurationReply>;
   cluster?(caller: string, command: unknown): Promise<ClusterReply>;
+  peers?(caller: string, command: unknown): Promise<PeerReply>;
   api?(caller: string, command: unknown): Promise<ApiOwnerReply>;
   changed?(listener: () => void): () => void;
 }
 /** Trusted main supplies instance capabilities. No renderer-provided entry point or launcher. */
 export interface DesktopDeployment {
   readonly adapter: EngineAdapter;
+  /** Captured owner policy after preparation; no deadline comes from serialized controls. */
+  startupMs?(): number;
   children(): readonly number[];
   admitCore(pid: number, expectedImage: string, launchTime: number): void;
   close(): Promise<void>;
@@ -94,6 +100,15 @@ export async function createDesktopEngineHost(
   const observers = new Set<() => void>();
   let configurationId = 0;
   let clusterId = 0;
+  let peerId = 0;
+  const peerPending = new Map<
+    number,
+    {
+      resolve: (reply: PeerReply) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
   const clusterPending = new Map<
     number,
     {
@@ -178,6 +193,11 @@ export async function createDesktopEngineHost(
         item.reject(Error('CORE_EXITED'));
       }
       clusterPending.clear();
+      for (const item of peerPending.values()) {
+        clearTimeout(item.timer);
+        item.reject(new Error('CORE_EXITED'));
+      }
+      peerPending.clear();
       for (const item of apiPending.values()) {
         clearTimeout(item.timer);
         item.reject(new Error('CORE_EXITED'));
@@ -186,13 +206,36 @@ export async function createDesktopEngineHost(
       void close().then(resolve, resolve);
     }),
   );
-  const phase = (selection: Selection, state: string, code = 0) => {
-    if (alive) send({ type: 'engine', phase: state, selection, code });
+  const phase = (selection: Selection, state: string, code = 0, contextLength?: number) => {
+    if (alive)
+      send({
+        type: 'engine',
+        phase: state,
+        selection,
+        code,
+        ...(contextLength === undefined ? {} : { contextLength }),
+      });
   };
   utility.on('message', (input) => {
     void (async () => {
       if (typeof input !== 'string') throw new Error('INVALID_CONTROL');
       const envelope = decodeObject(input);
+      if (envelope.type === 'peer-reply') {
+        exact(envelope, ['type', 'id', 'reply']);
+        if (
+          typeof envelope.id !== 'number' ||
+          !Number.isSafeInteger(envelope.id) ||
+          Buffer.byteLength(input) > 131072
+        )
+          throw new Error('INVALID_CONTROL');
+        const item = peerPending.get(envelope.id);
+        if (!item) return;
+        const reply = decodePeerReply(envelope.reply);
+        clearTimeout(item.timer);
+        peerPending.delete(envelope.id);
+        item.resolve(reply);
+        return;
+      }
       if (envelope.type === 'cluster-reply') {
         exact(envelope, ['type', 'id', 'reply']);
         if (
@@ -272,7 +315,7 @@ export async function createDesktopEngineHost(
             void instance
               .waitReady(new AbortController().signal)
               .then(
-                () => phase(command.selection, 'ready'),
+                () => phase(command.selection, 'ready', 0, instance.contextLength),
                 () => phase(command.selection, 'failed'),
               )
               .catch(() => {
@@ -368,6 +411,32 @@ export async function createDesktopEngineHost(
   }
   return {
     close,
+    peers(caller, input) {
+      if (
+        !alive ||
+        closing ||
+        !deployment.chatSetup ||
+        caller !== deployment.chatSetup.caller ||
+        peerPending.size >= 16
+      )
+        return Promise.resolve({ ok: false, error: 'NOT_READY' });
+      const command = decodePeerCommand(input),
+        id = ++peerId;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          peerPending.delete(id);
+          reject(new Error('CORE_TIMEOUT'));
+        }, 20000);
+        peerPending.set(id, { resolve, reject, timer });
+        try {
+          send({ type: 'peer-command', id, caller, command });
+        } catch {
+          clearTimeout(timer);
+          peerPending.delete(id);
+          reject(new Error('CORE_EXITED'));
+        }
+      });
+    },
     cluster(caller, input) {
       if (
         !alive ||
@@ -465,7 +534,7 @@ export async function createDesktopEngineHost(
         const timer = setTimeout(() => {
           chatPending.delete(id);
           reject(new Error('CORE_TIMEOUT'));
-        }, 125000);
+        }, GENERATION_POLICY.generationMs + 5000);
         chatPending.set(id, { resolve, reject, timer });
         try {
           send({ type: 'chat-command', id, caller, command });
@@ -492,13 +561,19 @@ export async function createDesktopEngineHost(
       )
         return Promise.resolve({ id: 0, error: 'INVALID_CONTROL', pids: deployment.children() });
       const id = value.id;
+      const startupMs =
+        value.action === 'load'
+          ? (deployment.startupMs?.() ?? LIFECYCLE_POLICY.startupMs)
+          : LIFECYCLE_POLICY.startupMs;
+      if (!Number.isInteger(startupMs) || startupMs <= 0 || startupMs > 2_147_478_647)
+        return Promise.resolve({ id, error: 'INVALID_CONTROL', pids: deployment.children() });
       return new Promise<Record<string, unknown>>((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(id);
           reject(new Error('CORE_TIMEOUT'));
           utility.kill();
           void close().catch(() => undefined);
-        }, 185_000);
+        }, startupMs + 5_000);
         pending.set(id, { resolve, reject, timer });
         try {
           send({ type: 'command', text });

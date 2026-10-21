@@ -1,9 +1,11 @@
+import { nativeContextSize } from '../runtime/context.js';
 import { createHash } from 'node:crypto';
 import { decodeSavedClusterConfiguration } from './contracts.js';
 import type { SavedClusterConfiguration, CompiledPlacement } from './contracts.js';
 import { compilePlacement } from './placement.js';
 import { SERVER_CACHE_POLICY } from '../runtime/preflight.js';
 import type { AdvancedPreferences } from '../model-configuration/contracts.js';
+import { clusterDeviceNames } from './device-id.js';
 /** Complete load tuple; request sampling remains in the existing generation owner. */
 export interface ClusterEffectiveLoad {
   readonly version: 1;
@@ -36,6 +38,8 @@ export function resolveClusterLoad(
     d.contextLength * d.concurrency > 2147483647
   )
     throw Error('NEEDS_RESOURCE_EVIDENCE');
+  // Reject padded aggregate overflow before native estimation or launch.
+  nativeContextSize(d.contextLength, d.concurrency);
   const preferences = saved.load.preferences;
   if (!d.flashAttention && saved.load.cacheV !== 'f16') throw Error('UNSUPPORTED_SETTING');
   if (
@@ -87,7 +91,7 @@ export function clusterLoadArguments(load: ClusterEffectiveLoad): readonly strin
     '--n-gpu-layers',
     String(load.blockCount + 1),
     '--device',
-    load.placement.orderedUuids.map((_, i) => `CUDA${i}`).join(','),
+    clusterDeviceNames(load.placement.orderedUuids).join(','),
     '--split-mode',
     load.placement.orderedUuids.length === 1 ? 'none' : 'layer',
     '--main-gpu',

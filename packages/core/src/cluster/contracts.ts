@@ -91,7 +91,7 @@ function match(input: unknown, pattern: RegExp): string {
 function bool(input: unknown): boolean {
   return typeof input === 'boolean' ? input : invalid();
 }
-const gpu = /^GPU-[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$/u;
+const gpu = /^(?:peer:[a-f0-9]{64}:)?GPU-[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$/u;
 const id = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const model = /^[a-f0-9]{64}$/u;
 /** Exact syntax only; native resource and launch validation happen elsewhere. */

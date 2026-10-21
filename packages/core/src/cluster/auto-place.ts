@@ -1,4 +1,5 @@
 import type { GpuRun } from './contracts.js';
+import { decodeClusterDevice } from './device-id.js';
 export interface AutoCandidate {
   readonly runs: readonly GpuRun[];
   readonly pressure: number;
@@ -22,7 +23,14 @@ export async function autoPlace(
     uuids.length < 1 ||
     uuids.length > 2 ||
     new Set(uuids.map((u) => u.toLowerCase())).size !== uuids.length ||
-    uuids.some((u) => !/^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(u))
+    uuids.some((u) => {
+      try {
+        decodeClusterDevice(u);
+        return false;
+      } catch {
+        return true;
+      }
+    })
   )
     return { code: 'UNSUPPORTED' };
   const ordered = [...uuids].sort();

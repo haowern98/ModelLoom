@@ -1,5 +1,5 @@
 import type { EngineAdapter } from '../runtime/engine-adapter.js';
-import { LIFECYCLE_POLICY } from '../runtime/contracts.js';
+import { LIFECYCLE_POLICY, REMOTE_STARTUP_MS } from '../runtime/contracts.js';
 import type { Snapshot } from '../runtime/contracts.js';
 import { RuntimeSupervisor } from '../runtime/supervisor.js';
 import { decodeCommand, decodeObject } from './control.js';
@@ -23,7 +23,9 @@ export function fixtureSession(
   let quitting = false;
   return {
     core,
-    async handle(text: string): Promise<{ reply: HostReply; quit: boolean }> {
+    /** remoteLoad is trusted owner state after validating the captured placement;
+     * it is never decoded from serialized commands. Local startup keeps its default. */
+    async handle(text: string, remoteLoad = false): Promise<{ reply: HostReply; quit: boolean }> {
       let id = 0;
       try {
         const envelope = decodeObject(text);
@@ -35,7 +37,10 @@ export function fixtureSession(
         let snapshot: Snapshot;
         switch (command.action) {
           case 'load':
-            snapshot = await core.load(command.selection);
+            snapshot = await core.load(
+              command.selection,
+              remoteLoad ? REMOTE_STARTUP_MS : undefined,
+            );
             break;
           case 'stop':
             snapshot = await core.stop();

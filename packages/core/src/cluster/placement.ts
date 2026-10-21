@@ -1,4 +1,5 @@
 import { decodeCapturedClusterLoad, decodeClusterDraft } from './contracts.js';
+import { decodeClusterDevice } from './device-id.js';
 import type {
   AssignmentIssue,
   ClusterDraft,
@@ -68,11 +69,15 @@ export function compilePlacement(runs: readonly GpuRun[], blockCount: number): C
   };
   if (!supported(blockCount) || runs.length < 1 || runs.length > 2) return fail();
   const ordered = [...runs].sort((a, b) => a.first - b.first);
+  try {
+    ordered.forEach((run) => decodeClusterDevice(run.uuid));
+  } catch {
+    return fail();
+  }
   if (
     new Set(ordered.map((r) => r.uuid.toLowerCase())).size !== ordered.length ||
     ordered.some(
       (r, i) =>
-        !/^GPU-[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$/u.test(r.uuid) ||
         !Number.isSafeInteger(r.first) ||
         !Number.isSafeInteger(r.last) ||
         r.first < 0 ||
