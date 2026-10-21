@@ -14,7 +14,7 @@ function deferred<T>() {
 }
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
-async function fixture(count = 1) {
+async function fixture(count = 1, observationMs = 5000) {
   let status: readonly SlotStatus[] = Array.from({ length: count }, (_, id) => ({
     id,
     processing: false,
@@ -36,6 +36,7 @@ async function fixture(count = 1) {
     () => {
       cleanup++;
     },
+    observationMs,
   );
   await monitor.initialize();
   return {
@@ -55,6 +56,36 @@ async function fixture(count = 1) {
   };
 }
 const tick = () => vi.advanceTimersByTimeAsync(100);
+it('retains a remote reservation through a slow status response without stopping generation', async () => {
+  const f = await fixture(1, 300_000);
+  const stream = deferred<'terminal' | 'aborted'>();
+  const status = deferred<readonly SlotStatus[]>();
+  f.reader(() => status.promise);
+  const done = f.monitor.start(() => stream.promise);
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(f.cleanup()).toBe(0);
+  expect(f.reads()).toBe(2);
+  status.resolve([{ id: 0, processing: true, task: 70 }]);
+  await vi.advanceTimersByTimeAsync(0);
+  f.reader(undefined);
+  f.status([{ id: 0, processing: false, task: 70 }]);
+  stream.resolve('terminal');
+  await tick();
+  await expect(done).resolves.toBe('released');
+});
+it('still closes a hung remote observation at its captured generation deadline', async () => {
+  const f = await fixture(1, 300_000);
+  const stream = deferred<'terminal' | 'aborted'>();
+  f.reader(() => new Promise(() => undefined));
+  const done = f.monitor.start(() => stream.promise);
+  const failed = expect(done).rejects.toThrow('STATUS_UNCONFIRMED');
+  await tick();
+  await vi.advanceTimersByTimeAsync(299_999);
+  expect(f.cleanup()).toBe(0);
+  await vi.advanceTimersByTimeAsync(1);
+  await failed;
+  expect(f.cleanup()).toBe(1);
+});
 it('holds capacity after a valid final response until a later native idle check', async () => {
   const f = await fixture();
   const stream = deferred<'terminal' | 'aborted'>();
@@ -326,4 +357,46 @@ it('closes native admission when the owner dispatches beyond captured capacity',
   expect(f.cleanup()).toBe(1);
   expect(() => f.monitor.start(() => Promise.resolve('terminal'))).toThrow('STATUS_UNCONFIRMED');
   await failed;
+});
+
+it('keeps the five-second cancellation proof bound during a slow remote poll', async () => {
+  const f = await fixture(1, 300_000);
+  const stream = deferred<'terminal' | 'aborted'>();
+  f.reader(() => new Promise(() => undefined));
+  const done = f.monitor.start(() => stream.promise);
+  await tick();
+  stream.resolve('aborted');
+  const failed = expect(done).rejects.toThrow('STATUS_UNCONFIRMED');
+  await vi.advanceTimersByTimeAsync(5000);
+  await failed;
+  expect(f.cleanup()).toBe(1);
+  expect(() => f.monitor.start(() => Promise.resolve('terminal'))).toThrow('STATUS_UNCONFIRMED');
+});
+
+it('allows a completed remote response to await delayed native disposal proof', async () => {
+  const f = await fixture(1, 300_000);
+  const stream = deferred<'terminal' | 'aborted'>();
+  const status = deferred<readonly SlotStatus[]>();
+  const done = f.monitor.start(() => stream.promise);
+  f.status([{ id: 0, processing: true, task: 1 }]);
+  await tick();
+  f.reader(() => status.promise);
+  stream.resolve('terminal');
+  const result = done.catch((error: Error) => error.message);
+  await tick();
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(f.cleanup()).toBe(0);
+  status.resolve([{ id: 0, processing: false, task: 1 }]);
+  // An in-flight read begun before the terminal cannot prove disposal.
+  await tick();
+  expect(await result).toBe('released');
+});
+it('observes captured engine exit immediately while a remote status request is hung', async () => {
+  const f = await fixture(1, 300_000);
+  f.reader(() => new Promise(() => undefined));
+  const done = f.monitor.start(() => deferred<'terminal' | 'aborted'>().promise);
+  await tick();
+  f.exit.resolve();
+  await expect(done).resolves.toBe('engine-exited');
+  expect(f.cleanup()).toBe(0);
 });

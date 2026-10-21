@@ -64,6 +64,27 @@ test('single GPU includes output for one or 64 blocks', () => {
       simulate(compilePlacement([{ uuid: a, first: 0, last: n - 1 }], n).tensorSplit, n),
     ).toEqual(Array(n + 1).fill(0));
 });
+
+test('qualified peer GPUs preserve single-device and mixed-device placement', () => {
+  const peer = `peer:${'a'.repeat(64)}:${a}`;
+  const single = compilePlacement([{ uuid: peer, first: 0, last: 35 }], 36);
+  expect(single.orderedUuids).toEqual([peer]);
+  expect(single.outputUuid).toBe(peer);
+  expect(simulate(single.tensorSplit, 36)).toEqual(Array(37).fill(0));
+  const mixed = compilePlacement(
+    [
+      { uuid: a, first: 0, last: 17 },
+      { uuid: peer, first: 18, last: 35 },
+    ],
+    36,
+  );
+  expect(mixed.orderedUuids).toEqual([a, peer]);
+  expect(simulate(mixed.tensorSplit, 36)).toEqual([
+    ...Array.from({ length: 18 }, () => 0),
+    ...Array.from({ length: 19 }, () => 1),
+  ]);
+  expect(() => compilePlacement([{ uuid: `peer:bad:${a}`, first: 0, last: 35 }], 36)).toThrow();
+});
 test.each(['', '-', '1e2', '1.5'])('retains raw %s but rejects assignment', (first) => {
   const value = draft([{ uuid: a, first, last: '63' }]);
   expect(value.runs[0]?.first).toBe(first);

@@ -9,6 +9,7 @@ const f = vi.hoisted(() => ({
   unlock: vi.fn(),
   tick: 0,
   output: 'ENGINE 123\nCUDA0 100 2 3\nHost 1 0 0\n',
+  cleanupOutput: '',
   capture: vi.fn(),
   cleanupFails: false,
   inspect: vi.fn(() =>
@@ -16,6 +17,9 @@ const f = vi.hoisted(() => ({
   ),
   seal: vi.fn(() => ({})),
   releaseModel: vi.fn(),
+  launch: vi.fn(() => ({})),
+  elapsed: 0,
+  finishAt: 0,
 }));
 vi.mock('../runtime-package/install.js', () => ({
   requireInstalledLive: () => ({
@@ -41,16 +45,23 @@ vi.mock('./windows-ownership.js', () => ({
     releaseFiles: f.releaseModel,
     createDeployment: () => ({}),
     privateDirectory: () => {},
-    launchCudaPlanConsole: () => ({}),
+    launchCudaPlanConsole: f.launch,
+    launchConsole: f.launch,
     captureServer: f.capture,
     forceStop: f.forceStop,
     release: f.release,
     closeDeployment: f.close,
-    observe: () =>
-      ++f.tick === 1
-        ? { output: f.output, exitCode: -1, activeProcesses: 1 }
-        : { output: '', exitCode: 0, activeProcesses: 0 },
+    observe: () => {
+      if (++f.tick === 1) {
+        f.elapsed = f.finishAt;
+        return { output: f.output, exitCode: -1, activeProcesses: 1 };
+      }
+      return { output: f.cleanupOutput, exitCode: 0, activeProcesses: 0 };
+    },
   }),
+}));
+vi.mock('./peer-relays.js', () => ({
+  createPeerRelays: () => Promise.resolve({ arguments: [], close: () => Promise.resolve() }),
 }));
 const saved = {
   id: '12345678-1234-4234-8234-123456789abc',
@@ -62,6 +73,133 @@ const saved = {
   load: { defaults: record().load, cacheK: 'q8_0' as const, cacheV: 'q8_0' as const },
   runs: [{ uuid: 'GPU-12345678-1234-1234-1234-123456789abc', first: 0, last: 63 }],
 };
+it.each([
+  ['remote', 35000, true],
+  ['remote', 180000, true],
+  ['remote', 1800000, false],
+  ['local', 30000, false],
+] as const)('bounds %s estimation at elapsed %i ms', async (kind, elapsed, succeeds) => {
+  f.tick = 0;
+  f.elapsed = 0;
+  f.finishAt = elapsed;
+  f.close.mockClear();
+  const original = f.output;
+  if (kind === 'remote') f.output = original.replace('CUDA0', 'RPC0');
+  const now = vi.spyOn(Date, 'now').mockImplementation(() => f.elapsed);
+  try {
+    const load = resolveClusterLoad(
+      {
+        ...saved,
+        runs: [
+          {
+            ...saved.runs[0]!,
+            uuid:
+              kind === 'remote'
+                ? `peer:${'b'.repeat(64)}:${saved.runs[0]!.uuid}`
+                : saved.runs[0]!.uuid,
+          },
+        ],
+      },
+      'test',
+    );
+    const work = runPlacementEstimator(
+      { packageId: 'test', directory: 'E:\\fixture' },
+      'E:\\model.gguf',
+      'E:\\temp',
+      load,
+      new AbortController().signal,
+    );
+    if (succeeds) await expect(work).resolves.toMatchObject({ fingerprint: load.fingerprint });
+    else await expect(work).rejects.toThrow('PLANNING_INCOMPLETE');
+    expect(f.close).toHaveBeenCalled();
+  } finally {
+    now.mockRestore();
+    f.finishAt = 0;
+    f.output = original;
+  }
+});
+it('retains bounded estimator diagnostics after a failed capture and confirmed cleanup', async () => {
+  f.tick = 0;
+  f.cleanupOutput = 'native estimator startup failed\n';
+  const captureFailure = Error('OWNERSHIP_FAILED');
+  f.capture.mockImplementationOnce(() => {
+    throw captureFailure;
+  });
+  try {
+    await expect(
+      runPlacementEstimator(
+        { packageId: 'test', directory: 'E:\\fixture' },
+        'E:\\model.gguf',
+        'E:\\temp',
+        resolveClusterLoad(saved, 'test'),
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({
+      message: 'OWNERSHIP_FAILED',
+      cause: captureFailure,
+      estimatorOutput: f.output + f.cleanupOutput,
+    });
+  } finally {
+    f.cleanupOutput = '';
+  }
+});
+it('does not launch an estimator on a GPU reserved by another workload', async () => {
+  f.launch.mockClear();
+  const reserve = vi.fn(() => Promise.reject(Error('GPU_BUSY')));
+  await expect(
+    runPlacementEstimator(
+      { packageId: 'test', directory: 'E:\\fixture' },
+      'E:\\model.gguf',
+      'E:\\temp',
+      resolveClusterLoad(saved, 'test'),
+      new AbortController().signal,
+      undefined,
+      undefined,
+      reserve,
+    ),
+  ).rejects.toThrow('GPU_BUSY');
+  expect(f.launch).not.toHaveBeenCalled();
+});
+it('releases an estimator reservation only after its native child has exited', async () => {
+  f.tick = 0;
+  const release = vi.fn(() => {
+    expect(f.tick).toBeGreaterThan(1);
+    return Promise.resolve();
+  });
+  const reserve = vi.fn(() => Promise.resolve({ release }));
+  await runPlacementEstimator(
+    { packageId: 'test', directory: 'E:\\fixture' },
+    'E:\\model.gguf',
+    'E:\\temp',
+    resolveClusterLoad(saved, 'test'),
+    new AbortController().signal,
+    undefined,
+    undefined,
+    reserve,
+  );
+  expect(reserve).toHaveBeenCalledWith([saved.runs[0]!.uuid]);
+  expect(release).toHaveBeenCalledTimes(1);
+  f.tick = 0;
+  f.cleanupFails = true;
+  release.mockClear();
+  try {
+    await expect(
+      runPlacementEstimator(
+        { packageId: 'test', directory: 'E:\\fixture' },
+        'E:\\model.gguf',
+        'E:\\temp',
+        resolveClusterLoad(saved, 'test'),
+        new AbortController().signal,
+        undefined,
+        undefined,
+        reserve,
+      ),
+    ).rejects.toThrow('CLEANUP_FAILED');
+    expect(release).not.toHaveBeenCalled();
+  } finally {
+    f.cleanupFails = false;
+  }
+});
 it('owns and joins the estimator, binding exact settings without admitting its result', async () => {
   f.tick = 0;
   const load = resolveClusterLoad(saved, 'test');

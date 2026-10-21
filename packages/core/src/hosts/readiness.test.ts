@@ -21,6 +21,7 @@ async function server(
     wrongContext?: boolean;
     noAuth?: boolean;
     oversized?: boolean;
+    context?: number;
   } = {},
 ) {
   const server = createServer((request, response) => {
@@ -38,7 +39,9 @@ async function server(
         request.url === '/v1/models'
           ? { data: [{ id: options.wrongModel ? 'other' : 'deployment-model' }] }
           : {
-              default_generation_settings: { n_ctx: options.wrongContext ? 1024 : 4096 },
+              default_generation_settings: {
+                n_ctx: options.wrongContext ? 1024 : (options.context ?? 4096),
+              },
               total_slots: 2,
             },
       ),
@@ -61,12 +64,29 @@ const probe = (port: number, owner = () => true) =>
     new AbortController().signal,
   );
 it('requires authenticated model and exact effective per-slot context', async () => {
-  await expect(probe(await server())).resolves.toBeUndefined();
+  await expect(probe(await server())).resolves.toBe(4096);
+});
+it('accepts only the pinned native padding of a requested non-aligned context', async () => {
+  const check = (port: number) =>
+    checkOwnedReadiness(
+      port,
+      'test-only-key',
+      'deployment-model',
+      30246,
+      2,
+      () => true,
+      new AbortController().signal,
+    );
+  await expect(check(await server({ context: 30464 }))).resolves.toBe(30464);
+  for (const context of [30246, 30208, 30720])
+    await expect(check(await server({ context }))).rejects.toThrow('CONTEXT_MISMATCH');
 });
 it.each([{ wrongModel: true }, { wrongContext: true }, { noAuth: true }, { oversized: true }])(
   'rejects mismatched or unauthenticated readiness %j',
   async (options) => {
-    await expect(probe(await server(options))).rejects.toThrow('NOT_READY');
+    await expect(probe(await server(options))).rejects.toThrow(
+      'wrongContext' in options ? 'CONTEXT_MISMATCH' : 'NOT_READY',
+    );
   },
 );
 it('refuses a healthy unrelated listener', async () => {

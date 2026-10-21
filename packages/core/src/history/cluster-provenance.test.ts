@@ -90,6 +90,40 @@ test('preserves legacy provenance without introducing a cluster property', async
   expect(saved).toEqual(legacy);
   expect(saved).not.toHaveProperty('cluster');
 });
+test('retains requested cluster intent alongside the verified padded runtime context', async () => {
+  const { store } = setup();
+  const padded = {
+    ...legacy,
+    upstreamCommit: '4f31296a907d73f3409f720429bcf31111615d77',
+    configuration: { ...legacy.configuration, contextPerSlot: 7424 },
+    cluster: {
+      ...cluster,
+      load: { ...cluster.load, defaults: { ...cluster.load.defaults, contextLength: 7401 } },
+    },
+  };
+  const id = await begin(store, padded);
+  expect((await store.readConversation(id)).turns[0]?.attempts[0]?.provenance).toEqual(padded);
+});
+test.each([
+  ['a'.repeat(40), 7424],
+  ['4f31296a907d73f3409f720429bcf31111615d77', 7680],
+])(
+  'rejects unpinned or excessive padding in history %s/%i',
+  async (upstreamCommit, contextPerSlot) => {
+    const { store } = setup();
+    await expect(
+      begin(store, {
+        ...legacy,
+        upstreamCommit,
+        configuration: { ...legacy.configuration, contextPerSlot },
+        cluster: {
+          ...cluster,
+          load: { ...cluster.load, defaults: { ...cluster.load.defaults, contextLength: 7401 } },
+        },
+      }),
+    ).rejects.toThrow('INVALID_HISTORY');
+  },
+);
 test.each([
   { modelSha256: 'c'.repeat(64) },
   { contextPerSlot: 4096 },

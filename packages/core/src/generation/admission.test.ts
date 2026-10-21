@@ -127,13 +127,27 @@ describe('bounded core generation admission', () => {
     expect(await active.done).toEqual(completed);
     expect(f.cancellations).toHaveLength(0);
   });
-  it('expires pending work at 120 seconds without native submission', async () => {
+  it('expires pending work at its queue deadline without native submission', async () => {
     const f = fixture();
     for (let n = 0; n < 4; n++) accepted(f.admission.submit(request(n)));
     const queued = accepted(f.admission.submit(request(4)));
     await vi.advanceTimersByTimeAsync(GENERATION_POLICY.queueMs);
     expect(await queued.done).toEqual({ status: 'failed', reason: 'QUEUE_TIMEOUT' });
     expect(f.started).toHaveLength(4);
+  });
+  it('allows a long distributed response past five minutes and queued work past two minutes', async () => {
+    const f = fixture(1);
+    const active = accepted(f.admission.submit(request(0)));
+    const queued = accepted(f.admission.submit(request(1)));
+    await vi.advanceTimersByTimeAsync(6 * 60000);
+    expect(f.cancellations).toEqual([]);
+    expect(f.admission.snapshot()).toHaveLength(2);
+    f.work.get('request-0')!.resolve(completed);
+    await expect(active.done).resolves.toEqual(completed);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.started).toEqual(['request-0', 'request-1']);
+    f.work.get('request-1')!.resolve(completed);
+    await expect(queued.done).resolves.toEqual(completed);
   });
   it('cancels timed-out active work and waits for settlement', async () => {
     const f = fixture();

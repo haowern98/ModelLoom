@@ -5,6 +5,9 @@ import path from 'node:path';
 import { DEVELOPMENT_MEMORY_REPORTS } from '../runtime-package/development-policy.js';
 import { realEngineAdapter } from './real-engine.js';
 import type * as DevelopmentPolicy from '../runtime-package/development-policy.js';
+import { resolveClusterLoad } from '../cluster/effective-load.js';
+import { createStockClusterReport } from '../cluster/stock-profile.js';
+import { record } from '../model-configuration/test-fixtures.js';
 
 const native = vi.hoisted(() => ({
   tick: 0,
@@ -13,6 +16,17 @@ const native = vi.hoisted(() => ({
   child: vi.fn(),
   files: vi.fn(),
   capture: vi.fn(),
+  console: vi.fn<(root: object, helper: string, args: readonly string[]) => never>(() => {
+    throw Error('ARGUMENTS_CAPTURED');
+  }),
+}));
+vi.mock('./peer-relays.js', () => ({
+  createPeerRelays: () =>
+    Promise.resolve({
+      arguments: ['--rpc', '127.0.0.1:49310'],
+      physical: [],
+      close: () => Promise.resolve(),
+    }),
 }));
 vi.mock('../runtime-package/development-policy.js', async (original) => ({
   ...(await original<typeof DevelopmentPolicy>()),
@@ -36,6 +50,7 @@ vi.mock('../runtime/gguf.js', () => ({
     Promise.resolve({
       sha256: '71d6871836886267f39f1ac69b1b1dd8a783970708d7a189960112ed02978901',
       contextLimit: 262144,
+      blockCount: 64,
     }),
 }));
 vi.mock('./resource-probe.js', () => ({
@@ -65,6 +80,7 @@ vi.mock('./windows-ownership.js', () => ({
     releaseFiles: native.release,
     privateDirectory: (directory: string) => mkdirSync(directory),
     launchCudaConsole: () => ({}),
+    launchConsole: native.console,
     observe: () =>
       ++native.tick === 1
         ? { pid: 42, output: 'ENGINE 123\n', exitCode: -1, activeProcesses: 2 }
@@ -115,6 +131,94 @@ it('confirms failed startup exit after rejecting a capture instead of retrying t
   } finally {
     vi.clearAllTimers();
     await adapter.close().catch(() => undefined);
+    await rm(directory, { recursive: true });
+  }
+});
+
+it('registers RPC endpoints before the stock parser resolves the selected remote device', async () => {
+  mkdirSync(path.resolve('out'), { recursive: true });
+  const directory = await mkdtemp(path.resolve('out/rpc-arguments-'));
+  if (!directory.startsWith(path.resolve('out') + path.sep)) throw Error('Unsafe test cleanup');
+  const configuration = DEVELOPMENT_MEMORY_REPORTS.find(
+    (entry) => entry.configuration.slots === 4,
+  )!.configuration;
+  const remote = `peer:${'a'.repeat(64)}:GPU-11111111-1111-1111-1111-111111111111`;
+  const load = resolveClusterLoad(
+    {
+      id: '12345678-1234-4234-8234-123456789abc',
+      name: 'Remote',
+      revision: 1,
+      modelId: configuration.modelSha256,
+      profileId: 'test',
+      blockCount: 64,
+      load: {
+        defaults: {
+          ...record().load,
+          contextLength: configuration.contextPerSlot,
+          concurrency: configuration.slots,
+        },
+        cacheK: configuration.cacheK,
+        cacheV: configuration.cacheV,
+      },
+      runs: [{ uuid: remote, first: 0, last: 63 }],
+    },
+    'b11306-cuda12.4-msvc14.44-dev1',
+  );
+  const parts = { model: 1048576, context: 1048576, compute: 1048576 };
+  const report = createStockClusterReport(load, {
+    fingerprint: load.fingerprint,
+    orderedUuids: [remote],
+    devices: [{ uuid: remote, ...parts }],
+    host: parts,
+  });
+  const adapter = realEngineAdapter(
+    { packageId: 'llama-cuda-development', directory: path.join(directory, 'installed') },
+    'approved.gguf',
+    configuration,
+    18478,
+    () => false,
+    {
+      load,
+      report,
+      peers: {
+        open: () => Promise.reject(Error('Unexpected network access')),
+        resources: () =>
+          Promise.resolve({
+            ram: 24 * 2 ** 30,
+            gpus: [
+              {
+                uuid: remote,
+                bus: '00000000:01:00.0',
+                driver: '617.14',
+                total: 16 * 2 ** 30,
+                free: 16 * 2 ** 30,
+                mig: '[N/A]',
+                driverModel: 'WDDM',
+              },
+            ],
+          }),
+      },
+    },
+  );
+  try {
+    await expect(
+      adapter.launch(
+        {
+          deploymentId: 'test',
+          packageId: 'llama-cuda-development',
+          modelId: configuration.modelSha256,
+          sessionId: 's',
+          operationId: 'o',
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('ARGUMENTS_CAPTURED');
+    const args = native.console.mock.calls.at(-1)![2];
+    expect(args[args.indexOf('--device') + 1]).toBe('RPC0');
+    expect(args[args.indexOf('--rpc') + 1]).toBe('127.0.0.1:49310');
+    expect(args.indexOf('--rpc')).toBeLessThan(args.indexOf('--device'));
+  } finally {
+    await adapter.close();
     await rm(directory, { recursive: true });
   }
 });
