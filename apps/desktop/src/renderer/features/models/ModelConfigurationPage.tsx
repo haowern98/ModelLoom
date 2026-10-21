@@ -84,10 +84,8 @@ export function ModelConfigurationPage({
   const notificationId = useRef(0);
   const [notification, setNotification] = useState<ToastMessage | null>(null);
   const dismissNotification = useCallback(() => setNotification(null), []);
-  const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [templateExpanded, setTemplateExpanded] = useState(draft.customTemplate);
-  const [saveFailed, setSaveFailed] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<NumericSetting, string>>>({});
   const changed = JSON.stringify(draft) !== JSON.stringify(saved);
   useEffect(() => {
@@ -98,7 +96,6 @@ export function ModelConfigurationPage({
   const patch = (values: Partial<DemoModelDefaults>) => {
     onChange({ ...draft, ...values });
     dismissNotification();
-    setMessage('');
     setErrors({});
   };
   const number = (key: NumericSetting, value: string) =>
@@ -236,7 +233,6 @@ export function ModelConfigurationPage({
     setErrors(invalid);
     const first = (Object.keys(invalid) as NumericSetting[])[0];
     if (first) {
-      setMessage('');
       setNotification({
         id: ++notificationId.current,
         kind: 'error',
@@ -247,20 +243,19 @@ export function ModelConfigurationPage({
       return;
     }
     if (next.stopStrings.length > (live ? 4 : 16)) {
-      setSaveFailed(true);
-      setMessage(
-        live
+      setNotification({
+        id: ++notificationId.current,
+        kind: 'error',
+        message: live
           ? 'Use no more than four stop strings.'
           : 'Use no more than 16 stop strings in this demo.',
-      );
+        origin: null,
+      });
       return;
     }
     setSaving(true);
-    setSaveFailed(false);
-    setMessage('Saving defaults…');
     try {
       const acknowledgement = await onSave(next);
-      setMessage('');
       setNotification({
         id: ++notificationId.current,
         kind: 'success',
@@ -277,13 +272,16 @@ export function ModelConfigurationPage({
         INVALID_CONFIGURATION: 'Check the model settings and try again.',
         UNSUPPORTED_SETTING: 'This setting is not available for the current model profile.',
       };
-      setSaveFailed(true);
-      setMessage(
-        error instanceof Error
-          ? (messages[error.message] ??
+      setNotification({
+        id: ++notificationId.current,
+        kind: 'error',
+        message:
+          error instanceof Error
+            ? (messages[error.message] ??
               'Settings could not be confirmed. Reopen to check saved defaults.')
-          : 'Settings could not be confirmed. Reopen to check saved defaults.',
-      );
+            : 'Settings could not be confirmed. Reopen to check saved defaults.',
+        origin: null,
+      });
     } finally {
       setSaving(false);
     }
@@ -605,14 +603,6 @@ export function ModelConfigurationPage({
         role="group"
         aria-label="Model configuration actions"
       >
-        {message && (
-          <p
-            className={styles.feedback}
-            role={Object.keys(errors).length || saveFailed ? 'alert' : 'status'}
-          >
-            {message}
-          </p>
-        )}
         <Button
           className={styles.reset}
           onClick={() => patch(structuredClone(live?.resetDefaults ?? createDemoDefaults()))}

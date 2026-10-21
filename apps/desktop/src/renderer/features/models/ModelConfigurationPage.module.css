@@ -321,15 +321,7 @@
 .page .save:hover:not(:disabled) {
   background: #e5e5e5;
 }
-.feedback {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  color: var(--neutral-muted);
-  font-size: var(--font-size-secondary);
-}
-.error,
-.feedback[role='alert'] {
+.error {
   color: #efb0b0;
   font-size: var(--font-size-description);
 }
