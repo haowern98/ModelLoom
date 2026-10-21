@@ -793,3 +793,51 @@ models, devices and conversations remain opt-in test/demo fixtures only. The
 Windows development launcher prepares its existing approved core before opening
 the app, and a preparation failure stops startup instead of substituting samples.
 This preserves screen layouts, saved chats and existing runtime security gates.
+
+## Connections layout revision, 22 October 2026
+
+The subsequent canvas-picker revision replaces the contextual Add device panel's
+connection forms with Add to canvas. Keep the device-details header's back arrow,
+title alignment and muted subtitle: "Choose a PC to add to this canvas." List
+approved remote PCs not yet placed as clickable name/hardware cards, followed by
+a matching dashed card with a centered plus. With no candidates, show only the
+plus card. It opens Connections → Add device. Selecting a PC places it on the
+canvas and closes the panel. New peer approval alone does not place it; placement
+choices are session-only, while saved assignments and active allocations keep
+their referenced PCs visible. Connecting, approving and placing remain separate
+actions; the picker never grants peer access.
+
+The user's PROCEED adopts the supplied Connections reference and the subsequent
+Join cluster, Share this PC and Add device mockups. This supersedes the separate
+Requests destination and header action trio described earlier in this document.
+
+- Keep one Connections destination in the Cluster sidebar. Its right-side badge
+  counts incoming pending requests and is omitted at zero. Remove the separate
+  Requests and Add device sidebar destinations; contextual canvas Add device
+  controls still work.
+- Reuse Appearance's Settings details surface, 44px top inset, 728px centered
+  column, page-title typography and 40px heading-to-first-control gap. Remove
+  the Connections subtitle and its reserved space.
+- Below Connections, render compact Join cluster, Share this PC and Add device
+  tabs in that order. Only the active tab has a neutral rounded background.
+  Keep the Connections title while switching tabs. Support arrow keys, Home,
+  End, visible focus, and properly associated tab panels.
+- Use Settings sections and rounded groups. Share this PC places Allow
+  connections and approved coordinators in its first group, then separate GPU
+  rows under Shared hardware, the existing address selection, and incoming
+  Requests. The address selector reuses Model Configuration's ConfigurationSelect
+  component, including the Stop at Limit pill and its dropdown. Omit the setup hint
+  and App identity disclosure from the page; identities remain in the verification
+  dialog and setup instructions remain in Add. Approval, denial and
+  revocation continue to require existing acknowledged peer commands.
+- The share toggle and Model Configuration toggle use the same shared artwork:
+  32px track width, 20px track height, 16px thumb. GPU checkboxes use the existing
+  shared Checkbox module, including its 16px artwork and neutral checked state.
+- Add device and Join cluster use grouped available-PC rows and an immediately
+  visible manual-address form. The small section-header Add action focuses that
+  form; Share's Add opens instructions for connecting from the other PC.
+- Production views show actual supplied peer state and honest empty/unavailable
+  states. This UI revision does not implement discovery, outgoing Join requests,
+  or pairing codes. Existing full-fingerprint verification remains mandatory;
+  approval alone must not be labelled as a verified live connection. Demo actions
+  remain explicitly simulated and never alter live placement or authorization.
