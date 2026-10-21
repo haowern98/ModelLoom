@@ -807,6 +807,14 @@ choices are session-only, while saved assignments and active allocations keep
 their referenced PCs visible. Connecting, approving and placing remain separate
 actions; the picker never grants peer access.
 
+Remote node menus include Remove from canvas below Rename device. The local PC
+never offers this action, regardless of its coordinator/worker role. Removal is
+session-only presentation state: retain pairing and inventory, remove the node
+and its displayed links, and make its card available in Add to canvas again.
+Disable removal during model loading, any running model, automatic assignment,
+configuration saving, and while the PC has layer assignments or an active
+allocation. Do not clear assignments, revoke access or stop a workload implicitly.
+
 The user's PROCEED adopts the supplied Connections reference and the subsequent
 Join cluster, Share this PC and Add device mockups. This supersedes the separate
 Requests destination and header action trio described earlier in this document.
