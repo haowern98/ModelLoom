@@ -7,6 +7,7 @@ import {
   decodeOutcome,
   decodeExecutionIdentity,
   decodeGenerationChunk,
+  GENERATION_POLICY,
 } from '../generation/contracts.js';
 import { decodeObject, exact } from './control.js';
 import { selectionKey, selectionFrom } from './broker-protocol.js';
@@ -246,7 +247,7 @@ export class UtilityChatTransport implements ChatTransport {
       count.reject(new Error('TOKEN_COUNT_FAILED'));
       this.entries.delete(id);
     };
-    const timer = setTimeout(abort, 120000);
+    const timer = setTimeout(abort, GENERATION_POLICY.generationMs + 1000);
     signal.addEventListener('abort', abort, { once: true });
     this.entries.set(id, {
       kind: 'count',

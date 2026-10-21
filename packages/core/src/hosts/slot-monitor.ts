@@ -1,4 +1,5 @@
 import type { SlotStatus } from './slot-status.js';
+import { GENERATION_POLICY } from '../generation/contracts.js';
 /** Owner-internal captured stream completion, not a caller-supplied outcome. */
 export type OwnedStreamEnd = 'terminal' | 'aborted';
 type Release = 'released' | 'engine-exited';
@@ -21,6 +22,9 @@ interface Reservation {
  * Cancellation also requires an earlier processing observation of its task.
  * Failed proof retains reservations, rejects release and invokes owned cleanup
  * once. Only the captured exit promise can then confirm resource disposal.
+ * The trusted owner may extend observation up to the generation deadline for
+ * WAN state transfers, including terminal disposal proof. Cancellation retains
+ * its separate five-second bound and never releases capacity without proof.
  */
 export class OwnedSlotMonitor {
   private readonly reservations = new Map<number, Reservation>();
@@ -40,8 +44,16 @@ export class OwnedSlotMonitor {
     private readonly owns: () => boolean,
     exited: Promise<void>,
     private readonly cleanup: () => void,
+    private readonly observationMs = 5000,
   ) {
-    if (!Number.isInteger(count) || count < 1 || count > 1024)
+    if (
+      !Number.isInteger(count) ||
+      count < 1 ||
+      count > 1024 ||
+      !Number.isSafeInteger(observationMs) ||
+      observationMs < 5000 ||
+      observationMs > GENERATION_POLICY.generationMs
+    )
       throw new Error('STATUS_UNCONFIRMED');
     void exited.then(
       () => this.exited(),
@@ -98,7 +110,10 @@ export class OwnedSlotMonitor {
             return;
           }
           entry.end = end;
-          entry.deadline = setTimeout(() => this.fail(), 5000);
+          entry.deadline = setTimeout(
+            () => this.fail(),
+            end === 'terminal' ? this.observationMs : 5000,
+          );
         },
         () => this.fail(),
       );
@@ -137,7 +152,7 @@ export class OwnedSlotMonitor {
           timer = setTimeout(() => {
             abort.abort();
             reject(new Error('STATUS_UNCONFIRMED'));
-          }, 5000);
+          }, this.observationMs);
         }),
       ]);
       if (this.closed || abort.signal.aborted || !this.owns() || status.length !== this.count)
