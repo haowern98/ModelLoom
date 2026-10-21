@@ -25,6 +25,8 @@ interface DeviceCardProps {
   selected: boolean;
   alwaysShowAdd: boolean;
   onAdd: () => void;
+  onRemove?: (() => void) | undefined;
+  removeDisabled?: boolean;
 }
 
 export function DeviceCard({
@@ -43,6 +45,8 @@ export function DeviceCard({
   selected,
   alwaysShowAdd,
   onAdd,
+  onRemove,
+  removeDisabled = false,
 }: DeviceCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuAnchor = useRef<HTMLDivElement>(null);
@@ -123,6 +127,23 @@ export function DeviceCard({
                 >
                   Rename device
                 </button>
+                {onRemove && (
+                  <button
+                    type="button"
+                    disabled={removeDisabled}
+                    title={
+                      removeDisabled
+                        ? 'Stop the model and finish assigning layers before removing this PC.'
+                        : undefined
+                    }
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onRemove();
+                    }}
+                  >
+                    Remove from canvas
+                  </button>
+                )}
               </div>
             )}
           </div>

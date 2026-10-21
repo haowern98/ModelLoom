@@ -163,10 +163,12 @@ export function ClusterPage({
   const [modal, setModal] = useState<Modal | null>(null);
   const devices = demo || localRuntime ? availableDevices : [];
   const [placedPeers, setPlacedPeers] = useState<readonly string[]>([]);
+  const [removedDevices, setRemovedDevices] = useState<readonly string[]>([]);
+  const localDeviceId = localRuntime ? 'local' : availableDevices[0]?.id;
   const canvasDevices = devices.filter(
     (device) =>
-      !device.id.startsWith('peer:') ||
-      placedPeers.includes(device.id) ||
+      (!removedDevices.includes(device.id) &&
+        (!device.id.startsWith('peer:') || placedPeers.includes(device.id))) ||
       device.hardware.some(
         (hardware) =>
           configurations?.raw?.runs.some(
@@ -195,8 +197,8 @@ export function ClusterPage({
       : selection;
   const links = demoLinks.filter(
     (link) =>
-      devices.some((device) => device.id === link.from) &&
-      devices.some((device) => device.id === link.to),
+      canvasDevices.some((device) => device.id === link.from) &&
+      canvasDevices.some((device) => device.id === link.to),
   );
   const selectedModel = models.find((model) =>
     configurations?.selection
@@ -669,6 +671,33 @@ export function ClusterPage({
                       selected={selection.type === 'device' && selection.device.id === device.id}
                       alwaysShowAdd={canvasDevices.length === 1}
                       onAdd={() => showPanel({ type: 'add' })}
+                      removeDisabled={
+                        loading ||
+                        Boolean(activeModel) ||
+                        Boolean(configurations?.planning || configurations?.saving) ||
+                        device.hardware.some(
+                          (hardware) =>
+                            editorInputs.some(
+                              (input) =>
+                                input.hardwareId === hardware.id &&
+                                Boolean(input.first.trim() || input.last.trim()),
+                            ) ||
+                            appliedRanges.some((range) => range.hardwareId === hardware.id) ||
+                            localRuntime?.activeCluster?.runs.some(
+                              (run) => run.uuid === hardware.assignmentId,
+                            ),
+                        )
+                      }
+                      onRemove={
+                        device.id === localDeviceId
+                          ? undefined
+                          : () => {
+                              setPlacedPeers((current) => current.filter((id) => id !== device.id));
+                              setRemovedDevices((current) => [...current, device.id]);
+                              closePanel();
+                              queueMicrotask(() => panelToggle.current?.focus());
+                            }
+                      }
                       onEdit={(hardwareId) => showPanel({ type: 'device', device, hardwareId })}
                     />
                   </div>
@@ -706,11 +735,12 @@ export function ClusterPage({
               devices={devices}
               canvasCandidates={devices.filter(
                 (device) =>
-                  device.id.startsWith('peer:') &&
+                  device.id !== localDeviceId &&
                   !canvasDevices.some((placed) => placed.id === device.id),
               )}
               onAddDevice={() => navigate('add')}
               onAddToCanvas={(device) => {
+                setRemovedDevices((current) => current.filter((id) => id !== device.id));
                 setPlacedPeers((current) =>
                   current.includes(device.id) ? current : [...current, device.id],
                 );

@@ -177,7 +177,7 @@ export function ClusterPanel({
       ref={panelRef}
       tabIndex={-1}
       id={id}
-      className={styles.panel}
+      className={`${styles.panel} ${selection.type === 'device' ? styles.devicePanel : ''}`}
       aria-label="Cluster panel"
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
