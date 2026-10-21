@@ -197,21 +197,18 @@ describe('Cluster demo', () => {
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
     const navigation = within(screen.getByRole('navigation', { name: 'Cluster navigation' }));
-    await user.click(navigation.getByRole('button', { name: 'Add device' }));
-    const panel = screen.getByRole('region', { name: 'Add device' });
-    expect(within(panel).getByRole('heading', { name: 'Add device' })).toBeVisible();
-    await user.click(within(panel).getByRole('button', { name: 'Connect manually' }));
-    for (const mode of ['LAN', 'Tailscale', 'Headscale']) {
-      await user.click(within(panel).getByRole('button', { name: mode }));
-      expect(
-        within(panel).getByText(/No discovery, request delivery or pairing occurs/),
-      ).toBeVisible();
-    }
+    await user.click(navigation.getByRole('button', { name: /^Connections/u }));
+    await user.click(screen.getByRole('tab', { name: 'Add device' }));
+    const panel = screen.getByRole('tabpanel', { name: 'Add device' });
+    expect(within(panel).getByRole('heading', { name: 'Connect manually' })).toBeVisible();
+    expect(
+      within(panel).getByText(/No discovery, request delivery or pairing occurs/),
+    ).toBeVisible();
     await user.click(navigation.getByRole('button', { name: 'Overview' }));
     await user.click(screen.getByRole('button', { name: 'Add device near studio-desktop' }));
     expect(
       within(screen.getByRole('complementary', { name: 'Cluster panel' })).getByRole('heading', {
-        name: 'Add device',
+        name: 'Add to canvas',
       }),
     ).toBeVisible();
     expect(screen.getAllByRole('article')).toHaveLength(4);

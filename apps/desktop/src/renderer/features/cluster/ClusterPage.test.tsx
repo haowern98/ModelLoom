@@ -37,23 +37,20 @@ function Cluster({
   );
 }
 
-it.each([false, true])(
-  'shows requests only on the sidebar Requests page (demo=%s)',
-  async (demo) => {
-    const user = userEvent.setup();
-    render(<Cluster demo={demo} />);
-    await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
-    const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-    expect(
-      within(panel).queryByRole('heading', { name: /Participation requests|Pending requests/u }),
-    ).not.toBeInTheDocument();
-    const navigation = screen.getByRole('navigation', { name: 'Cluster navigation' });
-    await user.click(within(navigation).getByRole('button', { name: /^Requests/u }));
-    expect(
-      screen.getByRole('heading', { name: demo ? /Pending requests/u : 'Participation requests' }),
-    ).toBeVisible();
-  },
-);
+it.each([false, true])('shows requests only inside Connections sharing (demo=%s)', async (demo) => {
+  const user = userEvent.setup();
+  render(<Cluster demo={demo} />);
+  await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
+  const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+  expect(
+    within(panel).queryByRole('heading', { name: /Participation requests|Pending requests/u }),
+  ).not.toBeInTheDocument();
+  const navigation = screen.getByRole('navigation', { name: 'Cluster navigation' });
+  await user.click(within(navigation).getByRole('button', { name: /^Connections/u }));
+  expect(
+    screen.getByRole('heading', { name: demo ? /Pending requests/u : 'Requests' }),
+  ).toBeVisible();
+});
 
 it('updates the right-side Requests count and hides it when no requests remain', () => {
   const view = render(<Cluster demo={false} pendingPeerRequests={1} />);
@@ -93,6 +90,43 @@ it('keeps empty layer fields visible and disabled before a model is selected', a
     expect(stepper).toBeDisabled();
   }
   expect(within(panel).queryByText('Not used for model layers')).not.toBeInTheDocument();
+});
+
+it('keeps a newly approved peer off the canvas until its PC card is chosen', async () => {
+  const user = userEvent.setup();
+  const local = { ...demoDevices[0]!, id: 'local' };
+  const remote = { ...demoDevices[1]!, id: 'peer:approved', name: 'Approved PC' };
+  render(
+    <ClusterPage
+      demo={false}
+      joining={createDemoJoining()}
+      onJoining={vi.fn()}
+      devices={[local, remote]}
+      onRenameDevice={vi.fn()}
+      activeModel={undefined}
+      models={[]}
+      placement={createDemoPlacement(null)}
+      dispatch={vi.fn()}
+      onStop={vi.fn()}
+      localRuntime={{ loading: false, onChoose: vi.fn(), onRun: vi.fn() }}
+    />,
+  );
+  expect(screen.queryByRole('article', { name: 'Approved PC' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: `Add device near ${local.name}` }));
+  const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+  expect(within(panel).getByRole('heading', { name: 'Add to canvas' })).toBeVisible();
+  expect(within(panel).getByText('Choose a PC to add to this canvas.')).toBeVisible();
+  expect(within(panel).queryByRole('textbox')).not.toBeInTheDocument();
+  await user.click(within(panel).getByRole('button', { name: 'Add Approved PC to canvas' }));
+  expect(screen.getByRole('article', { name: 'Approved PC' })).toBeVisible();
+  expect(screen.queryByRole('complementary', { name: 'Cluster panel' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: `Add device near ${local.name}` }));
+  const empty = screen.getByRole('complementary', { name: 'Cluster panel' });
+  expect(
+    within(empty).queryByRole('button', { name: 'Add Approved PC to canvas' }),
+  ).not.toBeInTheDocument();
+  await user.click(within(empty).getByRole('button', { name: 'Add device in Connections' }));
+  expect(screen.getByRole('tabpanel', { name: 'Add device' })).toBeVisible();
 });
 
 it('keeps device details collapsed and uses the header back control and outer panel toggle', async () => {
@@ -161,8 +195,8 @@ it('navigates distinct Cluster views and retains the canvas across navigation', 
   await user.click(within(navigation).getByRole('button', { name: 'Devices' }));
   expect(screen.getByRole('heading', { name: 'Devices' })).toBeVisible();
   expect(canvas).not.toBeVisible();
-  await user.click(within(navigation).getByRole('button', { name: 'Connections' }));
-  expect(screen.getByRole('heading', { name: 'Connections' })).toBeVisible();
+  await user.click(within(navigation).getByRole('button', { name: /^Connections/u }));
+  expect(screen.getByRole('heading', { name: /^Connections/u })).toBeVisible();
   await user.click(within(navigation).getByRole('button', { name: 'Overview' }));
   expect(screen.getByRole('region', { name: 'Cluster canvas' })).toBe(canvas);
   expect(screen.getByRole('group', { name: 'Canvas controls' })).toBe(controls);
@@ -185,14 +219,14 @@ it('keeps approvals explicitly simulated and removes their pending count after d
   const user = userEvent.setup();
   render(<Cluster />);
   const navigation = screen.getByRole('navigation', { name: 'Cluster navigation' });
-  await user.click(within(navigation).getByRole('button', { name: /Requests/ }));
+  await user.click(within(navigation).getByRole('button', { name: /^Connections/u }));
   expect(screen.getByText('Example requests · approval is simulated.')).toBeVisible();
   await user.click(
     screen.getByRole('button', { name: 'Approve invitation from render-coordinator' }),
   );
   await user.click(screen.getByRole('button', { name: 'Decline join request from office-pc' }));
-  expect(within(navigation).getByRole('button', { name: 'Requests' })).toHaveTextContent(
-    'Requests',
+  expect(within(navigation).getByRole('button', { name: /^Connections/u })).toHaveTextContent(
+    'Connections',
   );
   expect(
     screen.getByText('No device is connected or granted access by these demo actions.'),
@@ -203,12 +237,12 @@ it('shows honest unavailable networking views without demo peers in ordinary bui
   const user = userEvent.setup();
   render(<Cluster demo={false} />);
   const navigation = screen.getByRole('navigation', { name: 'Cluster navigation' });
-  await user.click(within(navigation).getByRole('button', { name: 'Add device' }));
-  expect(screen.getByRole('heading', { name: 'Add device' })).toBeVisible();
-  await user.click(screen.getByRole('button', { name: 'Connect manually' }));
+  await user.click(within(navigation).getByRole('button', { name: /^Connections/u }));
+  await user.click(screen.getByRole('tab', { name: 'Add device' }));
+  expect(screen.getByRole('tabpanel', { name: 'Add device' })).toBeVisible();
   expect(screen.getByRole('textbox', { name: 'Private address' })).toBeDisabled();
   expect(screen.queryByText('office-pc')).not.toBeInTheDocument();
-  await user.click(within(navigation).getByRole('button', { name: 'Requests' }));
+  await user.click(within(navigation).getByRole('button', { name: /^Connections/u }));
   expect(screen.queryByRole('button', { name: /Approve|Decline/ })).not.toBeInTheDocument();
 });
 

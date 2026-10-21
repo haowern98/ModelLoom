@@ -5,12 +5,8 @@ import { App } from './App';
 
 async function chooseConnection(user: ReturnType<typeof userEvent.setup>, name: string) {
   const navigation = within(screen.getByRole('navigation', { name: 'Cluster navigation' }));
-  if (name === 'Add device') {
-    await user.click(navigation.getByRole('button', { name }));
-  } else {
-    await user.click(navigation.getByRole('button', { name: 'Connections' }));
-    await user.click(screen.getByRole('button', { name }));
-  }
+  await user.click(navigation.getByRole('button', { name: /^Connections/u }));
+  await user.click(screen.getByRole('tab', { name }));
 }
 
 async function overview(user: ReturnType<typeof userEvent.setup>) {
@@ -27,11 +23,11 @@ describe('Cluster joining demo', () => {
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
     await chooseConnection(user, 'Add device');
-    expect(screen.getByText('Invite another PC to contribute to your cluster.')).toBeVisible();
+    expect(screen.getByRole('tabpanel', { name: 'Add device' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Invite office-pc' }));
     expect(screen.getByRole('button', { name: 'Invitation pending for office-pc' })).toBeDisabled();
     await chooseConnection(user, 'Join cluster');
-    expect(screen.getByText('Ask a coordinator to use this PC in its cluster.')).toBeVisible();
+    expect(screen.getByRole('tabpanel', { name: 'Join cluster' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Request to join render-coordinator' }));
     expect(
       screen.getByRole('button', { name: 'Join request pending for render-coordinator' }),
@@ -47,7 +43,6 @@ describe('Cluster joining demo', () => {
     ).toBeDisabled();
     await chooseConnection(user, 'Add device');
     expect(screen.getByRole('button', { name: 'Invitation pending for office-pc' })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Connect manually' }));
     const invite = screen.getByRole('button', { name: 'Invite private address' });
     expect(invite).toBeDisabled();
     await user.type(screen.getByRole('textbox', { name: 'Private address' }), '192.168.1.42');
@@ -55,7 +50,6 @@ describe('Cluster joining demo', () => {
     expect(screen.getByText('Invitation pending · demo')).toBeVisible();
     await overview(user);
     await chooseConnection(user, 'Add device');
-    await user.click(screen.getByRole('button', { name: 'Connect manually' }));
     expect(screen.getByRole('textbox', { name: 'Private address' })).toHaveValue('192.168.1.42');
     expect(screen.getByText('Invitation pending · demo')).toBeVisible();
     expect(screen.getByText(/No discovery, request delivery or pairing occurs/)).toBeVisible();
@@ -74,8 +68,8 @@ describe('Cluster joining demo', () => {
     expect(within(panel).getByText('4 devices · 5 GPUs')).toBeVisible();
     await user.keyboard('{Escape}');
     const navigation = within(screen.getByRole('navigation', { name: 'Cluster navigation' }));
-    await user.click(navigation.getByRole('button', { name: /^Requests/ }));
-    const requests = screen.getByRole('region', { name: 'Requests' });
+    await user.click(navigation.getByRole('button', { name: /^Connections/u }));
+    const requests = screen.getByRole('tabpanel', { name: 'Share this PC' });
     expect(
       within(requests).getByText('render-coordinator coordinates; this PC contributes.'),
     ).toBeVisible();
@@ -101,7 +95,7 @@ describe('Cluster joining demo', () => {
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
     await chooseConnection(user, 'Share this PC');
-    const sharing = screen.getByRole('switch', { name: 'Allow participation requests' });
+    const sharing = screen.getByRole('switch', { name: 'Allow connections' });
     expect(sharing).not.toBeChecked();
     await user.click(sharing);
     await user.click(screen.getByRole('checkbox', { name: 'CPU' }));
@@ -109,10 +103,10 @@ describe('Cluster joining demo', () => {
     await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
     await chooseConnection(user, 'Share this PC');
-    expect(screen.getByRole('switch', { name: 'Allow participation requests' })).toBeChecked();
+    expect(screen.getByRole('switch', { name: 'Allow connections' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'CPU' })).toBeChecked();
-    await user.click(screen.getByRole('button', { name: 'Stop sharing' }));
-    expect(screen.getByRole('switch', { name: 'Allow participation requests' })).not.toBeChecked();
+    await user.click(screen.getByRole('switch', { name: 'Allow connections' }));
+    expect(screen.getByRole('switch', { name: 'Allow connections' })).not.toBeChecked();
     await overview(user);
     expect(screen.getAllByRole('article')).toHaveLength(4);
   });
@@ -127,7 +121,7 @@ describe('Cluster joining demo', () => {
       expect(screen.queryByText('office-pc')).not.toBeInTheDocument();
       expect(screen.getByText('No available devices')).toBeVisible();
       await chooseConnection(user, 'Share this PC');
-      expect(screen.getByRole('switch', { name: 'Allow participation requests' })).toBeDisabled();
+      expect(screen.getByRole('switch', { name: 'Allow connections' })).toBeDisabled();
       await overview(user);
       expect(screen.queryByRole('button', { name: /Approve/ })).not.toBeInTheDocument();
     } finally {
