@@ -11,16 +11,19 @@ function Cluster({
   demo = true,
   selectedId = null,
   activeId = null,
+  pendingPeerRequests = 0,
 }: {
   demo?: boolean;
   selectedId?: string | null;
   activeId?: string | null;
+  pendingPeerRequests?: number;
 }) {
   const models = createDemoLibrary().models;
   const [joining, onJoining] = useReducer(transitionDemoJoining, undefined, createDemoJoining);
   return (
     <ClusterPage
       demo={demo}
+      pendingPeerRequests={pendingPeerRequests}
       joining={joining}
       onJoining={onJoining}
       devices={demo ? demoDevices : []}
@@ -33,6 +36,34 @@ function Cluster({
     />
   );
 }
+
+it.each([false, true])(
+  'shows requests only on the sidebar Requests page (demo=%s)',
+  async (demo) => {
+    const user = userEvent.setup();
+    render(<Cluster demo={demo} />);
+    await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
+    const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+    expect(
+      within(panel).queryByRole('heading', { name: /Participation requests|Pending requests/u }),
+    ).not.toBeInTheDocument();
+    const navigation = screen.getByRole('navigation', { name: 'Cluster navigation' });
+    await user.click(within(navigation).getByRole('button', { name: /^Requests/u }));
+    expect(
+      screen.getByRole('heading', { name: demo ? /Pending requests/u : 'Participation requests' }),
+    ).toBeVisible();
+  },
+);
+
+it('updates the right-side Requests count and hides it when no requests remain', () => {
+  const view = render(<Cluster demo={false} pendingPeerRequests={1} />);
+  const navigation = screen.getByRole('navigation', { name: 'Cluster navigation' });
+  expect(within(navigation).getByLabelText('1 pending request')).toHaveTextContent('1');
+  view.rerender(<Cluster demo={false} pendingPeerRequests={2} />);
+  expect(within(navigation).getByLabelText('2 pending requests')).toHaveTextContent('2');
+  view.rerender(<Cluster demo={false} pendingPeerRequests={0} />);
+  expect(within(navigation).queryByLabelText(/pending requests?/u)).not.toBeInTheDocument();
+});
 
 it('keeps empty layer fields visible and disabled before a model is selected', async () => {
   const user = userEvent.setup();

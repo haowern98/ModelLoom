@@ -64,6 +64,80 @@ function setup(enabled = true) {
   const controller = Reflect.get(module, 'createRuntimeController')?.(deps);
   return { controller, host, deps };
 }
+it('keeps peer management available before model startup and closes its independent owner on Quit', async () => {
+  const { controller, deps } = setup();
+  const peers = vi.fn(() => Promise.resolve({ ok: false, error: 'PEER_UNAVAILABLE' }));
+  const closePeers = vi.fn(() => Promise.resolve());
+  Object.assign(deps, { peers, closePeers });
+  expect(await controller.peers({ action: 'read' })).toEqual({
+    ok: false,
+    error: 'PEER_UNAVAILABLE',
+  });
+  expect(peers).toHaveBeenCalledTimes(1);
+  expect(deps.createHost).not.toHaveBeenCalled();
+  await controller.quit();
+  expect(closePeers).toHaveBeenCalledTimes(1);
+});
+it('retains peer GPU reservations until the model owner has confirmed shutdown', async () => {
+  const { controller, host, deps } = setup();
+  const order: string[] = [];
+  Object.assign(deps, {
+    beginPeerQuit: vi.fn(() => {
+      order.push('admission');
+      return Promise.resolve();
+    }),
+    closePeers: vi.fn(() => {
+      order.push('peers');
+      return Promise.resolve();
+    }),
+  });
+  await controller.command({ action: 'import' });
+  const imported = await controller.command({ action: 'snapshot' });
+  if (!imported.model) throw Error('Fixture import failed');
+  await controller.command({ action: 'load', modelId: imported.model.id });
+  host.close.mockImplementationOnce(() => {
+    order.push('model');
+    return Promise.resolve();
+  });
+  await controller.quit();
+  expect(order).toEqual(['admission', 'model', 'peers']);
+});
+it('closes the independent peer owner even when model shutdown fails', async () => {
+  const { controller, host, deps } = setup();
+  const closePeers = vi.fn(() => Promise.resolve());
+  Object.assign(deps, { closePeers });
+  await controller.command({ action: 'import' });
+  const imported = await controller.command({ action: 'snapshot' });
+  if (!imported.model) throw Error('Fixture import failed');
+  await controller.command({ action: 'load', modelId: imported.model.id });
+  host.close.mockRejectedValueOnce(new Error('CLEANUP_FAILED'));
+  await expect(controller.quit()).rejects.toThrow('CLEANUP_FAILED');
+  expect(closePeers).toHaveBeenCalledTimes(1);
+});
+it('waits for sharing to drain before closing its peer owner', async () => {
+  const { controller, deps, host } = setup();
+  await controller.command({ action: 'import' });
+  const imported = await controller.command({ action: 'snapshot' });
+  if (!imported.model) throw Error('Fixture import failed');
+  await controller.command({ action: 'load', modelId: imported.model.id });
+  let drained!: () => void;
+  const closePeers = vi.fn(() => Promise.resolve());
+  Object.assign(deps, {
+    beginPeerQuit: vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          drained = resolve;
+        }),
+    ),
+    closePeers,
+  });
+  const closing = controller.quit();
+  await vi.waitFor(() => expect(host.close).toHaveBeenCalledTimes(1));
+  expect(closePeers).not.toHaveBeenCalled();
+  drained();
+  await closing;
+  expect(closePeers).toHaveBeenCalledTimes(1);
+});
 it('shows this device before import or load, independently of role and runtime activation', async () => {
   const { controller, deps } = setup(false);
   const snapshot = await controller.command({ action: 'snapshot' });
@@ -77,6 +151,26 @@ it('shows this device before import or load, independently of role and runtime a
   expect(deps.inspect).not.toHaveBeenCalled();
   expect(deps.preflight).not.toHaveBeenCalled();
   expect(deps.createHost).not.toHaveBeenCalled();
+});
+
+it('allows Quit after full peer cleanup confirms an earlier sharing drain failure is settled', async () => {
+  const { controller, deps } = setup();
+  const closePeers = vi.fn(async () => {});
+  Object.assign(deps, {
+    beginPeerQuit: vi.fn(() => Promise.reject(Error('RPC_CLEANUP_FAILED'))),
+    closePeers,
+  });
+  await expect(controller.quit()).resolves.toBeUndefined();
+  expect(closePeers).toHaveBeenCalledTimes(1);
+});
+
+it('blocks Quit if full peer cleanup remains unconfirmed after sharing drain failure', async () => {
+  const { controller, deps } = setup();
+  Object.assign(deps, {
+    beginPeerQuit: vi.fn(() => Promise.reject(Error('RPC_CLEANUP_FAILED'))),
+    closePeers: vi.fn(() => Promise.reject(Error('PEER_CLEANUP_FAILED'))),
+  });
+  await expect(controller.quit()).rejects.toThrow('PEER_CLEANUP_FAILED');
 });
 it('retries unavailable device information without reporting a model failure', async () => {
   const { controller, deps } = setup();

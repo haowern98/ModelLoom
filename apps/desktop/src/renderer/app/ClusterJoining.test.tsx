@@ -70,23 +70,28 @@ describe('Cluster joining demo', () => {
     expect(screen.getByLabelText('2 pending requests')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
     const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+    expect(within(panel).queryByText('Participation requests')).not.toBeInTheDocument();
+    expect(within(panel).getByText('4 devices · 5 GPUs')).toBeVisible();
+    await user.keyboard('{Escape}');
+    const navigation = within(screen.getByRole('navigation', { name: 'Cluster navigation' }));
+    await user.click(navigation.getByRole('button', { name: /^Requests/ }));
+    const requests = screen.getByRole('region', { name: 'Requests' });
     expect(
-      within(panel).getByText('render-coordinator coordinates; this PC contributes.'),
+      within(requests).getByText('render-coordinator coordinates; this PC contributes.'),
     ).toBeVisible();
-    expect(within(panel).getByText('This PC coordinates; office-pc contributes.')).toBeVisible();
+    expect(within(requests).getByText('This PC coordinates; office-pc contributes.')).toBeVisible();
     await user.click(
-      within(panel).getByRole('button', { name: 'Approve invitation from render-coordinator' }),
+      within(requests).getByRole('button', { name: 'Approve invitation from render-coordinator' }),
     );
     expect(screen.getByLabelText('1 pending request')).toBeVisible();
-    expect(within(panel).getByText('Approved · demo')).toBeVisible();
+    expect(within(requests).getByText('Approved · demo')).toBeVisible();
     await user.click(
-      within(panel).getByRole('button', { name: 'Decline join request from office-pc' }),
+      within(requests).getByRole('button', { name: 'Decline join request from office-pc' }),
     );
     expect(screen.queryByLabelText(/pending requests?$/)).not.toBeInTheDocument();
-    expect(within(panel).getByText('Declined · demo')).toBeVisible();
-    expect(within(panel).getByText('4 devices · 5 GPUs')).toBeVisible();
+    expect(within(requests).getByText('Declined · demo')).toBeVisible();
+    await overview(user);
     expect(screen.getAllByText(/^Layers /)).toHaveLength(5);
-    await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
     expect(screen.queryByRole('button', { name: /Approve invitation/ })).not.toBeInTheDocument();
   });
