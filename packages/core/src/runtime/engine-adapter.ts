@@ -14,6 +14,8 @@ export interface EngineExit {
 export interface OwnedEngine {
   readonly selection: Selection;
   readonly exited: Promise<EngineExit>;
+  /** Present only after authenticated native readiness, never supplied by a caller. */
+  readonly contextLength?: number | undefined;
   waitReady(signal: AbortSignal): Promise<void>;
   requestStop(): Promise<void>;
   forceStop(): Promise<void>;

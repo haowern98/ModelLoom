@@ -48,9 +48,11 @@ export function decodeEngine(
   phase: EnginePhase;
   selection: Selection;
   code: number;
+  contextLength?: number;
 } {
   const value = decodeObject(text);
-  exact(value, ['type', 'phase', 'selection', 'code']);
+  const hasContext = Object.hasOwn(value, 'contextLength');
+  exact(value, ['type', 'phase', 'selection', 'code', ...(hasContext ? ['contextLength'] : [])]);
   const phase = value.phase;
   const code = value.code;
   if (
@@ -62,7 +64,21 @@ export function decodeEngine(
     code > 4_294_967_295
   )
     throw new Error('INVALID_CONTROL');
-  return { phase, selection: selectionFrom(value.selection, scope), code };
+  if (
+    hasContext &&
+    (phase !== 'ready' ||
+      typeof value.contextLength !== 'number' ||
+      !Number.isSafeInteger(value.contextLength) ||
+      value.contextLength < 1 ||
+      value.contextLength > 2147483647)
+  )
+    throw Error('INVALID_CONTROL');
+  return {
+    phase,
+    selection: selectionFrom(value.selection, scope),
+    code,
+    ...(hasContext ? { contextLength: value.contextLength as number } : {}),
+  };
 }
 export function selectionKey(selection: Selection): string {
   const event = decodeEvent(JSON.stringify({ type: 'start', selection }));
