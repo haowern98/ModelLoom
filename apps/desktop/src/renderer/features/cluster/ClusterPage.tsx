@@ -162,6 +162,18 @@ export function ClusterPage({
   };
   const [modal, setModal] = useState<Modal | null>(null);
   const devices = demo || localRuntime ? availableDevices : [];
+  const [placedPeers, setPlacedPeers] = useState<readonly string[]>([]);
+  const canvasDevices = devices.filter(
+    (device) =>
+      !device.id.startsWith('peer:') ||
+      placedPeers.includes(device.id) ||
+      device.hardware.some(
+        (hardware) =>
+          configurations?.raw?.runs.some(
+            (run) => run.uuid === hardware.assignmentId && (run.first.trim() || run.last.trim()),
+          ) || localRuntime?.activeCluster?.runs.some((run) => run.uuid === hardware.assignmentId),
+      ),
+  );
   const navigate = (next: ClusterView) => {
     setView(next);
     setPanelOpen(false);
@@ -370,9 +382,7 @@ export function ClusterPage({
           if (configuration) setModal({ type: 'delete', configuration });
         }}
       />
-      <div
-        className={`${styles.main} ${['devices', 'connections', 'requests'].includes(view) ? styles.detailsMain : ''}`}
-      >
+      <div className={`${styles.main} ${view !== 'overview' ? styles.detailsMain : ''}`}>
         {notification && (
           <Toast
             key={notification.id}
@@ -593,10 +603,10 @@ export function ClusterPage({
         </div>
         <div className={styles.workspace}>
           <div className={styles.overview} hidden={view !== 'overview'}>
-            {devices.length ? (
+            {canvasDevices.length ? (
               <ClusterCanvas
-                singleDevice={devices.length === 1}
-                panelId={devices.length === 1 && panelOpen ? panelId : undefined}
+                singleDevice={canvasDevices.length === 1}
+                panelId={canvasDevices.length === 1 && panelOpen ? panelId : undefined}
                 onClear={() => {
                   setSelection({ type: 'overview' });
                 }}
@@ -623,13 +633,13 @@ export function ClusterPage({
                     {link.latencyMs} ms
                   </button>
                 ))}
-                {devices.map((device) => (
+                {canvasDevices.map((device) => (
                   <div
                     key={device.id}
                     className={styles.deviceSlot}
                     style={{
                       gridColumn:
-                        devices.length === 1
+                        canvasDevices.length === 1
                           ? '1'
                           : device.role === 'Coordinator'
                             ? '1 / -1'
@@ -638,7 +648,8 @@ export function ClusterPage({
                               : device.id === 'mac'
                                 ? '2'
                                 : '3',
-                      gridRow: devices.length === 1 || device.role === 'Coordinator' ? '1' : '2',
+                      gridRow:
+                        canvasDevices.length === 1 || device.role === 'Coordinator' ? '1' : '2',
                     }}
                   >
                     <DeviceCard
@@ -656,7 +667,7 @@ export function ClusterPage({
                       onDetails={(device) => showPanel({ type: 'device', device })}
                       onRename={(device) => showPanel({ type: 'device', device, renaming: true })}
                       selected={selection.type === 'device' && selection.device.id === device.id}
-                      alwaysShowAdd={devices.length === 1}
+                      alwaysShowAdd={canvasDevices.length === 1}
                       onAdd={() => showPanel({ type: 'add' })}
                       onEdit={(hardwareId) => showPanel({ type: 'device', device, hardwareId })}
                     />
@@ -693,6 +704,18 @@ export function ClusterPage({
               onJoining={onJoining}
               selection={currentSelection}
               devices={devices}
+              canvasCandidates={devices.filter(
+                (device) =>
+                  device.id.startsWith('peer:') &&
+                  !canvasDevices.some((placed) => placed.id === device.id),
+              )}
+              onAddDevice={() => navigate('add')}
+              onAddToCanvas={(device) => {
+                setPlacedPeers((current) =>
+                  current.includes(device.id) ? current : [...current, device.id],
+                );
+                closePanel();
+              }}
               activeModel={activeModel}
               selectedModel={selectedModel}
               loading={loading}

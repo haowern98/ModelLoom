@@ -185,33 +185,7 @@
   composes: checkbox from '../../components/Checkbox.module.css';
 }
 .toggle {
-  --control-width-switch: 32px;
-  --control-height-switch: 20px;
-  --control-size-switch-thumb: 16px;
-  appearance: none;
-  display: block;
-  width: var(--control-width-switch);
-  height: var(--control-height-switch);
-  margin: 0 0 0 auto;
-  padding: 2px;
-  border: 0;
-  border-radius: 999px;
-  background: #626262;
-  cursor: pointer;
-}
-.toggle::before {
-  content: '';
-  display: block;
-  width: var(--control-size-switch-thumb);
-  height: var(--control-size-switch-thumb);
-  border-radius: 50%;
-  background: #ffffff;
-}
-.toggle:checked {
-  background: #487fff;
-}
-.toggle:checked::before {
-  transform: translateX(calc(var(--control-width-switch) - var(--control-size-switch-thumb) - 4px));
+  composes: switch from '../../components/Switch.module.css';
 }
 .textRow {
   padding: 16px 0;

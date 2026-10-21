@@ -1,14 +1,13 @@
+import { useId } from 'react';
 import { Network } from '@phosphor-icons/react/dist/csr/Network';
-import { Button } from '../../components/Button';
 import type { DemoDevice, demoLinks } from '../../mocks/cluster';
 import { ClusterJoiningPanel, PendingRequests } from './ClusterJoiningPanel';
 import type { JoiningProps } from './ClusterJoiningPanel';
 import styles from './ClusterViews.module.css';
 import settings from '../settings/SettingsPage.module.css';
 import { DeviceInventory } from './DeviceInventory';
-import { LivePeerConnections } from './LivePeers';
 
-export type ClusterView = 'devices' | 'connections' | 'requests' | 'add' | 'join' | 'share';
+export type ClusterView = 'devices' | 'connections' | 'add' | 'join' | 'share';
 type Link = (typeof demoLinks)[number];
 
 interface ClusterViewsProps extends JoiningProps {
@@ -20,100 +19,102 @@ interface ClusterViewsProps extends JoiningProps {
   onConnectionAction: (action: 'add' | 'join' | 'share') => void;
 }
 
-const titles: Record<ClusterView, string> = {
-  devices: 'Devices',
-  connections: 'Connections',
-  requests: 'Requests',
-  add: 'Add device',
-  join: 'Join cluster',
-  share: 'Share this PC',
-};
+const tabs = [
+  { kind: 'join', label: 'Join cluster' },
+  { kind: 'share', label: 'Share this PC' },
+  { kind: 'add', label: 'Add device' },
+] as const;
 
-/** Presents supplied local data or explicitly labelled samples without performing networking. */
+/** Keeps connection direction, sharing and requests inside the same Settings-style workspace. */
 export function ClusterViews(props: ClusterViewsProps) {
   const { view, devices, links, demo, local, onLink, onConnectionAction } = props;
-  const settingsLayout = view === 'devices' || view === 'connections' || view === 'requests';
+  const id = useId();
+  const kind = view === 'add' || view === 'join' ? view : 'share';
+  const title = view === 'devices' ? 'Devices' : 'Connections';
   return (
-    <section
-      className={settingsLayout ? `${settings.details} ${styles.settingsPage}` : styles.page}
-      aria-label={titles[view]}
-    >
-      <div className={settingsLayout ? settings.column : undefined}>
-        <header
-          className={
-            settingsLayout
-              ? `${settings.header} ${styles.settingsHeader} ${view === 'connections' ? styles.connectionsHeader : ''}`
-              : styles.header
-          }
-        >
-          <div>
-            <h1>{titles[view]}</h1>
-            {view === 'connections' && (
-              <p className={styles.subtitle}>
-                {demo
-                  ? 'Sample connections · these values are not measurements.'
-                  : 'Approved PCs and shared hardware.'}
-              </p>
-            )}
-          </div>
-          {view === 'connections' && (
-            <div className={styles.actions}>
-              <Button onClick={() => onConnectionAction('join')}>Join cluster</Button>
-              <Button onClick={() => onConnectionAction('share')}>Share this PC</Button>
-              <Button onClick={() => onConnectionAction('add')}>Add device</Button>
-            </div>
-          )}
+    <section className={`${settings.details} ${styles.settingsPage}`} aria-label={title}>
+      <div className={settings.column}>
+        <header className={settings.header}>
+          <h1>{title}</h1>
         </header>
-        {view === 'devices' && <DeviceInventory devices={devices} demo={demo} local={local} />}
-        {view === 'connections' && !demo && <LivePeerConnections />}
-        {view === 'connections' && demo && (
+        {view === 'devices' ? (
+          <DeviceInventory devices={devices} demo={demo} local={local} />
+        ) : (
           <>
-            {demo && links.length > 0 && (
-              <div className={settings.group}>
-                {demo &&
-                  links.map((link) => {
-                    const from = devices.find((device) => device.id === link.from);
-                    const to = devices.find((device) => device.id === link.to);
-                    if (!from || !to) return null;
-                    return (
-                      <button
-                        type="button"
-                        key={`${link.from}:${link.to}`}
-                        className={`${settings.row} ${styles.connection}`}
-                        aria-label={`Inspect connection ${from.name} to ${to.name}`}
-                        onClick={() => onLink(link)}
-                      >
-                        <div className={styles.connectionIdentity}>
-                          <Network size={16} aria-hidden="true" />
-                          <span>
-                            <strong>
-                              {from.name} → {to.name}
-                            </strong>
-                            <small>Path unknown · connection not verified</small>
-                          </span>
-                        </div>
-                        <span className={styles.latency}>{link.latencyMs} ms · sample</span>
-                      </button>
-                    );
-                  })}
-              </div>
-            )}
-            {!links.length && (
-              <div className={settings.group}>
-                <div className={settings.row}>
-                  <p className={settings.description}>
-                    {demo ? 'No sample connections.' : 'No verified network connections.'}
-                  </p>
-                </div>
-              </div>
-            )}
+            <div className={styles.tabs} role="tablist" aria-label="Connection options">
+              {tabs.map((tab, index) => (
+                <button
+                  key={tab.kind}
+                  id={`${id}-${tab.kind}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={kind === tab.kind}
+                  aria-controls={`${id}-content`}
+                  tabIndex={kind === tab.kind ? 0 : -1}
+                  onClick={() => onConnectionAction(tab.kind)}
+                  onKeyDown={(event) => {
+                    const next =
+                      event.key === 'ArrowRight'
+                        ? (index + 1) % tabs.length
+                        : event.key === 'ArrowLeft'
+                          ? (index + tabs.length - 1) % tabs.length
+                          : event.key === 'Home'
+                            ? 0
+                            : event.key === 'End'
+                              ? tabs.length - 1
+                              : null;
+                    if (next === null) return;
+                    event.preventDefault();
+                    onConnectionAction(tabs[next]!.kind);
+                    document.getElementById(`${id}-${tabs[next]!.kind}`)?.focus();
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <div
+              id={`${id}-content`}
+              role="tabpanel"
+              aria-labelledby={`${id}-${kind}`}
+              className={styles.joining}
+            >
+              <ClusterJoiningPanel {...props} kind={kind} expanded key={kind} />
+              {kind === 'share' && <PendingRequests {...props} settingsLayout />}
+              {kind === 'add' && demo && links.length > 0 && (
+                <section className={settings.section} aria-label="Sample connections">
+                  <h2>Sample connections</h2>
+                  <div className={settings.group}>
+                    {links.map((link) => {
+                      const from = devices.find((device) => device.id === link.from);
+                      const to = devices.find((device) => device.id === link.to);
+                      if (!from || !to) return null;
+                      return (
+                        <button
+                          type="button"
+                          key={`${link.from}:${link.to}`}
+                          className={`${settings.row} ${styles.connection}`}
+                          aria-label={`Inspect connection ${from.name} to ${to.name}`}
+                          onClick={() => onLink(link)}
+                        >
+                          <div className={styles.connectionIdentity}>
+                            <Network size={16} aria-hidden="true" />
+                            <span>
+                              <strong>
+                                {from.name} → {to.name}
+                              </strong>
+                              <small>Path unknown · connection not verified</small>
+                            </span>
+                          </div>
+                          <span className={styles.latency}>{link.latencyMs} ms · sample</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+            </div>
           </>
-        )}
-        {view === 'requests' && <PendingRequests {...props} settingsLayout />}
-        {(view === 'add' || view === 'join' || view === 'share') && (
-          <div className={styles.joining} key={view}>
-            <ClusterJoiningPanel {...props} kind={view} expanded />
-          </div>
         )}
       </div>
     </section>

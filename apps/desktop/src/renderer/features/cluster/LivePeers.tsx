@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Monitor, RefreshCw } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { Toast } from '../../components/Toast';
@@ -8,6 +9,9 @@ import type { PeerCommand, PeerView } from '../../../shared/peers';
 import styles from './ClusterPage.module.css';
 import settings from '../settings/SettingsPage.module.css';
 import checkboxes from '../../components/Checkbox.module.css';
+import switches from '../../components/Switch.module.css';
+import layout from './ClusterViews.module.css';
+import { ConfigurationSelect } from '../models/ConfigurationControls';
 
 const errors: Record<string, string> = {
   NOT_READY: 'Peer connections are not ready. Wait for startup to finish.',
@@ -140,105 +144,44 @@ function VerifyPeer({
   );
 }
 
-/** Lists owner-reported approvals; an approval alone does not establish remote liveness. */
-export function LivePeerConnections() {
-  const { view, busy, run, toast } = usePeers();
-  const coordinators =
-    view?.incoming.filter(
-      (peer) => peer.phase === 'approved' && peer.localVerified && peer.remoteVerified,
-    ) ?? [];
-  const workers =
-    view?.outgoing.filter(
-      (peer) =>
-        peer.localVerified &&
-        ((peer.phase === 'approved' && peer.remoteVerified) || peer.phase === 'disconnected'),
-    ) ?? [];
-  return (
-    <>
-      {toast}
-      <div className={settings.group}>
-        {!view && (
-          <div className={settings.row}>
-            <p className={settings.description}>Loading connections…</p>
-          </div>
-        )}
-        {view && !coordinators.length && !workers.length && (
-          <div className={settings.row}>
-            <p className={settings.description}>No approved connections.</p>
-          </div>
-        )}
-        {coordinators.map((peer) => (
-          <div key={`coordinator:${peer.id}`} className={settings.row}>
-            <div>
-              <span className={settings.label}>{peer.name}</span>
-              <p className={settings.description}>Approved coordinator</p>
-            </div>
-            <Button
-              disabled={busy}
-              aria-label={`Revoke access for ${peer.name}`}
-              onClick={() => {
-                void run({ action: 'decline', id: peer.id });
-              }}
-            >
-              Revoke access
-            </Button>
-          </div>
-        ))}
-        {workers.map((peer) => (
-          <div key={`worker:${peer.id}`} className={settings.row}>
-            <div>
-              <span className={settings.label}>{peer.name}</span>
-              <p className={settings.description}>
-                {peer.phase === 'approved' ? 'Approved worker' : 'Not connected'}
-              </p>
-              {peer.gpus.map((gpu) => (
-                <p key={gpu.id} className={settings.description}>
-                  {gpu.name} · {(gpu.memoryBytes / 1073741824).toFixed(1)} GiB
-                </p>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
 export function LivePeerRequests() {
   const { view, busy, run, toast } = usePeers();
   const [verifying, setVerifying] = useState<string | null>(null);
   const selected = view?.incoming.find(
     (value) => value.id === verifying && value.phase === 'pending',
   );
+  const requests = view?.incoming.filter((peer) => peer.phase === 'pending') ?? [];
   return (
-    <section className={settings.section} aria-label="Participation requests">
+    <section className={settings.section} aria-label="Requests">
       {toast}
-      <h2>Participation requests</h2>
-      {!view && <p className={styles.panelDescription}>Loading peer requests…</p>}
-      {view && !view.incoming.length && (
-        <div className={settings.group}>
+      <h2>Requests</h2>
+      <div className={settings.group}>
+        {!view && (
           <div className={settings.row}>
-            <p className={settings.description}>No participation requests.</p>
+            <p className={settings.description}>Loading peer requests…</p>
           </div>
-        </div>
-      )}
-      {view?.incoming.map((request) => (
-        <div key={request.id} className={styles.requestRow}>
-          <div>
-            <span className={styles.joiningName}>{request.name}</span>
-            <p className={styles.panelDescription}>Invites this PC to contribute to its cluster.</p>
-            {request.localVerified && request.phase === 'pending' && (
-              <p className={styles.requestStatus}>
-                Waiting for the other PC to verify your identity.
-              </p>
-            )}
+        )}
+        {view && requests.length === 0 && (
+          <div className={settings.row}>
+            <p className={settings.description}>No pending requests.</p>
           </div>
-          {request.phase === 'pending' ? (
+        )}
+        {requests.map((request) => (
+          <div key={request.id} className={settings.row}>
+            <div>
+              <span className={settings.label}>{request.name}</span>
+              <p className={settings.description}>Invites this PC to contribute to its cluster.</p>
+              {request.localVerified && (
+                <p className={styles.requestStatus}>
+                  Waiting for the other PC to verify your identity.
+                </p>
+              )}
+            </div>
             <div className={styles.joiningActions}>
               <Button
                 disabled={busy || request.localVerified}
                 className={styles.whiteAction}
-                aria-label={`Approve ${request.name}`}
+                aria-label={'Approve ' + request.name}
                 onClick={() => setVerifying(request.id)}
               >
                 Approve
@@ -252,13 +195,9 @@ export function LivePeerRequests() {
                 Decline
               </Button>
             </div>
-          ) : (
-            <p className={styles.requestStatus}>
-              {request.phase === 'approved' ? 'Approved' : 'Declined'}
-            </p>
-          )}
-        </div>
-      ))}
+          </div>
+        ))}
+      </div>
       {view && selected && (
         <VerifyPeer
           key={`${view.fingerprint}:${selected.id}:${selected.peerFingerprint}`}
@@ -282,201 +221,305 @@ export function LivePeerRequests() {
   );
 }
 
-export function LivePeerPanel({
-  kind,
-  expanded = false,
-}: {
-  kind: 'add' | 'join' | 'share';
-  expanded?: boolean;
-}) {
+export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expanded?: boolean }) {
   const { view, busy, run, toast, fallback } = usePeers();
   const [selected, setSelected] = useState<string[]>([]);
   const [address, setAddress] = useState('');
   const [bindAddress, setBindAddress] = useState('');
-  const [mode, setMode] = useState('LAN');
-  const [manualOpen, setManualOpen] = useState(!expanded);
   const [verifying, setVerifying] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const id = useId();
   const source =
     bindAddress ||
     view?.addresses.find((value) => value.startsWith('100.')) ||
     view?.addresses[0] ||
     '';
   const verifyingPeer = view?.outgoing.find((value) => value.id === verifying);
+  const coordinators =
+    view?.incoming.filter(
+      (peer) => peer.phase === 'approved' && peer.localVerified && peer.remoteVerified,
+    ) ?? [];
   if (kind === 'share')
     return (
       <>
         {toast}
-        <p className={styles.panelDescription}>Choose which GPUs another approved PC may use.</p>
-        <section className={styles.panelSection}>
-          <div className={styles.sharingRow}>
-            <label htmlFor="peer-sharing" className={styles.joiningName}>
-              Allow participation requests
-            </label>
-            <button
-              ref={fallback}
-              id="peer-sharing"
-              role="switch"
-              type="button"
-              aria-checked={view?.sharing ?? false}
-              disabled={!view || busy || (!view.sharing && (!selected.length || !source))}
-              className={styles.sharingSwitch}
-              onClick={() => {
-                void run(
-                  view?.sharing
-                    ? { action: 'stop-sharing' }
-                    : { action: 'share', address: source, gpuIds: selected },
-                );
-              }}
-            >
-              <span />
-            </button>
-          </div>
-          <p className={styles.panelDescription}>
-            Sharing allows requests. You approve each PC before it gets access.
-          </p>
-        </section>
-        <section className={styles.panelSection}>
-          <h3>Hardware to share</h3>
-          {!view && <p className={styles.panelDescription}>Loading GPUs…</p>}
-          {view?.gpus.map((gpu) => (
-            <label key={gpu.id} className={styles.requestRow}>
-              <input
-                type="checkbox"
-                className={checkboxes.checkbox}
-                disabled={busy || view.sharing}
-                checked={
-                  view.sharing ? view.sharedGpuIds.includes(gpu.id) : selected.includes(gpu.id)
-                }
-                onChange={(event) =>
-                  setSelected((values) =>
-                    event.target.checked
-                      ? [...values, gpu.id]
-                      : values.filter((id) => id !== gpu.id),
-                  )
-                }
-              />
-              {gpu.name} · {(gpu.memoryBytes / 1073741824).toFixed(1)} GiB
-            </label>
-          ))}
-        </section>
-        <section className={styles.panelSection}>
-          <h3>Connection address</h3>
-          <div className={styles.networkModes}>
-            {view?.addresses.map((value) => (
-              <Button
-                key={value}
-                disabled={busy || view.sharing}
-                aria-pressed={source === value}
-                onClick={() => setBindAddress(value)}
+        <section className={settings.section}>
+          <div className={layout.sectionHeader}>
+            <h2>PCs that can use this PC</h2>
+            <div className={layout.actions}>
+              <button
+                type="button"
+                ref={fallback}
+                aria-label="Refresh connections"
+                className={layout.refresh}
+                disabled={busy}
+                onClick={() => {
+                  void run({ action: 'read' });
+                }}
               >
-                {value}
+                <RefreshCw size={16} aria-hidden="true" />
+              </button>
+              <Button
+                className={styles.whiteAction}
+                disabled={!view}
+                onClick={() => setShowAdd(true)}
+              >
+                Add
               </Button>
+            </div>
+          </div>
+          <div className={settings.group}>
+            <div className={settings.row}>
+              <div>
+                <label htmlFor={id} className={settings.label}>
+                  Allow connections
+                </label>
+                <p id={id + '-hint'} className={settings.description}>
+                  Sharing allows requests. You approve each PC before it gets access.
+                </p>
+              </div>
+              <input
+                id={id}
+                type="checkbox"
+                role="switch"
+                aria-describedby={id + '-hint'}
+                checked={view?.sharing ?? false}
+                disabled={!view || busy || (!view.sharing && (!selected.length || !source))}
+                className={switches.switch}
+                onChange={() => {
+                  void run(
+                    view?.sharing
+                      ? { action: 'stop-sharing' }
+                      : { action: 'share', address: source, gpuIds: selected },
+                  );
+                }}
+              />
+            </div>
+            {coordinators.map((peer) => (
+              <div key={peer.id} className={settings.row}>
+                <div className={layout.connectionIdentity}>
+                  <Monitor size={20} aria-hidden="true" />
+                  <div>
+                    <span className={settings.label}>{peer.name}</span>
+                    <p className={settings.description}>Approved coordinator</p>
+                  </div>
+                </div>
+                <Button
+                  disabled={busy}
+                  aria-label={'Revoke access for ' + peer.name}
+                  onClick={() => {
+                    void run({ action: 'decline', id: peer.id });
+                  }}
+                >
+                  Revoke access
+                </Button>
+              </div>
+            ))}
+            {view && !coordinators.length && (
+              <div className={settings.row}>
+                <p className={settings.description}>No approved PCs.</p>
+              </div>
+            )}
+          </div>
+        </section>
+        <section className={settings.section}>
+          <h2>Shared hardware</h2>
+          <div className={settings.group}>
+            {!view && (
+              <div className={settings.row}>
+                <p className={settings.description}>Loading GPUs…</p>
+              </div>
+            )}
+            {view && !view.gpus.length && (
+              <div className={settings.row}>
+                <p className={settings.description}>No GPUs available to share.</p>
+              </div>
+            )}
+            {view?.gpus.map((gpu) => (
+              <label key={gpu.id} className={settings.row}>
+                <div>
+                  <span className={settings.label}>{gpu.name}</span>
+                  <p className={settings.description}>
+                    {(gpu.memoryBytes / 1073741824).toFixed(1)} GiB dedicated memory
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  className={checkboxes.checkbox}
+                  disabled={busy || view.sharing}
+                  checked={
+                    view.sharing ? view.sharedGpuIds.includes(gpu.id) : selected.includes(gpu.id)
+                  }
+                  onChange={(event) =>
+                    setSelected((values) =>
+                      event.target.checked
+                        ? [...values, gpu.id]
+                        : values.filter((value) => value !== gpu.id),
+                    )
+                  }
+                />
+              </label>
             ))}
           </div>
-          <p className={styles.panelDescription}>
-            {view?.sharing
-              ? `On the other PC, choose Add device and enter ${source}.`
-              : 'Select a GPU and an address, then turn on sharing.'}
-          </p>
-          {view && (
-            <p className={styles.panelDescription} style={{ overflowWrap: 'anywhere' }}>
-              App identity: {view.fingerprint}
-            </p>
-          )}
         </section>
+        <section className={settings.section}>
+          <h2>Connection address</h2>
+          <div className={settings.group}>
+            <div className={settings.row}>
+              <span className={settings.label}>This PC's address</span>
+              <ConfigurationSelect
+                id={id + '-address'}
+                label="This PC's address"
+                value={source}
+                options={
+                  view?.addresses.length
+                    ? view.addresses.map((address) => ({ value: address, label: address }))
+                    : [{ value: '', label: 'No private address available' }]
+                }
+                disabled={busy || !view || view.sharing || !view.addresses.length}
+                onChange={setBindAddress}
+              />
+            </div>
+          </div>
+        </section>
+        {showAdd && (
+          <Dialog
+            title="Connect another PC"
+            onClose={() => setShowAdd(false)}
+            initialFocus="cancel"
+          >
+            <p>
+              {view?.sharing
+                ? 'On the other PC, open Connections → Add device and enter this address.'
+                : 'Select the GPUs and turn on Allow connections before inviting another PC.'}
+            </p>
+            <p className={layout.identityDetails}>{source}</p>
+            <p>
+              Approve its invitation in Requests below. Compare both app identities before
+              approving.
+            </p>
+            <div className={styles.joiningActions}>
+              <Button data-dialog-cancel onClick={() => setShowAdd(false)}>
+                Done
+              </Button>
+            </div>
+          </Dialog>
+        )}
       </>
     );
   return (
     <>
       {toast}
-      <p className={styles.panelDescription}>
-        {kind === 'add'
-          ? 'Invite another PC to contribute to your cluster.'
-          : 'Ask a coordinator to use this PC in its cluster.'}
-      </p>
-      <div className={styles.networkModes} role="group" aria-label="Connection mode">
-        {['LAN', 'Tailscale', 'Headscale'].map((value) => (
-          <Button key={value} aria-pressed={mode === value} onClick={() => setMode(value)}>
-            {value}
-          </Button>
-        ))}
-        {expanded && (
-          <Button
-            className={styles.whiteAction}
-            aria-expanded={manualOpen}
-            onClick={() => setManualOpen(!manualOpen)}
-          >
-            Connect manually
-          </Button>
-        )}
-      </div>
-      <section className={styles.panelSection}>
-        <h3>{kind === 'add' ? 'Available devices' : 'Available clusters'}</h3>
-        <p className={styles.panelDescription}>
-          {kind === 'add' ? 'No available devices' : 'No available clusters'}
-        </p>
+      <section className={settings.section}>
+        <div className={layout.sectionHeader}>
+          <h2>{kind === 'add' ? 'PCs available to add' : 'Available clusters'}</h2>
+          <div className={layout.actions}>
+            <button
+              type="button"
+              ref={fallback}
+              aria-label="Refresh connections"
+              className={layout.refresh}
+              disabled={busy}
+              onClick={() => {
+                void run({ action: 'read' });
+              }}
+            >
+              <RefreshCw size={16} aria-hidden="true" />
+            </button>
+            <Button
+              className={styles.whiteAction}
+              disabled={kind === 'join'}
+              onClick={() => input.current?.focus()}
+            >
+              Add
+            </Button>
+          </div>
+        </div>
+        <div className={settings.group}>
+          <div className={settings.row}>
+            <p className={settings.description}>
+              {kind === 'add' ? 'No available devices' : 'No available clusters'}
+            </p>
+          </div>
+        </div>
       </section>
-      {manualOpen && (
-        <section className={styles.panelSection}>
-          <h3>Private address</h3>
-          <form
-            className={styles.addressForm}
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (kind === 'add' && address.trim())
-                void run({ action: 'invite', address: address.trim() });
-            }}
-          >
+      <section className={settings.section}>
+        <h2>Connect manually</h2>
+        <form
+          className={settings.group}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (kind === 'add' && address.trim() && !busy)
+              void run({ action: 'invite', address: address.trim() });
+          }}
+        >
+          <div className={layout.fieldRow}>
+            <label htmlFor={id + '-remote'} className={settings.label}>
+              {kind === 'add' ? 'Private address' : 'Coordinator address'}
+            </label>
             <input
+              ref={input}
+              id={id + '-remote'}
               aria-label="Private address"
+              aria-describedby={id + '-instructions'}
               value={address}
               maxLength={255}
-              placeholder="Enter a private address…"
+              placeholder="Enter a private IP address"
               disabled={busy || kind === 'join' || !window.modelLoomPeers}
               onChange={(event) => setAddress(event.target.value)}
             />
+          </div>
+          <div className={layout.formActions}>
             <Button
               type="submit"
               className={styles.whiteAction}
               disabled={busy || !address.trim() || kind === 'join'}
             >
-              Invite
+              {kind === 'add' ? 'Invite' : 'Request to join'}
             </Button>
-          </form>
-          <p className={styles.panelDescription}>
-            {kind === 'add'
-              ? 'The other PC must enable sharing and approve your invitation in Requests.'
-              : 'Use Add device on the coordinator to invite this PC. Join requests are not enabled yet.'}
-          </p>
-        </section>
-      )}
-      {view?.outgoing.map((peer) => (
-        <div key={peer.id} className={styles.requestRow}>
-          <div>
-            <span className={styles.joiningName}>{peer.name}</span>
-            <p className={styles.requestStatus}>
-              {peer.phase === 'approved'
-                ? 'Approved'
-                : peer.phase === 'disconnected'
-                  ? 'Not connected'
-                  : 'Waiting for approval'}
-            </p>
-            {peer.gpus.map((gpu) => (
-              <p key={gpu.id} className={styles.panelDescription}>
-                {gpu.name} · {(gpu.memoryBytes / 1073741824).toFixed(1)} GiB
-              </p>
+          </div>
+        </form>
+        <p id={id + '-instructions'} className={layout.note}>
+          {kind === 'add'
+            ? 'The other PC must enable sharing and approve your invitation in Connections → Share this PC → Requests.'
+            : 'Use Add device on the coordinator to invite this PC. Join requests are not enabled yet.'}
+        </p>
+      </section>
+      {kind === 'add' && view && view.outgoing.length > 0 && (
+        <section className={settings.section}>
+          <h2>Invitations and shared PCs</h2>
+          <div className={settings.group}>
+            {view.outgoing.map((peer) => (
+              <div key={peer.id} className={settings.row}>
+                <div>
+                  <span className={settings.label}>{peer.name}</span>
+                  <p className={settings.description}>
+                    {peer.phase === 'approved'
+                      ? 'Approved worker'
+                      : peer.phase === 'disconnected'
+                        ? 'Not connected'
+                        : 'Waiting for approval'}
+                  </p>
+                  {peer.gpus.map((gpu) => (
+                    <p key={gpu.id} className={settings.description}>
+                      {gpu.name} · {(gpu.memoryBytes / 1073741824).toFixed(1)} GiB
+                    </p>
+                  ))}
+                </div>
+                {!peer.localVerified && (
+                  <Button disabled={busy} onClick={() => setVerifying(peer.id)}>
+                    Verify identity
+                  </Button>
+                )}
+              </div>
             ))}
           </div>
-          {!peer.localVerified && (
-            <Button disabled={busy} onClick={() => setVerifying(peer.id)}>
-              Verify identity
-            </Button>
-          )}
-        </div>
-      ))}
+        </section>
+      )}
       {view && verifyingPeer && (
         <VerifyPeer
-          key={`${view.fingerprint}:${verifyingPeer.id}:${verifyingPeer.peerFingerprint}`}
+          key={view.fingerprint + ':' + verifyingPeer.id + ':' + verifyingPeer.peerFingerprint}
           local={view.fingerprint}
           remote={verifyingPeer.peerFingerprint}
           action="confirm"

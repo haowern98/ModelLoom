@@ -12,6 +12,7 @@ import { LayerNumberInput } from './LayerNumberInput';
 import { ClusterJoiningPanel } from './ClusterJoiningPanel';
 import type { JoiningProps } from './ClusterJoiningPanel';
 import { connectionLabels } from '../../mocks/clusterJoining';
+import { CanvasDevicePicker } from './CanvasDevicePicker';
 
 export type ClusterSelection =
   | { type: 'overview' | 'add' | 'join' | 'share' }
@@ -36,6 +37,9 @@ interface ClusterPanelProps extends JoiningProps {
   onClose: () => void;
   onOverview: () => void;
   onSelect: (device: DemoDevice) => void;
+  canvasCandidates?: readonly DemoDevice[];
+  onAddToCanvas?: (device: DemoDevice) => void;
+  onAddDevice?: () => void;
   onEdit: (input: LayerInput) => void;
   onStartRename: () => void;
   onCancelRename: () => void;
@@ -136,6 +140,9 @@ export function ClusterPanel({
   onClose,
   onOverview,
   onSelect,
+  canvasCandidates = [],
+  onAddToCanvas,
+  onAddDevice,
   onEdit,
   onStartRename,
   onCancelRename,
@@ -154,7 +161,9 @@ export function ClusterPanel({
         ? 'Connection'
         : selection.type === 'overview'
           ? 'Cluster overview'
-          : connectionLabels[selection.type];
+          : selection.type === 'add'
+            ? 'Add to canvas'
+            : connectionLabels[selection.type];
   const hardware = devices.flatMap((device) => device.hardware);
   const gpus = hardware.filter((item) => item.kind === 'gpu');
   const unified = hardware.filter((item) => item.kind === 'unified');
@@ -220,7 +229,9 @@ export function ClusterPanel({
                 </div>
               )
             ) : (
-              <h2>{title}</h2>
+              <div className={selection.type === 'add' ? styles.panelIdentity : undefined}>
+                <h2>{title}</h2>
+              </div>
             )}
             {selection.type === 'device' && (
               <p className={styles.deviceSubtitle}>
@@ -231,6 +242,9 @@ export function ClusterPanel({
                   : 'Sample device'}{' '}
                 · {selection.device.role}
               </p>
+            )}
+            {selection.type === 'add' && (
+              <p className={styles.deviceSubtitle}>Choose a PC to add to this canvas.</p>
             )}
           </div>
         </header>
@@ -405,7 +419,14 @@ export function ClusterPanel({
             </p>
           </>
         )}
-        {(selection.type === 'add' || selection.type === 'join' || selection.type === 'share') && (
+        {selection.type === 'add' && (
+          <CanvasDevicePicker
+            devices={canvasCandidates}
+            onChoose={(device) => onAddToCanvas?.(device)}
+            onAdd={() => onAddDevice?.()}
+          />
+        )}
+        {(selection.type === 'join' || selection.type === 'share') && (
           <ClusterJoiningPanel
             key={selection.type}
             kind={selection.type}

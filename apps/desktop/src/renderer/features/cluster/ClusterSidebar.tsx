@@ -3,8 +3,7 @@ import { SidebarItemRow } from '../../components/SidebarItemRow';
 import type { DemoDevice } from '../../mocks/cluster';
 import styles from './ClusterSidebar.module.css';
 
-export type ClusterView =
-  'overview' | 'devices' | 'connections' | 'requests' | 'add' | 'join' | 'share';
+export type ClusterView = 'overview' | 'devices' | 'connections' | 'add' | 'join' | 'share';
 
 interface ClusterSidebarProps {
   view: ClusterView;
@@ -25,7 +24,6 @@ const destinations = [
   { view: 'overview', label: 'Overview' },
   { view: 'devices', label: 'Devices' },
   { view: 'connections', label: 'Connections' },
-  { view: 'requests', label: 'Requests' },
 ] as const;
 
 export function ClusterSidebar({
@@ -54,25 +52,22 @@ export function ClusterSidebar({
       </header>
       <div className={styles.content}>
         <nav aria-label="Cluster navigation">
-          <button
-            type="button"
-            aria-current={view === 'add' ? 'page' : undefined}
-            onClick={() => onNavigate('add')}
-          >
-            <ChatGptSidebarIcon icon="add" />
-            Add device
-          </button>
           <h2 className={styles.groupHeading}>Manage</h2>
           {destinations.map(({ view: destination, label }) => (
             <button
               key={destination}
               type="button"
-              aria-current={view === destination ? 'page' : undefined}
+              aria-current={
+                view === destination ||
+                (destination === 'connections' && ['add', 'join', 'share'].includes(view))
+                  ? 'page'
+                  : undefined
+              }
               onClick={() => onNavigate(destination)}
             >
               <ChatGptSidebarIcon icon={destination} />
               <span>{label}</span>
-              {destination === 'requests' && pendingRequests > 0 && (
+              {destination === 'connections' && pendingRequests > 0 && (
                 <span
                   className={styles.count}
                   aria-label={`${pendingRequests} pending request${pendingRequests === 1 ? '' : 's'}`}

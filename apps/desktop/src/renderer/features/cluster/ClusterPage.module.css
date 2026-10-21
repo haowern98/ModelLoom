@@ -1189,6 +1189,48 @@
   position: relative;
   min-width: 0;
 }
+.canvasDeviceChoices {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+.page .canvasDeviceChoice,
+.page .canvasDeviceAdd {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 84px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #222222;
+  color: var(--text);
+  text-align: left;
+}
+.canvasDeviceChoice > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.canvasDeviceChoice svg {
+  flex-shrink: 0;
+}
+.canvasDeviceChoice strong {
+  font-size: var(--font-size-card-title);
+  font-weight: var(--font-weight-medium);
+}
+.canvasDeviceChoice small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--font-size-description);
+}
+.page .canvasDeviceAdd {
+  justify-content: center;
+  border-style: dashed;
+  background: transparent;
+  color: var(--muted);
+}
 .page .model {
   border: 0;
   display: flex;
