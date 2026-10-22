@@ -14,6 +14,12 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     command: (input: unknown) =>
       ipcRenderer.invoke('modelloom:peers', decodePeerCommand(input)).then(decodePeerReply),
+    subscribe: (listener: () => void) => {
+      if (typeof listener !== 'function') throw Error('INVALID_CONTROL');
+      const changed = () => listener();
+      ipcRenderer.on('modelloom:peers-changed', changed);
+      return () => ipcRenderer.removeListener('modelloom:peers-changed', changed);
+    },
   }),
 );
 contextBridge.exposeInMainWorld(

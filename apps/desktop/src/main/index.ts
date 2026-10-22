@@ -193,6 +193,10 @@ async function createWindow(): Promise<void> {
     if (!quitting && !window.webContents.isDestroyed())
       window.webContents.send('modelloom:chat-changed');
   });
+  windowController.subscribePeers(() => {
+    if (!quitting && !window.webContents.isDestroyed())
+      window.webContents.send('modelloom:peers-changed');
+  });
   window.on('close', (event) => {
     if (!quitConfirmed) {
       event.preventDefault();
