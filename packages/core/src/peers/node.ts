@@ -16,6 +16,8 @@ import { decodePeerAddress, privatePeerHost as privateAddress } from './wire.js'
 import { peerDeadline } from './deadline.js';
 import { decodePeerResources } from './resources.js';
 import type { PeerResources } from './resources.js';
+import { decodePeerHardware } from './hardware.js';
+import type { PeerHardware } from './hardware.js';
 
 export interface PeerGpu {
   readonly id: string;
@@ -210,10 +212,14 @@ export class PeerNode {
   private readonly lifetime = new AbortController();
   private invitations = 0;
   private outgoingRpc = new Set<Duplex>();
+  private hardware: PeerHardware | undefined;
+  private inventoryRevision = 0;
+  private inventoryWaiters = new Set<() => void>();
+  private pendingWatches = new Set<string>();
   constructor(
     private readonly identity: WindowsPeerIdentity,
     private readonly name: string,
-    private readonly gpus: readonly PeerGpu[],
+    private gpus: readonly PeerGpu[],
     private readonly rpcBackend?: PeerRpcBackend,
     private readonly timing = { startup: 20000, stop: 25000 },
   ) {
@@ -233,10 +239,68 @@ export class PeerNode {
         () => performance.now(),
       );
   }
+  /** Only trusted parent observations enter here; remote inventory is never applied locally. */
+  async updateHardware(input: PeerHardware): Promise<void> {
+    const next = decodePeerHardware(input);
+    if (this.lifetime.signal.aborted) return;
+    if (
+      this.gpus.length !== next.gpus.length ||
+      this.gpus.some((g) => !next.gpus.some((n) => n.id === g.id))
+    )
+      ++this.revision;
+    this.hardware = next;
+    this.gpus = next.gpus.map(({ id, name, memoryBytes }) => ({ id, name, memoryBytes }));
+    if (this.reservations) {
+      this.reservations.updateDevices(this.gpus.map((g) => g.id));
+      this.reservations.setShared(
+        [...this.shared].filter((id) => this.gpus.some((g) => g.id === id)),
+      );
+    } else if (
+      this.gpus.every((g) => /^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(g.id))
+    ) {
+      this.reservations = new GpuReservations(
+        this.gpus.map((g) => g.id),
+        15000,
+        () => performance.now(),
+      );
+      this.reservations.setShared(
+        [...this.shared].filter((id) => this.gpus.some((g) => g.id === id)),
+      );
+    }
+    this.inventoryChanged();
+    if (this.activeRpc && this.reservations?.pendingRelease().includes(this.activeRpc.reservation))
+      await this.stopRpc();
+  }
+  private inventoryChanged(): void {
+    ++this.inventoryRevision;
+    for (const wake of this.inventoryWaiters) wake();
+  }
+  private async waitInventory(id: string, after: number, socket: TLSSocket): Promise<void> {
+    if (after !== this.inventoryRevision) return;
+    if (this.pendingWatches.has(id)) return invalid('WATCH_ALREADY_OPEN');
+    this.pendingWatches.add(id);
+    try {
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          clearTimeout(timer);
+          this.inventoryWaiters.delete(finish);
+          socket.off('close', finish);
+          resolve();
+        };
+        const timer = setTimeout(finish, 3000);
+        this.inventoryWaiters.add(finish);
+        socket.once('close', finish);
+      });
+    } finally {
+      this.pendingWatches.delete(id);
+    }
+  }
   /** Parent runtime owner only. Release requires its confirmed native exit. */
   reserveLocal(gpuIds: readonly string[]): GpuReservation {
     if (this.lifetime.signal.aborted || this.rpcFailed || !this.reservations)
       throw new Error('NOT_READY');
+    if (gpuIds.some((id) => !this.gpus.some((g) => g.id.toLowerCase() === id.toLowerCase())))
+      throw Error('GPU_UNAVAILABLE');
     return this.reservations.reserveLocal(gpuIds);
   }
   releaseLocal(reservation: GpuReservation): void {
@@ -263,6 +327,7 @@ export class PeerNode {
       name: this.name,
       sharing: this.active,
       sharedGpuIds: [...this.shared],
+      gpus: this.gpus,
       incoming: [...this.incoming.values()].map((value) => ({
         id: value.id,
         name: value.name,
@@ -337,6 +402,7 @@ export class PeerNode {
     this.starting = true;
     const revision = ++this.revision;
     this.shared = new Set(selected);
+    this.inventoryChanged();
     this.reservations?.setShared(selected);
     this.secure = createSecureServer(
       {
@@ -464,7 +530,11 @@ export class PeerNode {
     const fingerprint = peerFingerprint(cert.raw);
     const input = object(
       await body(request),
-      request.url === '/v1/confirm' ? ['id', 'fingerprint'] : ['id'],
+      request.url === '/v1/confirm'
+        ? ['id', 'fingerprint']
+        : request.url === '/v1/inventory-watch'
+          ? ['id', 'after']
+          : ['id'],
     );
     this.expire();
     const value = this.incoming.get(text(input.id, 36));
@@ -478,6 +548,30 @@ export class PeerNode {
       if (input.fingerprint !== this.identity.fingerprint) return invalid('FINGERPRINT_MISMATCH');
       value.remoteVerified = true;
       if (value.localVerified) value.phase = 'approved';
+    } else if (request.url === '/v1/inventory-watch') {
+      if (value.phase !== 'approved' || !value.localVerified || !value.remoteVerified)
+        return invalid('PEER_NOT_APPROVED');
+      if (!Number.isSafeInteger(input.after) || (input.after as number) < -1) return invalid();
+      await this.waitInventory(value.id, input.after as number, socket);
+      if (
+        !this.active ||
+        value.phase !== 'approved' ||
+        !value.localVerified ||
+        !value.remoteVerified
+      )
+        return invalid('PEER_NOT_APPROVED');
+      return {
+        revision: this.inventoryRevision,
+        gpus: this.gpus.filter((g) => this.shared.has(g.id)),
+        ...(this.hardware
+          ? {
+              hardware: {
+                ...this.hardware,
+                gpus: this.hardware.gpus.filter((g) => this.shared.has(g.id)),
+              },
+            }
+          : {}),
+      };
     } else if (request.url === '/v1/inventory') {
       if (value.phase !== 'approved') return invalid('PEER_NOT_APPROVED');
       return this.gpus.filter((gpu) => this.shared.has(gpu.id));
@@ -485,7 +579,9 @@ export class PeerNode {
       if (value.phase !== 'approved' || !this.rpcBackend?.resources)
         return invalid('RPC_PACKAGE_REQUIRED');
       const revision = this.revision;
-      const result = await this.rpcBackend.resources([...this.shared]);
+      const result = await this.rpcBackend.resources(
+        this.gpus.filter((g) => this.shared.has(g.id)).map((g) => g.id),
+      );
       if (!this.active || revision !== this.revision || value.phase !== 'approved')
         return invalid('SHARING_STOPPED');
       return result;
@@ -564,6 +660,7 @@ export class PeerNode {
     const value = this.incoming.get(id);
     if (!value) return invalid('UNKNOWN_PEER_REQUEST');
     value.phase = 'declined';
+    this.inventoryChanged();
     value.localVerified = value.remoteVerified = false;
     if (this.activeRpc?.id === id)
       void this.stopRpc().catch(() => {
@@ -609,6 +706,67 @@ export class PeerNode {
       };
     });
   }
+  /** Compatibility reads still require the existing mutual approval and GPU sharing checks. */
+  async basicInventory(
+    id: string,
+  ): Promise<{ revision: number; gpus: readonly PeerGpu[]; address: string }> {
+    const peer = this.outgoing.get(id);
+    if (!peer?.verified || (await this.status(id)).phase !== 'approved')
+      return invalid('PEER_NOT_APPROVED');
+    const gpus = await this.inventory(id);
+    return { revision: 0, gpus, address: peer.address };
+  }
+  /** One bounded long-poll per approved peer. Rechecking after wake prevents revocation races. */
+  async watchInventory(
+    id: string,
+    after: number,
+  ): Promise<{
+    revision: number;
+    gpus: readonly PeerGpu[];
+    hardware?: PeerHardware;
+    address: string;
+  }> {
+    const peer = this.outgoing.get(id);
+    if (!peer?.verified) return invalid('PEER_NOT_APPROVED');
+    const input = await this.call(id, 'inventory-watch', { after });
+    const value = object(input, [
+      'revision',
+      'gpus',
+      ...(input && typeof input === 'object' && Object.hasOwn(input, 'hardware')
+        ? ['hardware']
+        : []),
+    ]);
+    if (
+      !Number.isSafeInteger(value.revision) ||
+      (value.revision as number) < 0 ||
+      !Array.isArray(value.gpus) ||
+      value.gpus.length > 16
+    )
+      return invalid();
+    const gpus = value.gpus.map((input) => {
+      const gpu = object(input, ['id', 'name', 'memoryBytes']);
+      if (!Number.isSafeInteger(gpu.memoryBytes) || (gpu.memoryBytes as number) < 0)
+        return invalid();
+      return {
+        id: text(gpu.id, 160),
+        name: text(gpu.name, 160),
+        memoryBytes: gpu.memoryBytes as number,
+      };
+    });
+    const hardware = value.hardware !== undefined ? decodePeerHardware(value.hardware) : undefined;
+    if (
+      hardware?.gpus.some(
+        (g) => !gpus.some((shared) => shared.id === g.id && shared.memoryBytes === g.memoryBytes),
+      )
+    )
+      return invalid();
+    return {
+      revision: value.revision as number,
+      gpus,
+      ...(hardware ? { hardware } : {}),
+      address: peer.address,
+    };
+  }
   private async upgradeRpc(request: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
     const tls = request.socket as TLSSocket;
     const id = request.url?.match(/^\/v1\/rpc\/([a-f0-9-]{36})$/u)?.[1];
@@ -648,7 +806,10 @@ export class PeerNode {
     if (!transport) throw new Error('RPC_UNAVAILABLE');
     transport.setTimeout(this.timing.startup + 1000);
     const revision = this.revision;
-    const reservation = this.reservations.reserveRemote(peer.peerFingerprint, [...this.shared]);
+    const reservation = this.reservations.reserveRemote(
+      peer.peerFingerprint,
+      this.gpus.filter((g) => this.shared.has(g.id)).map((g) => g.id),
+    );
     let owned: OwnedPeerRpc;
     let starting = true;
     const opening = this.rpcBackend.start(reservation.gpuUuids);
@@ -750,6 +911,7 @@ export class PeerNode {
   }
   async stopSharing(): Promise<void> {
     this.active = false;
+    this.inventoryChanged();
     ++this.revision;
     if (this.rpcTimer) clearInterval(this.rpcTimer);
     this.reservations?.setShared([]);

@@ -2,6 +2,7 @@ import { hostname, networkInterfaces } from 'node:os';
 import { open, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { ownershipBinding } from '../hosts/windows-ownership.js';
 import { discoverResources } from '../hosts/resource-probe.js';
 import { openWindowsPeerIdentity } from './windows-identity.js';
@@ -9,6 +10,9 @@ import type { WindowsPeerIdentity } from './windows-identity.js';
 import { PeerNode } from './node.js';
 import { decodePeerCommand, decodePeerReply, privatePeerHost } from './wire.js';
 import type { PeerReply, PeerView } from './wire.js';
+import type { PeerRequestView } from './wire.js';
+import { decodePeerHardware } from './hardware.js';
+import type { PeerHardware } from './hardware.js';
 import { decodeClusterDevice } from '../cluster/device-id.js';
 import type { Duplex } from 'node:stream';
 import type { GpuReservation } from './reservations.js';
@@ -20,11 +24,14 @@ export class PeerOwner {
   private operations: Promise<void> = Promise.resolve();
   private queued = 0;
   private closed = false;
+  private readonly listeners = new Set<(reply: PeerReply) => void>();
+  private readonly remote = new Map<string, PeerRequestView>();
+  private readonly watches = new Map<string, Promise<void>>();
+  private readonly retryWaiters = new Set<() => void>();
   private constructor(
     private readonly node: PeerNode,
     private readonly identity: WindowsPeerIdentity,
     private readonly caller: string,
-    private readonly gpus: PeerView['gpus'],
     private readonly addresses: readonly string[],
   ) {}
   static async open(
@@ -84,8 +91,7 @@ export class PeerOwner {
         }
       }
       const resources = await discoverResources();
-      if (!resources.gpus) throw new Error('GPU_INVENTORY_UNAVAILABLE');
-      const gpus = resources.gpus
+      const gpus = (resources.gpus ?? [])
         .filter((gpu) => gpu.total !== null)
         .map((gpu) => ({
           id: gpu.uuid,
@@ -105,11 +111,103 @@ export class PeerOwner {
         ),
       ];
       const node = new PeerNode(identity, hostname().slice(0, 80), gpus, backend);
-      return new PeerOwner(node, identity, caller, gpus, addresses);
+      return new PeerOwner(node, identity, caller, addresses);
     } catch (error) {
       identity.close();
       throw error;
     }
+  }
+  subscribe(listener: (reply: PeerReply) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  async updateHardware(input: PeerHardware): Promise<void> {
+    if (this.closed) return;
+    await this.node.updateHardware(decodePeerHardware(input));
+    this.emit();
+  }
+  private emit(): void {
+    if (this.closed) return;
+    const reply = decodePeerReply({ ok: true, view: this.cachedView() });
+    for (const listener of this.listeners) listener(reply);
+  }
+  private watch(id: string): void {
+    if (this.closed || this.watches.has(id)) return;
+    const work = (async () => {
+      let revision = -1;
+      let basicReporter = false;
+      while (!this.closed) {
+        try {
+          let next: Awaited<ReturnType<PeerNode['watchInventory']>>;
+          try {
+            next = basicReporter
+              ? await this.node.basicInventory(id)
+              : await this.node.watchInventory(id, revision);
+          } catch (error) {
+            // An older authenticated reporter can reject this extension while remaining approved.
+            if (
+              basicReporter ||
+              !(error instanceof Error) ||
+              !['INVALID_PEER_MESSAGE', 'UNKNOWN_PEER_OPERATION'].includes(error.message)
+            )
+              throw error;
+            next = await this.node.basicInventory(id);
+            basicReporter = true;
+          }
+          if (this.closed) return;
+          const peer = this.node.snapshot().outgoing.find((peer) => peer.id === id);
+          if (!peer?.verified) return;
+          const previous = this.remote.get(id);
+          const view: PeerRequestView = {
+            id: peer.id,
+            name: peer.name,
+            peerFingerprint: peer.peerFingerprint,
+            phase: 'approved',
+            localVerified: true,
+            remoteVerified: true,
+            gpus: next.gpus,
+            address: next.address,
+            ...(next.hardware ? { hardware: next.hardware } : {}),
+          };
+          this.remote.set(id, view);
+          if (revision !== next.revision || !isDeepStrictEqual(previous, view)) this.emit();
+          revision = next.revision;
+          if (basicReporter) await this.retryDelay(1500);
+        } catch {
+          if (this.closed) return;
+          const peer = this.node.snapshot().outgoing.find((peer) => peer.id === id);
+          if (!peer) return;
+          const previous = this.remote.get(id);
+          this.remote.set(id, {
+            id: peer.id,
+            name: peer.name,
+            peerFingerprint: peer.peerFingerprint,
+            phase: 'disconnected',
+            localVerified: peer.verified,
+            remoteVerified: false,
+            gpus: [],
+          });
+          if (previous?.phase !== 'disconnected') this.emit();
+          revision = -1;
+          basicReporter = false;
+          await this.retryDelay(3000);
+        }
+      }
+    })();
+    this.watches.set(id, work);
+    void work.finally(() => this.watches.delete(id));
+  }
+  private retryDelay(milliseconds: number): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        this.retryWaiters.delete(done);
+        resolve();
+      };
+      const timer = setTimeout(done, milliseconds);
+      this.retryWaiters.add(done);
+    });
   }
   command(caller: string, input: unknown): Promise<PeerReply> {
     const command = decodePeerCommand(input);
@@ -146,7 +244,9 @@ export class PeerOwner {
             this.node.decline(command.id);
             break;
         }
-        return decodePeerReply({ ok: true, view: await this.view() });
+        const view = await this.view();
+        if (command.action !== 'read') this.emit();
+        return decodePeerReply({ ok: true, view });
       } catch (error: unknown) {
         const code =
           error instanceof Error && /^[A-Z_]{1,64}$/u.test(error.message)
@@ -169,16 +269,20 @@ export class PeerOwner {
     const snapshot = this.node.snapshot();
     const outgoing = await Promise.all(
       snapshot.outgoing.map(async (value) => {
+        const cached = this.remote.get(value.id);
+        if (cached) return cached;
         try {
           const status = await this.node.status(value.id);
           const approved = value.verified && status.phase === 'approved';
-          return {
+          const result = {
             ...value,
             phase: status.phase,
             localVerified: value.verified,
             remoteVerified: approved,
             gpus: approved ? await this.node.inventory(value.id) : [],
           };
+          if (approved) this.watch(value.id);
+          return result;
         } catch {
           return {
             ...value,
@@ -190,15 +294,36 @@ export class PeerOwner {
         }
       }),
     );
+    for (const peer of outgoing)
+      if (peer.phase === 'approved' && peer.localVerified && peer.remoteVerified)
+        this.remote.set(peer.id, peer);
+    return this.cachedView(outgoing);
+  }
+  private cachedView(outgoing?: readonly PeerRequestView[]): PeerView {
+    const snapshot = this.node.snapshot();
+    const current =
+      outgoing ??
+      snapshot.outgoing.map(
+        (peer) =>
+          this.remote.get(peer.id) ?? {
+            id: peer.id,
+            name: peer.name,
+            peerFingerprint: peer.peerFingerprint,
+            phase: 'pending' as const,
+            localVerified: peer.verified,
+            remoteVerified: false,
+            gpus: [],
+          },
+      );
     return {
       fingerprint: snapshot.fingerprint,
       name: snapshot.name,
       sharing: snapshot.sharing,
       addresses: this.addresses,
-      gpus: this.gpus,
+      gpus: snapshot.gpus,
       sharedGpuIds: snapshot.sharedGpuIds,
       incoming: snapshot.incoming.map((value) => ({ ...value, gpus: [] })),
-      outgoing: outgoing.map((value) => ({
+      outgoing: current.map((value) => ({
         id: value.id,
         name: value.name,
         peerFingerprint: value.peerFingerprint,
@@ -206,6 +331,8 @@ export class PeerOwner {
         localVerified: value.localVerified,
         remoteVerified: value.remoteVerified,
         gpus: value.gpus,
+        ...(value.hardware ? { hardware: value.hardware } : {}),
+        ...(value.address ? { address: value.address } : {}),
       })),
     };
   }
@@ -231,6 +358,8 @@ export class PeerOwner {
         peer.peerFingerprint === device.peer,
     );
     if (peers.length !== 1) throw Error('PEER_NOT_APPROVED');
+    if (!peers[0]!.gpus.some((gpu) => gpu.id.toLowerCase() === device.uuid.toLowerCase()))
+      throw Error('GPU_NOT_SHARED');
     const resources = await this.node.resources(peers[0]!.id);
     if (!resources.gpus.some((gpu) => gpu.uuid.toLowerCase() === device.uuid.toLowerCase()))
       throw Error('GPU_NOT_SHARED');
@@ -258,8 +387,11 @@ export class PeerOwner {
   }
   async close(): Promise<void> {
     this.closed = true;
+    this.listeners.clear();
+    for (const wake of this.retryWaiters) wake();
     try {
       await this.node.close();
+      await Promise.all(this.watches.values());
       await this.operations;
     } finally {
       this.identity.close();
