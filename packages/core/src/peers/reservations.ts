@@ -55,6 +55,24 @@ export class GpuReservations {
       this.remote.state = 'releasing';
   }
 
+  /** Hardware removal requests cleanup but retains the exact owned release handle. */
+  updateDevices(devices: readonly string[]): void {
+    const next = new Map<string, string>();
+    for (const uuid of devices) {
+      if (typeof uuid !== 'string' || !gpuPattern.test(uuid) || next.has(uuid.toLowerCase()))
+        invalid();
+      next.set(uuid.toLowerCase(), uuid);
+    }
+    this.tick();
+    this.devices.clear();
+    for (const [key, value] of next) this.devices.set(key, value);
+    this.shared = this.shared.filter((uuid) => next.has(uuid.toLowerCase()));
+    for (const entry of [this.local, this.remote]) {
+      if (entry?.reservation.gpuUuids.some((uuid) => !next.has(uuid.toLowerCase())))
+        entry.state = 'releasing';
+    }
+  }
+
   reserveLocal(gpuUuids: readonly string[]): GpuReservation {
     const selected = this.select(gpuUuids);
     this.tick();

@@ -21,6 +21,8 @@ import type { UtilityFork } from './desktop.js';
 import { createDesktopPeerHost } from '../peers/desktop.js';
 import type { DesktopPeerHost } from '../peers/desktop.js';
 import type { PeerReply } from '../peers/wire.js';
+import { decodePeerHardware } from '../peers/hardware.js';
+import type { PeerHardware } from '../peers/hardware.js';
 import { decodeClusterDevice, qualifyPeerGpu } from '../cluster/device-id.js';
 import type { ResourceSnapshot } from '../runtime/gpu-resources.js';
 import type { ModelSource } from '../model-configuration/model-source.js';
@@ -56,6 +58,8 @@ export function developmentDesktopDependencies(
   let preflightGeneration = 0;
   let installation: Promise<InstalledPackage> | undefined;
   let peerHost: Promise<DesktopPeerHost> | undefined;
+  let peerHardware: PeerHardware | undefined;
+  const peerListeners = new Set<(reply: PeerReply) => void>();
   let peersClosed = false;
   const getPeerHost = () => {
     if (!applicationData || !caller || peersClosed) throw new Error('NOT_READY');
@@ -63,10 +67,18 @@ export function developmentDesktopDependencies(
     peerHost ??= createDesktopPeerHost(fork, applicationData, caller, {
       bootstrap: path.join(base, 'peers'),
       state: path.join(stateBase, 'peers'),
-    }).catch((error) => {
-      peerHost = undefined;
-      throw error;
-    });
+    })
+      .then(async (host) => {
+        host.subscribe((reply) => {
+          for (const listener of peerListeners) listener(reply);
+        });
+        if (peerHardware) await host.updateHardware(peerHardware);
+        return host;
+      })
+      .catch((error) => {
+        peerHost = undefined;
+        throw error;
+      });
     return peerHost;
   };
   async function clusterResources(
@@ -348,6 +360,14 @@ export function developmentDesktopDependencies(
     }
   }
   const dependencies = {
+    subscribePeers(listener: (reply: PeerReply) => void) {
+      peerListeners.add(listener);
+      return () => peerListeners.delete(listener);
+    },
+    async updatePeerHardware(hardware: PeerHardware): Promise<void> {
+      peerHardware = decodePeerHardware(hardware);
+      if (peerHost && !peersClosed) await (await peerHost).updateHardware(peerHardware);
+    },
     async peers(input: unknown): Promise<PeerReply> {
       if (!applicationData || !caller || peersClosed) return { ok: false, error: 'NOT_READY' };
       return (await getPeerHost()).command(caller, input);
@@ -361,6 +381,7 @@ export function developmentDesktopDependencies(
     },
     async closePeers(): Promise<void> {
       peersClosed = true;
+      peerListeners.clear();
       if (peerHost) await (await peerHost).close();
     },
     /** Installed and verifier-accepted inventory only; hardware brands do not imply backend support. */
