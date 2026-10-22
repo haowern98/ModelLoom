@@ -2,30 +2,61 @@ import { useEffect, useState } from 'react';
 import { decodePeerReply } from '../../../shared/peers';
 import type { PeerView } from '../../../shared/peers';
 
-/** Read-only canvas inventory. Failed reads remove live authority, while saved
- * assignments remain in the separate configuration owner. */
+/** Read-only canvas inventory. Invalidations retain accepted facts while discarding
+ * superseded reads, avoiding canvas churn during routine memory updates. */
 export function usePeerInventory(enabled: boolean): PeerView | null {
   const [view, setView] = useState<PeerView | null>(null);
   useEffect(() => {
-    if (!enabled || !window.modelLoomPeers) return;
+    const bridge = window.modelLoomPeers;
+    if (!enabled || !bridge) return;
     let stopped = false,
-      timer: ReturnType<typeof setTimeout>;
+      reading = false,
+      revision = 0,
+      pending = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    queueMicrotask(() => {
+      if (!stopped) setView(null);
+    });
     const read = async () => {
-      try {
-        const reply = decodePeerReply(await window.modelLoomPeers!.command({ action: 'read' }));
-        if (!stopped) setView(reply.ok ? reply.view : null);
-      } catch {
-        if (!stopped) setView(null);
+      if (stopped) return;
+      if (reading) {
+        pending = true;
+        return;
       }
-      if (!stopped)
-        timer = setTimeout(() => {
-          void read();
-        }, 1500);
+      clearTimeout(timer);
+      reading = true;
+      const startedAt = revision;
+      try {
+        const reply = decodePeerReply(await bridge.command({ action: 'read' }));
+        if (!stopped && startedAt === revision) setView(reply.ok ? reply.view : null);
+      } catch {
+        if (!stopped && startedAt === revision) setView(null);
+      } finally {
+        reading = false;
+        if (!stopped) {
+          if (pending) {
+            pending = false;
+            void read();
+          } else
+            timer = setTimeout(
+              () => {
+                void read();
+              },
+              bridge.subscribe ? 10000 : 1500,
+            );
+        }
+      }
     };
+    const unsubscribe = bridge.subscribe?.(() => {
+      if (stopped) return;
+      revision++;
+      void read();
+    });
     void read();
     return () => {
       stopped = true;
       clearTimeout(timer);
+      unsubscribe?.();
     };
   }, [enabled]);
   return enabled ? view : null;
