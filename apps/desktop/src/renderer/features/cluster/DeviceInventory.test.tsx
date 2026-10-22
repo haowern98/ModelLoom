@@ -106,7 +106,7 @@ it('excludes unsupported, virtual and disabled GPUs and renumbers the remaining 
   };
   const { rerender } = render(<DeviceInventory devices={[device]} demo={false} local />);
   expect(screen.getByText('AMD GPU')).toBeVisible();
-  expect(screen.getByText('GPU model')).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'GPU' })).toBeVisible();
   for (const name of ['Virtual display', 'Intel GPU', 'Disabled GPU'])
     expect(screen.queryByText(name)).not.toBeInTheDocument();
   rerender(
@@ -118,6 +118,22 @@ it('excludes unsupported, virtual and disabled GPUs and renumbers the remaining 
   );
   expect(screen.queryByText('AMD GPU')).not.toBeInTheDocument();
   expect(screen.getByText('No enabled AMD or NVIDIA GPU detected')).toBeVisible();
+});
+
+it('groups hardware underneath each PC and omits the last-checked timestamp', () => {
+  const device = {
+    ...demoDevices[0]!,
+    inventory: { sampledAt: Date.now(), architecture: 'x86_64' },
+  };
+  render(<DeviceInventory devices={[device, demoDevices[1]!]} demo local={false} />);
+  const pcs = screen.getAllByRole('article');
+  expect(pcs).toHaveLength(2);
+  const pc = within(pcs[0]!);
+  for (const name of ['System', 'CPU', 'Memory', 'GPU 0', 'GPU 1']) {
+    expect(pc.getByRole('region', { name })).toBeVisible();
+  }
+  expect(pc.getByText('x86_64')).toBeVisible();
+  expect(screen.queryByText(/Last checked:/)).not.toBeInTheDocument();
 });
 
 it('shows Apple unified memory once without counting it as separate VRAM', () => {

@@ -37,6 +37,22 @@ function Cluster({
   );
 }
 
+it('opens the matching PC section from Device details and restores the selected panel on return', async () => {
+  render(<Cluster />);
+  const device = demoDevices[1]!;
+  await userEvent.click(screen.getByRole('button', { name: `Inspect ${device.name}` }));
+  await userEvent.click(screen.getByRole('button', { name: 'Device details' }));
+  expect(screen.getByRole('heading', { name: 'Devices' })).toBeVisible();
+  const pc = within(screen.getByRole('article', { name: device.name }));
+  expect(pc.getByRole('heading', { name: device.name })).toHaveFocus();
+  await userEvent.click(screen.getByRole('button', { name: 'Overview' }));
+  expect(
+    within(screen.getByRole('complementary', { name: 'Cluster panel' })).getByRole('heading', {
+      name: device.name,
+    }),
+  ).toBeVisible();
+});
+
 it.each([false, true])('shows requests only inside Connections sharing (demo=%s)', async (demo) => {
   const user = userEvent.setup();
   render(<Cluster demo={demo} />);
@@ -166,7 +182,7 @@ it('disables remote removal while a model is loading or running', async () => {
   expect(screen.getByRole('button', { name: 'Remove from canvas' })).toBeEnabled();
 });
 
-it('keeps device details collapsed and uses the header back control and outer panel toggle', async () => {
+it('offers device-details navigation and keeps the header back control and outer panel toggle', async () => {
   const user = userEvent.setup();
   render(<Cluster />);
   await user.click(screen.getByRole('button', { name: 'Select studio-desktop' }));
@@ -179,19 +195,10 @@ it('keeps device details collapsed and uses the header back control and outer pa
   expect(
     within(panel).queryByRole('button', { name: 'Close cluster panel' }),
   ).not.toBeInTheDocument();
-  const disclosure = within(panel).getByText('Device details').closest('details')!;
-  const summary = within(disclosure).getByText('Device details').closest('summary')!;
-  expect(disclosure).not.toHaveAttribute('open');
-  expect(within(disclosure).getByText('OS')).not.toBeVisible();
-  summary.focus();
-  expect(summary).toHaveFocus();
-  await user.click(summary);
-  expect(disclosure).toHaveAttribute('open');
-  for (const name of ['OS', 'Address', 'Connection']) {
-    expect(within(disclosure).getByText(name)).toBeVisible();
-  }
-  await user.click(summary);
-  expect(disclosure).not.toHaveAttribute('open');
+  const detailsLink = within(panel).getByRole('button', { name: 'Device details' });
+  detailsLink.focus();
+  expect(detailsLink).toHaveFocus();
+  expect(panel.querySelector('details')).toBeNull();
   await user.click(back);
   expect(within(panel).getByRole('heading', { name: 'Cluster overview' })).toBeVisible();
   const toggle = screen.getByRole('button', { name: 'Cluster panel' });
