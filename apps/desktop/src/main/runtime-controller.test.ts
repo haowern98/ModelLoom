@@ -2,6 +2,12 @@ import { expect, it, vi } from 'vitest';
 import path from 'node:path';
 import * as module from './runtime-controller';
 import type { ModelSource } from '../../../../packages/core/src/model-configuration/model-source';
+import {
+  record,
+  capabilities,
+} from '../../../../packages/core/src/model-configuration/test-fixtures';
+import type { PeerReply } from '../shared/peers';
+import type { SavedClusterConfiguration } from '../../../../packages/core/src/cluster/contracts';
 
 // The indexed runtime owner is Windows-only; retain its path contract on Linux CI too.
 vi.mock('node:path', async (importOriginal) => {
@@ -37,7 +43,7 @@ it('keeps an active model ready when an unevidenced saved configuration is rejec
   expect(host.command).toHaveBeenCalledTimes(attempts);
   await controller.quit();
 });
-function setup(enabled = true) {
+function setup(enabled = true, overrides: Record<string, unknown> = {}, history = false) {
   let phase = 'stopped';
   const host = {
     command: vi.fn((text: string) => {
@@ -61,9 +67,239 @@ function setup(enabled = true) {
     createHost: vi.fn(() => Promise.resolve(host)),
     device: vi.fn(() => Promise.resolve(localDevice)),
   };
+  Object.assign(deps, overrides);
+  if (history) Object.assign(deps, { createHistoryHost: () => Promise.resolve(host) });
   const controller = Reflect.get(module, 'createRuntimeController')?.(deps);
   return { controller, host, deps };
 }
+it('publishes only the current coalesced device scan to the peer owner', async () => {
+  const updatePeerHardware = vi.fn((): Promise<void> => Promise.resolve());
+  const { controller, deps } = setup(true, { updatePeerHardware });
+  let release!: (device: typeof localDevice) => void;
+  deps.device.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const before = controller.command({ action: 'snapshot' });
+  await vi.waitFor(() => expect(deps.device).toHaveBeenCalledTimes(1));
+  deps.device.mockResolvedValueOnce({ ...localDevice, cpuName: 'fresh CPU' });
+  const changed = controller.deviceChanged();
+  release(localDevice);
+  await Promise.all([before, changed]);
+  expect(updatePeerHardware).toHaveBeenCalledTimes(1);
+  expect(updatePeerHardware).toHaveBeenCalledWith(
+    expect.objectContaining({ cpuName: 'fresh CPU' }),
+  );
+  await controller.quit();
+});
+
+it('forwards peer changes without starting a model and unsubscribes on Quit', async () => {
+  let changed!: () => void;
+  const unsubscribe = vi.fn();
+  const { controller, deps } = setup(true, {
+    subscribePeers: (listener: () => void) => {
+      changed = listener;
+      return unsubscribe;
+    },
+  });
+  const listener = vi.fn();
+  const stop = controller.subscribePeers(listener);
+  changed();
+  expect(listener).toHaveBeenCalledTimes(1);
+  expect(deps.createHost).not.toHaveBeenCalled();
+  stop();
+  changed();
+  expect(listener).toHaveBeenCalledTimes(1);
+  await controller.quit();
+  expect(unsubscribe).toHaveBeenCalledTimes(1);
+});
+
+function remoteLoadSetup() {
+  let changed!: (reply: PeerReply) => void;
+  const f = setup(
+    true,
+    {
+      subscribePeers: (listener: typeof changed) => {
+        changed = listener;
+        return () => undefined;
+      },
+    },
+    true,
+  );
+  const fingerprint = 'b'.repeat(64);
+  const uuid = 'GPU-11111111-1111-1111-1111-111111111111';
+  const saved: SavedClusterConfiguration = {
+    id: '11111111-1111-4111-8111-111111111111',
+    name: 'Remote',
+    revision: 1,
+    modelId: 'a'.repeat(64),
+    blockCount: 64,
+    profileId: 'b11306-four-slot',
+    load: {
+      defaults: {
+        automatic: false,
+        contextLength: 7680,
+        threads: null,
+        evaluationBatch: 2048,
+        physicalBatch: 512,
+        concurrency: 4,
+        flashAttention: true,
+      },
+      cacheK: 'q8_0',
+      cacheV: 'q8_0',
+    },
+    runs: [{ uuid: `peer:${fingerprint}:${uuid}`, first: 0, last: 63 }],
+  };
+  const prepare = vi.fn((): Promise<void> => Promise.resolve());
+  Object.assign(f.host, {
+    configuration: () =>
+      Promise.resolve({
+        ok: true,
+        record: record(),
+        defaults: record(),
+        pendingReload: false,
+        maxOutputTokens: capabilities.maxOutputTokens,
+        thinkingSupported: false,
+      }),
+    cluster: () => Promise.resolve({ ok: false, error: 'UNKNOWN_CONFIGURATION' }),
+    prepareCluster: prepare,
+  });
+  Object.assign(f.deps, {
+    planModel: () => Promise.resolve(saved),
+    preflightCluster: () => Promise.resolve({}),
+    inspect: () =>
+      Promise.resolve({
+        sha256: saved.modelId,
+        size: '3.8 GB',
+        contextLimit: 32768,
+        blockCount: 64,
+      }),
+  });
+  const update = (connected: boolean, memoryBytes = 12000) =>
+    changed({
+      ok: true,
+      view: {
+        fingerprint: 'a'.repeat(64),
+        name: 'local',
+        sharing: false,
+        addresses: [],
+        gpus: [],
+        sharedGpuIds: [],
+        incoming: [],
+        outgoing: [
+          {
+            id: 'remote',
+            name: 'ptss',
+            peerFingerprint: fingerprint,
+            phase: connected ? 'approved' : 'disconnected',
+            localVerified: true,
+            remoteVerified: true,
+            gpus: connected ? [{ id: uuid, name: 'GPU', memoryBytes }] : [],
+          },
+        ],
+      },
+    });
+  const load = async () => {
+    await f.controller.command({ action: 'import' });
+    return f.controller.command({ action: 'load', modelId: `model-${saved.modelId}` });
+  };
+  return {
+    ...f,
+    update,
+    load,
+    prepare,
+    ownerExit: () => changed({ ok: false, error: 'CORE_EXITED' }),
+  };
+}
+
+it('does not stop a local-only model for peer disconnects or malformed notifications', async () => {
+  let changed!: (reply: PeerReply) => void;
+  const f = setup(true, {
+    subscribePeers: (listener: typeof changed) => {
+      changed = listener;
+      return () => undefined;
+    },
+  });
+  await f.controller.command({ action: 'import' });
+  const loaded = await f.controller.command({ action: 'load', modelId: `model-${'a'.repeat(64)}` });
+  expect(loaded.phase).toBe('ready');
+  f.host.command.mockClear();
+  changed({ ok: false, error: 'PEER_UNAVAILABLE' });
+  changed({ ok: false, error: 'CORE_EXITED' });
+  changed({
+    ok: true,
+    view: {
+      fingerprint: 'a'.repeat(64),
+      name: 'local',
+      sharing: false,
+      addresses: [],
+      gpus: [],
+      sharedGpuIds: [],
+      incoming: [],
+      outgoing: [],
+    },
+  });
+  expect(f.host.command).not.toHaveBeenCalled();
+  expect((await f.controller.command({ action: 'snapshot' })).phase).toBe('ready');
+  await f.controller.quit();
+});
+
+it.each(['disconnect', 'owner exit'])(
+  'stops a peer-dependent owned model on %s but not memory-only changes',
+  async (reason) => {
+    const f = remoteLoadSetup();
+    expect((await f.load()).phase).toBe('ready');
+    f.host.command.mockClear();
+    f.update(true, 11000);
+    expect(f.host.command).not.toHaveBeenCalled();
+    if (reason === 'disconnect') f.update(false);
+    else f.ownerExit();
+    await vi.waitFor(() => expect(f.host.command).toHaveBeenCalled());
+    await vi.waitFor(async () =>
+      expect((await f.controller.command({ action: 'snapshot' })).phase).toBe('failed'),
+    );
+    expect((await f.controller.command({ action: 'snapshot' })).error).toContain('disconnected');
+    expect(
+      f.host.command.mock.calls.some(
+        ([text]) => (JSON.parse(text) as { action: string }).action === 'stop',
+      ),
+    ).toBe(true);
+    await f.controller.quit();
+  },
+);
+
+it('settles native preparation before stopping and never loads a lost peer allocation', async () => {
+  const f = remoteLoadSetup();
+  let release!: () => void;
+  f.prepare.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const loading = f.load();
+  await vi.waitFor(() => expect(f.prepare).toHaveBeenCalledOnce());
+  f.host.command.mockClear();
+  f.update(false);
+  expect(f.host.command).not.toHaveBeenCalled();
+  release();
+  expect((await loading).phase).toBe('failed');
+  await vi.waitFor(() =>
+    expect(
+      f.host.command.mock.calls.some(
+        ([text]) => (JSON.parse(text) as { action: string }).action === 'stop',
+      ),
+    ).toBe(true),
+  );
+  expect(
+    f.host.command.mock.calls.some(
+      ([text]) => (JSON.parse(text) as { action: string }).action === 'load',
+    ),
+  ).toBe(false);
+  await f.controller.quit();
+});
 it('keeps peer management available before model startup and closes its independent owner on Quit', async () => {
   const { controller, deps } = setup();
   const peers = vi.fn(() => Promise.resolve({ ok: false, error: 'PEER_UNAVAILABLE' }));
