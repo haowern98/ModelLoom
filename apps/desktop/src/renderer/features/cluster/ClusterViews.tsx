@@ -17,6 +17,7 @@ interface ClusterViewsProps extends JoiningProps {
   local: boolean;
   onLink: (link: Link) => void;
   onConnectionAction: (action: 'add' | 'join' | 'share') => void;
+  targetDeviceId?: string | undefined;
 }
 
 const tabs = [
@@ -38,7 +39,12 @@ export function ClusterViews(props: ClusterViewsProps) {
           <h1>{title}</h1>
         </header>
         {view === 'devices' ? (
-          <DeviceInventory devices={devices} demo={demo} local={local} />
+          <DeviceInventory
+            devices={devices}
+            demo={demo}
+            local={local}
+            targetDeviceId={props.targetDeviceId}
+          />
         ) : (
           <>
             <div className={styles.tabs} role="tablist" aria-label="Connection options">

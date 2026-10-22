@@ -114,6 +114,7 @@ export function ClusterPage({
     null,
   );
   const [view, setView] = useState<ClusterView>('overview');
+  const [deviceDetailsTarget, setDeviceDetailsTarget] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const panelId = useId();
   const panelToggle = useRef<HTMLButtonElement>(null);
@@ -178,10 +179,17 @@ export function ClusterPage({
   );
   const navigate = (next: ClusterView) => {
     setView(next);
+    if (next === 'overview' && deviceDetailsTarget) {
+      setDeviceDetailsTarget(null);
+      setPanelOpen(true);
+      return;
+    }
+    setDeviceDetailsTarget(null);
     setPanelOpen(false);
     setSelection({ type: 'overview' });
   };
   const inspectDevice = (device: DemoDevice) => {
+    setDeviceDetailsTarget(null);
     setView('overview');
     showPanel({ type: 'device', device });
   };
@@ -722,6 +730,7 @@ export function ClusterPage({
               links={demo ? demoLinks : []}
               onLink={(link) => showPanel({ type: 'link', link })}
               onConnectionAction={navigate}
+              targetDeviceId={deviceDetailsTarget ?? undefined}
             />
           )}
           {panelOpen && (
@@ -739,6 +748,11 @@ export function ClusterPage({
                   !canvasDevices.some((placed) => placed.id === device.id),
               )}
               onAddDevice={() => navigate('add')}
+              onDeviceDetails={(device) => {
+                setDeviceDetailsTarget(device.id);
+                setView('devices');
+                setPanelOpen(false);
+              }}
               onAddToCanvas={(device) => {
                 setRemovedDevices((current) => current.filter((id) => id !== device.id));
                 setPlacedPeers((current) =>
