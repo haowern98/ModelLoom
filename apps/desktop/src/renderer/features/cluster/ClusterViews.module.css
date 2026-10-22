@@ -81,25 +81,86 @@
 }
 .inventory {
   margin: 0;
+  border-radius: 12px;
 }
-.inventory .inventoryRow {
+.settingsPage .inventory .inventoryRow {
   display: grid;
   grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr);
+  min-height: 40px;
+  padding: 10px 0;
+  gap: 8px 24px;
+  font-size: var(--font-size-metadata);
+  line-height: var(--line-height-body);
 }
 .inventoryRow dt,
 .inventoryRow dd {
   min-width: 0;
-  overflow-wrap: anywhere;
 }
 .inventoryRow dd {
   margin: 0;
   color: var(--neutral-muted);
-  font-size: var(--font-size-description);
-  line-height: var(--line-height-description);
+  font-size: var(--font-size-metadata);
+  line-height: var(--line-height-body);
   text-align: right;
 }
-.inventoryNote {
-  margin-top: 10px;
+.deviceArticle {
+  margin-bottom: 40px;
+}
+.deviceHeader {
+  margin-bottom: 20px;
+  border-radius: 8px;
+}
+.deviceHeader .identity {
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  margin-bottom: 4px;
+}
+.settingsPage .deviceHeader h2 {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-dialog-title);
+  font-weight: var(--font-weight-medium);
+  scroll-margin-top: 24px;
+}
+.deviceHeader .badge {
+  flex-shrink: 0;
+}
+.deviceStatus {
+  color: var(--neutral-muted);
+  font-size: var(--font-size-metadata);
+}
+.hardwareGroup + .hardwareGroup {
+  margin-top: 20px;
+}
+.hardwareGroup h3 {
+  margin-bottom: 12px;
+  font-size: var(--font-size-section-heading);
+  font-weight: var(--font-weight-medium);
+}
+.deviceArticle[data-targeted='true'] .deviceHeader {
+  animation: highlightDevice 1.4s ease-out;
+}
+@keyframes highlightDevice {
+  from {
+    background: #ffffff14;
+  }
+  to {
+    background: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .deviceArticle[data-targeted='true'] .deviceHeader {
+    animation: none;
+  }
+}
+@media (max-width: 720px) {
+  .settingsPage .inventory .inventoryRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .inventoryRow dd {
+    text-align: left;
+  }
 }
 .settingsPage .connection {
   display: flex;
