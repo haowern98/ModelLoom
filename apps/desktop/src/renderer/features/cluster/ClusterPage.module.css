@@ -384,7 +384,8 @@
   overflow-x: hidden;
   overscroll-behavior: contain;
 }
-.panelContent:has(.overviewSummary) {
+.panelContent:has(.overviewSummary),
+.panelContent:has(.deviceDetailsLink) {
   margin-left: -12px;
   padding-left: 12px;
   /* Leave room for the full row hover surface without moving its text or controls. */
@@ -426,55 +427,16 @@
   font-size: var(--font-size-metadata);
   line-height: var(--line-height-body);
 }
-.deviceDetails {
-  margin-top: 14px;
-  font-size: var(--font-size-metadata);
-}
-.deviceDetails summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding-block: 6px;
+.page .deviceDetailsLink {
+  margin-top: 12px;
   color: var(--muted);
-  font-size: var(--font-size-control);
-  list-style: none;
-  cursor: pointer;
+  line-height: var(--line-height-body);
 }
-.deviceDetails summary::-webkit-details-marker {
-  display: none;
-}
-.deviceDetails summary:hover {
+.page .deviceDetailsLink:hover {
   color: var(--text);
 }
-.deviceDetails summary:focus-visible {
-  outline: 2px solid #78baff;
-}
-.deviceDetails summary svg {
+.deviceDetailsLink svg {
   flex-shrink: 0;
-}
-.deviceDetails[open] > summary svg {
-  transform: rotate(90deg);
-}
-.deviceDetails dl {
-  display: grid;
-  gap: 12px;
-  margin: 8px 0 0;
-}
-.deviceDetails dl > div {
-  display: grid;
-  gap: 4px;
-}
-.deviceDetails dt {
-  color: var(--muted);
-}
-.deviceDetails dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-.deviceDetails + .panelSection {
-  margin-top: 6px;
-  padding-top: 10px;
 }
 .panelHeader h2 {
   font-size: var(--font-size-dialog-title);
@@ -521,7 +483,8 @@
   margin-top: 14px;
   padding-top: 12px;
 }
-.page .overviewSummary .allocationRow {
+.page .overviewSummary .allocationRow,
+.page .devicePanel .deviceDetailsLink {
   padding-block: 8px;
 }
 .overviewMemory dt {
@@ -1155,15 +1118,11 @@
   font-size: var(--font-size-dialog-title);
   line-height: var(--line-height-body);
 }
-.devicePanel .deviceDetails summary,
 .devicePanel .panelDescription,
 .devicePanel .rangeInputs,
 .devicePanel .rangeInputs label {
   font-size: var(--font-size-metadata);
   line-height: var(--line-height-body);
-}
-.devicePanel .deviceDetails {
-  margin-top: 12px;
 }
 .devicePanel .panelSection {
   margin-top: 14px;
@@ -1256,36 +1215,6 @@
   color: var(--muted);
   font-size: var(--font-size-metadata);
   line-height: var(--line-height-body);
-}
-.canvasTextViewport {
-  display: block;
-  overflow: hidden;
-  white-space: nowrap;
-}
-.canvasTextViewport[data-overflow='true'] {
-  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
-}
-.canvasTextContent {
-  display: inline-block;
-}
-.canvasTextViewport[data-overflow='true']:hover .canvasTextContent,
-.canvasDeviceChoice:focus-visible .canvasTextViewport[data-overflow='true'] .canvasTextContent {
-  animation: scrollCanvasLine var(--line-duration) linear 700ms infinite alternate;
-}
-@keyframes scrollCanvasLine {
-  0%,
-  15% {
-    transform: translateX(0);
-  }
-  80%,
-  100% {
-    transform: translateX(var(--line-scroll));
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .canvasDeviceChoice .canvasTextViewport .canvasTextContent {
-    animation: none;
-  }
 }
 .page .canvasDeviceAdd {
   justify-content: center;

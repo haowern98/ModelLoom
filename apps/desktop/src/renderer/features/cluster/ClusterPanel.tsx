@@ -40,6 +40,7 @@ interface ClusterPanelProps extends JoiningProps {
   canvasCandidates?: readonly DemoDevice[];
   onAddToCanvas?: (device: DemoDevice) => void;
   onAddDevice?: () => void;
+  onDeviceDetails: (device: DemoDevice) => void;
   onEdit: (input: LayerInput) => void;
   onStartRename: () => void;
   onCancelRename: () => void;
@@ -143,6 +144,7 @@ export function ClusterPanel({
   canvasCandidates = [],
   onAddToCanvas,
   onAddDevice,
+  onDeviceDetails,
   onEdit,
   onStartRename,
   onCancelRename,
@@ -316,32 +318,14 @@ export function ClusterPanel({
         )}
         {selection.type === 'device' && (
           <>
-            <details key={selection.device.id} className={styles.deviceDetails}>
-              <summary>
-                <span>Device details</span>
-                <CaretRight size={16} aria-hidden="true" />
-              </summary>
-              <dl>
-                <div>
-                  <dt>OS</dt>
-                  <dd>{selection.device.os}</dd>
-                </div>
-                <div>
-                  <dt>Address</dt>
-                  <dd>{selection.device.address}</dd>
-                </div>
-                <div>
-                  <dt>Connection</dt>
-                  <dd>
-                    {local
-                      ? selection.device.id === 'local'
-                        ? 'This device'
-                        : 'Approved remote device'
-                      : 'Not verified'}
-                  </dd>
-                </div>
-              </dl>
-            </details>
+            <button
+              type="button"
+              className={`${styles.allocationRow} ${styles.deviceDetailsLink}`}
+              onClick={() => onDeviceDetails(selection.device)}
+            >
+              <span>Device details</span>
+              <CaretRight size={16} aria-hidden="true" />
+            </button>
             <section className={styles.panelSection}>
               <h3>Layer assignment</h3>
               <p className={styles.panelDescription}>
