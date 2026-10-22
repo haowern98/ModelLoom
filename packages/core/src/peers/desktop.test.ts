@@ -56,6 +56,19 @@ it('binds peer management to the admitted caller and stops its retained owner in
     expect.any(Number),
   );
   const calls = postMessage.mock.calls.length;
+  const changed = vi.fn();
+  const unsubscribe = host.subscribe(changed);
+  events.emit(
+    'message',
+    JSON.stringify({ type: 'peer-changed', reply: { ok: false, error: 'PEER_UNAVAILABLE' } }),
+  );
+  expect(changed).toHaveBeenCalledWith({ ok: false, error: 'PEER_UNAVAILABLE' });
+  unsubscribe();
+  events.emit(
+    'message',
+    JSON.stringify({ type: 'peer-changed', reply: { ok: false, error: 'PEER_UNAVAILABLE' } }),
+  );
+  expect(changed).toHaveBeenCalledTimes(1);
   expect(await host.command('other', { action: 'read' })).toEqual({
     ok: false,
     error: 'NOT_READY',

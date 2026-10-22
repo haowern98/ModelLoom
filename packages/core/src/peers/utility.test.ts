@@ -5,6 +5,46 @@ import { PassThrough } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { rpcIpcStream } from './ipc-rpc.js';
 
+it('publishes validated inventory changes and accepts hardware only from its admitted parent', async () => {
+  let receive!: (message: unknown) => void;
+  let changed!: (reply: PeerReply) => void;
+  const send = vi.fn(),
+    exit = vi.fn(),
+    updateHardware = vi.fn(() => Promise.resolve()),
+    unsubscribe = vi.fn();
+  runPeerUtility(
+    {
+      receive: (handler) => {
+        receive = handler;
+      },
+      send,
+      exit,
+    },
+    () =>
+      Promise.resolve({
+        command: () => Promise.resolve<PeerReply>({ ok: false, error: 'NOT_READY' }),
+        close: () => Promise.resolve(),
+        updateHardware,
+        subscribe: (handler: (reply: PeerReply) => void) => {
+          changed = handler;
+          return unsubscribe;
+        },
+      }),
+  );
+  receive(JSON.stringify({ type: 'admit', applicationData: 'E:/test-peer', caller: 'window' }));
+  await vi.waitFor(() => expect(send).toHaveBeenCalledWith(JSON.stringify({ type: 'ready' })));
+  const hardware = { os: 'Windows', sampledAt: 1, gpus: [] };
+  receive(JSON.stringify({ type: 'hardware-update', hardware }));
+  await vi.waitFor(() => expect(updateHardware).toHaveBeenCalledWith(hardware));
+  changed({ ok: false, error: 'PEER_UNAVAILABLE' });
+  expect(send).toHaveBeenCalledWith(
+    JSON.stringify({ type: 'peer-changed', reply: { ok: false, error: 'PEER_UNAVAILABLE' } }),
+  );
+  receive(JSON.stringify({ type: 'quit' }));
+  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+  expect(unsubscribe).toHaveBeenCalled();
+});
+
 it('does not open an identity before trusted admission, rejects caller substitution, and closes on Quit', async () => {
   let receive!: (message: unknown) => void;
   const send = vi.fn(),
