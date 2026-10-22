@@ -5,6 +5,8 @@ import { PeerOwner } from './owner.js';
 import { PeerNode } from './node.js';
 import { openWindowsPeerIdentity } from './windows-identity.js';
 import { PassThrough } from 'node:stream';
+import type { PeerReply } from './wire.js';
+import type { IncomingMessage } from 'node:http';
 
 const parent = path.resolve('out/peer-owner-tests');
 const roots: string[] = [],
@@ -22,6 +24,126 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it.each(['INVALID_PEER_MESSAGE', 'UNKNOWN_PEER_OPERATION'])(
+  'keeps an approved older peer connected when its reporter rejects the new watch (%s)',
+  async (code) => {
+    const owner = await PeerOwner.open(await directory(), 'owner');
+    owners.push(owner);
+    const identity = await openWindowsPeerIdentity();
+    const worker = new PeerNode(identity, 'PTSS', [
+      { id: 'old-gpu', name: 'Older GPU', memoryBytes: 4096 },
+    ]);
+    const control = worker as unknown as { control(request: IncomingMessage): Promise<unknown> };
+    const original = control.control.bind(worker);
+    const unsupported = vi.fn();
+    vi.spyOn(control, 'control').mockImplementation((request) => {
+      if (request.url === '/v1/inventory-watch') {
+        unsupported();
+        return Promise.reject(Error(code));
+      }
+      return original(request);
+    });
+    try {
+      const address = await worker.share('127.0.0.1', 0, 0, ['old-gpu']);
+      const invited = await owner.command('owner', { action: 'invite', address });
+      if (!invited.ok) throw Error('Fixture invitation failed');
+      const peer = invited.view.outgoing[0]!;
+      await worker.approve(peer.id, invited.view.fingerprint);
+      await owner.command('owner', {
+        action: 'confirm',
+        id: peer.id,
+        fingerprint: identity.fingerprint,
+      });
+      await vi.waitFor(() => expect(unsupported).toHaveBeenCalled());
+      await vi.waitFor(async () => {
+        const read = await owner.command('owner', { action: 'read' });
+        expect(read.ok && read.view.outgoing[0]?.phase).toBe('approved');
+        expect(read.ok && read.view.outgoing[0]?.address).toBe('127.0.0.1');
+        expect(read.ok && read.view.outgoing[0]?.gpus[0]?.name).toBe('Older GPU');
+        expect(read.ok && read.view.outgoing[0]?.hardware).toBeUndefined();
+      });
+      await worker.stopSharing();
+      await vi.waitFor(
+        async () => {
+          const read = await owner.command('owner', { action: 'read' });
+          expect(read.ok && read.view.outgoing[0]?.phase).toBe('disconnected');
+        },
+        { timeout: 4000 },
+      );
+    } finally {
+      await worker.close();
+      identity.close();
+    }
+  },
+  20000,
+);
+
+it('publishes remote hardware changes without a read-feedback loop and removes disconnected facts', async () => {
+  const owner = await PeerOwner.open(await directory(), 'owner');
+  owners.push(owner);
+  const identity = await openWindowsPeerIdentity();
+  const worker = new PeerNode(identity, 'PTSS', [
+    { id: 'gpu-test', name: 'Remote GPU', memoryBytes: 4096 },
+  ]);
+  const changed = vi.fn<(reply: PeerReply) => void>();
+  const unsubscribe = owner.subscribe(changed);
+  try {
+    const address = await worker.share('127.0.0.1', 0, 0, ['gpu-test']);
+    const invited = await owner.command('owner', { action: 'invite', address });
+    if (!invited.ok) throw Error('Fixture invitation failed');
+    const peer = invited.view.outgoing[0]!;
+    await worker.approve(peer.id, invited.view.fingerprint);
+    await worker.updateHardware({
+      os: 'Remote Windows',
+      cpuName: 'PTSS CPU',
+      sampledAt: 1,
+      gpus: [{ id: 'gpu-test', name: 'Remote GPU', memoryBytes: 4096 }],
+    });
+    await owner.command('owner', {
+      action: 'confirm',
+      id: peer.id,
+      fingerprint: identity.fingerprint,
+    });
+    await vi.waitFor(() =>
+      expect(
+        changed.mock.calls.some(
+          ([reply]) => reply.ok && reply.view.outgoing[0]?.hardware?.cpuName === 'PTSS CPU',
+        ),
+      ).toBe(true),
+    );
+    changed.mockClear();
+    const read = await owner.command('owner', { action: 'read' });
+    expect(read.ok && read.view.outgoing[0]?.hardware?.os).toBe('Remote Windows');
+    expect(changed).not.toHaveBeenCalled();
+    await worker.updateHardware({ os: 'Remote Windows', sampledAt: 2, gpus: [] });
+    await vi.waitFor(() =>
+      expect(
+        changed.mock.calls.some(
+          ([reply]) =>
+            reply.ok &&
+            reply.view.outgoing[0]?.phase === 'approved' &&
+            reply.view.outgoing[0]?.gpus.length === 0,
+        ),
+      ).toBe(true),
+    );
+    await worker.stopSharing();
+    await vi.waitFor(() =>
+      expect(
+        changed.mock.calls.some(
+          ([reply]) =>
+            reply.ok &&
+            reply.view.outgoing[0]?.phase === 'disconnected' &&
+            !reply.view.outgoing[0]?.hardware,
+        ),
+      ).toBe(true),
+    );
+  } finally {
+    unsubscribe();
+    await worker.close();
+    identity.close();
+  }
+}, 20000);
 it('persists the protected identity across owner replacement, starts sharing off, and rejects a different caller', async () => {
   const root = await directory();
   const first = await PeerOwner.open(root, 'owner');

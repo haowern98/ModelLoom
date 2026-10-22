@@ -114,6 +114,108 @@ describe('real TLS peer pairing', () => {
     await expect(coordinator.inventory(outgoing.id)).rejects.toThrow();
   }, 20_000);
 
+  it('pushes approved shared hardware changes and closes a pending watch on disconnect', async () => {
+    const coordinator = new PeerNode(sg, 'Coordinator', []);
+    const worker = new PeerNode(my, 'PTSS', [{ id: 'gpu-my', name: 'GPU', memoryBytes: 4096 }]);
+    nodes.push(coordinator, worker);
+    const address = await worker.share('127.0.0.1', 0, 0, ['gpu-my']);
+    const outgoing = await coordinator.invite(address);
+    await expect(coordinator.watchInventory(outgoing.id, -1)).rejects.toThrow('PEER_NOT_APPROVED');
+    await worker.approve(outgoing.id, sg.fingerprint);
+    await coordinator.confirm(outgoing.id, my.fingerprint);
+    await worker.updateHardware({
+      os: 'Windows',
+      cpuName: 'PTSS CPU',
+      threads: 20,
+      sampledAt: 1,
+      gpus: [
+        { id: 'gpu-my', name: 'GPU', memoryBytes: 4096, availableMemoryBytes: 3000 },
+        { id: 'private-gpu', name: 'Unshared GPU', memoryBytes: 8192 },
+      ],
+    });
+    const first = await coordinator.watchInventory(outgoing.id, -1);
+    expect(first.hardware?.cpuName).toBe('PTSS CPU');
+    expect(first.hardware?.gpus.map((g) => g.id)).toEqual(['gpu-my']);
+    const watch = coordinator.watchInventory(outgoing.id, first.revision);
+    await worker.updateHardware({ os: 'Windows', cpuName: 'PTSS CPU', sampledAt: 2, gpus: [] });
+    const removed = await watch;
+    expect(removed.revision).toBeGreaterThan(first.revision);
+    expect(removed.gpus).toEqual([]);
+    const waiting = coordinator.watchInventory(outgoing.id, removed.revision);
+    void waiting.catch(() => undefined);
+    await worker.stopSharing();
+    await expect(waiting).rejects.toThrow();
+  }, 20_000);
+
+  it('reserves only still-present shared GPUs and interrupts a worker when that GPU disappears', async () => {
+    const a = 'GPU-11111111-1111-1111-1111-111111111111',
+      b = 'GPU-22222222-2222-2222-2222-222222222222';
+    const close = vi.fn(() => Promise.resolve());
+    const start = vi.fn(() => Promise.resolve({ stream: new PassThrough(), close }));
+    const coordinator = new PeerNode(sg, 'Coordinator', []);
+    const worker = new PeerNode(
+      my,
+      'PTSS',
+      [
+        { id: a, name: 'A', memoryBytes: 4096 },
+        { id: b, name: 'B', memoryBytes: 4096 },
+      ],
+      { start },
+    );
+    nodes.push(coordinator, worker);
+    const address = await worker.share('127.0.0.1', 0, 0, [a, b]);
+    const invited = await coordinator.invite(address);
+    await worker.approve(invited.id, sg.fingerprint);
+    await coordinator.confirm(invited.id, my.fingerprint);
+    await worker.updateHardware({
+      os: 'Windows',
+      sampledAt: 1,
+      gpus: [{ id: b, name: 'B', memoryBytes: 4096 }],
+    });
+    const stream = await coordinator.openRpc(invited.id);
+    expect(start).toHaveBeenCalledWith([b]);
+    await worker.updateHardware({
+      os: 'Windows',
+      sampledAt: 2,
+      gpus: [{ id: b, name: 'B', memoryBytes: 4096, availableMemoryBytes: 100 }],
+    });
+    expect(close).not.toHaveBeenCalled();
+    await worker.updateHardware({ os: 'Windows', sampledAt: 3, gpus: [] });
+    expect(close).toHaveBeenCalledOnce();
+    stream.destroy();
+  }, 20000);
+
+  it('cleans up a prepared worker if its GPU is removed before startup finishes', async () => {
+    const gpu = 'GPU-11111111-1111-1111-1111-111111111111';
+    let complete!: (owned: { stream: PassThrough; close: () => Promise<void> }) => void;
+    let started!: () => void;
+    const starting = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const close = vi.fn(() => Promise.resolve());
+    const coordinator = new PeerNode(sg, 'Coordinator', []);
+    const worker = new PeerNode(my, 'PTSS', [{ id: gpu, name: 'GPU', memoryBytes: 4096 }], {
+      start: () => {
+        started();
+        return new Promise((resolve) => {
+          complete = resolve;
+        });
+      },
+    });
+    nodes.push(coordinator, worker);
+    const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
+    const invited = await coordinator.invite(address);
+    await worker.approve(invited.id, sg.fingerprint);
+    await coordinator.confirm(invited.id, my.fingerprint);
+    const opening = coordinator.openRpc(invited.id);
+    void opening.catch(() => undefined);
+    await starting;
+    await worker.updateHardware({ os: 'Windows', sampledAt: 1, gpus: [] });
+    complete({ stream: new PassThrough(), close });
+    await expect(opening).rejects.toThrow();
+    expect(close).toHaveBeenCalledOnce();
+  }, 20000);
+
   it('does not accept a request when sharing is off or an identity pin differs', async () => {
     const coordinator = new PeerNode(sg, 'SG', []);
     const worker = new PeerNode(my, 'MY', [{ id: 'only-gpu', name: 'GPU', memoryBytes: 4096 }]);
