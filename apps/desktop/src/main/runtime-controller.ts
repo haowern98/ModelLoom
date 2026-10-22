@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { toPeerHardware } from './peer-hardware';
+import type { PeerHardware } from '../../../../packages/core/src/peers/hardware';
 import { decodePeerCommand, decodePeerReply } from '../shared/peers';
 import type { PeerReply } from '../shared/peers';
 import path from 'node:path';
@@ -56,6 +58,8 @@ interface Host {
 interface ActivationDependencies {
   enabled: true;
   peers?(input: unknown): Promise<PeerReply>;
+  updatePeerHardware?(hardware: PeerHardware): Promise<void>;
+  subscribePeers?(listener: (reply: PeerReply) => void): () => void;
   closePeers?(): Promise<void>;
   beginPeerQuit?(): Promise<void>;
   expectedHash: string;
@@ -227,6 +231,10 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
   let usageProbe: Promise<void> | undefined;
   let planning: AbortController | undefined, clusterLoading: AbortController | undefined;
   let pendingCluster: RuntimeView['activeCluster'] = null;
+  let selectedPeerRuns: readonly { uuid: string }[] = [];
+  let ownedPeerRuns: readonly { uuid: string }[] = [];
+  let planningPeerRuns: readonly { uuid: string }[] = [];
+  let peerInterruption: Promise<void> | undefined;
   let clusterCleanupFailed = false;
   let runningConfiguration = false;
   const clusterOperations = new Set<Promise<unknown>>();
@@ -362,10 +370,12 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     const generation = deviceGeneration;
     deviceProbe ??= Promise.resolve()
       .then(() => (quitting ? undefined : deps.device!()))
-      .then((device) => {
+      .then(async (device) => {
         if (!quitting && device && generation === deviceGeneration) {
           view = { ...view, device };
           deviceObservedAt = Date.now();
+          if (deps.enabled && deps.updatePeerHardware)
+            await deps.updatePeerHardware(toPeerHardware(device));
         }
       })
       .catch((error: unknown) => {
@@ -411,6 +421,8 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     const phase = snapshot.phase;
     if (!['stopped', 'starting', 'loading', 'ready', 'stopping', 'failed'].includes(String(phase)))
       throw new Error('INVALID_CONTROL');
+    if (action === 'load' && phase === 'ready') ownedPeerRuns = selectedPeerRuns;
+    if (action === 'stop' || action === 'quit') ownedPeerRuns = [];
     // The host is trusted, but only this closed phase field crosses into renderer state.
     view = {
       ...view,
@@ -431,7 +443,69 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     )
       view.error = messages.CLEANUP_FAILED!;
   };
+  const peerListeners = new Set<() => void>();
+  const unsubscribePeers = deps.enabled
+    ? deps.subscribePeers?.((reply) => {
+        if (quitting) return;
+        for (const listener of peerListeners) listener();
+        if (peerInterruption || (!reply?.ok && reply?.error !== 'CORE_EXITED')) return;
+        const available = new Set(
+          (reply.ok ? reply.view.outgoing : [])
+            .filter(
+              (peer) => peer.phase === 'approved' && peer.localVerified && peer.remoteVerified,
+            )
+            .flatMap((peer) => peer.gpus.map((gpu) => `peer:${peer.peerFingerprint}:${gpu.id}`)),
+        );
+        const runs = [
+          ...selectedPeerRuns,
+          ...ownedPeerRuns,
+          ...planningPeerRuns,
+          ...(pendingCluster?.runs ?? []),
+          ...(view.activeCluster?.runs ?? []),
+        ];
+        if (!runs.some((run) => run.uuid.startsWith('peer:') && !available.has(run.uuid))) return;
+        clusterLoading?.abort();
+        planning?.abort();
+        memoryDecision?.resolve(false);
+        ++epoch;
+        pendingCluster = null;
+        selectedPeerRuns = [];
+        ownedPeerRuns = [];
+        planningPeerRuns = [];
+        view = { ...view, phase: 'failed', activeCluster: null, error: messages.PEER_UNAVAILABLE! };
+        peerInterruption = (async () => {
+          try {
+            // An in-flight prepare may still own native resources; settle it before stopping its owner.
+            await enginePreparation?.catch(() => undefined);
+            if (host) await send('stop');
+            if (!quitting)
+              view = {
+                ...view,
+                phase: 'failed',
+                activeCluster: null,
+                error: messages.PEER_UNAVAILABLE!,
+              };
+          } catch {
+            clusterCleanupFailed = true;
+            if (!quitting)
+              view = {
+                ...view,
+                phase: 'failed',
+                activeCluster: null,
+                error: messages.CLEANUP_FAILED!,
+              };
+          } finally {
+            peerInterruption = undefined;
+            for (const listener of peerListeners) listener();
+          }
+        })();
+      })
+    : undefined;
   return {
+    subscribePeers(listener: () => void): () => void {
+      peerListeners.add(listener);
+      return () => peerListeners.delete(listener);
+    },
     async peers(input: unknown): Promise<PeerReply> {
       const command = decodePeerCommand(input);
       if (quitting || !deps.enabled) return { ok: false, error: 'NOT_READY' };
@@ -531,6 +605,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           const selectedFile = source.file,
             currentDraft = read.draft,
             blocks = source.blockCount;
+          planningPeerRuns = currentDraft.runs;
           const runs = await trackCluster(
             () => deps.planCluster!(selectedFile, currentDraft, blocks, operation.signal),
             operation.signal,
@@ -551,10 +626,12 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
             },
           });
           if (planning === operation) planning = undefined;
+          planningPeerRuns = [];
           return decodeClusterReply(reply);
         }
         return decodeClusterReply(await host.cluster(caller, command));
       } catch (error) {
+        if (command.action === 'auto-place') planningPeerRuns = [];
         try {
           return decodeClusterReply({
             ok: false,
@@ -805,6 +882,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           clusterLoading?.abort();
           clusterLoading = abort;
           const saved = restored.configuration;
+          selectedPeerRuns = saved.runs;
           let confirmed = false,
             budget: StockClusterReport;
           try {
@@ -883,9 +961,11 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
             declinedMemoryOperation = undefined;
           }
         } else if (command.action === 'stop') {
+          selectedPeerRuns = [];
           clusterLoading?.abort();
           planning?.abort();
           ++epoch;
+          await peerInterruption;
           if (host) await send('stop');
           else view = { ...view, phase: 'stopped', error: null };
         } else if (command.action === 'load') {
@@ -972,6 +1052,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
                     abort.signal,
                   );
               let budget: StockClusterReport;
+              selectedPeerRuns = selected.runs;
               let confirmed = false;
               try {
                 budget = await trackCluster(
@@ -1101,6 +1182,11 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
         };
       } finally {
         if (ownsConfigurationRun) runningConfiguration = false;
+        if (
+          (command.action === 'load' || command.action === 'run-configuration') &&
+          (!loadingEpoch || loadingEpoch === epoch)
+        )
+          selectedPeerRuns = [];
       }
       return result();
     },
@@ -1108,6 +1194,8 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       clusterLoading?.abort();
       planning?.abort();
       quitting = true;
+      unsubscribePeers?.();
+      peerListeners.clear();
       const peerDraining = deps.enabled ? deps.beginPeerQuit?.() : undefined;
       void peerDraining?.catch(() => undefined);
       try {
@@ -1123,6 +1211,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           view.indexing ? importPreparation : undefined,
         ]);
         await usageProbe;
+        await peerInterruption;
         await Promise.allSettled([...clusterOperations]);
         if (preparation) {
           try {
