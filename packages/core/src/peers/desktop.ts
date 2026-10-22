@@ -13,6 +13,8 @@ import { localReservationClient } from './local-reservation-channel.js';
 import type { PeerRuntimeBootstrap } from './development-runtime.js';
 import { peerResourceClient } from './resource-channel.js';
 import type { PeerResources } from './resources.js';
+import { decodePeerHardware } from './hardware.js';
+import type { PeerHardware } from './hardware.js';
 
 export interface DesktopPeerHost {
   command(caller: string, input: unknown): Promise<PeerReply>;
@@ -20,6 +22,8 @@ export interface DesktopPeerHost {
   openRpc(device: string): Promise<Duplex>;
   reserveLocal(devices: readonly string[]): Promise<{ release(): Promise<void> }>;
   resources(device: string | null): Promise<PeerResources>;
+  subscribe(listener: (reply: PeerReply) => void): () => void;
+  updateHardware(hardware: PeerHardware): Promise<void>;
 }
 /** Dedicated peer owner survives replacing a model's history/runtime core. Main
  * retains process containment, while protected identity and TLS stay in core. */
@@ -67,6 +71,7 @@ export async function createDesktopPeerHost(
     string,
     { pipe: ReturnType<typeof rpcIpcStream>; ready(): void; reject(error: Error): void }
   >();
+  const listeners = new Set<(reply: PeerReply) => void>();
   const settled = new Set<string>();
   const remember = (id: string) => {
     settled.add(id);
@@ -100,6 +105,8 @@ export async function createDesktopPeerHost(
     reservations.close();
     resources.close();
     alive = false;
+    for (const listener of listeners) listener({ ok: false, error: 'CORE_EXITED' });
+    listeners.clear();
     failed(new Error('CORE_EXITED'));
     exited();
     for (const entry of pending.values()) {
@@ -119,6 +126,13 @@ export async function createDesktopPeerHost(
       if (typeof input !== 'string' || Buffer.byteLength(input) > 131072)
         throw new Error('INVALID_CONTROL');
       const message = decodeObject(input);
+      if (message.type === 'peer-changed') {
+        exact(message, ['type', 'reply']);
+        if (!admitted) throw Error('INVALID_CONTROL');
+        const reply = decodePeerReply(message.reply);
+        for (const listener of listeners) listener(reply);
+        return;
+      }
       if (message.type === 'resource-result') {
         resources.receive(message);
         return;
@@ -200,6 +214,15 @@ export async function createDesktopPeerHost(
     throw error;
   }
   return {
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    updateHardware(hardware) {
+      if (closing || !alive) throw Error('NOT_READY');
+      send({ type: 'hardware-update', hardware: decodePeerHardware(hardware) });
+      return Promise.resolve();
+    },
     reserveLocal: (devices) => reservations.reserve(devices),
     resources: (device) => resources.read(device),
     async openRpc(device) {

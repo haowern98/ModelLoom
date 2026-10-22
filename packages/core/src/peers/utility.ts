@@ -12,6 +12,9 @@ import { decodePeerRuntimeBootstrap, developmentPeerBackend } from './developmen
 import type { PeerRuntimeBootstrap } from './development-runtime.js';
 import { servePeerResources } from './resource-channel.js';
 import type { PeerResources } from './resources.js';
+import { decodePeerHardware } from './hardware.js';
+import type { PeerHardware } from './hardware.js';
+import { decodePeerReply } from './wire.js';
 
 export interface PeerUtilityChannel {
   send(text: string): void;
@@ -19,6 +22,8 @@ export interface PeerUtilityChannel {
   exit(code: number): void;
 }
 interface Service {
+  updateHardware?(hardware: PeerHardware): Promise<void>;
+  subscribe?(listener: (reply: PeerReply) => void): () => void;
   command(caller: string, input: unknown): Promise<PeerReply>;
   close(): Promise<void>;
   openRpc?(device: string): Promise<Duplex>;
@@ -38,6 +43,7 @@ export function runPeerUtility(
   ) => PeerOwner.open(root, caller, runtime ? developmentPeerBackend(runtime) : undefined),
 ): void {
   let preparation: Promise<Service> | undefined;
+  let unsubscribe: (() => void) | undefined;
   let caller = '',
     sequence = 0,
     closed = false;
@@ -60,6 +66,7 @@ export function runPeerUtility(
   async function close(code: number) {
     if (closed) return;
     closed = true;
+    unsubscribe?.();
     for (const pipe of streams.values()) pipe.stream.destroy();
     streams.clear();
     try {
@@ -80,6 +87,18 @@ export function runPeerUtility(
       if (typeof input !== 'string' || Buffer.byteLength(input) > 16384 || closed)
         throw new Error('INVALID_CONTROL');
       const message = decodeObject(input);
+      if (message.type === 'hardware-update') {
+        exact(message, ['type', 'hardware']);
+        if (!preparation) throw Error('INVALID_CONTROL');
+        const hardware = decodePeerHardware(message.hardware);
+        void preparation
+          .then((owner) => {
+            if (closed || !owner.updateHardware) throw Error('NOT_READY');
+            return owner.updateHardware(hardware);
+          })
+          .catch(() => close(1));
+        return;
+      }
       if (message.type === 'resource-read') {
         if (!preparation) throw new Error('INVALID_CONTROL');
         void servePeerResources(
@@ -170,8 +189,13 @@ export function runPeerUtility(
           ? open(message.applicationData, caller, decodePeerRuntimeBootstrap(message.runtime))
           : open(message.applicationData, caller);
         void preparation.then(
-          () => {
-            if (!closed) send({ type: 'ready' });
+          (owner) => {
+            if (!closed) {
+              unsubscribe = owner.subscribe?.((reply) => {
+                if (!closed) send({ type: 'peer-changed', reply: decodePeerReply(reply) });
+              });
+              send({ type: 'ready' });
+            }
           },
           () => close(1),
         );
