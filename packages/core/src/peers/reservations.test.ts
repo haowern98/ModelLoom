@@ -12,6 +12,18 @@ function setup() {
 }
 
 describe('worker GPU reservations', () => {
+  it('invalidates removed physical GPUs without losing the reservation cleanup handle', () => {
+    const { reservations } = setup();
+    reservations.setShared([gpu0]);
+    const held = reservations.reserveRemote(peer, [gpu0]);
+    reservations.updateDevices([gpu1]);
+    expect(reservations.pendingRelease()).toContain(held);
+    expect(reservations.renew(held)).toBe(false);
+    expect(() => reservations.reserveLocal([gpu0])).toThrow();
+    expect(reservations.confirmReleased(held)).toBe(true);
+    reservations.updateDevices([gpu0, gpu1]);
+    expect(reservations.reserveLocal([gpu0]).gpuUuids).toEqual([gpu0]);
+  });
   it('starts independent and does not reserve hardware when sharing is enabled', () => {
     const { reservations } = setup();
     expect(reservations.snapshot()).toEqual({ shared: [], reservations: [] });
