@@ -1,0 +1,32 @@
+.viewport {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.viewport[data-overflow='true'] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+.content {
+  display: inline-block;
+}
+.viewport[data-overflow='true']:hover .content,
+.viewport[data-overflow='true']:focus-visible .content,
+button:focus-visible .viewport[data-overflow='true'] .content {
+  animation: scrollLine var(--line-duration) linear 700ms infinite alternate;
+}
+@keyframes scrollLine {
+  0%,
+  15% {
+    transform: translateX(0);
+  }
+  80%,
+  100% {
+    transform: translateX(var(--line-scroll));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .viewport .content {
+    animation: none !important;
+  }
+}
