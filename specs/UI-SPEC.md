@@ -849,3 +849,56 @@ Requests destination and header action trio described earlier in this document.
   or pairing codes. Existing full-fingerprint verification remains mandatory;
   approval alone must not be labelled as a verified live connection. Demo actions
   remain explicitly simulated and never alter live placement or authorization.
+
+
+### Devices grouping and direct navigation (2026-10-22)
+
+The approved Devices revision stacks PCs vertically, with System, CPU, Memory
+and each GPU grouped under its PC. Unified-memory hardware keeps appropriate
+labels without double-counting VRAM. Retain reported fields and explicit unknown
+values; omit Last checked. Use the existing Settings page alignment, 18px PC
+names, 14px medium group headings, 12px labels/values, 40px minimum rows,
+12px card corners, 20px between groups and 40px between PCs. Long names/values
+use the shared per-line fade and hover scrolling, respecting reduced motion.
+At narrow widths, values stack under labels.
+
+Device details in the canvas inspector replaces the inline disclosure with
+navigation to Devices. Scroll to and focus the matching PC heading, with a brief
+subtle highlight suppressed under reduced motion. Returning to Overview restores
+the selected panel and preserves canvas membership and viewport. This navigation
+does not pair a PC or place it on the canvas.
+
+### Live approved-peer hardware (2026-10-22)
+
+PTSS reports its own OS, architecture, CPU, memory, GPU memory/driver and verified
+runtime backend facts through the existing mutually approved peer connection.
+Unknown readings stay unknown. Renderer inventory is presentation only; native
+placement still rechecks owned resources and physical GPU identities.
+
+Use the accepted local native device-change scan to publish hardware changes.
+An authenticated bounded inventory watch wakes when the worker publishes a new
+snapshot, then utility/main/preload invalidations refresh Devices and canvas
+without waiting for their fallback poll. Routine memory telemetry reuses the
+10-second scan cache. A network failure requires bounded detection, not a claim
+of zero elapsed time. Each idle watch renews after three seconds inside the
+existing five-second exchange deadline; Quit cancels watches and retries.
+
+Only shared enabled physical GPUs appear remotely. Disabling/removing one removes
+its available card; re-enabling it restores it if its sharing permission remains.
+A disconnected peer's whole Devices section and canvas node disappear; retain
+its existing connection record for recovery. Do not invent durable pairing
+persistence across application restarts. Affected planning/loading/running work
+is interrupted through the existing owned stop path, retaining cleanup gates;
+unrelated local work and ordinary free-memory changes continue.
+
+Retain the last accepted display while a replacement snapshot is read, discard
+superseded replies, and clear failed/disconnected data. Both desktops require the
+updated peer reporter for this live contract. Local TLS fixtures and browser
+fixtures do not establish a successful PTSS deployment or a live hardware test.
+An older approved peer that rejects the live-inventory extension must not be
+classified as disconnected for that reason alone. Recheck the existing approved
+status and shared GPU inventory through the same authenticated connection; retain
+basic inventory with unknown extended facts. Use bounded compatibility refresh
+until both apps support the live reporter. Actual connection/authentication/read
+failure still removes availability. Reporter compatibility never grants approval
+or bypasses sharing, fingerprint, reservation or runtime checks.
