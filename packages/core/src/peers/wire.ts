@@ -1,3 +1,5 @@
+import { decodePeerHardware } from './hardware.js';
+import type { PeerHardware } from './hardware.js';
 export interface PeerGpuView {
   readonly id: string;
   readonly name: string;
@@ -11,6 +13,8 @@ export interface PeerRequestView {
   readonly localVerified: boolean;
   readonly remoteVerified: boolean;
   readonly gpus: readonly PeerGpuView[];
+  readonly hardware?: PeerHardware;
+  readonly address?: string;
 }
 export interface PeerView {
   readonly fingerprint: string;
@@ -32,6 +36,7 @@ export type PeerReply =
   { readonly ok: true; readonly view: PeerView } | { readonly ok: false; readonly error: string };
 export interface PeerBridge {
   command(input: PeerCommand): Promise<PeerReply>;
+  subscribe?(listener: () => void): () => void;
 }
 function invalid(): never {
   throw new Error('INVALID_CONTROL');
@@ -153,6 +158,10 @@ function gpu(input: unknown): PeerGpuView {
   };
 }
 function request(input: unknown): PeerRequestView {
+  const optional =
+    input && typeof input === 'object'
+      ? ['hardware', 'address'].filter((key) => Object.hasOwn(input, key))
+      : [];
   const value = shape(input, [
     'id',
     'name',
@@ -161,6 +170,7 @@ function request(input: unknown): PeerRequestView {
     'localVerified',
     'remoteVerified',
     'gpus',
+    ...optional,
   ]);
   if (!['pending', 'approved', 'declined', 'disconnected'].includes(value.phase as string))
     return invalid();
@@ -172,6 +182,8 @@ function request(input: unknown): PeerRequestView {
     localVerified: boolean(value.localVerified),
     remoteVerified: boolean(value.remoteVerified),
     gpus: array(value.gpus, gpu),
+    ...(value.hardware !== undefined ? { hardware: decodePeerHardware(value.hardware) } : {}),
+    ...(value.address !== undefined ? { address: string(value.address, 255) } : {}),
   };
 }
 export function decodePeerReply(input: unknown): PeerReply {
