@@ -1,45 +1,8 @@
 import { Monitor, Plus } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
+import { OverflowLine } from '../../components/OverflowLine';
+
 import type { DemoDevice } from '../../mocks/cluster';
 import styles from './ClusterPage.module.css';
-
-/** Measure each line separately so fitting text remains still as nearby text scrolls. */
-function OverflowLine({ text }: { text: string }) {
-  const viewport = useRef<HTMLSpanElement>(null);
-  const content = useRef<HTMLSpanElement>(null);
-  const [overflow, setOverflow] = useState(0);
-  useEffect(() => {
-    const measure = () =>
-      setOverflow(
-        Math.max(0, (content.current?.scrollWidth ?? 0) - (viewport.current?.clientWidth ?? 0)),
-      );
-    measure();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(measure);
-    if (viewport.current) observer.observe(viewport.current);
-    if (content.current) observer.observe(content.current);
-    return () => observer.disconnect();
-  }, [text]);
-  return (
-    <span
-      ref={viewport}
-      className={styles.canvasTextViewport}
-      title={text}
-      data-overflow={overflow > 0 ? 'true' : undefined}
-      style={
-        {
-          '--line-scroll': `${-overflow}px`,
-          '--line-duration': `${Math.max(4, overflow / 30)}s`,
-        } as CSSProperties
-      }
-    >
-      <span ref={content} className={styles.canvasTextContent}>
-        {text}
-      </span>
-    </span>
-  );
-}
 
 /** Approved inventory is separate from the user's choice to place a PC on the canvas. */
 export function CanvasDevicePicker({
