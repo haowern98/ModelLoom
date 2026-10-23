@@ -79,6 +79,95 @@ afterEach(async () => {
   }
 });
 
+it('returns local hardware while a remote status check blocks the command queue', async () => {
+  const owner = await PeerOwner.open(await directory(), 'owner');
+  owners.push(owner);
+  const before = await owner.command('owner', { action: 'read' });
+  if (!before.ok) throw Error(before.error);
+  const identity = await openWindowsPeerIdentity();
+  const worker = new PeerNode(identity, 'PTSS', [
+    { id: 'gpu', name: 'Remote GPU', memoryBytes: 4096 },
+  ]);
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let entered!: () => void;
+  const checking = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const status = vi.spyOn(PeerNode.prototype, 'status').mockImplementation(async () => {
+    entered();
+    await blocked;
+    return { phase: 'pending' };
+  });
+  let invitation: Promise<PeerReply> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const address = await worker.share('127.0.0.1', 0, 0, ['gpu']);
+    invitation = owner.command('owner', { action: 'invite', address });
+    await Promise.race([
+      checking,
+      invitation.then((reply) => {
+        throw Error(reply.ok ? 'Remote status was not checked' : reply.error);
+      }),
+    ]);
+    const read = await Promise.race([
+      owner.command('owner', { action: 'read' }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(Error('Local hardware waited for PTSS')), 500);
+      }),
+    ]);
+    expect(read.ok).toBe(true);
+    if (!read.ok) throw Error(read.error);
+    expect(read.view.gpus).toEqual(before.view.gpus);
+    expect(read.view.addresses).toEqual(before.view.addresses);
+    expect(read.view.sharing).toBe(false);
+    expect(await owner.command('other', { action: 'read' })).toEqual({
+      ok: false,
+      error: 'NOT_READY',
+    });
+  } finally {
+    clearTimeout(timer);
+    release();
+    await invitation;
+    status.mockRestore();
+    await worker.close();
+    identity.close();
+  }
+}, 20000);
+
+it('refreshes a declined invitation before its verification code has been entered', async () => {
+  const owner = await PeerOwner.open(await directory(), 'owner');
+  owners.push(owner);
+  const identity = await openWindowsPeerIdentity();
+  const worker = new PeerNode(identity, 'PTSS', [
+    { id: 'gpu', name: 'Remote GPU', memoryBytes: 4096 },
+  ]);
+  try {
+    const address = await worker.share('127.0.0.1', 0, 0, ['gpu']);
+    const invited = await owner.command('owner', { action: 'invite', address });
+    if (!invited.ok) throw Error(invited.error);
+    const id = invited.view.outgoing[0]!.id;
+    await worker.decline(id);
+    await expect
+      .poll(
+        async () => {
+          const read = await owner.command('owner', { action: 'read' });
+          return read.ok && read.view.outgoing.find((peer) => peer.id === id)?.phase;
+        },
+        { timeout: 2000 },
+      )
+      .toBe('declined');
+    const read = await owner.command('owner', { action: 'read' });
+    expect(read.ok && read.view.outgoing[0]?.gpus).toEqual([]);
+    expect(read.ok && read.view.outgoing[0]?.localVerified).toBe(false);
+  } finally {
+    await worker.close();
+    identity.close();
+  }
+}, 20000);
+
 it.each(['INVALID_PEER_MESSAGE', 'UNKNOWN_PEER_OPERATION'])(
   'keeps an approved older peer connected when its reporter rejects the new watch (%s)',
   async (code) => {

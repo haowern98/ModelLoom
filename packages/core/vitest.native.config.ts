@@ -3,6 +3,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: [
+      'src/peers/diagnostics-integration.test.ts',
       'src/peers/sharing-network-policy.test.ts',
       'src/peers/windows-identity.test.ts',
       'src/peers/node-integration.test.ts',

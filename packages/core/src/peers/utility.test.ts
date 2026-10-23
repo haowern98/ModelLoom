@@ -5,6 +5,50 @@ import { PassThrough } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { rpcIpcStream } from './ipc-rpc.js';
 
+it('applies parent runtime activity before acknowledging and rejects renderer activity commands', async () => {
+  let receive!: (message: unknown) => void;
+  const send = vi.fn(),
+    exit = vi.fn(),
+    busy = vi.fn();
+  runPeerUtility(
+    {
+      receive: (handler) => {
+        receive = handler;
+      },
+      send,
+      exit,
+    },
+    () =>
+      Promise.resolve({
+        command: () => Promise.resolve<PeerReply>({ ok: false, error: 'NOT_READY' }),
+        close: () => Promise.resolve(),
+        reserveLocal: () => {
+          throw Error('unused');
+        },
+        releaseLocal: () => undefined,
+        setRuntimeBusy: busy,
+      }),
+  );
+  receive(JSON.stringify({ type: 'admit', applicationData: 'E:/test-peer', caller: 'window' }));
+  await vi.waitFor(() => expect(send).toHaveBeenCalledWith(JSON.stringify({ type: 'ready' })));
+  const id = randomUUID();
+  receive(JSON.stringify({ type: 'runtime-activity', id, busy: true }));
+  await vi.waitFor(() =>
+    expect(send).toHaveBeenCalledWith(JSON.stringify({ type: 'gpu-result', id, ok: true })),
+  );
+  expect(busy).toHaveBeenCalledWith(true);
+  receive(
+    JSON.stringify({
+      type: 'command',
+      id: 1,
+      caller: 'window',
+      command: { action: 'runtime-activity', busy: false },
+    }),
+  );
+  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1));
+  expect(busy).toHaveBeenCalledTimes(1);
+});
+
 it('publishes validated inventory changes and accepts hardware only from its admitted parent', async () => {
   let receive!: (message: unknown) => void;
   let changed!: (reply: PeerReply) => void;

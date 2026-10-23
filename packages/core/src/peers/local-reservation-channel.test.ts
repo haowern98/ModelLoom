@@ -40,3 +40,88 @@ it('does not turn remote identities or unsolicited replies into a local reservat
   );
   client.close();
 });
+
+it('acknowledges runtime activity only after the trusted owner has applied it', async () => {
+  const events: unknown[] = [];
+  const server = localReservationServer(
+    () =>
+      Promise.resolve({
+        reserveLocal: () => {
+          throw Error('unused');
+        },
+        releaseLocal: () => undefined,
+        setRuntimeBusy: (busy: boolean) => {
+          events.push(busy);
+        },
+      }),
+    (reply) => {
+      events.push(reply);
+      client.receive(reply as Record<string, unknown>);
+    },
+  );
+  const client = localReservationClient((request) => {
+    void server(request as Record<string, unknown>);
+  });
+  await client.setBusy(true);
+  await client.setBusy(false);
+  expect(events[0]).toBe(true);
+  expect(events[1]).toMatchObject({ type: 'gpu-result', ok: true });
+  expect(events[2]).toBe(false);
+});
+
+it('rejects malformed activity and owners without runtime activity support', async () => {
+  let called = false;
+  const owner = {
+    reserveLocal: () => {
+      throw Error('unused');
+    },
+    releaseLocal: () => undefined,
+  };
+  const server = localReservationServer(
+    () => Promise.resolve(owner),
+    () => {
+      called = true;
+    },
+  );
+  const activity = {
+    type: 'runtime-activity',
+    id: '11111111-1111-1111-1111-111111111111',
+    busy: true,
+  };
+  for (const busy of [0, 'true', null, undefined])
+    await expect(server({ ...activity, busy })).rejects.toThrow('INVALID_CONTROL');
+  await expect(server({ ...activity, extra: true })).rejects.toThrow('INVALID_CONTROL');
+  await expect(server(activity)).rejects.toThrow('NOT_READY');
+  expect(called).toBe(false);
+});
+
+it('waits for asynchronous probe cancellation before acknowledging activity', async () => {
+  let applied!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    applied = resolve;
+  });
+  const replies: object[] = [];
+  const server = localReservationServer(
+    () =>
+      Promise.resolve({
+        reserveLocal: () => {
+          throw Error('unused');
+        },
+        releaseLocal: () => undefined,
+        setRuntimeBusy: () => pending,
+      }),
+    (reply) => {
+      replies.push(reply);
+    },
+  );
+  const execution = server({
+    type: 'runtime-activity',
+    id: '11111111-1111-1111-1111-111111111111',
+    busy: true,
+  });
+  await Promise.resolve();
+  expect(replies).toEqual([]);
+  applied();
+  await execution;
+  expect(replies).toHaveLength(1);
+});

@@ -25,7 +25,10 @@ it('binds peer management to the admitted caller and stops its retained owner in
     const type: unknown = Reflect.get(value, 'type');
     queueMicrotask(() => {
       if (type === 'admit') events.emit('message', JSON.stringify({ type: 'ready' }));
-      else if (type === 'quit') {
+      else if (type === 'runtime-activity') {
+        const activityId: unknown = Reflect.get(value, 'id');
+        events.emit('message', JSON.stringify({ type: 'gpu-result', id: activityId, ok: true }));
+      } else if (type === 'quit') {
         events.emit('message', JSON.stringify({ type: 'closed' }));
         events.emit('exit', 0);
       } else {
@@ -78,6 +81,12 @@ it('binds peer management to the admitted caller and stops its retained owner in
     ok: false,
     error: 'PEER_UNAVAILABLE',
   });
+  await host.setRuntimeBusy(true);
+  expect(postMessage).toHaveBeenLastCalledWith(
+    expect.stringContaining('"type":"runtime-activity"'),
+  );
+  await host.setRuntimeBusy(false);
+  expect(postMessage).toHaveBeenLastCalledWith(expect.stringContaining('"busy":false'));
   await host.close();
   expect(owned.close).toHaveBeenCalled();
   expect(await host.command('window', { action: 'read' })).toEqual({

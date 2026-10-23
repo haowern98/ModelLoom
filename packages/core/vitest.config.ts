@@ -4,6 +4,7 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
     exclude: [
+      'src/peers/diagnostics-integration.test.ts',
       'src/peers/sharing-network-policy.test.ts',
       'src/peers/windows-identity.test.ts',
       'src/peers/node-integration.test.ts',

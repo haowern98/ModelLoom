@@ -114,6 +114,30 @@ afterEach(() => {
   delete window.modelLoomPeers;
 });
 
+it('replaces failed initial loading with a retry and recovers the GPU inventory', async () => {
+  const command = bridge();
+  command.mockRejectedValueOnce(Error('PEER_UNAVAILABLE'));
+  const user = userEvent.setup();
+  render(<LivePeerPanel kind="share" />);
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('Could not load connection details. Try again.');
+  expect(screen.queryByText('Loading GPUs…')).not.toBeInTheDocument();
+  await user.click(within(alert).getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByRole('checkbox', { name: /GPU one/u })).toBeChecked();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('keeps the last GPU inventory visible when a later read fails', async () => {
+  const command = bridge();
+  const user = userEvent.setup();
+  render(<LivePeerPanel kind="share" />);
+  await screen.findByRole('checkbox', { name: /GPU one/u });
+  command.mockRejectedValueOnce(Error('PEER_UNAVAILABLE'));
+  await user.click(screen.getByRole('button', { name: /Refresh/u }));
+  expect(await screen.findByText('Could not load connection details. Try again.')).toBeVisible();
+  expect(screen.getByRole('checkbox', { name: /GPU one/u })).toBeChecked();
+});
+
 it('uses the app address menu and keeps identity and setup instructions off the page', async () => {
   const command = bridge();
   const user = userEvent.setup();

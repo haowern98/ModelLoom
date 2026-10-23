@@ -1,5 +1,51 @@
 import { expect, it } from 'vitest';
 import { decodePeerCommand, decodePeerReply } from './wire.js';
+import { emptyTelemetry } from './telemetry-view.js';
+
+it('accepts optional telemetry without granting renderer diagnostics controls', () => {
+  const peer = {
+    id: 'request',
+    name: 'Worker',
+    peerFingerprint: 'b'.repeat(64),
+    phase: 'approved',
+    localVerified: true,
+    remoteVerified: true,
+    gpus: [],
+    telemetry: emptyTelemetry(),
+  };
+  const envelope = {
+    ok: true,
+    view: {
+      fingerprint: 'a'.repeat(64),
+      name: 'Local',
+      sharing: false,
+      addresses: [],
+      gpus: [],
+      sharedGpuIds: [],
+      incoming: [],
+      outgoing: [peer],
+    },
+  };
+  expect(decodePeerReply(envelope)).toEqual(envelope);
+  for (const bad of [NaN, Infinity, -1, '4']) {
+    expect(() =>
+      decodePeerReply({
+        ...envelope,
+        view: {
+          ...envelope.view,
+          outgoing: [
+            {
+              ...peer,
+              telemetry: { ...emptyTelemetry(), latencyMs: bad },
+            },
+          ],
+        },
+      }),
+    ).toThrow('INVALID_CONTROL');
+  }
+  expect(() => decodePeerCommand({ action: 'diagnostics', bytes: 1024 })).toThrow();
+  expect(() => decodePeerCommand({ action: 'runtime-activity', busy: false })).toThrow();
+});
 
 it('accepts only six-digit code verification and core-owned approval identities', () => {
   expect(decodePeerCommand({ action: 'verify-code', id: 'request', code: '000123' })).toEqual({

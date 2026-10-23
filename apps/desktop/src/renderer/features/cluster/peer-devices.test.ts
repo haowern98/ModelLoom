@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { peerDevices } from './peer-devices';
+import { emptyTelemetry } from '../../../../../../packages/core/src/peers/telemetry-view';
 import type { PeerView } from '../../../shared/peers';
 
 it('shows only mutually approved GPU inventory, qualified by its installation', () => {
@@ -16,6 +17,7 @@ it('shows only mutually approved GPU inventory, qualified by its installation', 
     localVerified: true,
     remoteVerified: true,
     gpus: [gpu],
+    telemetry: { ...emptyTelemetry(), latencyMs: 3.5 },
   };
   const view: PeerView = {
     fingerprint: 'a'.repeat(64),
@@ -51,6 +53,7 @@ it('shows only mutually approved GPU inventory, qualified by its installation', 
     },
   };
   const device = peerDevices({ ...view, outgoing: [detailed] })[0]!;
+  expect(device.telemetry?.latencyMs).toBe(3.5);
   expect(device.os).toBe('Windows 11');
   expect(device.address).toBe('100.64.0.2');
   expect(device.hardware[0]).toMatchObject({
