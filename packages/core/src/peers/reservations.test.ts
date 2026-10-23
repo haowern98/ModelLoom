@@ -52,12 +52,77 @@ describe('worker GPU reservations', () => {
     expect(reservations.reserveLocal([gpu0]).gpuUuids).toEqual([gpu0]);
   });
 
-  it('admits only one remote assignment even when a different GPU is free', () => {
+  it('allows disjoint handles for the same peer but rejects competing peers and overlap', () => {
     const { reservations } = setup();
     reservations.setShared([gpu0, gpu1]);
     reservations.reserveRemote(peer, [gpu0]);
     expect(() => reservations.reserveRemote(otherPeer, [gpu1])).toThrow('GPU_BUSY');
-    expect(() => reservations.reserveRemote(peer, [gpu1])).toThrow('GPU_BUSY');
+    const second = reservations.reserveRemote(peer, [gpu1]);
+    expect(second.gpuUuids).toEqual([gpu1]);
+    expect(reservations.snapshot().reservations).toHaveLength(2);
+    expect(() => reservations.reserveRemote(peer, [gpu0])).toThrow('GPU_BUSY');
+    expect(() => reservations.reserveRemote(peer, [gpu0, gpu1])).toThrow('GPU_BUSY');
+    expect(() => reservations.reserveLocal([gpu1])).toThrow('GPU_BUSY');
+  });
+
+  it('renews and expires disjoint handles independently without releasing live hardware', () => {
+    const { reservations, advance } = setup();
+    reservations.setShared([gpu0, gpu1]);
+    const first = reservations.reserveRemote(peer, [gpu0]);
+    const second = reservations.reserveRemote(peer, [gpu1]);
+    advance(20_000);
+    expect(reservations.renew(second)).toBe(true);
+    advance(10_000);
+    expect(reservations.pendingRelease()).toEqual([first]);
+    expect(reservations.renew(first)).toBe(false);
+    expect(() => reservations.reserveLocal([gpu0])).toThrow('GPU_BUSY');
+    expect(reservations.confirmReleased(first)).toBe(true);
+    expect(reservations.snapshot().reservations).toEqual([
+      { reservation: second, state: 'active', expiresAt: 50_000 },
+    ]);
+    expect(reservations.reserveLocal([gpu0]).kind).toBe('local');
+    advance(20_000);
+    expect(reservations.pendingRelease()).toEqual([second]);
+  });
+
+  it.each(['sharing', 'hardware'] as const)(
+    'invalidates only affected handles on %s changes',
+    (change) => {
+      const { reservations } = setup();
+      reservations.setShared([gpu0, gpu1]);
+      const first = reservations.reserveRemote(peer, [gpu0]);
+      const second = reservations.reserveRemote(peer, [gpu1]);
+      if (change === 'sharing') reservations.setShared([gpu1]);
+      else reservations.updateDevices([gpu1]);
+      expect(reservations.pendingRelease()).toEqual([first]);
+      expect(reservations.renew(first)).toBe(false);
+      expect(reservations.renew(second)).toBe(true);
+      expect(reservations.confirmReleased(first)).toBe(true);
+      expect(reservations.snapshot().reservations.map((entry) => entry.reservation)).toEqual([
+        second,
+      ]);
+    },
+  );
+
+  it('cannot use stale or copied handles to release another handle owned by the same peer', () => {
+    const { reservations } = setup();
+    reservations.setShared([gpu0, gpu1]);
+    const first = reservations.reserveRemote(peer, [gpu0]);
+    const second = reservations.reserveRemote(peer, [gpu1]);
+    expect(reservations.beginRelease({ ...second })).toBe(false);
+    expect(reservations.confirmReleased({ ...second })).toBe(false);
+    expect(reservations.renew({ ...second })).toBe(false);
+    expect(reservations.beginRelease(first)).toBe(true);
+    expect(reservations.confirmReleased(first)).toBe(true);
+    const replacement = reservations.reserveRemote(peer, [gpu0]);
+    expect(reservations.beginRelease(first)).toBe(false);
+    expect(reservations.confirmReleased(first)).toBe(false);
+    expect(reservations.renew(second)).toBe(true);
+    expect(reservations.renew(replacement)).toBe(true);
+    expect(reservations.pendingRelease()).toEqual([]);
+    expect(reservations.snapshot().reservations.map((entry) => entry.reservation)).toEqual(
+      expect.arrayContaining([second, replacement]),
+    );
   });
 
   it('retains ownership until teardown is confirmed after sharing stops', () => {

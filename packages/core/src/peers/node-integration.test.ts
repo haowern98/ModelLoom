@@ -40,14 +40,16 @@ describe('real TLS peer pairing', () => {
 
   it('does not advertise availability when helper approval fails', async () => {
     const gpu = 'GPU-11111111-1111-1111-1111-111111111111';
+    const closeSharing = vi.fn(async () => {});
     const worker = new PeerNode(my, 'MY', [{ id: gpu, name: 'Fixture', memoryBytes: 4096 }], {
       openSharing: () => Promise.reject(Error('Approval declined')),
-      closeSharing: async () => {},
+      closeSharing,
       start: () => Promise.reject(Error('Not requested')),
     });
     nodes.push(worker);
-    await expect(worker.share('127.0.0.1', 0, 0, [gpu])).rejects.toThrow('PEER_UNAVAILABLE');
+    await expect(worker.share('127.0.0.1', 0, 0, [gpu])).rejects.toThrow('RPC_SHARING_FAILED');
     expect(worker.snapshot().sharing).toBe(false);
+    expect(closeSharing).toHaveBeenCalledOnce();
   });
 
   it('accepts an explicit private port and cancels in-flight invitations on close', async () => {
@@ -68,6 +70,7 @@ describe('real TLS peer pairing', () => {
             certificate: my.certificate.toString('base64'),
             authority: my.authority.toString('base64'),
             securePort: 49302,
+            pairing: 'code-v1',
           }),
         );
       received();
@@ -89,7 +92,7 @@ describe('real TLS peer pairing', () => {
     }
   });
 
-  it('requires both fingerprint confirmations and approval before exposing selected GPUs', async () => {
+  it('requires code verification and approval before exposing selected GPUs', async () => {
     const coordinator = new PeerNode(sg, 'Singapore', []);
     const worker = new PeerNode(my, 'Malaysia', [
       { id: 'gpu-my', name: 'Test GPU', memoryBytes: 4096 },
@@ -103,9 +106,15 @@ describe('real TLS peer pairing', () => {
     await expect(worker.approve(outgoing.id, '0'.repeat(64))).rejects.toThrow(
       'FINGERPRINT_MISMATCH',
     );
-    await worker.approve(outgoing.id, sg.fingerprint);
+    await expect(worker.approve(outgoing.id, sg.fingerprint)).rejects.toThrow(
+      'PAIRING_NOT_VERIFIED',
+    );
+    await coordinator.verifyCode(
+      outgoing.id,
+      worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
+    );
     await expect(coordinator.inventory(outgoing.id)).rejects.toThrow('PEER_NOT_APPROVED');
-    await coordinator.confirm(outgoing.id, my.fingerprint);
+    await worker.approve(outgoing.id, sg.fingerprint);
     expect((await coordinator.status(outgoing.id)).phase).toBe('approved');
     expect(await coordinator.inventory(outgoing.id)).toEqual([
       { id: 'gpu-my', name: 'Test GPU', memoryBytes: 4096 },
@@ -121,8 +130,11 @@ describe('real TLS peer pairing', () => {
     const address = await worker.share('127.0.0.1', 0, 0, ['gpu-my']);
     const outgoing = await coordinator.invite(address);
     await expect(coordinator.watchInventory(outgoing.id, -1)).rejects.toThrow('PEER_NOT_APPROVED');
+    await coordinator.verifyCode(
+      outgoing.id,
+      worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
+    );
     await worker.approve(outgoing.id, sg.fingerprint);
-    await coordinator.confirm(outgoing.id, my.fingerprint);
     await worker.updateHardware({
       os: 'Windows',
       cpuName: 'PTSS CPU',
@@ -165,8 +177,11 @@ describe('real TLS peer pairing', () => {
     nodes.push(coordinator, worker);
     const address = await worker.share('127.0.0.1', 0, 0, [a, b]);
     const invited = await coordinator.invite(address);
+    await coordinator.verifyCode(
+      invited.id,
+      worker.snapshot().incoming.find((p) => p.id === invited.id)!.pairingCode!,
+    );
     await worker.approve(invited.id, sg.fingerprint);
-    await coordinator.confirm(invited.id, my.fingerprint);
     await worker.updateHardware({
       os: 'Windows',
       sampledAt: 1,
@@ -205,8 +220,11 @@ describe('real TLS peer pairing', () => {
     nodes.push(coordinator, worker);
     const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
     const invited = await coordinator.invite(address);
+    await coordinator.verifyCode(
+      invited.id,
+      worker.snapshot().incoming.find((p) => p.id === invited.id)!.pairingCode!,
+    );
     await worker.approve(invited.id, sg.fingerprint);
-    await coordinator.confirm(invited.id, my.fingerprint);
     const opening = coordinator.openRpc(invited.id);
     void opening.catch(() => undefined);
     await starting;
@@ -223,10 +241,12 @@ describe('real TLS peer pairing', () => {
     const address = await worker.share('127.0.0.1', 0, 0, ['only-gpu']);
     const outgoing = await coordinator.invite(address);
     await expect(coordinator.confirm(outgoing.id, sg.fingerprint)).rejects.toThrow(
-      'FINGERPRINT_MISMATCH',
+      'PAIRING_CODE_REQUIRED',
     );
-    worker.decline(outgoing.id);
-    await expect(coordinator.confirm(outgoing.id, my.fingerprint)).rejects.toThrow('PEER_DECLINED');
+    await worker.decline(outgoing.id);
+    await expect(coordinator.confirm(outgoing.id, my.fingerprint)).rejects.toThrow(
+      'PAIRING_CODE_REQUIRED',
+    );
     await worker.stopSharing();
     expect(worker.snapshot().sharing).toBe(false);
   }, 20_000);
@@ -244,7 +264,10 @@ describe('real TLS peer pairing', () => {
     const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
     const outgoing = await coordinator.invite(address);
     await expect(coordinator.openRpc(outgoing.id)).rejects.toThrow('PEER_NOT_APPROVED');
-    await coordinator.confirm(outgoing.id, my.fingerprint);
+    await coordinator.verifyCode(
+      outgoing.id,
+      worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
+    );
     await worker.approve(outgoing.id, sg.fingerprint);
     const stream = await coordinator.openRpc(outgoing.id);
     const response = new Promise<Buffer>((resolve, reject) => {
@@ -290,10 +313,16 @@ describe('real TLS peer pairing', () => {
     nodes.push(coordinator, worker);
     const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
     const outgoing = await coordinator.invite(address);
-    await coordinator.confirm(outgoing.id, my.fingerprint);
+    await coordinator.verifyCode(
+      outgoing.id,
+      worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
+    );
     await worker.approve(outgoing.id, sg.fingerprint);
     try {
       const stream = await coordinator.openRpc(outgoing.id);
+      // A successful handshake must survive the next expired-lease cleanup tick.
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      expect(stream.destroyed).toBe(false);
       const received = new Promise<Buffer>((resolve, reject) => {
         stream.once('data', resolve);
         stream.once('error', reject);
@@ -327,7 +356,10 @@ describe('real TLS peer pairing', () => {
     nodes.push(coordinator, worker);
     const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
     const outgoing = await coordinator.invite(address);
-    await coordinator.confirm(outgoing.id, my.fingerprint);
+    await coordinator.verifyCode(
+      outgoing.id,
+      worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
+    );
     await worker.approve(outgoing.id, sg.fingerprint);
     const stream = await coordinator.openRpc(outgoing.id);
     try {
@@ -335,10 +367,11 @@ describe('real TLS peer pairing', () => {
       const local = worker.reserveLocal([gpu]);
       worker.releaseLocal(local);
       const restarted = await worker.share('127.0.0.1', 0, 0, [gpu]);
-      expect(worker.snapshot().incoming).toEqual([]);
+      expect(worker.snapshot().incoming).toMatchObject([
+        { phase: 'approved', localVerified: true, remoteVerified: true },
+      ]);
       const next = await coordinator.invite(restarted);
-      await coordinator.confirm(next.id, my.fingerprint);
-      await worker.approve(next.id, sg.fingerprint);
+      expect((await coordinator.status(next.id)).phase).toBe('approved');
       const replacement = await coordinator.openRpc(next.id);
       replacement.destroy();
     } finally {
@@ -369,7 +402,10 @@ describe('real TLS peer pairing', () => {
     nodes.push(coordinator, worker);
     const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
     const outgoing = await coordinator.invite(address);
-    await coordinator.confirm(outgoing.id, my.fingerprint);
+    await coordinator.verifyCode(
+      outgoing.id,
+      worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
+    );
     await worker.approve(outgoing.id, sg.fingerprint);
     const stream = await coordinator.openRpc(outgoing.id);
     try {
@@ -401,7 +437,10 @@ describe('real TLS peer pairing', () => {
     );
     const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
     const outgoing = await coordinator.invite(address);
-    await coordinator.confirm(outgoing.id, my.fingerprint);
+    await coordinator.verifyCode(
+      outgoing.id,
+      worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
+    );
     await worker.approve(outgoing.id, sg.fingerprint);
     const stream = await coordinator.openRpc(outgoing.id);
     try {
@@ -430,7 +469,10 @@ describe('real TLS peer pairing', () => {
     );
     const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
     const outgoing = await coordinator.invite(address);
-    await coordinator.confirm(outgoing.id, my.fingerprint);
+    await coordinator.verifyCode(
+      outgoing.id,
+      worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
+    );
     await worker.approve(outgoing.id, sg.fingerprint);
     const stream = await coordinator.openRpc(outgoing.id);
     try {

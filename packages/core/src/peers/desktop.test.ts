@@ -130,63 +130,72 @@ it('allows status verification and the full approved RPC startup budget across I
   }
 });
 
-it('allows time for one sharing approval without extending ordinary peer commands', async () => {
-  vi.useFakeTimers();
-  const events = new EventEmitter();
-  const postMessage = (text: string) => {
-    const value = JSON.parse(text) as { type: string; id?: number };
-    if (value.type === 'admit')
-      queueMicrotask(() => events.emit('message', JSON.stringify({ type: 'ready' })));
-    if (value.type === 'quit')
-      queueMicrotask(() => {
-        events.emit('message', JSON.stringify({ type: 'closed' }));
-        events.emit('exit', 0);
-      });
-    if (value.type === 'command')
-      setTimeout(
-        () =>
-          events.emit(
-            'message',
-            JSON.stringify({
-              type: 'reply',
-              id: value.id,
-              reply: { ok: false, error: 'PEER_UNAVAILABLE' },
-            }),
-          ),
-        35000,
-      );
-  };
-  const host = await createDesktopPeerHost(
-    () => {
-      queueMicrotask(() => {
-        events.emit('spawn');
-        events.emit('message', JSON.stringify({ type: 'booted' }));
-      });
-      return { pid: 1234, postMessage, on: events.on.bind(events), kill: () => true };
-    },
-    'E:/private-profile',
-    'window',
-  );
-  try {
-    const sharing = host
-      .command('window', {
-        action: 'share',
-        address: '100.69.84.91',
-        gpuIds: ['GPU-11111111-1111-1111-1111-111111111111'],
-      })
-      .catch((error: unknown) => String(error));
-    await vi.advanceTimersByTimeAsync(35000);
-    expect(await sharing).toEqual({ ok: false, error: 'PEER_UNAVAILABLE' });
-    const read = host
-      .command('window', { action: 'read' })
-      .catch((error: unknown) => String(error));
-    await vi.advanceTimersByTimeAsync(20000);
-    expect(await read).toContain('PEER_TIMEOUT');
-  } finally {
-    await host.close();
-    vi.useRealTimers();
-  }
-});
+it.each([
+  { gpuCount: 1, replyAfter: 35000 },
+  { gpuCount: 2, replyAfter: 150000 },
+])(
+  'allows sharing admission for $gpuCount GPUs without extending ordinary peer commands',
+  async ({ gpuCount, replyAfter }) => {
+    vi.useFakeTimers();
+    const events = new EventEmitter();
+    const postMessage = (text: string) => {
+      const value = JSON.parse(text) as { type: string; id?: number };
+      if (value.type === 'admit')
+        queueMicrotask(() => events.emit('message', JSON.stringify({ type: 'ready' })));
+      if (value.type === 'quit')
+        queueMicrotask(() => {
+          events.emit('message', JSON.stringify({ type: 'closed' }));
+          events.emit('exit', 0);
+        });
+      if (value.type === 'command')
+        setTimeout(
+          () =>
+            events.emit(
+              'message',
+              JSON.stringify({
+                type: 'reply',
+                id: value.id,
+                reply: { ok: false, error: 'PEER_UNAVAILABLE' },
+              }),
+            ),
+          replyAfter,
+        );
+    };
+    const host = await createDesktopPeerHost(
+      () => {
+        queueMicrotask(() => {
+          events.emit('spawn');
+          events.emit('message', JSON.stringify({ type: 'booted' }));
+        });
+        return { pid: 1234, postMessage, on: events.on.bind(events), kill: () => true };
+      },
+      'E:/private-profile',
+      'window',
+    );
+    try {
+      const sharing = host
+        .command('window', {
+          action: 'share',
+          address: '100.69.84.91',
+          gpuIds: [
+            'GPU-11111111-1111-1111-1111-111111111111',
+            'GPU-22222222-2222-2222-2222-222222222222',
+          ].slice(0, gpuCount),
+        })
+        .catch((error: unknown) => String(error));
+      await vi.advanceTimersByTimeAsync(replyAfter);
+      expect(await sharing).toEqual({ ok: false, error: 'PEER_UNAVAILABLE' });
+      const read = host
+        .command('window', { action: 'read' })
+        .catch((error: unknown) => String(error));
+      await vi.advanceTimersByTimeAsync(20000);
+      expect(await read).toContain('PEER_TIMEOUT');
+    } finally {
+      await host.close();
+      vi.useRealTimers();
+    }
+  },
+);
 
 it.each([
   { receipt: false, code: 0 },

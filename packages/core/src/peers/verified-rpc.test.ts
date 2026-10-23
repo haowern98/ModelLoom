@@ -11,6 +11,7 @@ it('rejects a serialized installation before launching anything', async () => {
   await expect(backend.openSharing(['GPU-13888736-7373-258e-4c34-7c64696954cd'])).rejects.toThrow(
     'UNVERIFIED_PACKAGE',
   );
+  await expect(backend.closeSharing()).resolves.toBeUndefined();
 });
 it('rejects unsupported or multiple selections before package access', async () => {
   const install = vi.fn();

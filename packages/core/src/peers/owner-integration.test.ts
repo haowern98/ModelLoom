@@ -11,6 +11,60 @@ import type { IncomingMessage } from 'node:http';
 const parent = path.resolve('out/peer-owner-tests');
 const roots: string[] = [],
   owners: PeerOwner[] = [];
+it('opens each approved physical GPU independently without choosing another shared GPU', async () => {
+  const owner = await PeerOwner.open(await directory(), 'owner');
+  owners.push(owner);
+  const identity = await openWindowsPeerIdentity();
+  const gpuA = 'GPU-11111111-1111-1111-1111-111111111111';
+  const gpuB = 'GPU-22222222-2222-2222-2222-222222222222';
+  const unshared = 'GPU-33333333-3333-3333-3333-333333333333';
+  const start = vi.fn((gpuIds: readonly string[]) => {
+    const stream = new PassThrough();
+    stream.write(Buffer.from(gpuIds.join(',')));
+    return Promise.resolve({
+      stream,
+      close: () => {
+        stream.destroy();
+        return Promise.resolve();
+      },
+    });
+  });
+  const worker = new PeerNode(
+    identity,
+    'Two GPU worker',
+    [gpuA, gpuB, unshared].map((id) => ({
+      id,
+      name: id,
+      memoryBytes: 4096,
+    })),
+    { start },
+  );
+  try {
+    const address = await worker.share('127.0.0.1', 0, 0, [gpuA, gpuB]);
+    const invited = await owner.command('owner', { action: 'invite', address });
+    if (!invited.ok) throw Error(invited.error);
+    const peer = invited.view.outgoing[0]!;
+    const verified = await owner.command('owner', {
+      action: 'verify-code',
+      id: peer.id,
+      code: worker.snapshot().incoming.find((value) => value.id === peer.id)!.pairingCode!,
+    });
+    expect(verified.ok).toBe(true);
+    await worker.approve(peer.id, invited.view.fingerprint);
+    const first = await owner.openRpc(`peer:${identity.fingerprint}:${gpuA}`);
+    const second = await owner.openRpc(`peer:${identity.fingerprint}:${gpuB}`);
+    expect(start.mock.calls.map(([ids]) => ids)).toEqual([[gpuA], [gpuB]]);
+    first.destroy();
+    second.destroy();
+    await expect(owner.openRpc(`peer:${identity.fingerprint}:${unshared}`)).rejects.toThrow(
+      'GPU_NOT_SHARED',
+    );
+    expect(start).toHaveBeenCalledTimes(2);
+  } finally {
+    await worker.close();
+    identity.close();
+  }
+}, 30000);
 async function directory() {
   await mkdir(parent, { recursive: true });
   const root = await mkdtemp(path.join(parent, 'test-'));
@@ -49,13 +103,15 @@ it.each(['INVALID_PEER_MESSAGE', 'UNKNOWN_PEER_OPERATION'])(
       const invited = await owner.command('owner', { action: 'invite', address });
       if (!invited.ok) throw Error('Fixture invitation failed');
       const peer = invited.view.outgoing[0]!;
-      await worker.approve(peer.id, invited.view.fingerprint);
-      await owner.command('owner', {
-        action: 'confirm',
+
+      const verified = await owner.command('owner', {
+        action: 'verify-code',
         id: peer.id,
-        fingerprint: identity.fingerprint,
+        code: worker.snapshot().incoming.find((p) => p.id === peer.id)!.pairingCode!,
       });
-      await vi.waitFor(() => expect(unsupported).toHaveBeenCalled());
+      expect(verified).toMatchObject({ ok: true });
+      await worker.approve(peer.id, invited.view.fingerprint);
+      await vi.waitFor(() => expect(unsupported).toHaveBeenCalled(), { timeout: 5000 });
       await vi.waitFor(async () => {
         const read = await owner.command('owner', { action: 'read' });
         expect(read.ok && read.view.outgoing[0]?.phase).toBe('approved');
@@ -93,24 +149,28 @@ it('publishes remote hardware changes without a read-feedback loop and removes d
     const invited = await owner.command('owner', { action: 'invite', address });
     if (!invited.ok) throw Error('Fixture invitation failed');
     const peer = invited.view.outgoing[0]!;
-    await worker.approve(peer.id, invited.view.fingerprint);
+
     await worker.updateHardware({
       os: 'Remote Windows',
       cpuName: 'PTSS CPU',
       sampledAt: 1,
       gpus: [{ id: 'gpu-test', name: 'Remote GPU', memoryBytes: 4096 }],
     });
-    await owner.command('owner', {
-      action: 'confirm',
+    const verified = await owner.command('owner', {
+      action: 'verify-code',
       id: peer.id,
-      fingerprint: identity.fingerprint,
+      code: worker.snapshot().incoming.find((p) => p.id === peer.id)!.pairingCode!,
     });
-    await vi.waitFor(() =>
-      expect(
-        changed.mock.calls.some(
-          ([reply]) => reply.ok && reply.view.outgoing[0]?.hardware?.cpuName === 'PTSS CPU',
-        ),
-      ).toBe(true),
+    expect(verified).toMatchObject({ ok: true });
+    await worker.approve(peer.id, invited.view.fingerprint);
+    await vi.waitFor(
+      () =>
+        expect(
+          changed.mock.calls.some(
+            ([reply]) => reply.ok && reply.view.outgoing[0]?.hardware?.cpuName === 'PTSS CPU',
+          ),
+        ).toBe(true),
+      { timeout: 5000 },
     );
     changed.mockClear();
     const read = await owner.command('owner', { action: 'read' });
@@ -197,7 +257,7 @@ it('does not advertise sharing when its verified runtime cannot be installed', a
   expect(start).not.toHaveBeenCalled();
 }, 20_000);
 
-it('uses fresh approval after revocation while rejecting pending and ambiguous connections', async () => {
+it('uses fresh approval after revocation and deduplicates remembered connections', async () => {
   const owner = await PeerOwner.open(await directory(), 'owner');
   owners.push(owner);
   const identity = await openWindowsPeerIdentity();
@@ -246,19 +306,19 @@ it('uses fresh approval after revocation while rejecting pending and ambiguous c
     };
     const confirm = async (id: string) => {
       const result = await owner.command('owner', {
-        action: 'confirm',
+        action: 'verify-code',
         id,
-        fingerprint: identity.fingerprint,
+        code: worker.snapshot().incoming.find((p) => p.id === id)!.pairingCode!,
       });
       if (!result.ok) throw Error(result.error);
     };
     const first = await invite();
     const local = await owner.command('owner', { action: 'read' });
     if (!local.ok) throw Error(local.error);
-    await worker.approve(first, local.view.fingerprint);
     await confirm(first);
+    await worker.approve(first, local.view.fingerprint);
     expect(await owner.resources(device)).toEqual(resources);
-    worker.decline(first);
+    await worker.decline(first);
     await expect(owner.resources(device)).rejects.toThrow();
     await expect(owner.openRpc(device)).rejects.toThrow();
     const second = await invite();
@@ -271,10 +331,15 @@ it('uses fresh approval after revocation while rejecting pending and ambiguous c
     const stream = await owner.openRpc(device);
     stream.destroy();
     const third = await invite();
-    await worker.approve(third, local.view.fingerprint);
-    await confirm(third);
-    await expect(owner.resources(device)).rejects.toThrow('PEER_NOT_APPROVED');
-    await expect(owner.openRpc(device)).rejects.toThrow('PEER_NOT_APPROVED');
+    const reconnected = await owner.command('owner', { action: 'read' });
+    expect(reconnected.ok && reconnected.view.outgoing.find((p) => p.id === third)?.phase).toBe(
+      'approved',
+    );
+    expect(
+      reconnected.ok &&
+        reconnected.view.outgoing.filter((p) => p.peerFingerprint === identity.fingerprint),
+    ).toHaveLength(1);
+    expect(await owner.resources(device)).toEqual(resources);
   } finally {
     await worker.close();
     identity.close();
