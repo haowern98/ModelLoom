@@ -850,7 +850,6 @@ Requests destination and header action trio described earlier in this document.
   approval alone must not be labelled as a verified live connection. Demo actions
   remain explicitly simulated and never alter live placement or authorization.
 
-
 ### Devices grouping and direct navigation (2026-10-22)
 
 The approved Devices revision stacks PCs vertically, with System, CPU, Memory
@@ -953,3 +952,38 @@ cleanup. A later human-approved app startup also loaded the verified helper upda
 enabled sharing with both GPUs selected, and allowed PTSS to reach both actual
 Electron listeners. These checks do not establish fresh app pairing, inference or
 production release readiness.
+
+### Default shared GPU selection (2026-10-24)
+
+All detected GPUs start checked in Shared hardware. Newly detected GPUs also
+start checked. Keep explicit unticks through inventory refreshes while the panel
+is open, including when that GPU disappears and returns. Removed GPUs must not
+remain in a sharing request. If every available GPU is unticked, disable Allow
+connections until at least one is selected. Selection alone does not start
+sharing; the user still enables Allow connections. While sharing is active,
+display the actual shared GPU IDs and keep selection controls disabled. This
+revision does not add persistent preferences across app restarts.
+
+### Canvas edge add affordance (2026-10-24)
+
+The approved mockup replaces the always-visible single-node plus with one add
+button per hovered or keyboard-focused card, positioned on the edge nearest the
+pointer. It can occupy the top, right, bottom or left edge; never display four
+pluses together on one card. Keep the active edge pinned while its picker is
+open and retain it while crossing onto the button outside the card. Use a quiet
+150ms opacity fade, without moving animations, and disable the fade for reduced
+motion. Keyboard focus reveals the control; arrow keys choose its edge and
+Enter opens the existing picker.
+
+A lone card shows the small muted hint "Hover near an edge to add a device."
+beneath it. Fade the hint out on hover or focus. After the first successful
+addition, retain dismissal as an optional local presentation preference; denied
+browser storage falls back to dismissal for the current page session.
+
+The chosen PC is added on the selected side of the source card. Occupied cells
+move the new card farther along that direction; automatic row heights prevent
+overlap between cards of different heights. Neutral dotted lines describe canvas
+placement only. They do not invent latency, authenticated network links, or
+inference order. Layer assignments remain authoritative. Removing or losing a
+card removes its displayed placement lines. Existing loading, running, planning,
+saving and removal restrictions remain in effect.
