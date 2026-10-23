@@ -137,7 +137,6 @@ it('uses the app address menu and keeps identity and setup instructions off the 
   await user.click(trigger);
   await user.keyboard('{Escape}');
   expect(trigger).toHaveFocus();
-  await user.click(screen.getByRole('checkbox', { name: /GPU one/u }));
   await user.click(screen.getByRole('switch', { name: 'Allow connections' }));
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith({
@@ -149,13 +148,20 @@ it('uses the app address menu and keeps identity and setup instructions off the 
   expect(trigger).toBeDisabled();
 });
 
-it('requires explicit GPU selection before starting sharing', async () => {
+it('selects detected GPUs by default but requires explicitly starting sharing', async () => {
   const command = bridge(),
     user = userEvent.setup();
   render(<LivePeerPanel kind="share" />);
   const toggle = await screen.findByRole('switch', { name: 'Allow connections' });
-  expect(toggle).toBeDisabled();
+  expect(toggle).toBeEnabled();
+  expect(toggle).not.toBeChecked();
+  expect(screen.getByRole('checkbox', { name: /GPU one/u })).toBeChecked();
+  expect(command).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'share' }));
   await user.click(screen.getByRole('checkbox', { name: /GPU one/u }));
+  expect(toggle).toBeDisabled();
+  expect(command).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'share' }));
+  await user.click(screen.getByRole('checkbox', { name: /GPU one/u }));
+  expect(toggle).toBeEnabled();
   await user.click(toggle);
   await waitFor(() =>
     expect(command).toHaveBeenCalledWith({
@@ -353,7 +359,6 @@ it('reports local GPU sharing startup failure and leaves sharing off for retry',
   render(<LivePeerPanel kind="share" />);
   const toggle = await screen.findByRole('switch', { name: 'Allow connections' });
   const gpu = screen.getByRole('checkbox', { name: /GPU one/u });
-  await user.click(gpu);
   command.mockRejectedValueOnce(new Error('RPC_SHARING_FAILED'));
   await user.click(toggle);
   expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -375,7 +380,6 @@ it('shows sharing startup beside the label only until the share command finishes
     user = userEvent.setup();
   render(<LivePeerPanel kind="share" />);
   const toggle = await screen.findByRole('switch', { name: 'Allow connections' });
-  await user.click(screen.getByRole('checkbox', { name: /GPU one/u }));
   let rejectShare: (error: Error) => void = () => {
     throw Error('Share not started');
   };
@@ -451,5 +455,105 @@ it('does not show sharing startup during a manual refresh', async () => {
   await act(() => {
     finish();
     return Promise.resolve();
+  });
+});
+
+it('defaults all GPUs on and preserves exclusions across refreshed hardware changes', async () => {
+  let view: PeerView = {
+    fingerprint,
+    name: 'This PC',
+    sharing: false,
+    addresses: ['192.168.1.2'],
+    gpus: [
+      { id: 'one', name: 'First GPU', memoryBytes: 4096 },
+      { id: 'two', name: 'Second GPU', memoryBytes: 8192 },
+    ],
+    sharedGpuIds: [],
+    incoming: [],
+    outgoing: [],
+  };
+  const command = vi.fn((request: PeerCommand) => {
+    if (request.action === 'share') view = { ...view, sharing: true, sharedGpuIds: request.gpuIds };
+    return Promise.resolve({ ok: true as const, view: structuredClone(view) });
+  });
+  window.modelLoomPeers = { command };
+  const user = userEvent.setup();
+  render(<LivePeerPanel kind="share" />);
+  const first = await screen.findByRole('checkbox', { name: /First GPU/u });
+  expect(first).toBeChecked();
+  expect(screen.getByRole('checkbox', { name: /Second GPU/u })).toBeChecked();
+  expect(screen.getByRole('switch', { name: 'Allow connections' })).not.toBeChecked();
+  await user.click(first);
+  view = { ...view, gpus: [...view.gpus, { id: 'three', name: 'Third GPU', memoryBytes: 16384 }] };
+  await user.click(screen.getByRole('button', { name: 'Refresh connections' }));
+  expect(screen.getByRole('checkbox', { name: /First GPU/u })).not.toBeChecked();
+  expect(screen.getByRole('checkbox', { name: /Third GPU/u })).toBeChecked();
+  view = { ...view, gpus: view.gpus.filter((gpu) => gpu.id !== 'one' && gpu.id !== 'two') };
+  await user.click(screen.getByRole('button', { name: 'Refresh connections' }));
+  view = { ...view, gpus: [...view.gpus, { id: 'one', name: 'First GPU', memoryBytes: 4096 }] };
+  await user.click(screen.getByRole('button', { name: 'Refresh connections' }));
+  expect(screen.getByRole('checkbox', { name: /First GPU/u })).not.toBeChecked();
+  await user.click(screen.getByRole('switch', { name: 'Allow connections' }));
+  expect(command).toHaveBeenCalledWith({
+    action: 'share',
+    address: '192.168.1.2',
+    gpuIds: ['three'],
+  });
+});
+
+it('uses the active shared GPU list rather than defaults while sharing', async () => {
+  window.modelLoomPeers = {
+    command: () =>
+      Promise.resolve({
+        ok: true,
+        view: {
+          fingerprint,
+          name: 'This PC',
+          sharing: true,
+          addresses: ['192.168.1.2'],
+          gpus: [
+            { id: 'one', name: 'First GPU', memoryBytes: 4096 },
+            { id: 'two', name: 'Second GPU', memoryBytes: 8192 },
+          ],
+          sharedGpuIds: ['one'],
+          incoming: [],
+          outgoing: [],
+        },
+      }),
+  };
+  render(<LivePeerPanel kind="share" />);
+  const first = await screen.findByRole('checkbox', { name: /First GPU/u });
+  const second = screen.getByRole('checkbox', { name: /Second GPU/u });
+  expect(first).toBeChecked();
+  expect(first).toBeDisabled();
+  expect(second).not.toBeChecked();
+  expect(second).toBeDisabled();
+});
+
+it('starts sharing both detected GPUs only after the switch is clicked', async () => {
+  const view: PeerView = {
+    fingerprint,
+    name: 'This PC',
+    sharing: false,
+    addresses: ['192.168.1.2'],
+    gpus: [
+      { id: 'one', name: 'First GPU', memoryBytes: 4096 },
+      { id: 'two', name: 'Second GPU', memoryBytes: 8192 },
+    ],
+    sharedGpuIds: [],
+    incoming: [],
+    outgoing: [],
+  };
+  const command = vi.fn(() => Promise.resolve({ ok: true as const, view }));
+  window.modelLoomPeers = { command };
+  const user = userEvent.setup();
+  render(<LivePeerPanel kind="share" />);
+  await screen.findByRole('checkbox', { name: /First GPU/u });
+  expect(command).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'share' }));
+  await user.click(screen.getByRole('switch', { name: 'Allow connections' }));
+  expect(command).toHaveBeenCalledWith({
+    action: 'share',
+    address: '192.168.1.2',
+    gpuIds: ['one', 'two'],
   });
 });

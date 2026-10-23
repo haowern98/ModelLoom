@@ -1,12 +1,14 @@
 import { useReducer } from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { ClusterPage } from './ClusterPage';
 import { useClusterConfigurations } from './useClusterConfigurations';
 import { createDemoLibrary } from '../../mocks/modelLibrary';
 import { createDemoPlacement, demoDevices } from '../../mocks/cluster';
 import { createDemoJoining, transitionDemoJoining } from '../../mocks/clusterJoining';
+
+afterEach(() => localStorage.removeItem('modelloom.canvas-edge-add-discovered'));
 
 function Cluster({
   demo = true,
@@ -154,6 +156,60 @@ it('keeps a newly approved peer off the canvas until its PC card is chosen', asy
   await user.click(within(empty).getByRole('button', { name: 'Add device in Connections' }));
   expect(screen.getByRole('tabpanel', { name: 'Add device' })).toBeVisible();
 });
+
+it.each(['top', 'right', 'bottom', 'left'] as const)(
+  'adds an approved PC on the chosen %s edge and dismisses the hint',
+  async (edge) => {
+    const user = userEvent.setup();
+    const local = { ...demoDevices[0]!, id: 'local' };
+    const remote = { ...demoDevices[1]!, id: 'peer:approved', name: 'Approved PC' };
+    render(
+      <ClusterPage
+        demo={false}
+        joining={createDemoJoining()}
+        onJoining={vi.fn()}
+        devices={[local, remote]}
+        onRenameDevice={vi.fn()}
+        activeModel={undefined}
+        models={[]}
+        placement={createDemoPlacement(null)}
+        dispatch={vi.fn()}
+        onStop={vi.fn()}
+        localRuntime={{ loading: false, onChoose: vi.fn(), onRun: vi.fn() }}
+      />,
+    );
+    expect(screen.getByText('Hover near an edge to add a device.')).toBeInTheDocument();
+    const add = screen.getByRole('button', { name: `Add device near ${local.name}` });
+    add.focus();
+    await user.keyboard(
+      { top: '{ArrowUp}', right: '{ArrowRight}', bottom: '{ArrowDown}', left: '{ArrowLeft}' }[edge],
+    );
+    await user.keyboard('{Enter}');
+    expect(add).toHaveAttribute('data-edge', edge);
+    await user.click(screen.getByRole('button', { name: 'Add Approved PC to canvas' }));
+    const origin = screen.getByRole('article', { name: local.name }).parentElement!;
+    const added = screen.getByRole('article', { name: remote.name }).parentElement!;
+    const column = Number(added.style.gridColumn) - Number(origin.style.gridColumn);
+    const row = Number(added.style.gridRow) - Number(origin.style.gridRow);
+    expect({ column, row }).toEqual(
+      {
+        top: { column: 0, row: -1 },
+        right: { column: 1, row: 0 },
+        bottom: { column: 0, row: 1 },
+        left: { column: -1, row: 0 },
+      }[edge],
+    );
+    expect(screen.getByRole('img', { name: 'Canvas layout connections' })).toBeInTheDocument();
+    expect(localStorage.getItem('modelloom.canvas-edge-add-discovered')).toBe('true');
+    expect(screen.queryByText('Hover near an edge to add a device.')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Actions for Approved PC' }));
+    await user.click(screen.getByRole('button', { name: 'Remove from canvas' }));
+    expect(screen.queryByText('Hover near an edge to add a device.')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('img', { name: 'Canvas layout connections' }),
+    ).not.toBeInTheDocument();
+  },
+);
 
 it('disables remote removal while a model is loading or running', async () => {
   const user = userEvent.setup();
