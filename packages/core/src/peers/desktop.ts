@@ -259,7 +259,7 @@ export async function createDesktopPeerHost(
             reject(new Error('PEER_TIMEOUT'));
           },
           command.action === 'share'
-            ? SHARING_APPROVAL_MS + 15000
+            ? SHARING_APPROVAL_MS + PEER_CLEANUP_MS + 1000
             : command.action === 'stop-sharing'
               ? PEER_CLEANUP_MS + 1000
               : 20000,

@@ -22,6 +22,9 @@ export interface OwnedPeerRpc {
 export interface PeerRpcBackend {
   /** Local sharing admission only. Remote start must never acquire elevation. */
   openSharing?(gpuIds: readonly string[]): Promise<void>;
+  /** Trusted local network admission after listeners bind, before sharing becomes
+   * available. Loss closes admission; callers cannot supply programs or ports. */
+  openNetwork?(address: string, lost: () => void): Promise<void>;
   /** Called after admission closes; confirm worker/helper cleanup before release. */
   closeSharing?(): Promise<void>;
   start(gpuIds: readonly string[]): Promise<OwnedPeerRpc>;
@@ -40,7 +43,10 @@ export function connectPeerRpc(
   identity: WindowsPeerIdentity,
   target: PeerRpcTarget,
   signal?: AbortSignal,
+  gpuId?: string,
 ): Promise<Duplex> {
+  if (gpuId !== undefined && !/^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(gpuId))
+    return Promise.reject(new Error('INVALID_GPU_RESERVATION'));
   validatePeerCertificate(target.certificate, target.authority);
   return new Promise((resolve, reject) => {
     const abort = new AbortController();
@@ -57,7 +63,11 @@ export function connectPeerRpc(
       method: 'POST',
       agent: false,
       timeout: rpcUpgradeTimeout,
-      headers: { Connection: 'Upgrade', Upgrade: 'ModelLoom-RPC/1' },
+      headers: {
+        Connection: 'Upgrade',
+        Upgrade: 'ModelLoom-RPC/1',
+        ...(gpuId !== undefined ? { 'X-ModelLoom-GPU': gpuId } : {}),
+      },
       pfx: identity.pfx,
       ca: new X509Certificate(target.authority).toString(),
       rejectUnauthorized: true,

@@ -18,6 +18,8 @@ import { decodePeerResources } from './resources.js';
 import type { PeerResources } from './resources.js';
 import { decodePeerHardware } from './hardware.js';
 import type { PeerHardware } from './hardware.js';
+import { CodePairing, verifyPairingCode } from './pairing-code.js';
+import type { PeerTrust } from './trust-store.js';
 
 export interface PeerGpu {
   readonly id: string;
@@ -26,6 +28,8 @@ export interface PeerGpu {
 }
 type Phase = 'pending' | 'approved' | 'declined';
 interface Incoming {
+  pairing?: CodePairing;
+  allowedGpuIds?: readonly string[];
   id: string;
   name: string;
   peerFingerprint: string;
@@ -45,6 +49,14 @@ interface Outgoing {
   address: string;
   securePort: number;
   verified: boolean;
+  expires?: number;
+}
+interface ActiveRpc {
+  id: string;
+  socket: Duplex;
+  owned: OwnedPeerRpc;
+  reservation: GpuReservation;
+  closing?: Promise<void>;
 }
 const invalid = (code = 'INVALID_PEER_MESSAGE'): never => {
   throw new Error(code);
@@ -194,23 +206,19 @@ export class PeerNode {
   private starting = false;
   private securePort = 0;
   private rate: number[] = [];
+  private codeRate: number[] = [];
   private revision = 0;
   private reservations: GpuReservations | undefined;
-  private activeRpc:
-    | {
-        id: string;
-        socket: Duplex;
-        owned: OwnedPeerRpc;
-        reservation: GpuReservation;
-        closing?: Promise<void>;
-      }
-    | undefined;
-  private rpcSettling: Promise<void> = Promise.resolve();
+  private readonly activeRpc = new Map<GpuReservation, ActiveRpc>();
   private rpcFailed = false;
   private rpcTimer: ReturnType<typeof setInterval> | undefined;
   private rpcPreparations = new Set<Promise<void>>();
   private readonly lifetime = new AbortController();
   private invitations = 0;
+  private trusted = new Map<string, PeerTrust>();
+  private trustReady = new Set<string>();
+  private trustSaving: Promise<void> = Promise.resolve();
+  private trustPending = new Map<string, Promise<void>>();
   private outgoingRpc = new Set<Duplex>();
   private hardware: PeerHardware | undefined;
   private inventoryRevision = 0;
@@ -222,7 +230,29 @@ export class PeerNode {
     private gpus: readonly PeerGpu[],
     private readonly rpcBackend?: PeerRpcBackend,
     private readonly timing = { startup: 20000, stop: 25000 },
+    private readonly trust?: {
+      initial: readonly PeerTrust[];
+      save(records: readonly PeerTrust[]): Promise<void>;
+    },
   ) {
+    for (const record of trust?.initial ?? []) {
+      const key = `${record.direction}:${record.fingerprint}`;
+      this.trusted.set(key, record);
+      this.trustReady.add(key);
+      if (record.direction === 'outgoing')
+        this.outgoing.set(randomUUID(), {
+          id: '',
+          name: record.name,
+          peerFingerprint: record.fingerprint,
+          certificate: Buffer.from(record.certificate, 'base64'),
+          authority: Buffer.from(record.authority, 'base64'),
+          address: record.address!,
+          securePort: record.securePort!,
+          verified: true,
+        });
+    }
+    for (const [id, peer] of this.outgoing) peer.id = id;
+    this.restoreIncomingTrust();
     text(name);
     if (gpus.length > 16 || new Set(gpus.map((gpu) => gpu.id)).size !== gpus.length)
       invalid('INVALID_GPU_INVENTORY');
@@ -238,6 +268,55 @@ export class PeerNode {
         15000,
         () => performance.now(),
       );
+  }
+  private saveTrust(): Promise<void> {
+    const records = [...this.trusted.values()];
+    this.trustSaving = this.trustSaving
+      .catch(() => undefined)
+      .then(() => this.trust?.save(records));
+    return this.trustSaving;
+  }
+  private restoreIncomingTrust(): void {
+    for (const record of this.trusted.values()) {
+      if (
+        record.direction !== 'incoming' ||
+        !this.trustReady.has(`incoming:${record.fingerprint}`) ||
+        [...this.incoming.values()].some(
+          (p) => p.peerFingerprint === record.fingerprint && p.phase === 'approved',
+        )
+      )
+        continue;
+      const id = randomUUID();
+      this.incoming.set(id, {
+        id,
+        name: record.name,
+        peerFingerprint: record.fingerprint,
+        certificate: Buffer.from(record.certificate, 'base64'),
+        authority: Buffer.from(record.authority, 'base64'),
+        localVerified: true,
+        remoteVerified: true,
+        phase: 'approved',
+        expires: Infinity,
+        allowedGpuIds: record.gpuIds,
+      });
+    }
+  }
+  private known(direction: PeerTrust['direction'], fingerprint: string): PeerTrust | undefined {
+    const key = `${direction}:${fingerprint}`;
+    return this.trustReady.has(key) ? this.trusted.get(key) : undefined;
+  }
+  rememberedAddresses(): string[] {
+    return [...this.trusted.values()]
+      .filter((p) => p.direction === 'outgoing' && this.trustReady.has(`outgoing:${p.fingerprint}`))
+      .map((p) => p.address!);
+  }
+  private allowed(peer: Incoming): PeerGpu[] {
+    return this.gpus.filter(
+      (g) => this.shared.has(g.id) && (peer.allowedGpuIds?.includes(g.id) ?? false),
+    );
+  }
+  async flushTrust(): Promise<void> {
+    await this.trustSaving;
   }
   /** Only trusted parent observations enter here; remote inventory is never applied locally. */
   async updateHardware(input: PeerHardware): Promise<void> {
@@ -268,8 +347,12 @@ export class PeerNode {
       );
     }
     this.inventoryChanged();
-    if (this.activeRpc && this.reservations?.pendingRelease().includes(this.activeRpc.reservation))
-      await this.stopRpc();
+    const pending = this.reservations?.pendingRelease() ?? [];
+    await Promise.all(
+      [...this.activeRpc.values()]
+        .filter((entry) => pending.includes(entry.reservation))
+        .map((entry) => this.stopRpc(entry)),
+    );
   }
   private inventoryChanged(): void {
     ++this.inventoryRevision;
@@ -335,19 +418,26 @@ export class PeerNode {
         phase: value.phase,
         localVerified: value.localVerified,
         remoteVerified: value.remoteVerified,
+        ...(value.phase === 'pending' && !value.remoteVerified && value.pairing
+          ? { pairingCode: value.pairing.code }
+          : {}),
       })),
       outgoing: [...this.outgoing.values()].map((value) => ({
         id: value.id,
         name: value.name,
         peerFingerprint: value.peerFingerprint,
         verified: value.verified,
+        address: value.address,
       })),
     };
   }
   private expire(): void {
     const now = performance.now();
     for (const [id, value] of this.incoming)
-      if (value.phase !== 'approved' && value.expires <= now) this.incoming.delete(id);
+      if (value.phase !== 'approved' && value.expires <= now) {
+        value.pairing?.close();
+        this.incoming.delete(id);
+      }
   }
   private refreshTrust(): void {
     this.secure?.setSecureContext({
@@ -458,23 +548,57 @@ export class PeerNode {
       this.rpcPreparations.add(work);
     });
     try {
-      await this.rpcBackend?.openSharing?.(selected);
+      try {
+        await this.rpcBackend?.openSharing?.(selected);
+      } catch (error) {
+        throw Error('RPC_SHARING_FAILED', { cause: error });
+      }
       if (revision !== this.revision) return invalid('SHARING_STOPPED');
       this.securePort = await listen(this.secure, host, securePort);
       const port = await listen(this.bootstrap, host, bootstrapPort);
       if (revision !== this.revision) return invalid('SHARING_STOPPED');
+      let networkLost = false;
+      try {
+        await this.rpcBackend?.openNetwork?.(host, () => {
+          networkLost = true;
+          if (revision !== this.revision) return;
+          if (this.active)
+            void this.stopSharing().catch(() => {
+              this.rpcFailed = true;
+            });
+        });
+      } catch (error) {
+        throw Error(
+          error instanceof Error && error.message === 'SHARING_FIREWALL_PERMISSION_DENIED'
+            ? error.message
+            : 'SHARING_FIREWALL_FAILED',
+          { cause: error },
+        );
+      }
+      if (revision !== this.revision || networkLost) return invalid('SHARING_STOPPED');
       this.active = true;
       if (this.reservations)
         this.rpcTimer = setInterval(() => {
           const pending = this.reservations!.pendingRelease();
-          if (this.activeRpc && pending.includes(this.activeRpc.reservation))
-            void this.stopRpc().catch(() => {
-              this.rpcFailed = true;
-            });
+          for (const entry of this.activeRpc.values())
+            if (pending.includes(entry.reservation))
+              void this.stopRpc(entry).catch(() => {
+                this.rpcFailed = true;
+              });
         }, 1000);
       return `http://${host}:${port}/`;
-    } catch {
+    } catch (error) {
       await this.stopSharing();
+      if (
+        error instanceof Error &&
+        [
+          'RPC_SHARING_FAILED',
+          'SHARING_FIREWALL_FAILED',
+          'SHARING_FIREWALL_PERMISSION_DENIED',
+          'SHARING_STOPPED',
+        ].includes(error.message)
+      )
+        throw error;
       return invalid('PEER_UNAVAILABLE');
     } finally {
       this.starting = false;
@@ -491,14 +615,46 @@ export class PeerNode {
       return invalid('NOT_SHARING');
     const now = performance.now();
     this.rate = this.rate.filter((value) => now - value < 60000);
-    if (this.rate.length >= 8 || this.incoming.size >= 8) return invalid('PAIRING_LIMIT');
+    if (this.rate.length >= 8) return invalid('PAIRING_LIMIT');
     this.rate.push(now);
-    const input = object(await body(request), ['name', 'certificate', 'authority']);
+    const input = object(await body(request), [
+      'name',
+      'certificate',
+      'authority',
+      'rememberedFingerprint',
+    ]);
+    if (
+      input.rememberedFingerprint !== null &&
+      (typeof input.rememberedFingerprint !== 'string' ||
+        !/^[a-f0-9]{64}$/u.test(input.rememberedFingerprint))
+    )
+      return invalid();
     if (!this.active) return invalid('NOT_SHARING');
     const cert = certificate(input.certificate),
       authority = certificate(input.authority),
       fingerprint = validatePeerCertificate(cert, authority);
     if (fingerprint === this.identity.fingerprint) return invalid('SAME_PEER');
+    const remembersReceiver = input.rememberedFingerprint === this.identity.fingerprint;
+    const existing = remembersReceiver
+      ? [...this.incoming.values()].find(
+          (p) => p.peerFingerprint === fingerprint && p.phase === 'approved',
+        )
+      : undefined;
+    if (existing) {
+      existing.certificate = cert;
+      existing.authority = authority;
+      this.refreshTrust();
+    }
+    if (existing)
+      return {
+        id: existing.id,
+        name: this.name,
+        certificate: this.identity.certificate.toString('base64'),
+        authority: this.identity.authority.toString('base64'),
+        securePort: this.securePort,
+        pairing: 'code-v1',
+      };
+    if (this.incoming.size >= 8) return invalid('PAIRING_LIMIT');
     const value: Incoming = {
       id: randomUUID(),
       name: text(input.name),
@@ -510,6 +666,24 @@ export class PeerNode {
       phase: 'pending',
       expires: now + 300000,
     };
+    const known = remembersReceiver ? this.known('incoming', fingerprint) : undefined;
+    if (known) {
+      value.localVerified = value.remoteVerified = true;
+      value.phase = 'approved';
+      value.name = known.name;
+      value.allowedGpuIds = known.gpuIds;
+    } else
+      value.pairing = await CodePairing.create({
+        id: value.id,
+        client: fingerprint,
+        server: this.identity.fingerprint,
+        clientName: value.name,
+        serverName: this.name,
+      });
+    if (!this.active) {
+      value.pairing?.close();
+      return invalid('NOT_SHARING');
+    }
     this.incoming.set(value.id, value);
     this.refreshTrust();
     return {
@@ -518,6 +692,7 @@ export class PeerNode {
       certificate: this.identity.certificate.toString('base64'),
       authority: this.identity.authority.toString('base64'),
       securePort: this.securePort,
+      pairing: 'code-v1',
     };
   }
   private async control(request: IncomingMessage): Promise<unknown> {
@@ -528,13 +703,23 @@ export class PeerNode {
     const cert = socket.getPeerCertificate();
     if (!cert.raw) return invalid('PEER_NOT_AUTHENTICATED');
     const fingerprint = peerFingerprint(cert.raw);
+    const data = await body(request);
+    const scopedHeartbeat =
+      request.url === '/v1/heartbeat' &&
+      data !== null &&
+      typeof data === 'object' &&
+      Object.hasOwn(data, 'gpuId');
     const input = object(
-      await body(request),
-      request.url === '/v1/confirm'
-        ? ['id', 'fingerprint']
-        : request.url === '/v1/inventory-watch'
-          ? ['id', 'after']
-          : ['id'],
+      data,
+      request.url === '/v1/code-start'
+        ? ['id', 'request']
+        : request.url === '/v1/code-finish'
+          ? ['id', 'attempt', 'proof']
+          : request.url === '/v1/inventory-watch'
+            ? ['id', 'after']
+            : scopedHeartbeat
+              ? ['id', 'gpuId']
+              : ['id'],
     );
     this.expire();
     const value = this.incoming.get(text(input.id, 36));
@@ -544,10 +729,25 @@ export class PeerNode {
       if (request.url === '/v1/status') return { phase: 'declined' };
       return invalid('PEER_DECLINED');
     }
-    if (request.url === '/v1/confirm') {
-      if (input.fingerprint !== this.identity.fingerprint) return invalid('FINGERPRINT_MISMATCH');
+    if (request.url === '/v1/code-start') {
+      if (!value.pairing || value.remoteVerified) return invalid('PAIRING_EXPIRED');
+      const now = performance.now();
+      this.codeRate = this.codeRate.filter((at) => now - at < 60000);
+      if (this.codeRate.length >= 10) return invalid('PAIRING_ATTEMPTS_EXCEEDED');
+      this.codeRate.push(now);
+      return value.pairing.start(text(input.request, 4096));
+    } else if (request.url === '/v1/code-finish') {
+      if (!value.pairing || value.remoteVerified) return invalid('PAIRING_EXPIRED');
+      const confirmation = value.pairing.finish({
+        attempt: text(input.attempt, 36),
+        proof: text(input.proof, 4096),
+      });
       value.remoteVerified = true;
       if (value.localVerified) value.phase = 'approved';
+      this.inventoryChanged();
+      return { confirmation };
+    } else if (request.url === '/v1/cancel') {
+      await this.decline(value.id);
     } else if (request.url === '/v1/inventory-watch') {
       if (value.phase !== 'approved' || !value.localVerified || !value.remoteVerified)
         return invalid('PEER_NOT_APPROVED');
@@ -562,35 +762,41 @@ export class PeerNode {
         return invalid('PEER_NOT_APPROVED');
       return {
         revision: this.inventoryRevision,
-        gpus: this.gpus.filter((g) => this.shared.has(g.id)),
+        gpus: this.allowed(value),
         ...(this.hardware
           ? {
               hardware: {
                 ...this.hardware,
-                gpus: this.hardware.gpus.filter((g) => this.shared.has(g.id)),
+                gpus: this.hardware.gpus.filter((g) =>
+                  this.allowed(value).some((p) => p.id === g.id),
+                ),
               },
             }
           : {}),
       };
     } else if (request.url === '/v1/inventory') {
       if (value.phase !== 'approved') return invalid('PEER_NOT_APPROVED');
-      return this.gpus.filter((gpu) => this.shared.has(gpu.id));
+      return this.allowed(value);
     } else if (request.url === '/v1/resources') {
       if (value.phase !== 'approved' || !this.rpcBackend?.resources)
         return invalid('RPC_PACKAGE_REQUIRED');
       const revision = this.revision;
-      const result = await this.rpcBackend.resources(
-        this.gpus.filter((g) => this.shared.has(g.id)).map((g) => g.id),
-      );
+      const result = await this.rpcBackend.resources(this.allowed(value).map((g) => g.id));
       if (!this.active || revision !== this.revision || value.phase !== 'approved')
         return invalid('SHARING_STOPPED');
       return result;
     } else if (request.url === '/v1/heartbeat') {
+      const gpuId = scopedHeartbeat ? text(input.gpuId, 40).toLowerCase() : undefined;
+      const entries = [...this.activeRpc.values()].filter(
+        (entry) =>
+          entry.id === value.id &&
+          (gpuId === undefined || entry.reservation.gpuUuids[0]!.toLowerCase() === gpuId),
+      );
       if (
         value.phase !== 'approved' ||
-        !this.activeRpc ||
-        this.activeRpc.id !== value.id ||
-        !this.reservations?.renew(this.activeRpc.reservation)
+        (gpuId === undefined && this.allowed(value).length !== 1) ||
+        entries.length !== 1 ||
+        !this.reservations?.renew(entries[0]!.reservation)
       )
         return invalid('RPC_LEASE_EXPIRED');
     } else if (request.url !== '/v1/status') return invalid('UNKNOWN_PEER_OPERATION');
@@ -598,7 +804,7 @@ export class PeerNode {
   }
   async invite(input: string): Promise<Readonly<{ id: string; peerFingerprint: string }>> {
     if (this.lifetime.signal.aborted) return invalid('PEER_UNAVAILABLE');
-    if (this.outgoing.size + this.invitations >= 8) return invalid('PAIRING_LIMIT');
+    if (this.invitations >= 8) return invalid('PAIRING_LIMIT');
     ++this.invitations;
     try {
       const address = peerAddress(input);
@@ -609,18 +815,26 @@ export class PeerNode {
             name: this.name,
             certificate: this.identity.certificate.toString('base64'),
             authority: this.identity.authority.toString('base64'),
+            rememberedFingerprint:
+              [...this.trusted.values()].find(
+                (p) =>
+                  p.direction === 'outgoing' &&
+                  p.address === address.hostname &&
+                  this.trustReady.has(`outgoing:${p.fingerprint}`),
+              )?.fingerprint ?? null,
           },
           undefined,
           undefined,
           this.lifetime.signal,
         ),
-        ['id', 'name', 'certificate', 'authority', 'securePort'],
+        ['id', 'name', 'certificate', 'authority', 'securePort', 'pairing'],
       );
       if (this.lifetime.signal.aborted) return invalid('PEER_UNAVAILABLE');
       const cert = certificate(response.certificate),
         authority = certificate(response.authority),
         fingerprint = validatePeerCertificate(cert, authority);
       const id = text(response.id, 36);
+      if (response.pairing !== 'code-v1') return invalid('PAIRING_UPDATE_REQUIRED');
       if (
         !/^[a-f0-9-]{36}$/u.test(id) ||
         fingerprint === this.identity.fingerprint ||
@@ -629,7 +843,20 @@ export class PeerNode {
         (response.securePort as number) > 65535
       )
         return invalid();
-      if (this.outgoing.has(id)) return invalid('DUPLICATE_PEER_REQUEST');
+      if (this.outgoing.has(id) && this.outgoing.get(id)?.peerFingerprint !== fingerprint)
+        return invalid('DUPLICATE_PEER_REQUEST');
+      if (
+        this.outgoing.size >= 8 &&
+        ![...this.outgoing.values()].some((p) => p.peerFingerprint === fingerprint)
+      )
+        return invalid('PAIRING_LIMIT');
+      const known = this.known('outgoing', fingerprint);
+      const previous = [...this.trusted.values()].find(
+        (p) => p.direction === 'outgoing' && p.address === address.hostname,
+      );
+      if (previous && previous.fingerprint !== fingerprint) return invalid('PEER_IDENTITY_CHANGED');
+      for (const [key, peer] of this.outgoing)
+        if (peer.peerFingerprint === fingerprint) this.outgoing.delete(key);
       this.outgoing.set(id, {
         id,
         name: text(response.name),
@@ -638,7 +865,8 @@ export class PeerNode {
         authority,
         securePort: response.securePort as number,
         address: address.hostname,
-        verified: false,
+        verified: !!known,
+        expires: performance.now() + 300000,
       });
       return Object.freeze({ id, peerFingerprint: fingerprint });
     } finally {
@@ -646,26 +874,69 @@ export class PeerNode {
     }
   }
   approve(id: string, fingerprint: string): Promise<void> {
-    return Promise.resolve().then(() => {
+    return Promise.resolve().then(async () => {
       this.expire();
       const value = this.incoming.get(id);
       if (!this.active || !value || value.phase === 'declined')
         return invalid('UNKNOWN_PEER_REQUEST');
       if (fingerprint !== value.peerFingerprint) return invalid('FINGERPRINT_MISMATCH');
+      if (value.pairing && !value.remoteVerified) return invalid('PAIRING_NOT_VERIFIED');
+      const key = `incoming:${fingerprint}`;
+      const sharingRevision = this.revision;
+      value.allowedGpuIds = [...this.shared];
+      this.trusted.set(key, {
+        direction: 'incoming',
+        fingerprint,
+        name: value.name,
+        certificate: value.certificate.toString('base64'),
+        authority: value.authority.toString('base64'),
+        gpuIds: [...value.allowedGpuIds],
+      });
+      try {
+        await this.saveTrust();
+      } catch {
+        this.trusted.delete(key);
+        this.trustReady.delete(key);
+        throw Error('PEER_TRUST_UNAVAILABLE');
+      }
+      if (
+        !this.active ||
+        this.revision !== sharingRevision ||
+        performance.now() >= value.expires ||
+        this.incoming.get(id) !== value ||
+        this.incoming.get(id)?.phase === 'declined'
+      ) {
+        this.trusted.delete(key);
+        await this.saveTrust();
+        throw Error('PAIRING_EXPIRED');
+      }
+      this.trustReady.add(key);
       value.localVerified = true;
       if (value.remoteVerified) value.phase = 'approved';
     });
   }
-  decline(id: string): void {
+  async decline(id: string): Promise<void> {
     const value = this.incoming.get(id);
     if (!value) return invalid('UNKNOWN_PEER_REQUEST');
     value.phase = 'declined';
+    const key = `incoming:${value.peerFingerprint}`;
+    this.trusted.delete(key);
+    this.trustReady.delete(key);
+    for (const peer of this.incoming.values())
+      if (peer.peerFingerprint === value.peerFingerprint) {
+        peer.phase = 'declined';
+        peer.localVerified = peer.remoteVerified = false;
+        peer.pairing?.close();
+      }
+    value.pairing?.close();
     this.inventoryChanged();
     value.localVerified = value.remoteVerified = false;
-    if (this.activeRpc?.id === id)
-      void this.stopRpc().catch(() => {
-        this.rpcFailed = true;
-      });
+    for (const entry of this.activeRpc.values())
+      if (this.incoming.get(entry.id)?.peerFingerprint === value.peerFingerprint)
+        void this.stopRpc(entry).catch(() => {
+          this.rpcFailed = true;
+        });
+    await this.saveTrust();
   }
   private async call(id: string, operation: string, data: object = {}): Promise<unknown> {
     const value = this.outgoing.get(id);
@@ -679,16 +950,108 @@ export class PeerNode {
       value.authority,
     );
   }
-  async confirm(id: string, fingerprint: string): Promise<void> {
+  confirm(id: string, fingerprint: string): Promise<void> {
+    // Legacy in-process callers cannot bypass the new out-of-band verification.
+    void id;
+    void fingerprint;
+    return Promise.reject(Error('PAIRING_CODE_REQUIRED'));
+  }
+  async verifyCode(id: string, code: string): Promise<void> {
+    const value = this.outgoing.get(id);
+    if (!value || value.verified) return invalid('UNKNOWN_PEER_REQUEST');
+    if ((value.expires ?? 0) <= performance.now()) return invalid('PAIRING_EXPIRED');
+    const proof = await verifyPairingCode(
+      {
+        id,
+        client: this.identity.fingerprint,
+        server: value.peerFingerprint,
+        clientName: this.name,
+        serverName: value.name,
+      },
+      code,
+      async (request) => {
+        const result = object(await this.call(id, 'code-start', { request }), [
+          'attempt',
+          'response',
+        ]);
+        return { attempt: text(result.attempt, 36), response: text(result.response, 4096) };
+      },
+    );
+    const result = object(
+      await this.call(id, 'code-finish', { attempt: proof.attempt, proof: proof.proof }),
+      ['confirmation'],
+    );
+    proof.accept(text(result.confirmation, 64));
+    if (this.lifetime.signal.aborted || this.outgoing.get(id) !== value)
+      return invalid('PAIRING_EXPIRED');
+    value.verified = true;
+  }
+  async cancel(id: string): Promise<void> {
     const value = this.outgoing.get(id);
     if (!value) return invalid('UNKNOWN_PEER_REQUEST');
-    if (value.peerFingerprint !== fingerprint) return invalid('FINGERPRINT_MISMATCH');
-    await this.call(id, 'confirm', { fingerprint });
-    value.verified = true;
+    this.outgoing.delete(id);
+    const key = `outgoing:${value.peerFingerprint}`;
+    this.trusted.delete(key);
+    this.trustReady.delete(key);
+    await this.saveTrust();
+    try {
+      await exchange(
+        new URL(`https://${value.address}:${value.securePort}/v1/cancel`),
+        { id },
+        this.identity,
+        value.certificate,
+        this.lifetime.signal,
+        value.authority,
+      );
+    } catch {
+      /* Local cancellation never waits for an unreachable peer. */
+    }
   }
   async status(id: string): Promise<{ phase: Phase }> {
     const result = object(await this.call(id, 'status'), ['phase']);
     if (!['pending', 'approved', 'declined'].includes(result.phase as string)) return invalid();
+    const peer = this.outgoing.get(id);
+    if (peer) {
+      const key = `outgoing:${peer.peerFingerprint}`;
+      if (result.phase === 'declined') {
+        this.trusted.delete(key);
+        this.trustReady.delete(key);
+        await this.saveTrust();
+      } else if (result.phase === 'pending' && this.trustReady.has(key)) {
+        this.trusted.delete(key);
+        this.trustReady.delete(key);
+        peer.verified = false;
+        await this.saveTrust();
+      } else if (result.phase === 'approved' && peer.verified && !this.trustReady.has(key)) {
+        this.trusted.set(key, {
+          direction: 'outgoing',
+          fingerprint: peer.peerFingerprint,
+          name: peer.name,
+          certificate: peer.certificate.toString('base64'),
+          authority: peer.authority.toString('base64'),
+          gpuIds: [],
+          address: peer.address,
+          securePort: peer.securePort,
+        });
+        let saving = this.trustPending.get(key);
+        if (!saving) {
+          saving = this.saveTrust();
+          this.trustPending.set(key, saving);
+        }
+        try {
+          await saving;
+        } catch {
+          this.trusted.delete(key);
+          peer.verified = false;
+          throw Error('PEER_TRUST_UNAVAILABLE');
+        } finally {
+          if (this.trustPending.get(key) === saving) this.trustPending.delete(key);
+        }
+        if (this.lifetime.signal.aborted || this.outgoing.get(id) !== peer)
+          return invalid('PEER_UNAVAILABLE');
+        this.trustReady.add(key);
+      }
+    }
     return { phase: result.phase as Phase };
   }
   async inventory(id: string): Promise<readonly PeerGpu[]> {
@@ -789,8 +1152,25 @@ export class PeerNode {
       socket.destroy();
       return;
     }
-    await this.rpcSettling;
-    if (this.activeRpc || !this.active || peer.phase !== 'approved') {
+    await Promise.all(
+      [...this.activeRpc.values()].flatMap((entry) => (entry.closing ? [entry.closing] : [])),
+    );
+    if (this.rpcFailed || !this.active || peer.phase !== 'approved') {
+      socket.destroy();
+      return;
+    }
+    // A selector is an authenticated request for a physical GPU, never an ordinal
+    // or authority to widen saved sharing scope. Legacy requests are unambiguous
+    // only when exactly one GPU is allowed.
+    const allowed = this.allowed(peer);
+    const selector = request.headers['x-modelloom-gpu'];
+    const gpu =
+      selector === undefined && allowed.length === 1
+        ? allowed[0]
+        : typeof selector === 'string'
+          ? allowed.find((item) => item.id.toLowerCase() === selector.toLowerCase())
+          : undefined;
+    if (!gpu || !/^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(gpu.id)) {
       socket.destroy();
       return;
     }
@@ -806,13 +1186,21 @@ export class PeerNode {
     if (!transport) throw new Error('RPC_UNAVAILABLE');
     transport.setTimeout(this.timing.startup + 1000);
     const revision = this.revision;
-    const reservation = this.reservations.reserveRemote(
-      peer.peerFingerprint,
-      this.gpus.filter((g) => this.shared.has(g.id)).map((g) => g.id),
-    );
+    const reservation = this.reservations.reserveRemote(peer.peerFingerprint, [gpu.id]);
     let owned: OwnedPeerRpc;
     let starting = true;
-    const opening = this.rpcBackend.start(reservation.gpuUuids);
+    // Admission has its own bounded startup budget. Keep this exact reservation
+    // alive while the authenticated request waits; never revive a releasing lease.
+    const startupLease = setInterval(() => {
+      if (
+        this.active &&
+        revision === this.revision &&
+        !socket.destroyed &&
+        peer.phase === 'approved'
+      )
+        this.reservations!.renew(reservation);
+    }, 3000);
+    const opening = Promise.resolve().then(() => this.rpcBackend!.start(reservation.gpuUuids));
     void opening.then(
       (late) => {
         if (!starting)
@@ -830,12 +1218,16 @@ export class PeerNode {
       // A failed backend startup must itself prove teardown before rejecting.
       this.rpcFailed = true;
       throw error;
+    } finally {
+      clearInterval(startupLease);
     }
     if (
       !this.active ||
+      this.rpcFailed ||
       revision !== this.revision ||
       socket.destroyed ||
-      peer.phase !== 'approved'
+      peer.phase !== 'approved' ||
+      !this.reservations.renew(reservation)
     ) {
       this.reservations.beginRelease(reservation);
       try {
@@ -848,8 +1240,8 @@ export class PeerNode {
       socket.destroy();
       return;
     }
-    this.activeRpc = { id: peer.id, socket, owned, reservation };
-    this.reservations.renew(reservation);
+    const entry: ActiveRpc = { id: peer.id, socket, owned, reservation };
+    this.activeRpc.set(reservation, entry);
     tls.setTimeout(0);
     transport.setTimeout(0);
     socket.write(
@@ -857,7 +1249,7 @@ export class PeerNode {
     );
     if (head.length) socket.unshift(head);
     const stop = () => {
-      void this.stopRpc().catch(() => {
+      void this.stopRpc(entry).catch(() => {
         this.rpcFailed = true;
       });
     };
@@ -868,36 +1260,37 @@ export class PeerNode {
     socket.pipe(owned.stream);
     owned.stream.pipe(socket);
   }
-  private stopRpc(): Promise<void> {
-    const entry = this.activeRpc;
-    if (!entry) return this.rpcSettling;
+  private stopRpc(entry: ActiveRpc): Promise<void> {
     if (entry.closing) return entry.closing;
     this.reservations!.beginRelease(entry.reservation);
-    entry.socket.destroy();
-    entry.closing = peerDeadline(entry.owned.close(), this.timing.stop, 'RPC_CLEANUP_FAILED').then(
-      () => {
-        this.reservations!.confirmReleased(entry.reservation);
-        if (this.activeRpc === entry) this.activeRpc = undefined;
-      },
-    );
-    this.rpcSettling = entry.closing;
+    // Publish the guard before destroy/close can synchronously notify the owner again.
+    entry.closing = Promise.resolve().then(async () => {
+      entry.socket.destroy();
+      await peerDeadline(entry.owned.close(), this.timing.stop, 'RPC_CLEANUP_FAILED');
+      this.reservations!.confirmReleased(entry.reservation);
+      this.activeRpc.delete(entry.reservation);
+    });
     void entry.closing.catch(() => {
       this.rpcFailed = true;
     });
     return entry.closing;
   }
-  async openRpc(id: string): Promise<Duplex> {
+  /** Bind a stream and its lease to one physical shared GPU. Omitting gpuId is
+   * retained for older callers only when the remote scope contains one GPU. */
+  async openRpc(id: string, gpuId?: string): Promise<Duplex> {
     const peer = this.outgoing.get(id);
     if (!peer?.verified || (await this.status(id)).phase !== 'approved')
       return invalid('PEER_NOT_APPROVED');
-    const socket = await connectPeerRpc(this.identity, peer, this.lifetime.signal);
+    const socket = await connectPeerRpc(this.identity, peer, this.lifetime.signal, gpuId);
     if (this.lifetime.signal.aborted) {
       socket.destroy();
       return invalid('PEER_UNAVAILABLE');
     }
     this.outgoingRpc.add(socket);
     const heartbeat = setInterval(() => {
-      void this.call(id, 'heartbeat').catch(() => socket.destroy());
+      void this.call(id, 'heartbeat', gpuId === undefined ? {} : { gpuId }).catch(() =>
+        socket.destroy(),
+      );
     }, 3000);
     socket.once('close', () => {
       clearInterval(heartbeat);
@@ -924,13 +1317,19 @@ export class PeerNode {
         'RPC_START_TIMEOUT',
       );
       try {
-        await this.stopRpc();
+        const results = await Promise.allSettled(
+          [...this.activeRpc.values()].map((entry) => this.stopRpc(entry)),
+        );
+        const failure = results.find((result) => result.status === 'rejected');
+        if (failure?.status === 'rejected') throw failure.reason;
       } catch (error) {
         workerFailure =
           error instanceof Error ? error : Error('RPC_CLEANUP_FAILED', { cause: error });
       }
     } finally {
+      for (const peer of this.incoming.values()) peer.pairing?.close();
       this.incoming.clear();
+      this.restoreIncomingTrust();
       this.shared.clear();
       const servers = [this.bootstrap, this.secure];
       this.bootstrap = this.secure = undefined;
@@ -952,8 +1351,7 @@ export class PeerNode {
       // Full helper cleanup proves all remote workers and their guards are gone.
       for (const reservation of this.reservations?.pendingRelease() ?? [])
         if (reservation.kind === 'remote') this.reservations!.confirmReleased(reservation);
-      this.activeRpc = undefined;
-      this.rpcSettling = Promise.resolve();
+      this.activeRpc.clear();
       this.rpcFailed = false;
     }
   }

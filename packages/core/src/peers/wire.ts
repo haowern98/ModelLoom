@@ -15,6 +15,7 @@ export interface PeerRequestView {
   readonly gpus: readonly PeerGpuView[];
   readonly hardware?: PeerHardware;
   readonly address?: string;
+  readonly pairingCode?: string;
 }
 export interface PeerView {
   readonly fingerprint: string;
@@ -30,7 +31,8 @@ export type PeerCommand =
   | { readonly action: 'read' | 'stop-sharing' }
   | { readonly action: 'share'; readonly address: string; readonly gpuIds: readonly string[] }
   | { readonly action: 'invite'; readonly address: string }
-  | { readonly action: 'approve' | 'confirm'; readonly id: string; readonly fingerprint: string }
+  | { readonly action: 'approve' | 'cancel'; readonly id: string }
+  | { readonly action: 'verify-code'; readonly id: string; readonly code: string }
   | { readonly action: 'decline'; readonly id: string };
 export type PeerReply =
   { readonly ok: true; readonly view: PeerView } | { readonly ok: false; readonly error: string };
@@ -134,11 +136,14 @@ export function decodePeerCommand(input: unknown): PeerCommand {
       if (new Set(gpuIds).size !== gpuIds.length) return invalid();
       return { action, address, gpuIds };
     }
-    case 'approve':
-    case 'confirm': {
-      const value = shape(input, ['action', 'id', 'fingerprint']);
-      return { action, id: string(value.id, 36), fingerprint: fingerprint(value.fingerprint) };
+    case 'verify-code': {
+      const value = shape(input, ['action', 'id', 'code']);
+      const code = string(value.code, 6);
+      if (!/^\d{6}$/u.test(code)) return invalid();
+      return { action, id: string(value.id, 36), code };
     }
+    case 'approve':
+    case 'cancel':
     case 'decline': {
       const value = shape(input, ['action', 'id']);
       return { action, id: string(value.id, 36) };
@@ -160,7 +165,7 @@ function gpu(input: unknown): PeerGpuView {
 function request(input: unknown): PeerRequestView {
   const optional =
     input && typeof input === 'object'
-      ? ['hardware', 'address'].filter((key) => Object.hasOwn(input, key))
+      ? ['hardware', 'address', 'pairingCode'].filter((key) => Object.hasOwn(input, key))
       : [];
   const value = shape(input, [
     'id',
@@ -184,6 +189,13 @@ function request(input: unknown): PeerRequestView {
     gpus: array(value.gpus, gpu),
     ...(value.hardware !== undefined ? { hardware: decodePeerHardware(value.hardware) } : {}),
     ...(value.address !== undefined ? { address: string(value.address, 255) } : {}),
+    ...(value.pairingCode !== undefined
+      ? {
+          pairingCode: /^\d{6}$/u.test(string(value.pairingCode, 6))
+            ? (value.pairingCode as string)
+            : invalid(),
+        }
+      : {}),
   };
 }
 export function decodePeerReply(input: unknown): PeerReply {

@@ -1,12 +1,16 @@
-param([Parameter(Mandatory=$true)][string]$HelperImage)
+param([Parameter(Mandatory=$true)][string]$HelperImage, [string]$SharingAddress)
 $ErrorActionPreference = 'Stop'
 $probeExe = [IO.Path]::GetFullPath($HelperImage)
 if ([IO.Path]::GetFileName($probeExe) -cne 'ModelLoom-peer-host.exe') { throw 'Invalid peer helper' }
 $gpuUuid = $env:MODELLOOM_PROBE_GPU_UUID
-if ($gpuUuid -cnotmatch '^GPU-[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$') { throw 'Invalid selected GPU' }
+$networkMode = $PSBoundParameters.ContainsKey('SharingAddress')
+if ($networkMode) {
+    if ($SharingAddress -cnotmatch '^(?:0|[1-9][0-9]{0,2})(?:\.(?:0|[1-9][0-9]{0,2})){3}$') { throw 'Invalid sharing address' }
+} elseif ($gpuUuid -cnotmatch '^GPU-[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$') { throw 'Invalid selected GPU' }
 # This runs in the ordinary core's token, before UAC. The caller retains native
 # seals over these verifier-issued files and their ancestors throughout this
 # operation. The elevated helper never edits filesystem permissions.
+if (-not $networkMode) {
 $runtimeDirectory = [IO.Path]::GetDirectoryName($probeExe)
 $users = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-545')
 foreach ($name in @('ggml-rpc-server.exe', 'ggml.dll', 'ggml-base.dll', 'ggml-cpu-x64.dll',
@@ -26,6 +30,7 @@ $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($users,
     [Security.AccessControl.InheritanceFlags]::None, [Security.AccessControl.PropagationFlags]::None,
     [Security.AccessControl.AccessControlType]::Allow))
 [IO.Directory]::SetAccessControl($runtimeDirectory, $acl)
+}
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -58,6 +63,7 @@ $helper = $null
 try {
     $mode = '--rpc-session-cuda'
     $helperArguments = @($nonce, "$PID", $mode, $gpuUuid)
+    if ($networkMode) { $helperArguments = @($nonce, "$PID", '--sharing-network', $SharingAddress) }
     $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
     if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         $helper = Start-Process -FilePath $probeExe -ArgumentList $helperArguments -WindowStyle Hidden -PassThru
@@ -75,7 +81,8 @@ try {
     $line = $ready.Result
     if (-not $line -or $line.Length -gt 4096) { throw 'Invalid relay readiness' }
     $report = $line | ConvertFrom-Json
-    if ($report.phase -ne 'helper-ready') { throw "Sharing helper startup failed: $line" }
+    $expectedPhase = if ($networkMode) { 'network-ready' } else { 'helper-ready' }
+    if ($report.phase -ne $expectedPhase) { throw "Sharing helper startup failed: $line" }
     $reader.Dispose()
     [Console]::Out.WriteLine($line)
     [Console]::Out.Flush()
@@ -83,6 +90,18 @@ try {
     $outputCopy = [RelayProbeIdentity]::Pump($pipe, [Console]::OpenStandardOutput())
     $null = [Threading.Tasks.Task]::WhenAny([Threading.Tasks.Task[]]@($inputCopy, $outputCopy)).GetAwaiter().GetResult()
 } catch {
+    if ($networkMode) {
+        $failureCode = 'SHARING_FIREWALL_FAILED'
+        $exception = $_.Exception
+        while ($exception) {
+            if ($exception -is [ComponentModel.Win32Exception] -and $exception.NativeErrorCode -eq 1223) {
+                $failureCode = 'SHARING_FIREWALL_PERMISSION_DENIED'
+            }
+            $exception = $exception.InnerException
+        }
+        [Console]::Error.WriteLine($failureCode)
+        if (-not $helper -and $failureCode -eq 'SHARING_FIREWALL_PERMISSION_DENIED') { exit 1223 }
+    }
     [Console]::Error.WriteLine($_.Exception.Message)
     throw
 } finally {

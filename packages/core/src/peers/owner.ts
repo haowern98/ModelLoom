@@ -18,6 +18,7 @@ import type { Duplex } from 'node:stream';
 import type { GpuReservation } from './reservations.js';
 import type { PeerRpcBackend } from './rpc.js';
 import type { PeerResources } from './resources.js';
+import { PeerTrustStore } from './trust-store.js';
 
 /** One utility-owned installation identity. No renderer filesystem/root input. */
 export class PeerOwner {
@@ -28,6 +29,7 @@ export class PeerOwner {
   private readonly remote = new Map<string, PeerRequestView>();
   private readonly watches = new Map<string, Promise<void>>();
   private readonly retryWaiters = new Set<() => void>();
+  private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private constructor(
     private readonly node: PeerNode,
     private readonly identity: WindowsPeerIdentity,
@@ -110,12 +112,42 @@ export class PeerOwner {
           ),
         ),
       ];
-      const node = new PeerNode(identity, hostname().slice(0, 80), gpus, backend);
-      return new PeerOwner(node, identity, caller, addresses);
+      const store = new PeerTrustStore(directory, identity.fingerprint, undefined, native);
+      const initial = await store.read();
+      const node = new PeerNode(identity, hostname().slice(0, 80), gpus, backend, undefined, {
+        initial,
+        save: (records) => store.write(records),
+      });
+      const owner = new PeerOwner(node, identity, caller, addresses);
+      owner.reconnect();
+      return owner;
     } catch (error) {
       identity.close();
       throw error;
     }
+  }
+  private reconnect(): void {
+    const run = async () => {
+      if (this.closed) return;
+      for (const address of this.node.rememberedAddresses()) {
+        if (this.closed) break;
+        const peers = this.node.snapshot().outgoing;
+        if (peers.some((p) => p.address === address && this.remote.get(p.id)?.phase === 'approved'))
+          continue;
+        try {
+          await this.command(this.caller, { action: 'invite', address });
+        } catch {
+          /* Bounded retry retains offline identity without granting access. */
+        }
+      }
+      if (!this.closed)
+        this.reconnectTimer = setTimeout(() => {
+          void run();
+        }, 5000);
+    };
+    this.reconnectTimer = setTimeout(() => {
+      void run();
+    }, 0);
   }
   subscribe(listener: (reply: PeerReply) => void): () => void {
     this.listeners.add(listener);
@@ -138,6 +170,27 @@ export class PeerOwner {
       let basicReporter = false;
       while (!this.closed) {
         try {
+          const current = this.node.snapshot().outgoing.find((peer) => peer.id === id);
+          if (!current?.verified) return;
+          const status = await this.node.status(id);
+          if (status.phase !== 'approved') {
+            const previous = this.remote.get(id);
+            const view: PeerRequestView = {
+              id: current.id,
+              name: current.name,
+              peerFingerprint: current.peerFingerprint,
+              phase: status.phase,
+              localVerified: current.verified,
+              remoteVerified: false,
+              gpus: [],
+              address: current.address,
+            };
+            this.remote.set(id, view);
+            if (!isDeepStrictEqual(previous, view)) this.emit();
+            if (status.phase === 'declined') return;
+            await this.retryDelay(250);
+            continue;
+          }
           let next: Awaited<ReturnType<PeerNode['watchInventory']>>;
           try {
             next = basicReporter
@@ -186,6 +239,7 @@ export class PeerOwner {
             localVerified: peer.verified,
             remoteVerified: false,
             gpus: [],
+            address: peer.address,
           });
           if (previous?.phase !== 'disconnected') this.emit();
           revision = -1;
@@ -235,13 +289,21 @@ export class PeerOwner {
             await this.node.invite(command.address);
             break;
           case 'approve':
-            await this.node.approve(command.id, command.fingerprint);
+            {
+              const peer = this.node.snapshot().incoming.find((p) => p.id === command.id);
+              if (!peer) throw Error('UNKNOWN_PEER_REQUEST');
+              await this.node.approve(command.id, peer.peerFingerprint);
+            }
             break;
-          case 'confirm':
-            await this.node.confirm(command.id, command.fingerprint);
+          case 'verify-code':
+            await this.node.verifyCode(command.id, command.code);
+            break;
+          case 'cancel':
+            await this.node.cancel(command.id);
             break;
           case 'decline':
-            this.node.decline(command.id);
+            await this.node.decline(command.id);
+            await this.node.flushTrust();
             break;
         }
         const view = await this.view();
@@ -270,7 +332,7 @@ export class PeerOwner {
     const outgoing = await Promise.all(
       snapshot.outgoing.map(async (value) => {
         const cached = this.remote.get(value.id);
-        if (cached) return cached;
+        if (cached?.phase === 'approved') return cached;
         try {
           const status = await this.node.status(value.id);
           const approved = value.verified && status.phase === 'approved';
@@ -281,7 +343,7 @@ export class PeerOwner {
             remoteVerified: approved,
             gpus: approved ? await this.node.inventory(value.id) : [],
           };
-          if (approved) this.watch(value.id);
+          if (value.verified) this.watch(value.id);
           return result;
         } catch {
           return {
@@ -379,20 +441,22 @@ export class PeerOwner {
     if (peers.length !== 1) throw new Error('PEER_NOT_APPROVED');
     const peer = peers[0]!;
     const inventory = await this.node.inventory(peer.id);
-    // First native worker supports one explicitly shared physical GPU. Never
-    // silently choose another GPU or treat its ordinal as a local identity.
-    if (inventory.length !== 1 || inventory[0]!.id.toLowerCase() !== device.uuid.toLowerCase())
-      throw new Error('UNSUPPORTED_PEER_GPU');
-    return this.node.openRpc(peer.id);
+    // Every stream targets its requested shared physical GPU, even when several
+    // GPUs belong to this installation. Never fall back to another shared GPU.
+    if (!inventory.some((gpu) => gpu.id.toLowerCase() === device.uuid.toLowerCase()))
+      throw new Error('GPU_NOT_SHARED');
+    return this.node.openRpc(peer.id, device.uuid);
   }
   async close(): Promise<void> {
     this.closed = true;
+    clearTimeout(this.reconnectTimer);
     this.listeners.clear();
     for (const wake of this.retryWaiters) wake();
     try {
       await this.node.close();
       await Promise.all(this.watches.values());
       await this.operations;
+      await this.node.flushTrust();
     } finally {
       this.identity.close();
     }

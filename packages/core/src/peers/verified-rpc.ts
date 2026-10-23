@@ -3,14 +3,30 @@ import { fileURLToPath } from 'node:url';
 import type { InstalledPackage } from '../runtime-package/install.js';
 import { requireInstalledLive, revalidateInstalled } from '../runtime-package/install.js';
 import type { OwnedPeerRpc, PeerRpcBackend } from './rpc.js';
-import { launchOwnedRpcSession } from './rpc-relay.js';
+import {
+  ConfirmedNetworkSetupFailure,
+  launchOwnedRpcSession,
+  launchOwnedSharingNetwork,
+} from './rpc-relay.js';
+import { privatePeerHost } from './wire.js';
 import type { RpcRelaySession } from './rpc-session.js';
 import { discoverResources } from '../hosts/resource-probe.js';
 import { decodePeerResources, peerRuntimeId } from './resources.js';
 import type { PeerResources } from './resources.js';
+import { SHARING_APPROVAL_MS } from './deadline.js';
 
 // Keep sealed identities when native teardown could not be established.
 const unsettled = new Set<object>();
+interface SharingPool {
+  sessions: Map<string, RpcRelaySession>;
+  release(): void;
+  uncertainLaunch: boolean;
+  deadline: number;
+  helperImage: string;
+  networkOwned?: OwnedPeerRpc;
+  preparingNetwork?: Promise<void>;
+  draining: boolean;
+}
 const workerFiles = [
   'ModelLoom-peer-host.exe',
   'ggml-rpc-server.exe',
@@ -31,8 +47,8 @@ const workerFiles = [
 /** Accepts only a verifier-issued installation. Serialized paths and diagnostic
  * artifacts have no authority, including when their filenames happen to match. */
 export class VerifiedRpcBackend implements PeerRpcBackend {
-  private sharing:
-    Promise<{ session: RpcRelaySession; gpu: string; release: () => void }> | undefined;
+  private sharing: Promise<SharingPool> | undefined;
+  private retained: SharingPool | undefined;
   private stopping: Promise<void> | undefined;
   private broken = false;
   constructor(private readonly installation: () => Promise<InstalledPackage>) {}
@@ -50,17 +66,19 @@ export class VerifiedRpcBackend implements PeerRpcBackend {
     return decodePeerResources({ runtimeId, ram: snapshot.ram, gpus });
   }
 
-  private validate(gpuIds: readonly string[]): void {
+  private validate(gpuIds: readonly string[], max = 1): void {
     if (
-      gpuIds.length !== 1 ||
-      !/^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(gpuIds[0]!)
+      gpuIds.length < 1 ||
+      gpuIds.length > max ||
+      new Set(gpuIds.map((id) => id.toLowerCase())).size !== gpuIds.length ||
+      gpuIds.some((id) => !/^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(id))
     )
       throw new Error('INVALID_GPU_RESERVATION');
   }
 
-  /** One explicit local elevation before advertising sharing availability. */
+  /** Explicit local helper admission for every selected GPU before advertising availability. */
   async openSharing(gpuIds: readonly string[]): Promise<void> {
-    this.validate(gpuIds);
+    this.validate(gpuIds, 16);
     if (this.broken) await this.closeSharing();
     if (this.sharing || this.stopping) throw new Error('RPC_BUSY');
     this.sharing = this.prepare([...gpuIds]);
@@ -78,18 +96,47 @@ export class VerifiedRpcBackend implements PeerRpcBackend {
     )
       throw new Error('RPC_PACKAGE_REQUIRED');
     const files = await revalidateInstalled(installed);
+    const current: SharingPool = {
+      sessions: new Map(),
+      release: () => files.release(),
+      uncertainLaunch: false,
+      deadline: performance.now() + SHARING_APPROVAL_MS,
+      helperImage: path.join(installed.directory, 'ModelLoom-peer-host.exe'),
+      draining: false,
+    };
+    this.retained = current;
+    const deadline = current.deadline;
     try {
-      const session = await launchOwnedRpcSession(
-        {
-          device: 'cuda',
-          script: fileURLToPath(new URL('../../scripts/relay-rpc-worker.ps1', import.meta.url)),
-          arguments: ['-HelperImage', path.join(installed.directory, 'ModelLoom-peer-host.exe')],
-        },
-        gpuIds,
-      );
-      return { session, gpu: gpuIds[0]!.toLowerCase(), release: () => files.release() };
+      for (const gpu of gpuIds) {
+        const remaining = Math.floor(deadline - performance.now());
+        if (remaining <= 0) throw Error('RPC_START_TIMEOUT');
+        let session: RpcRelaySession;
+        try {
+          session = await launchOwnedRpcSession(
+            {
+              device: 'cuda',
+              script: fileURLToPath(new URL('../../scripts/relay-rpc-worker.ps1', import.meta.url)),
+              arguments: [
+                '-HelperImage',
+                path.join(installed.directory, 'ModelLoom-peer-host.exe'),
+              ],
+            },
+            [gpu],
+            Math.max(1, remaining),
+          );
+        } catch (error) {
+          // A rejected native launch returns no ownership handle for confirmation.
+          current.uncertainLaunch = true;
+          throw error;
+        }
+        current.sessions.set(gpu.toLowerCase(), session);
+      }
+      return current;
     } catch (error) {
-      unsettled.add(files);
+      // Earlier helpers still require confirmed teardown, even when no next launch was attempted.
+      this.broken = true;
+      unsettled.add(current);
+      await this.drain(current).catch(() => undefined);
       throw error;
     }
   }
@@ -98,28 +145,104 @@ export class VerifiedRpcBackend implements PeerRpcBackend {
     this.validate(gpuIds);
     if (!this.sharing || this.stopping || this.broken) throw new Error('RPC_SHARING_REQUIRED');
     const current = await this.sharing;
-    if (this.stopping || current.gpu !== gpuIds[0]!.toLowerCase())
-      throw new Error('INVALID_GPU_RESERVATION');
-    return current.session.start();
+    const session = current.sessions.get(gpuIds[0]!.toLowerCase());
+    if (this.stopping || this.broken || !session) throw new Error('INVALID_GPU_RESERVATION');
+    return session.start();
+  }
+
+  /** Local sharing admission only; remote GPU requests cannot create network helpers. */
+  async openNetwork(address: string, lost: () => void): Promise<void> {
+    if (!privatePeerHost(address)) throw Error('INVALID_CONTROL');
+    if (!this.sharing || this.stopping || this.broken) throw Error('RPC_SHARING_REQUIRED');
+    const current = await this.sharing;
+    if (this.stopping || this.broken || current.draining) throw Error('RPC_SHARING_REQUIRED');
+    if (current.networkOwned || current.preparingNetwork) throw Error('RPC_BUSY');
+    const remaining = Math.floor(current.deadline - performance.now());
+    if (remaining <= 0) throw Error('RPC_START_TIMEOUT');
+    const preparing = (async () => {
+      let network: OwnedPeerRpc;
+      try {
+        network = await launchOwnedSharingNetwork(
+          {
+            device: 'cpu',
+            script: fileURLToPath(new URL('../../scripts/relay-rpc-worker.ps1', import.meta.url)),
+            arguments: ['-HelperImage', current.helperImage, '-SharingAddress', address],
+          },
+          Math.max(1, remaining),
+        );
+      } catch (error) {
+        if (!(error instanceof ConfirmedNetworkSetupFailure)) current.uncertainLaunch = true;
+        this.broken = true;
+        unsettled.add(current);
+        throw error;
+      }
+      current.networkOwned = network;
+      let notified = false;
+      const onLost = () => {
+        if (notified || current.draining) return;
+        notified = true;
+        this.broken = true;
+        lost();
+      };
+      network.stream.on('error', onLost);
+      network.stream.once('close', onLost);
+      if (network.stream.destroyed) {
+        onLost();
+        throw Error('SHARING_FIREWALL_FAILED');
+      }
+    })();
+    current.preparingNetwork = preparing;
+    try {
+      await preparing;
+    } finally {
+      if (current.preparingNetwork === preparing) delete current.preparingNetwork;
+    }
+  }
+
+  private async drain(current: SharingPool): Promise<void> {
+    current.draining = true;
+    await current.preparingNetwork?.catch(() => undefined);
+    let networkFailed = false;
+    if (current.networkOwned) {
+      try {
+        await current.networkOwned.close();
+        delete current.networkOwned;
+      } catch {
+        networkFailed = true;
+      }
+    }
+    const results = await Promise.allSettled(
+      [...current.sessions].map(async ([gpu, session]) => {
+        await session.close();
+        current.sessions.delete(gpu);
+      }),
+    );
+    if (
+      current.uncertainLaunch ||
+      networkFailed ||
+      results.some((result) => result.status === 'rejected')
+    ) {
+      unsettled.add(current);
+      throw Error('RPC_CLEANUP_FAILED');
+    }
+    current.release();
+    unsettled.delete(current);
+    this.retained = undefined;
   }
 
   closeSharing(): Promise<void> {
     if (this.stopping) return this.stopping;
     const sharing = this.sharing;
-    if (!sharing) return Promise.resolve();
+    if (!sharing) {
+      this.broken = false;
+      return Promise.resolve();
+    }
     return (this.stopping = (async () => {
       try {
-        const current = await sharing;
-        try {
-          await current.session.close();
-          current.release();
-          unsettled.delete(current);
-          this.sharing = undefined;
-          this.broken = false;
-        } catch (error) {
-          unsettled.add(current);
-          throw error;
-        }
+        const current = await sharing.catch(() => this.retained);
+        if (current) await this.drain(current);
+        this.sharing = undefined;
+        this.broken = false;
       } catch (error) {
         this.broken = true;
         throw error;

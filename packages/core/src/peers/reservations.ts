@@ -21,7 +21,7 @@ export class GpuReservations {
   private readonly devices = new Map<string, string>();
   private shared: readonly string[] = Object.freeze([]);
   private local: Entry | undefined;
-  private remote: Entry | undefined;
+  private readonly remote = new Set<Entry>();
   private previousTime = -Infinity;
 
   constructor(
@@ -51,8 +51,9 @@ export class GpuReservations {
     const selected = this.select(gpuUuids, true);
     this.tick();
     this.shared = selected;
-    if (this.remote?.reservation.gpuUuids.some((uuid) => !selected.includes(uuid)))
-      this.remote.state = 'releasing';
+    for (const entry of this.remote)
+      if (entry.reservation.gpuUuids.some((uuid) => !selected.includes(uuid)))
+        entry.state = 'releasing';
   }
 
   /** Hardware removal requests cleanup but retains the exact owned release handle. */
@@ -67,7 +68,7 @@ export class GpuReservations {
     this.devices.clear();
     for (const [key, value] of next) this.devices.set(key, value);
     this.shared = this.shared.filter((uuid) => next.has(uuid.toLowerCase()));
-    for (const entry of [this.local, this.remote]) {
+    for (const entry of this.entries()) {
       if (entry?.reservation.gpuUuids.some((uuid) => !next.has(uuid.toLowerCase())))
         entry.state = 'releasing';
     }
@@ -76,27 +77,38 @@ export class GpuReservations {
   reserveLocal(gpuUuids: readonly string[]): GpuReservation {
     const selected = this.select(gpuUuids);
     this.tick();
-    if (this.local || this.overlaps(this.remote, selected)) throw new Error('GPU_BUSY');
+    if (this.local || [...this.remote].some((entry) => this.overlaps(entry, selected)))
+      throw new Error('GPU_BUSY');
     this.local = this.entry('local', null, selected, null);
     return this.local.reservation;
   }
 
-  /** peerIdentity is the verified certificate identity supplied by the trusted peer owner. */
+  /** One verified coordinator may hold disjoint GPU handles. Competing
+   * coordinators and overlapping local/remote work remain excluded. */
   reserveRemote(peerIdentity: string, gpuUuids: readonly string[]): GpuReservation {
     if (typeof peerIdentity !== 'string' || !/^[a-f0-9]{64}$/u.test(peerIdentity))
       throw new Error('INVALID_PEER_IDENTITY');
     const selected = this.select(gpuUuids);
     const time = this.tick();
     if (selected.some((uuid) => !this.shared.includes(uuid))) throw new Error('GPU_NOT_SHARED');
-    if (this.remote || this.overlaps(this.local, selected)) throw new Error('GPU_BUSY');
-    this.remote = this.entry('remote', peerIdentity, selected, this.deadline(time));
-    return this.remote.reservation;
+    if (
+      [...this.remote].some(
+        (entry) =>
+          entry.reservation.peerIdentity !== peerIdentity || this.overlaps(entry, selected),
+      ) ||
+      this.overlaps(this.local, selected)
+    )
+      throw new Error('GPU_BUSY');
+    const entry = this.entry('remote', peerIdentity, selected, this.deadline(time));
+    this.remote.add(entry);
+    return entry.reservation;
   }
 
   renew(reservation: GpuReservation): boolean {
     const time = this.tick();
-    if (this.remote?.reservation !== reservation || this.remote.state !== 'active') return false;
-    this.remote.expiresAt = this.deadline(time);
+    const entry = this.find(reservation);
+    if (!entry || entry.reservation.kind !== 'remote' || entry.state !== 'active') return false;
+    entry.expiresAt = this.deadline(time);
     return true;
   }
 
@@ -115,7 +127,7 @@ export class GpuReservations {
     const entry = this.find(reservation);
     if (!entry || entry.state !== 'releasing') return false;
     if (entry === this.local) this.local = undefined;
-    else this.remote = undefined;
+    else this.remote.delete(entry);
     return true;
   }
 
@@ -154,8 +166,8 @@ export class GpuReservations {
     if (!Number.isFinite(time) || time < 0 || time < this.previousTime)
       throw new Error('INVALID_RESERVATION_CLOCK');
     this.previousTime = time;
-    if (this.remote?.expiresAt !== null && this.remote && time >= this.remote.expiresAt)
-      this.remote.state = 'releasing';
+    for (const entry of this.remote)
+      if (entry.expiresAt !== null && time >= entry.expiresAt) entry.state = 'releasing';
     return time;
   }
 
@@ -180,7 +192,7 @@ export class GpuReservations {
   }
 
   private entries(): Entry[] {
-    return [this.local, this.remote].filter((entry): entry is Entry => entry !== undefined);
+    return [...(this.local ? [this.local] : []), ...this.remote];
   }
 
   private find(reservation: GpuReservation): Entry | undefined {

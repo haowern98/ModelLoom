@@ -8,9 +8,43 @@ import { RpcRelaySession } from './rpc-session.js';
 
 type RelayOptions = { device: 'cpu' | 'cuda'; script: string; arguments: readonly string[] };
 
+/** Issued only after the fixed launcher's no-helper UAC cancellation exit.
+ * Other failures cannot prove that privileged ownership was never acquired. */
+export class ConfirmedNetworkSetupFailure extends Error {
+  constructor() {
+    super('SHARING_FIREWALL_PERMISSION_DENIED');
+  }
+}
+
+/** The fixed network helper has no GPU authority and a separate readiness receipt. */
+export async function launchOwnedSharingNetwork(
+  options: RelayOptions,
+  approvalMilliseconds: number,
+): Promise<OwnedPeerRpc> {
+  if (
+    !Number.isSafeInteger(approvalMilliseconds) ||
+    approvalMilliseconds < 1 ||
+    approvalMilliseconds > SHARING_APPROVAL_MS
+  )
+    throw Error('INVALID_RPC_DEADLINE');
+  return launchRelay({ ...options, device: 'cpu' }, [], 'network-ready', approvalMilliseconds);
+}
+
 /** Elevation belongs to sharing, never to a remote connection. */
-export async function launchOwnedRpcSession(options: RelayOptions, gpuIds: readonly string[]) {
-  return new RpcRelaySession(await launchRelay(options, gpuIds, 'helper-ready'));
+export async function launchOwnedRpcSession(
+  options: RelayOptions,
+  gpuIds: readonly string[],
+  approvalMilliseconds = SHARING_APPROVAL_MS,
+) {
+  if (
+    !Number.isSafeInteger(approvalMilliseconds) ||
+    approvalMilliseconds < 1 ||
+    approvalMilliseconds > SHARING_APPROVAL_MS
+  )
+    throw Error('INVALID_RPC_DEADLINE');
+  return new RpcRelaySession(
+    await launchRelay(options, gpuIds, 'helper-ready', approvalMilliseconds),
+  );
 }
 
 /** Trusted owner launch only. The caller supplies a sealed package path, never peer input. */
@@ -24,7 +58,8 @@ export async function launchOwnedRpcRelay(
 async function launchRelay(
   options: RelayOptions,
   gpuIds: readonly string[],
-  phase: 'relay-ready' | 'helper-ready',
+  phase: 'relay-ready' | 'helper-ready' | 'network-ready',
+  approvalMilliseconds = SHARING_APPROVAL_MS,
 ): Promise<OwnedPeerRpc> {
   const system = ownershipBinding().systemDirectory();
   const child = spawn(
@@ -41,12 +76,14 @@ async function launchRelay(
     },
   );
   let failure = false;
+  let exitCode: number | null | undefined;
   const exited = new Promise<void>((resolve, reject) => {
     child.once('error', () => {
       failure = true;
       reject(new Error('RPC_UNAVAILABLE'));
     });
     child.once('exit', (code) => {
+      exitCode = code;
       failure = code !== 0;
       if (failure) reject(new Error('RPC_CLEANUP_FAILED'));
       else resolve();
@@ -65,7 +102,7 @@ async function launchRelay(
           child.stdin.destroy();
           reject(new Error('RPC_START_TIMEOUT'));
         },
-        phase === 'helper-ready' ? SHARING_APPROVAL_MS : 20000,
+        phase === 'relay-ready' ? 20000 : approvalMilliseconds,
       );
       const read = (chunk: Buffer) => {
         bytes = Buffer.concat([bytes, chunk]);
@@ -116,6 +153,20 @@ async function launchRelay(
     }
     // This is local diagnostic output only. It never crosses the peer API.
     if (errors) process.stderr.write(`RPC owned startup: ${errors}\n`);
+    if (
+      phase === 'network-ready' &&
+      error instanceof Error &&
+      error.message === 'RPC_START_FAILED'
+    ) {
+      if (exitCode === 1223 && errors.includes('SHARING_FIREWALL_PERMISSION_DENIED'))
+        throw new ConfirmedNetworkSetupFailure();
+      throw Error(
+        errors.includes('SHARING_FIREWALL_PERMISSION_DENIED')
+          ? 'SHARING_FIREWALL_PERMISSION_DENIED'
+          : 'SHARING_FIREWALL_FAILED',
+        { cause: error },
+      );
+    }
     throw error;
   }
   const stream = Duplex.from({ readable: child.stdout, writable: child.stdin });

@@ -309,13 +309,16 @@ int run(Pipe &pipe) {
 // Stock diagnostic reuses the worker ownership/recovery primitives above.
 #include "network-rpc-probe.h"
 #include "network-session-probe.h"
+#include "../../native/sharing-network.h"
 #ifndef MODELLOOM_PEER_HOST
 #include "network-session-fixture.h"
+#include "sharing-network-fixture.h"
 #endif
 
 int wmain(int argc, wchar_t **argv) {
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX |
                SEM_NOOPENFILEERRORBOX);
+  const bool sharingRequest = argc == 5 && std::wstring(argv[3]) == L"--sharing-network";
 #ifdef MODELLOOM_PEER_HOST
   const bool cudaRequest = argc == 5 &&
                            (std::wstring(argv[3]) == L"--rpc-relay-cuda" ||
@@ -323,11 +326,13 @@ int wmain(int argc, wchar_t **argv) {
                            probe_valid_gpu_uuid(argv[4]);
   const bool recoveryRequest =
       argc == 4 && std::wstring(argv[3]) == L"--recover-crash";
-  if (!cudaRequest && !recoveryRequest)
+  if (!cudaRequest && !recoveryRequest && !sharingRequest)
     return ERROR_INVALID_PARAMETER;
 #endif
   try {
 #ifndef MODELLOOM_PEER_HOST
+    if (argc == 2 && std::wstring(argv[1]) == L"--sharing-policy-fixture")
+      return sharing_policy_fixture();
     if (argc == 2 && std::wstring(argv[1]) == L"--session-frame-fixture")
       return probe_session_frame_fixture();
 #endif
@@ -412,7 +417,7 @@ int wmain(int argc, wchar_t **argv) {
         argc == 4 && (std::wstring(argv[3]) == L"--rpc-session-cpu" ||
                       std::wstring(argv[3]) == L"--rpc-session-cuda");
 #endif
-    if ((!separate && !rpc && !crash && !recover && !instance && !rawRelay &&
+    if ((!sharingRequest && !separate && !rpc && !crash && !recover && !instance && !rawRelay &&
          !session && argc != 3) ||
         !nonce(argv[1]))
       throw Failure{"arguments", ERROR_INVALID_PARAMETER};
@@ -426,6 +431,8 @@ int wmain(int argc, wchar_t **argv) {
     ULONG server = 0;
     if (!GetNamedPipeServerProcessId(pipe.value, &server) || server != parent)
       throw Failure{"control-owner", ERROR_ACCESS_DENIED};
+    if (sharingRequest)
+      return sharing_network(pipe, parent, argv[4], argv[1]);
     if (separate)
       return probe_workers(pipe);
     if (rpc)

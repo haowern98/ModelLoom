@@ -66,6 +66,8 @@ execFileSync(
     'user32.lib',
     'iphlpapi.lib',
     'bcrypt.lib',
+    'ole32.lib',
+    'oleaut32.lib',
   ],
   { cwd: output, env, stdio: 'inherit', windowsHide: true },
 );
