@@ -297,7 +297,9 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: bool
   const { view, busy, pendingAction, sharingError, run, toast, fallback, invited, setInvited } =
     usePeers();
   const startingSharing = pendingAction === 'share';
-  const [selected, setSelected] = useState<string[]>([]);
+  const [excludedGpuIds, setExcludedGpuIds] = useState<string[]>([]);
+  const selected =
+    view?.gpus.filter((gpu) => !excludedGpuIds.includes(gpu.id)).map((gpu) => gpu.id) ?? [];
   const [address, setAddress] = useState('');
   const [bindAddress, setBindAddress] = useState('');
   const [verifying, setVerifying] = useState<string | null>(null);
@@ -456,10 +458,10 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: bool
                     view.sharing ? view.sharedGpuIds.includes(gpu.id) : selected.includes(gpu.id)
                   }
                   onChange={(event) =>
-                    setSelected((values) =>
+                    setExcludedGpuIds((values) =>
                       event.target.checked
-                        ? [...values, gpu.id]
-                        : values.filter((value) => value !== gpu.id),
+                        ? values.filter((value) => value !== gpu.id)
+                        : [...values, gpu.id],
                     )
                   }
                 />
