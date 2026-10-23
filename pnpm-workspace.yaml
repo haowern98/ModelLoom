@@ -2,6 +2,8 @@ packages:
   - apps/*
   - packages/*
 nodeLinker: hoisted
+overrides:
+  zod@4.6.5: 4.6.6
 allowBuilds:
   esbuild: true
   electron: true
