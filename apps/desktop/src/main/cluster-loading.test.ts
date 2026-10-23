@@ -15,6 +15,35 @@ import {
 const modelId = 'a'.repeat(64);
 const uuid = 'GPU-11111111-1111-1111-1111-111111111111';
 const configId = '11111111-1111-4111-8111-111111111111';
+it('passes the canvas GPU scope to planning and rejects assignments outside it', async () => {
+  const f = setup();
+  try {
+    await f.initialize();
+    const excluded = 'GPU-22222222-2222-2222-2222-222222222222';
+    f.deps.planCluster.mockResolvedValueOnce([{ uuid: excluded, first: 0, last: 63 }]);
+    const before = f.draft();
+    const rejected = await f.controller.cluster({
+      action: 'auto-place',
+      key: before.key,
+      revision: before.revision,
+      devices: [uuid],
+    });
+    expect(rejected).toEqual({ ok: false, error: 'INVALID_CONTROL' });
+    expect(f.deps.planCluster.mock.calls[0]?.slice(4)).toEqual([[uuid]]);
+    expect(f.draft()).toEqual(before);
+    expect(
+      await f.controller.cluster({
+        action: 'auto-place',
+        key: before.key,
+        revision: before.revision,
+        devices: [uuid],
+      }),
+    ).toMatchObject({ ok: true });
+    expect(f.draft().runs).toEqual([{ uuid, first: '0', last: '63' }]);
+  } finally {
+    await f.controller.quit();
+  }
+});
 it('auto assigns independent unnamed model drafts without using the runtime selection', async () => {
   const { controller, deps, host, initialize, draft } = setup();
   const second = 'b'.repeat(64);

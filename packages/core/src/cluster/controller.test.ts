@@ -59,3 +59,16 @@ it('accepts only an exact revision-bound delete command', () => {
 it('rejects raw host exception replies', () => {
   expect(() => decodeClusterReply({ ok: false, error: 'C:\\secret' })).toThrow('INVALID_CONTROL');
 });
+it('captures only bounded unique physical or qualified GPU selections for automatic placement', () => {
+  const uuid = 'GPU-11111111-1111-1111-1111-111111111111';
+  const command = {
+    action: 'auto-place',
+    key: 'model:' + 'a'.repeat(64),
+    revision: 1,
+    devices: [uuid, `peer:${'b'.repeat(64)}:${uuid}`],
+  };
+  expect(decodeClusterCommand(command)).toEqual(command);
+  expect(decodeClusterCommand({ ...command, devices: [] })).toEqual({ ...command, devices: [] });
+  for (const devices of [[uuid, uuid], ['address'], Array(17).fill(uuid), [42], 'all'])
+    expect(() => decodeClusterCommand({ ...command, devices })).toThrow('INVALID_CONTROL');
+});

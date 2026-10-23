@@ -42,7 +42,7 @@ function Connections() {
   );
 }
 
-it('keeps the three connection flows under one heading and one sidebar destination', async () => {
+it('keeps the two connection flows under one heading and one sidebar destination', async () => {
   const user = userEvent.setup();
   render(<Connections />);
   const navigation = screen.getByRole('navigation', { name: 'Cluster navigation' });
@@ -54,8 +54,9 @@ it('keeps the three connection flows under one heading and one sidebar destinati
   );
   expect(screen.queryByText('Approved PCs and shared hardware.')).not.toBeInTheDocument();
   const tabs = screen.getByRole('tablist', { name: 'Connection options' });
-  expect(within(tabs).getAllByRole('tab')).toHaveLength(3);
-  for (const label of ['Join cluster', 'Share this PC', 'Add device']) {
+  expect(within(tabs).getAllByRole('tab')).toHaveLength(2);
+  expect(screen.queryByRole('tab', { name: 'Join cluster' })).not.toBeInTheDocument();
+  for (const label of ['Share this PC', 'Add device']) {
     await user.click(within(tabs).getByRole('tab', { name: label }));
     expect(screen.getByRole('heading', { name: 'Connections', level: 1 })).toBeVisible();
     expect(screen.getByRole('tabpanel', { name: label })).toBeVisible();
@@ -73,11 +74,13 @@ it('supports arrow, Home and End navigation between connection tabs', async () =
   await user.keyboard('{ArrowRight}');
   expect(within(tabs).getByRole('tab', { name: 'Add device' })).toHaveFocus();
   await user.keyboard('{ArrowRight}');
-  expect(within(tabs).getByRole('tab', { name: 'Join cluster' })).toHaveFocus();
+  expect(within(tabs).getByRole('tab', { name: 'Share this PC' })).toHaveFocus();
+  await user.keyboard('{ArrowLeft}');
+  expect(within(tabs).getByRole('tab', { name: 'Add device' })).toHaveFocus();
   await user.keyboard('{End}');
   expect(within(tabs).getByRole('tab', { name: 'Add device' })).toHaveFocus();
   await user.keyboard('{Home}');
-  expect(within(tabs).getByRole('tab', { name: 'Join cluster' })).toHaveFocus();
+  expect(within(tabs).getByRole('tab', { name: 'Share this PC' })).toHaveFocus();
 });
 
 it('handles requests inside sharing and updates the Connections sidebar badge', async () => {
@@ -94,7 +97,7 @@ it('handles requests inside sharing and updates the Connections sidebar badge', 
   expect(within(navigation).getByLabelText('1 pending request')).toBeVisible();
   await user.click(
     within(content).getByRole('button', {
-      name: 'Decline join request from office-pc',
+      name: 'Decline invitation from office-pc',
     }),
   );
   expect(within(navigation).queryByLabelText(/pending requests?/u)).not.toBeInTheDocument();

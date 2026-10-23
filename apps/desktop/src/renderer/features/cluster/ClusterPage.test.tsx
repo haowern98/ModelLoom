@@ -3,6 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import { ClusterPage } from './ClusterPage';
+import { useClusterConfigurations } from './useClusterConfigurations';
 import { createDemoLibrary } from '../../mocks/modelLibrary';
 import { createDemoPlacement, demoDevices } from '../../mocks/cluster';
 import { createDemoJoining, transitionDemoJoining } from '../../mocks/clusterJoining';
@@ -268,7 +269,7 @@ it('keeps approvals explicitly simulated and removes their pending count after d
   await user.click(
     screen.getByRole('button', { name: 'Approve invitation from render-coordinator' }),
   );
-  await user.click(screen.getByRole('button', { name: 'Decline join request from office-pc' }));
+  await user.click(screen.getByRole('button', { name: 'Decline invitation from office-pc' }));
   expect(within(navigation).getByRole('button', { name: /^Connections/u })).toHaveTextContent(
     'Connections',
   );
@@ -302,4 +303,115 @@ it('shows all devices across sidebar navigation', async () => {
   expect(within(inventory).queryByRole('button')).not.toBeInTheDocument();
   await user.click(within(navigation).getByRole('button', { name: 'Overview' }));
   expect(screen.getByRole('region', { name: 'Cluster canvas' })).toBe(canvas);
+});
+
+it('counts only canvas members and shows a pre-add panel for an approved remote device', async () => {
+  const user = userEvent.setup();
+  const local = { ...demoDevices[0]!, id: 'local' };
+  const remote = { ...demoDevices[1]!, id: 'peer:approved', name: 'Approved PC' };
+  render(
+    <ClusterPage
+      demo={false}
+      joining={createDemoJoining()}
+      onJoining={vi.fn()}
+      devices={[local, remote]}
+      onRenameDevice={vi.fn()}
+      activeModel={undefined}
+      models={[]}
+      placement={createDemoPlacement(null)}
+      dispatch={vi.fn()}
+      onStop={vi.fn()}
+      localRuntime={{ loading: false, onChoose: vi.fn(), onRun: vi.fn() }}
+    />,
+  );
+  await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
+  let panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+  expect(within(panel).getByText('1 device \u00b7 2 GPUs')).toBeVisible();
+  expect(within(panel).getByText('24.0 GiB')).toBeVisible();
+  expect(within(panel).queryByText('Approved PC')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Inspect Approved PC' }));
+  panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+  expect(within(panel).getByRole('heading', { name: 'Approved PC' })).toBeVisible();
+  expect(within(panel).getByRole('button', { name: 'Device details' })).toBeVisible();
+  expect(within(panel).getByText('Add this device to canvas to assign layers.')).toBeVisible();
+  expect(
+    within(panel).queryByRole('heading', { name: 'Layer assignment' }),
+  ).not.toBeInTheDocument();
+  expect(within(panel).queryByRole('spinbutton')).not.toBeInTheDocument();
+  await user.click(within(panel).getByRole('button', { name: 'Add to canvas' }));
+  expect(screen.getByRole('complementary', { name: 'Cluster panel' })).toBe(panel);
+  expect(screen.getByRole('article', { name: 'Approved PC' })).toBeVisible();
+  expect(within(panel).getByRole('heading', { name: 'Layer assignment' })).toBeVisible();
+  expect(within(panel).getAllByRole('spinbutton')).toHaveLength(2);
+  await user.click(screen.getByRole('button', { name: 'Actions for Approved PC' }));
+  await user.click(screen.getByRole('button', { name: 'Remove from canvas' }));
+  expect(screen.getByRole('complementary', { name: 'Cluster panel' })).toBe(panel);
+  expect(within(panel).getByRole('button', { name: 'Add to canvas' })).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Inspect Approved PC' }));
+  panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+  expect(within(panel).getByText('Add this device to canvas to assign layers.')).toBeVisible();
+  expect(within(panel).queryByRole('spinbutton')).not.toBeInTheDocument();
+});
+it('disables adding an inspected remote while loading or running', async () => {
+  const user = userEvent.setup();
+  const props = {
+    demo: false,
+    joining: createDemoJoining(),
+    onJoining: vi.fn(),
+    devices: [
+      { ...demoDevices[0]!, id: 'local' },
+      { ...demoDevices[1]!, id: 'peer:approved', name: 'Approved PC' },
+    ],
+    onRenameDevice: vi.fn(),
+    models: [],
+    placement: createDemoPlacement(null),
+    dispatch: vi.fn(),
+    onStop: vi.fn(),
+  };
+  const runtime = { loading: false, onChoose: vi.fn(), onRun: vi.fn() };
+  const view = render(<ClusterPage {...props} activeModel={undefined} localRuntime={runtime} />);
+  await user.click(screen.getByRole('button', { name: 'Inspect Approved PC' }));
+  expect(screen.getByRole('button', { name: 'Add to canvas' })).toBeEnabled();
+  view.rerender(
+    <ClusterPage {...props} activeModel={undefined} localRuntime={{ ...runtime, loading: true }} />,
+  );
+  expect(screen.getByRole('button', { name: 'Add to canvas' })).toBeDisabled();
+  view.rerender(
+    <ClusterPage {...props} activeModel={createDemoLibrary().models[0]} localRuntime={runtime} />,
+  );
+  expect(screen.getByRole('button', { name: 'Add to canvas' })).toBeDisabled();
+});
+
+function PlanningCluster({ planning }: { planning: boolean }) {
+  const configurations = useClusterConfigurations(undefined);
+  return (
+    <ClusterPage
+      demo={false}
+      joining={createDemoJoining()}
+      onJoining={vi.fn()}
+      devices={[
+        { ...demoDevices[0]!, id: 'local' },
+        { ...demoDevices[1]!, id: 'peer:approved', name: 'Approved PC' },
+      ]}
+      onRenameDevice={vi.fn()}
+      activeModel={undefined}
+      models={[]}
+      placement={createDemoPlacement(null)}
+      dispatch={vi.fn()}
+      onStop={vi.fn()}
+      localRuntime={{ loading: false, onChoose: vi.fn(), onRun: vi.fn() }}
+      configurations={{ ...configurations, planning }}
+    />
+  );
+}
+it('disables adding an inspected remote and picker choice while automatic assignment is planning', async () => {
+  const user = userEvent.setup();
+  const view = render(<PlanningCluster planning={false} />);
+  await user.click(screen.getByRole('button', { name: 'Inspect Approved PC' }));
+  expect(screen.getByRole('button', { name: 'Add to canvas' })).toBeEnabled();
+  view.rerender(<PlanningCluster planning />);
+  expect(screen.getByRole('button', { name: 'Add to canvas' })).toBeDisabled();
+  await user.click(screen.getByRole('button', { name: 'Add device near studio-desktop' }));
+  expect(screen.getByRole('button', { name: 'Add Approved PC to canvas' })).toBeDisabled();
+  expect(screen.queryByRole('article', { name: 'Approved PC' })).not.toBeInTheDocument();
 });

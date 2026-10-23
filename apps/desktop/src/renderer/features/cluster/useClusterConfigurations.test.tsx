@@ -11,6 +11,36 @@ import type {
 } from '../../../shared/cluster-configuration';
 const load = { defaults: {}, cacheK: 'f16', cacheV: 'f16' } as CapturedClusterLoad;
 
+it('captures canvas GPU candidates before awaiting draft synchronization', async () => {
+  const fixture = historyBridge();
+  const original = fixture.bridge.command;
+  let release!: () => void;
+  fixture.bridge.command = vi.fn(async (command) => {
+    if (command.action === 'edit')
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    return original(command);
+  });
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectModel('a'.repeat(64)));
+  const gpu = 'GPU-11111111-1111-1111-1111-111111111111';
+  const devices = [gpu];
+  let planning!: Promise<void>;
+  act(() => {
+    planning = result.current.autoPlace(devices);
+  });
+  await waitFor(() => expect(release).toBeDefined());
+  devices.push('GPU-22222222-2222-2222-2222-222222222222');
+  await act(async () => {
+    release();
+    await planning;
+  });
+  expect(fixture.command).toHaveBeenCalledWith(
+    expect.objectContaining({ action: 'auto-place', devices: [gpu] }),
+  );
+});
+
 it('switches after a successful Save without requiring another persistence operation', async () => {
   const fixture = historyBridge();
   const original = fixture.bridge.command;

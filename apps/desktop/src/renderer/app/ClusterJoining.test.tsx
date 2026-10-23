@@ -18,29 +18,21 @@ async function overview(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('Cluster joining demo', () => {
-  it('switches direction, retains outgoing requests across navigation and never adds a connected peer', async () => {
+  it('retains outgoing requests across navigation and never adds a connected peer', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
     await chooseConnection(user, 'Add device');
     expect(screen.getByRole('tabpanel', { name: 'Add device' })).toBeVisible();
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.queryByRole('tab', { name: 'Join cluster' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Invite office-pc' }));
     expect(screen.getByRole('button', { name: 'Invitation pending for office-pc' })).toBeDisabled();
-    await chooseConnection(user, 'Join cluster');
-    expect(screen.getByRole('tabpanel', { name: 'Join cluster' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Request to join render-coordinator' }));
-    expect(
-      screen.getByRole('button', { name: 'Join request pending for render-coordinator' }),
-    ).toBeDisabled();
     await overview(user);
     expect(screen.getAllByRole('article')).toHaveLength(4);
     expect(screen.getAllByText(/^Layers /)).toHaveLength(5);
     await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
-    await chooseConnection(user, 'Join cluster');
-    expect(
-      screen.getByRole('button', { name: 'Join request pending for render-coordinator' }),
-    ).toBeDisabled();
     await chooseConnection(user, 'Add device');
     expect(screen.getByRole('button', { name: 'Invitation pending for office-pc' })).toBeDisabled();
     const invite = screen.getByRole('button', { name: 'Invite private address' });
@@ -57,7 +49,7 @@ describe('Cluster joining demo', () => {
     expect(screen.getAllByRole('article')).toHaveLength(4);
   });
 
-  it('explains both incoming directions and resolves only the selected request', async () => {
+  it('explains incoming invitations and resolves only the selected request', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
@@ -73,14 +65,14 @@ describe('Cluster joining demo', () => {
     expect(
       within(requests).getByText('render-coordinator coordinates; this PC contributes.'),
     ).toBeVisible();
-    expect(within(requests).getByText('This PC coordinates; office-pc contributes.')).toBeVisible();
+    expect(within(requests).getByText('office-pc coordinates; this PC contributes.')).toBeVisible();
     await user.click(
       within(requests).getByRole('button', { name: 'Approve invitation from render-coordinator' }),
     );
     expect(screen.getByLabelText('1 pending request')).toBeVisible();
     expect(within(requests).getByText('Approved · demo')).toBeVisible();
     await user.click(
-      within(requests).getByRole('button', { name: 'Decline join request from office-pc' }),
+      within(requests).getByRole('button', { name: 'Decline invitation from office-pc' }),
     );
     expect(screen.queryByLabelText(/pending requests?$/)).not.toBeInTheDocument();
     expect(within(requests).getByText('Declined · demo')).toBeVisible();
