@@ -12,6 +12,7 @@ import type { InstalledPackage } from '../runtime-package/install.js';
 import { inspectGGUF } from '../runtime/gguf.js';
 import { LIFECYCLE_POLICY, REMOTE_STARTUP_MS } from '../runtime/contracts.js';
 import { GENERATION_POLICY } from '../generation/contracts.js';
+import { withPeerActivity } from '../generation/peer-activity-transport.js';
 import { checkCudaResources } from '../runtime/gpu-resources.js';
 import { discoverResources } from './resource-probe.js';
 import { confirmExit, ownershipBinding } from './windows-ownership.js';
@@ -110,7 +111,23 @@ export function developmentDesktopDependencies(
   const openPeer = async (device: string) => (await getPeerHost()).openRpc(device);
   const reservePlanningLocal =
     applicationData && caller
-      ? async (devices: readonly string[]) => (await getPeerHost()).reserveLocal(devices)
+      ? async (devices: readonly string[]) => {
+          const peer = await getPeerHost();
+          await peer.setRuntimeBusy(true);
+          let lease;
+          try {
+            lease = await peer.reserveLocal(devices);
+          } catch (error) {
+            await peer.setRuntimeBusy(false);
+            throw error;
+          }
+          return {
+            async release() {
+              await lease.release();
+              await peer.setRuntimeBusy(false);
+            },
+          };
+        }
       : undefined;
   const installClusterRuntime = async () => {
     installation ??= (async () => {
@@ -180,6 +197,7 @@ export function developmentDesktopDependencies(
     const native = ownershipBinding(),
       root = native.createDeployment();
     let adapter: ReturnType<typeof realEngineAdapter> | undefined;
+    const activityTransports = new WeakMap<object, ReturnType<typeof withPeerActivity>>();
     let localGpuIds: readonly string[] = [];
     let startupMs: number = LIFECYCLE_POLICY.startupMs;
     let leaseExit: Promise<void> | undefined;
@@ -295,19 +313,24 @@ export function developmentDesktopDependencies(
             async launch(selection, signal) {
               if (closed || !adapter) throw new Error('NOT_READY');
               await leaseExit;
-              const lease =
-                applicationData && caller && localGpuIds.length
-                  ? await (await getPeerHost()).reserveLocal(localGpuIds)
-                  : undefined;
+              const peer = applicationData && caller ? await getPeerHost() : undefined;
+              await peer?.setRuntimeBusy(true);
+              let lease: { release(): Promise<void> } | undefined;
               try {
+                lease = localGpuIds.length ? await peer?.reserveLocal(localGpuIds) : undefined;
                 const engine = await adapter.launch(selection, signal);
-                leaseExit = engine.exited.then(() => lease?.release());
+                leaseExit = engine.exited.then(async () => {
+                  await lease?.release();
+                  await peer?.setRuntimeBusy(false);
+                });
                 void leaseExit.catch(() => undefined);
+                await peer?.setRuntimeBusy(false);
                 return engine;
               } catch (error) {
                 // A failed launch cannot release hardware until its adapter proves exit.
                 await adapter.close();
                 await lease?.release();
+                await peer?.setRuntimeBusy(false);
                 throw error;
               }
             },
@@ -322,7 +345,14 @@ export function developmentDesktopDependencies(
             ? {
                 chat: (engine: Parameters<ReturnType<typeof realEngineAdapter>['chat']>[0]) => {
                   if (closed || !adapter) throw new Error('NOT_READY');
-                  return adapter.chat(engine);
+                  let transport = activityTransports.get(engine);
+                  if (!transport) {
+                    transport = withPeerActivity(adapter.chat(engine), async (busy) => {
+                      await (await getPeerHost()).setRuntimeBusy(busy);
+                    });
+                    activityTransports.set(engine, transport);
+                  }
+                  return transport;
                 },
                 chatSetup: {
                   applicationData,

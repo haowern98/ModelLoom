@@ -17,6 +17,7 @@ import { decodePeerHardware } from './hardware.js';
 import type { PeerHardware } from './hardware.js';
 
 export interface DesktopPeerHost {
+  setRuntimeBusy(busy: boolean): Promise<void>;
   command(caller: string, input: unknown): Promise<PeerReply>;
   close(): Promise<void>;
   openRpc(device: string): Promise<Duplex>;
@@ -224,6 +225,7 @@ export async function createDesktopPeerHost(
       return Promise.resolve();
     },
     reserveLocal: (devices) => reservations.reserve(devices),
+    setRuntimeBusy: (busy) => reservations.setBusy(busy),
     resources: (device) => resources.read(device),
     async openRpc(device) {
       if (closing || !alive || streams.size >= 4) throw new Error('NOT_READY');

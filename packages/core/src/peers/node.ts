@@ -20,6 +20,7 @@ import { decodePeerHardware } from './hardware.js';
 import type { PeerHardware } from './hardware.js';
 import { CodePairing, verifyPairingCode } from './pairing-code.js';
 import type { PeerTrust } from './trust-store.js';
+import { DiagnosticAdmission, serveDiagnostic, measureDiagnostic } from './diagnostics.js';
 
 export interface PeerGpu {
   readonly id: string;
@@ -224,6 +225,150 @@ export class PeerNode {
   private inventoryRevision = 0;
   private inventoryWaiters = new Set<() => void>();
   private pendingWatches = new Set<string>();
+  private readonly diagnostics = new DiagnosticAdmission();
+  private runtimeBusy = false;
+  private remoteRuntimeBusy = new Map<string, boolean>();
+  private rpcLoading = new Set<GpuReservation>();
+  private openingRpc = 0;
+  private remoteIdle = new Map<string, boolean>();
+  private diagnosticsUnsupported = new Set<string>();
+  private rpcTraffic = new Map<
+    string,
+    { sent: number; received: number; streams: Map<Duplex, { read: number; written: number }> }
+  >();
+
+  /** Retained runtime parent only, never a renderer-supplied activity claim. */
+  setRuntimeBusy(busy: boolean): void {
+    this.runtimeBusy = busy;
+    if (busy) this.diagnostics.cancel();
+  }
+  telemetryBusy(id?: string): boolean {
+    return (
+      this.runtimeBusy ||
+      this.openingRpc > 0 ||
+      this.rpcPreparations.size > 0 ||
+      this.rpcLoading.size > 0 ||
+      [...this.remoteRuntimeBusy.values()].some(Boolean) ||
+      (id !== undefined && this.remoteIdle.get(id) === false)
+    );
+  }
+  /** Notify only the workers whose streams belong to this loaded runtime. */
+  async notifyRuntimeActivity(busy: boolean): Promise<void> {
+    await Promise.all(
+      [...this.outgoing.values()]
+        .filter(
+          (peer) =>
+            peer.verified &&
+            this.rpcTraffic.get(peer.id)?.streams.size &&
+            !this.diagnosticsUnsupported.has(peer.id),
+        )
+        .map(async (peer) => {
+          try {
+            const response = object(await this.call(peer.id, 'diagnostics-activity', { busy }), [
+              'phase',
+            ]);
+            if (response.phase !== 'approved') throw Error('PEER_NOT_APPROVED');
+          } catch (error) {
+            // Older workers cannot run diagnostics, so they need no probe cancellation.
+            if (
+              !(error instanceof Error) ||
+              !['UNKNOWN_PEER_OPERATION', 'INVALID_PEER_MESSAGE'].includes(error.message)
+            )
+              throw error;
+            this.diagnosticsUnsupported.add(peer.id);
+          }
+        }),
+    );
+  }
+  trafficTotals(id: string): { sent: number; received: number } {
+    const traffic = this.rpcTraffic.get(id);
+    let sent = traffic?.sent ?? 0,
+      received = traffic?.received ?? 0;
+    for (const [stream, base] of traffic?.streams ?? []) {
+      sent += Math.max(0, (stream as Socket).bytesWritten - base.written);
+      received += Math.max(0, (stream as Socket).bytesRead - base.read);
+    }
+    return { sent, received };
+  }
+  async pingTelemetry(id: string, signal: AbortSignal): Promise<number> {
+    const start = performance.now();
+    let response: unknown;
+    try {
+      response = this.diagnosticsUnsupported.has(id)
+        ? await this.call(id, 'status', {}, signal)
+        : await this.call(id, 'diagnostics-ping', {}, signal);
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !['UNKNOWN_PEER_OPERATION', 'INVALID_PEER_MESSAGE'].includes(error.message)
+      )
+        throw error;
+      this.diagnosticsUnsupported.add(id);
+      response = await this.call(id, 'status', {}, signal);
+    }
+    if (this.diagnosticsUnsupported.has(id)) {
+      const status = object(response, ['phase']);
+      if (status.phase !== 'approved') throw Error('PEER_NOT_APPROVED');
+      return performance.now() - start;
+    }
+    const result = object(response, ['idle']);
+    if (typeof result.idle !== 'boolean') return invalid();
+    this.remoteIdle.set(id, result.idle);
+    return performance.now() - start;
+  }
+  async measureTelemetry(
+    id: string,
+    signal: AbortSignal,
+  ): Promise<{ uploadMbps: number; downloadMbps: number }> {
+    const peer = this.outgoing.get(id);
+    if (this.diagnosticsUnsupported.has(id)) throw Error('DIAGNOSTICS_UNSUPPORTED');
+    if (!peer?.verified || !this.remoteIdle.get(id)) throw Error('DIAGNOSTICS_BUSY');
+    if (this.telemetryBusy()) throw Error('DIAGNOSTICS_BUSY');
+    const probe = this.diagnostics.acquire(`out:${id}`);
+    const combined = AbortSignal.any([signal, probe.signal, this.lifetime.signal]);
+    try {
+      const downloadMbps = await measureDiagnostic(this.identity, peer, 'download', combined);
+      combined.throwIfAborted();
+      if (this.telemetryBusy()) throw Error('DIAGNOSTICS_BUSY');
+      const uploadMbps = await measureDiagnostic(this.identity, peer, 'upload', combined);
+      return { uploadMbps, downloadMbps };
+    } finally {
+      probe.release();
+    }
+  }
+  private async diagnosticRequest(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    const match = request.url?.match(/^\/v1\/diagnostics\/([a-f0-9-]{36})\/(upload|download)$/u);
+    const socket = request.socket as TLSSocket;
+    const cert = socket.getPeerCertificate();
+    const peer = match ? this.incoming.get(match[1]!) : undefined;
+    if (
+      !this.active ||
+      request.method !== 'POST' ||
+      !socket.authorized ||
+      !cert.raw ||
+      !peer ||
+      peer.phase !== 'approved' ||
+      !peer.localVerified ||
+      !peer.remoteVerified ||
+      peer.peerFingerprint !== peerFingerprint(cert.raw)
+    )
+      throw Error('PEER_NOT_APPROVED');
+    if (this.telemetryBusy()) throw Error('DIAGNOSTICS_BUSY');
+    const probe = this.diagnostics.acquire(`${peer.id}:${match![2]}`);
+    try {
+      await serveDiagnostic(
+        request,
+        response,
+        match![2] as 'upload' | 'download',
+        AbortSignal.any([probe.signal, this.lifetime.signal]),
+      );
+    } finally {
+      probe.release();
+    }
+  }
   constructor(
     private readonly identity: WindowsPeerIdentity,
     private readonly name: string,
@@ -384,6 +529,7 @@ export class PeerNode {
       throw new Error('NOT_READY');
     if (gpuIds.some((id) => !this.gpus.some((g) => g.id.toLowerCase() === id.toLowerCase())))
       throw Error('GPU_UNAVAILABLE');
+    this.diagnostics.cancel();
     return this.reservations.reserveLocal(gpuIds);
   }
   releaseLocal(reservation: GpuReservation): void {
@@ -505,6 +651,18 @@ export class PeerNode {
         secureOptions: constants.SSL_OP_NO_TICKET,
       },
       (request, response) => {
+        if (request.url?.startsWith('/v1/diagnostics/')) {
+          void this.diagnosticRequest(request, response).catch((error: unknown) => {
+            if (response.headersSent) response.destroy();
+            else
+              reply(
+                response,
+                { error: error instanceof Error ? error.message : 'PEER_UNAVAILABLE' },
+                error instanceof Error && error.message === 'DIAGNOSTICS_BUSY' ? 503 : 403,
+              );
+          });
+          return;
+        }
         void this.control(request).then(
           (result) => reply(response, result),
           (error: unknown) =>
@@ -715,11 +873,13 @@ export class PeerNode {
         ? ['id', 'request']
         : request.url === '/v1/code-finish'
           ? ['id', 'attempt', 'proof']
-          : request.url === '/v1/inventory-watch'
-            ? ['id', 'after']
-            : scopedHeartbeat
-              ? ['id', 'gpuId']
-              : ['id'],
+          : request.url === '/v1/diagnostics-activity'
+            ? ['id', 'busy']
+            : request.url === '/v1/inventory-watch'
+              ? ['id', 'after']
+              : scopedHeartbeat
+                ? ['id', 'gpuId']
+                : ['id'],
     );
     this.expire();
     const value = this.incoming.get(text(input.id, 36));
@@ -777,6 +937,29 @@ export class PeerNode {
     } else if (request.url === '/v1/inventory') {
       if (value.phase !== 'approved') return invalid('PEER_NOT_APPROVED');
       return this.allowed(value);
+    } else if (request.url === '/v1/diagnostics-ping') {
+      if (value.phase !== 'approved' || !value.localVerified || !value.remoteVerified)
+        return invalid('PEER_NOT_APPROVED');
+      return { idle: !this.telemetryBusy() };
+    } else if (request.url === '/v1/diagnostics-activity') {
+      if (
+        value.phase !== 'approved' ||
+        !value.localVerified ||
+        !value.remoteVerified ||
+        typeof input.busy !== 'boolean'
+      )
+        return invalid('PEER_NOT_APPROVED');
+      const ownsStream = [...this.activeRpc.values()].some((entry) => entry.id === value.id);
+      if (input.busy && !ownsStream) return invalid('RPC_NOT_APPROVED');
+      if (input.busy) {
+        this.remoteRuntimeBusy.set(value.id, true);
+        this.diagnostics.cancel();
+      } else {
+        this.remoteRuntimeBusy.delete(value.id);
+        for (const entry of this.activeRpc.values())
+          if (entry.id === value.id) this.rpcLoading.delete(entry.reservation);
+      }
+      return { phase: 'approved' };
     } else if (request.url === '/v1/resources') {
       if (value.phase !== 'approved' || !this.rpcBackend?.resources)
         return invalid('RPC_PACKAGE_REQUIRED');
@@ -916,6 +1099,7 @@ export class PeerNode {
     });
   }
   async decline(id: string): Promise<void> {
+    this.diagnostics.cancel();
     const value = this.incoming.get(id);
     if (!value) return invalid('UNKNOWN_PEER_REQUEST');
     value.phase = 'declined';
@@ -938,7 +1122,12 @@ export class PeerNode {
         });
     await this.saveTrust();
   }
-  private async call(id: string, operation: string, data: object = {}): Promise<unknown> {
+  private async call(
+    id: string,
+    operation: string,
+    data: object = {},
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     const value = this.outgoing.get(id);
     if (!value) return invalid('UNKNOWN_PEER_REQUEST');
     return exchange(
@@ -946,7 +1135,7 @@ export class PeerNode {
       { id, ...data },
       this.identity,
       value.certificate,
-      this.lifetime.signal,
+      signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal,
       value.authority,
     );
   }
@@ -987,6 +1176,10 @@ export class PeerNode {
     value.verified = true;
   }
   async cancel(id: string): Promise<void> {
+    this.diagnostics.cancel();
+    this.rpcTraffic.delete(id);
+    this.remoteIdle.delete(id);
+    this.diagnosticsUnsupported.delete(id);
     const value = this.outgoing.get(id);
     if (!value) return invalid('UNKNOWN_PEER_REQUEST');
     this.outgoing.delete(id);
@@ -1174,6 +1367,7 @@ export class PeerNode {
       socket.destroy();
       return;
     }
+    this.diagnostics.cancel();
     // Only an authenticated, approved request may wait for the native launch
     // budget. Unapproved connections retain the shorter admission deadline.
     tls.setTimeout(this.timing.startup + 1000);
@@ -1242,6 +1436,7 @@ export class PeerNode {
     }
     const entry: ActiveRpc = { id: peer.id, socket, owned, reservation };
     this.activeRpc.set(reservation, entry);
+    this.rpcLoading.add(reservation);
     tls.setTimeout(0);
     transport.setTimeout(0);
     socket.write(
@@ -1269,6 +1464,9 @@ export class PeerNode {
       await peerDeadline(entry.owned.close(), this.timing.stop, 'RPC_CLEANUP_FAILED');
       this.reservations!.confirmReleased(entry.reservation);
       this.activeRpc.delete(entry.reservation);
+      this.rpcLoading.delete(entry.reservation);
+      if (![...this.activeRpc.values()].some((other) => other.id === entry.id))
+        this.remoteRuntimeBusy.delete(entry.id);
     });
     void entry.closing.catch(() => {
       this.rpcFailed = true;
@@ -1278,31 +1476,48 @@ export class PeerNode {
   /** Bind a stream and its lease to one physical shared GPU. Omitting gpuId is
    * retained for older callers only when the remote scope contains one GPU. */
   async openRpc(id: string, gpuId?: string): Promise<Duplex> {
-    const peer = this.outgoing.get(id);
-    if (!peer?.verified || (await this.status(id)).phase !== 'approved')
-      return invalid('PEER_NOT_APPROVED');
-    const socket = await connectPeerRpc(this.identity, peer, this.lifetime.signal, gpuId);
-    if (this.lifetime.signal.aborted) {
-      socket.destroy();
-      return invalid('PEER_UNAVAILABLE');
+    this.diagnostics.cancel();
+    ++this.openingRpc;
+    try {
+      const peer = this.outgoing.get(id);
+      if (!peer?.verified || (await this.status(id)).phase !== 'approved')
+        return invalid('PEER_NOT_APPROVED');
+      const socket = await connectPeerRpc(this.identity, peer, this.lifetime.signal, gpuId);
+      if (this.lifetime.signal.aborted) {
+        socket.destroy();
+        return invalid('PEER_UNAVAILABLE');
+      }
+      this.outgoingRpc.add(socket);
+      let traffic = this.rpcTraffic.get(id);
+      if (!traffic) {
+        traffic = { sent: 0, received: 0, streams: new Map() };
+        this.rpcTraffic.set(id, traffic);
+      }
+      const base = { read: (socket as Socket).bytesRead, written: (socket as Socket).bytesWritten };
+      traffic.streams.set(socket, base);
+      const heartbeat = setInterval(() => {
+        void this.call(id, 'heartbeat', gpuId === undefined ? {} : { gpuId }).catch(() =>
+          socket.destroy(),
+        );
+      }, 3000);
+      socket.once('close', () => {
+        traffic.sent += Math.max(0, (socket as Socket).bytesWritten - base.written);
+        traffic.received += Math.max(0, (socket as Socket).bytesRead - base.read);
+        traffic.streams.delete(socket);
+        clearInterval(heartbeat);
+        this.outgoingRpc.delete(socket);
+      });
+      socket.once('error', () => {
+        clearInterval(heartbeat);
+        socket.destroy();
+      });
+      return socket;
+    } finally {
+      --this.openingRpc;
     }
-    this.outgoingRpc.add(socket);
-    const heartbeat = setInterval(() => {
-      void this.call(id, 'heartbeat', gpuId === undefined ? {} : { gpuId }).catch(() =>
-        socket.destroy(),
-      );
-    }, 3000);
-    socket.once('close', () => {
-      clearInterval(heartbeat);
-      this.outgoingRpc.delete(socket);
-    });
-    socket.once('error', () => {
-      clearInterval(heartbeat);
-      socket.destroy();
-    });
-    return socket;
   }
   async stopSharing(): Promise<void> {
+    this.diagnostics.cancel();
     this.active = false;
     this.inventoryChanged();
     ++this.revision;
@@ -1356,6 +1571,7 @@ export class PeerNode {
     }
   }
   async close(): Promise<void> {
+    this.diagnostics.cancel();
     this.lifetime.abort();
     for (const socket of this.outgoingRpc) socket.destroy();
     this.outgoingRpc.clear();

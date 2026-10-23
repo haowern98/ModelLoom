@@ -19,6 +19,7 @@ import type { GpuReservation } from './reservations.js';
 import type { PeerRpcBackend } from './rpc.js';
 import type { PeerResources } from './resources.js';
 import { PeerTrustStore } from './trust-store.js';
+import { PeerTelemetryMonitor } from './telemetry-monitor.js';
 
 /** One utility-owned installation identity. No renderer filesystem/root input. */
 export class PeerOwner {
@@ -30,12 +31,59 @@ export class PeerOwner {
   private readonly watches = new Map<string, Promise<void>>();
   private readonly retryWaiters = new Set<() => void>();
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  private telemetryTimer: ReturnType<typeof setTimeout> | undefined;
+  private telemetry = new Map<string, PeerTelemetryMonitor>();
   private constructor(
     private readonly node: PeerNode,
     private readonly identity: WindowsPeerIdentity,
     private readonly caller: string,
     private readonly addresses: readonly string[],
-  ) {}
+  ) {
+    this.telemetryTimer = setTimeout(() => {
+      void this.pollTelemetry();
+    }, 0);
+  }
+  private async pollTelemetry(): Promise<void> {
+    if (this.closed) return;
+    const approved = this.node
+      .snapshot()
+      .outgoing.filter((peer) => peer.verified && this.remote.get(peer.id)?.phase === 'approved');
+    const ids = new Set(approved.map((peer) => peer.id));
+    for (const [id, monitor] of this.telemetry)
+      if (!ids.has(id)) {
+        monitor.close();
+        this.telemetry.delete(id);
+      }
+    try {
+      for (const peer of approved) {
+        if (this.closed) break;
+        let monitor = this.telemetry.get(peer.id);
+        if (!monitor) {
+          monitor = new PeerTelemetryMonitor({
+            ping: (signal) => this.node.pingTelemetry(peer.id, signal),
+            bandwidth: (signal) => this.node.measureTelemetry(peer.id, signal),
+            totals: () => this.node.trafficTotals(peer.id),
+            active: () => this.node.telemetryBusy(peer.id),
+            changed: () => this.emit(),
+            bandwidthCooldownMs: this.identity.fingerprint < peer.peerFingerprint ? 60000 : 75000,
+          });
+          this.telemetry.set(peer.id, monitor);
+        }
+        await monitor.tick();
+      }
+    } finally {
+      if (!this.closed)
+        this.telemetryTimer = setTimeout(() => {
+          void this.pollTelemetry();
+        }, 3000);
+    }
+  }
+  /** Only the retained runtime parent can suspend diagnostics before native admission. */
+  async setRuntimeBusy(busy: boolean): Promise<void> {
+    this.node.setRuntimeBusy(busy);
+    for (const monitor of this.telemetry.values()) monitor.setActive(busy);
+    await this.node.notifyRuntimeActivity(busy);
+  }
   static async open(
     applicationData: string,
     caller: string,
@@ -171,9 +219,9 @@ export class PeerOwner {
       while (!this.closed) {
         try {
           const current = this.node.snapshot().outgoing.find((peer) => peer.id === id);
-          if (!current?.verified) return;
+          if (!current) return;
           const status = await this.node.status(id);
-          if (status.phase !== 'approved') {
+          if (status.phase !== 'approved' || !current.verified) {
             const previous = this.remote.get(id);
             const view: PeerRequestView = {
               id: current.id,
@@ -265,15 +313,19 @@ export class PeerOwner {
   }
   command(caller: string, input: unknown): Promise<PeerReply> {
     const command = decodePeerCommand(input);
-    if (this.closed || caller !== this.caller || this.queued >= 16)
+    if (this.closed || caller !== this.caller)
       return Promise.resolve({ ok: false, error: 'NOT_READY' });
+    // Local inventory must remain readable while remote mutations wait for the network.
+    if (command.action === 'read') {
+      for (const peer of this.node.snapshot().outgoing) this.watch(peer.id);
+      return Promise.resolve(decodePeerReply({ ok: true, view: this.cachedView() }));
+    }
+    if (this.queued >= 16) return Promise.resolve({ ok: false, error: 'NOT_READY' });
     ++this.queued;
     const operation = this.operations.then(async (): Promise<PeerReply> => {
       try {
         if (this.closed) return { ok: false, error: 'NOT_READY' };
         switch (command.action) {
-          case 'read':
-            break;
           case 'share':
             if (!this.addresses.includes(command.address))
               throw new Error('INVALID_SHARING_ADDRESS');
@@ -307,7 +359,7 @@ export class PeerOwner {
             break;
         }
         const view = await this.view();
-        if (command.action !== 'read') this.emit();
+        this.emit();
         return decodePeerReply({ ok: true, view });
       } catch (error: unknown) {
         const code =
@@ -343,7 +395,7 @@ export class PeerOwner {
             remoteVerified: approved,
             gpus: approved ? await this.node.inventory(value.id) : [],
           };
-          if (value.verified) this.watch(value.id);
+          this.watch(value.id);
           return result;
         } catch {
           return {
@@ -395,6 +447,9 @@ export class PeerOwner {
         gpus: value.gpus,
         ...(value.hardware ? { hardware: value.hardware } : {}),
         ...(value.address ? { address: value.address } : {}),
+        ...(value.phase === 'approved' && this.telemetry.has(value.id)
+          ? { telemetry: this.telemetry.get(value.id)!.view() }
+          : {}),
       })),
     };
   }
@@ -449,6 +504,9 @@ export class PeerOwner {
   }
   async close(): Promise<void> {
     this.closed = true;
+    clearTimeout(this.telemetryTimer);
+    for (const monitor of this.telemetry.values()) monitor.close();
+    this.telemetry.clear();
     clearTimeout(this.reconnectTimer);
     this.listeners.clear();
     for (const wake of this.retryWaiters) wake();

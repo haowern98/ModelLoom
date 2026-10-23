@@ -660,7 +660,15 @@ export function ClusterPage({
                   setSelection({ type: 'overview' });
                 }}
               >
-                {placementLinks.length > 0 && <CanvasPlacementLinks links={placementLinks} />}
+                {placementLinks.length > 0 && (
+                  <CanvasPlacementLinks
+                    links={placementLinks}
+                    devices={canvasDevices}
+                    onSelect={(link) =>
+                      showPanel({ type: 'connection', from: link.from, to: link.to })
+                    }
+                  />
+                )}
                 <svg
                   className={styles.connections}
                   viewBox="0 0 100 100"

@@ -6,6 +6,7 @@ export type {
   PeerReply,
   PeerView,
   PeerGpuView,
+  PeerTelemetry,
 } from '../../../../packages/core/src/peers/wire';
 declare global {
   interface Window {

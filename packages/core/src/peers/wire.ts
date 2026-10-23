@@ -1,5 +1,8 @@
 import { decodePeerHardware } from './hardware.js';
 import type { PeerHardware } from './hardware.js';
+import { decodePeerTelemetry } from './telemetry-view.js';
+import type { PeerTelemetry } from './telemetry-view.js';
+export type { PeerTelemetry } from './telemetry-view.js';
 export interface PeerGpuView {
   readonly id: string;
   readonly name: string;
@@ -16,6 +19,7 @@ export interface PeerRequestView {
   readonly hardware?: PeerHardware;
   readonly address?: string;
   readonly pairingCode?: string;
+  readonly telemetry?: PeerTelemetry;
 }
 export interface PeerView {
   readonly fingerprint: string;
@@ -165,7 +169,9 @@ function gpu(input: unknown): PeerGpuView {
 function request(input: unknown): PeerRequestView {
   const optional =
     input && typeof input === 'object'
-      ? ['hardware', 'address', 'pairingCode'].filter((key) => Object.hasOwn(input, key))
+      ? ['hardware', 'address', 'pairingCode', 'telemetry'].filter((key) =>
+          Object.hasOwn(input, key),
+        )
       : [];
   const value = shape(input, [
     'id',
@@ -188,6 +194,7 @@ function request(input: unknown): PeerRequestView {
     remoteVerified: boolean(value.remoteVerified),
     gpus: array(value.gpus, gpu),
     ...(value.hardware !== undefined ? { hardware: decodePeerHardware(value.hardware) } : {}),
+    ...(value.telemetry !== undefined ? { telemetry: decodePeerTelemetry(value.telemetry) } : {}),
     ...(value.address !== undefined ? { address: string(value.address, 255) } : {}),
     ...(value.pairingCode !== undefined
       ? {

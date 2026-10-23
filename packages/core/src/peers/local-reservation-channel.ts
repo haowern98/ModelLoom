@@ -5,6 +5,7 @@ import type { GpuReservation } from './reservations.js';
 import { exact } from '../hosts/control.js';
 
 interface LocalOwner {
+  setRuntimeBusy?(busy: boolean): void | Promise<void>;
   reserveLocal(ids: readonly string[]): GpuReservation;
   releaseLocal(reservation: GpuReservation): void;
 }
@@ -19,7 +20,14 @@ export function localReservationServer(
   return async (message: Record<string, unknown>): Promise<void> => {
     if (typeof message.id !== 'string' || !uuid.test(message.id)) throw Error('INVALID_CONTROL');
     const id = message.id;
-    if (message.type === 'gpu-acquire') {
+    if (message.type === 'runtime-activity') {
+      exact(message, ['type', 'id', 'busy']);
+      if (typeof message.busy !== 'boolean') throw Error('INVALID_CONTROL');
+      const service = await owner();
+      if (!service.setRuntimeBusy) throw Error('NOT_READY');
+      await service.setRuntimeBusy(message.busy);
+      send({ type: 'gpu-result', id, ok: true });
+    } else if (message.type === 'gpu-acquire') {
       exact(message, ['type', 'id', 'devices']);
       if (
         !Array.isArray(message.devices) ||
@@ -74,6 +82,11 @@ export function localReservationClient(send: (value: object) => void) {
     });
   };
   return {
+    setBusy(busy: boolean) {
+      if (typeof busy !== 'boolean') return Promise.reject(Error('INVALID_CONTROL'));
+      const id = randomUUID();
+      return call(id, { type: 'runtime-activity', id, busy });
+    },
     receive(message: Record<string, unknown>) {
       exact(message, ['type', 'id', 'ok']);
       if (

@@ -22,6 +22,7 @@ export interface PeerUtilityChannel {
   exit(code: number): void;
 }
 interface Service {
+  setRuntimeBusy?(busy: boolean): void | Promise<void>;
   updateHardware?(hardware: PeerHardware): Promise<void>;
   subscribe?(listener: (reply: PeerReply) => void): () => void;
   command(caller: string, input: unknown): Promise<PeerReply>;
@@ -61,6 +62,7 @@ export function runPeerUtility(
     return {
       reserveLocal: owner.reserveLocal.bind(owner),
       releaseLocal: owner.releaseLocal.bind(owner),
+      ...(owner.setRuntimeBusy ? { setRuntimeBusy: owner.setRuntimeBusy.bind(owner) } : {}),
     };
   }, send);
   async function close(code: number) {
@@ -114,7 +116,11 @@ export function runPeerUtility(
         ).catch(() => close(1));
         return;
       }
-      if (message.type === 'gpu-acquire' || message.type === 'gpu-release') {
+      if (
+        message.type === 'gpu-acquire' ||
+        message.type === 'gpu-release' ||
+        message.type === 'runtime-activity'
+      ) {
         if (!preparation) throw new Error('INVALID_CONTROL');
         void reservations(message).catch(() => close(1));
         return;

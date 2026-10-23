@@ -45,6 +45,7 @@ export function peerDevices(view: PeerView | null): readonly DemoDevice[] {
         os: facts?.os ?? 'Not reported',
         address: peer.address ?? 'Connected device',
         hardware,
+        ...(peer.telemetry ? { telemetry: peer.telemetry } : {}),
         ...(facts
           ? {
               inventory: {

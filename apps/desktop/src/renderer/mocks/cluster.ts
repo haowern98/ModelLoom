@@ -1,3 +1,4 @@
+import type { PeerTelemetry } from '../../shared/peers';
 import type { DeviceInventory } from '../../shared/runtime';
 /** Screen-reference fixtures only; no values represent discovered hardware or valid GGUF placement. */
 export interface DemoHardware {
@@ -19,6 +20,7 @@ export interface DemoDevice {
   readonly address: string;
   readonly hardware: readonly DemoHardware[];
   readonly inventory?: DeviceInventory;
+  readonly telemetry?: PeerTelemetry;
 }
 
 export const demoDevices: readonly DemoDevice[] = [

@@ -1,3 +1,4 @@
+import { ConnectionDetails } from './ConnectionDetails';
 import { useEffect, useId, useRef } from 'react';
 import type { RefObject } from 'react';
 import { CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
@@ -20,6 +21,7 @@ export type ClusterSelection =
   | { type: 'overview' | 'share' }
   | { type: 'add'; anchor?: { deviceId: string; edge: CanvasEdge } }
   | { type: 'device'; device: DemoDevice; hardwareId?: string; renaming?: boolean }
+  | { type: 'connection'; from: string; to: string }
   | { type: 'link'; link: (typeof demoLinks)[number] };
 
 export type AssignmentStatus = 'No assignment' | 'Draft' | 'Saved' | 'In use';
@@ -164,13 +166,15 @@ export function ClusterPanel({
   const title =
     selection.type === 'device'
       ? selection.device.name
-      : selection.type === 'link'
-        ? 'Connection'
-        : selection.type === 'overview'
-          ? 'Cluster overview'
-          : selection.type === 'add'
-            ? 'Add to canvas'
-            : connectionLabels[selection.type];
+      : selection.type === 'connection'
+        ? 'Connection details'
+        : selection.type === 'link'
+          ? 'Connection'
+          : selection.type === 'overview'
+            ? 'Cluster overview'
+            : selection.type === 'add'
+              ? 'Add to canvas'
+              : connectionLabels[selection.type];
   const hardware = devices.flatMap((device) => device.hardware);
   const gpus = hardware.filter((item) => item.kind === 'gpu');
   const unified = hardware.filter((item) => item.kind === 'unified');
@@ -255,6 +259,12 @@ export function ClusterPanel({
             )}
           </div>
         </header>
+        {selection.type === 'connection' && (
+          <ConnectionDetails
+            from={devices.find((device) => device.id === selection.from)}
+            to={devices.find((device) => device.id === selection.to)}
+          />
+        )}
         {selection.type === 'overview' && (
           <div className={styles.overviewSummary}>
             <div className={styles.overviewModel}>

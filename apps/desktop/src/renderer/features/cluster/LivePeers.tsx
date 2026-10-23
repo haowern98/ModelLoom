@@ -42,6 +42,7 @@ const errors: Record<string, string> = {
 };
 function usePeers() {
   const [view, setView] = useState<PeerView | null>(null);
+  const [readError, setReadError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pendingAction, setPendingAction] = useState<PeerCommand['action'] | null>(null);
   const [sharingError, setSharingError] = useState<string | null>(null);
@@ -68,6 +69,7 @@ function usePeers() {
       if (!reply.ok) throw new Error(reply.error);
       if (mounted.current && operation === epoch.current) {
         setView(reply.view);
+        setReadError(false);
         if (command.action === 'invite')
           setInvited(
             reply.view.outgoing.find(
@@ -81,6 +83,8 @@ function usePeers() {
       }
       return true;
     } catch (error) {
+      if (mounted.current && operation === epoch.current && command.action === 'read')
+        setReadError(true);
       if (mounted.current && !poll) {
         const code = error instanceof Error ? error.message : 'PEER_UNAVAILABLE';
         if (command.action === 'share')
@@ -121,6 +125,7 @@ function usePeers() {
   }, [run]);
   return {
     view,
+    readError,
     busy,
     pendingAction,
     sharingError,
@@ -128,6 +133,19 @@ function usePeers() {
     fallback,
     invited,
     setInvited,
+    retryNotice: readError ? (
+      <div role="alert" className={settings.row}>
+        <p className={settings.description}>Could not load connection details. Try again.</p>
+        <Button
+          disabled={busy}
+          onClick={() => {
+            void run({ action: 'read' });
+          }}
+        >
+          Retry
+        </Button>
+      </div>
+    ) : null,
     toast: notification ? (
       <Toast
         key={notification.id}
@@ -186,7 +204,7 @@ function VerifyPeer({
 }
 
 export function LivePeerRequests() {
-  const { view, busy, run, toast } = usePeers();
+  const { view, readError, busy, run, toast, retryNotice } = usePeers();
   const [verifying, setVerifying] = useState<string | null>(null);
   const selected = view?.incoming.find(
     (value) => value.id === verifying && value.phase === 'pending',
@@ -195,9 +213,10 @@ export function LivePeerRequests() {
   return (
     <section className={settings.section} aria-label="Requests">
       {toast}
+      {retryNotice}
       <h2>Requests</h2>
       <div className={settings.group}>
-        {!view && (
+        {!view && !readError && (
           <div className={settings.row}>
             <p className={settings.description}>Loading peer requests…</p>
           </div>
@@ -294,8 +313,19 @@ export function LivePeerRequests() {
 }
 
 export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: boolean }) {
-  const { view, busy, pendingAction, sharingError, run, toast, fallback, invited, setInvited } =
-    usePeers();
+  const {
+    view,
+    readError,
+    busy,
+    pendingAction,
+    sharingError,
+    run,
+    toast,
+    retryNotice,
+    fallback,
+    invited,
+    setInvited,
+  } = usePeers();
   const startingSharing = pendingAction === 'share';
   const [excludedGpuIds, setExcludedGpuIds] = useState<string[]>([]);
   const selected =
@@ -320,6 +350,7 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: bool
     return (
       <>
         {toast}
+        {retryNotice}
         <section className={settings.section}>
           <div className={layout.sectionHeader}>
             <h2>PCs that can use this PC</h2>
@@ -432,7 +463,7 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: bool
         <section className={settings.section}>
           <h2>Shared hardware</h2>
           <div className={settings.group}>
-            {!view && (
+            {!view && !readError && (
               <div className={settings.row}>
                 <p className={settings.description}>Loading GPUs…</p>
               </div>
@@ -514,6 +545,7 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: bool
   return (
     <>
       {toast}
+      {retryNotice}
       <section className={settings.section}>
         <div className={layout.sectionHeader}>
           <h2>PCs available to add</h2>
