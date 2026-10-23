@@ -14,9 +14,11 @@ import type { JoiningProps } from './ClusterJoiningPanel';
 import { connectionLabels } from '../../mocks/clusterJoining';
 import { CanvasDevicePicker } from './CanvasDevicePicker';
 import { Button } from '../../components/Button';
+import type { CanvasEdge } from './canvas-layout';
 
 export type ClusterSelection =
-  | { type: 'overview' | 'add' | 'share' }
+  | { type: 'overview' | 'share' }
+  | { type: 'add'; anchor?: { deviceId: string; edge: CanvasEdge } }
   | { type: 'device'; device: DemoDevice; hardwareId?: string; renaming?: boolean }
   | { type: 'link'; link: (typeof demoLinks)[number] };
 

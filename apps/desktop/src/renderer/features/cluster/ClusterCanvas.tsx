@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Minus, Plus, Scan } from 'lucide-react';
 import styles from './ClusterPage.module.css';
 
@@ -15,11 +15,13 @@ export function ClusterCanvas({
   onClear,
   singleDevice = false,
   panelId,
+  layoutStyle,
 }: {
   children: ReactNode;
   onClear: () => void;
   singleDevice?: boolean;
   panelId?: string | undefined;
+  layoutStyle?: CSSProperties | undefined;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
@@ -219,7 +221,10 @@ export function ClusterCanvas({
       <div
         ref={world}
         className={`${styles.canvas} ${singleDevice ? styles.singleDeviceCanvas : ''}`}
-        style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
+        style={{
+          ...layoutStyle,
+          transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+        }}
       >
         {children}
       </div>

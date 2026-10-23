@@ -952,8 +952,6 @@
 }
 .page .nodeAdd {
   position: absolute;
-  right: -17px;
-  top: 50%;
   z-index: 3;
   display: grid;
   place-items: center;
@@ -966,13 +964,52 @@
   color: #fff;
   opacity: 0;
   pointer-events: none;
+  transition: opacity 75ms ease;
+}
+.page .nodeAdd[data-edge='right'] {
+  right: -17px;
+  top: 50%;
   transform: translateY(-50%);
 }
-.device:hover .nodeAdd,
-.device:focus-within .nodeAdd,
-.page .nodeAddAlways {
+.page .nodeAdd[data-edge='left'] {
+  left: -17px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.page .nodeAdd[data-edge='top'] {
+  top: -17px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.page .nodeAdd[data-edge='bottom'] {
+  bottom: -17px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.page .nodeAdd[data-visible='true'] {
   opacity: 1;
   pointer-events: auto;
+}
+.nodeAddHint {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  margin: 12px 0 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--font-size-metadata);
+  pointer-events: none;
+  transition: opacity 75ms ease;
+}
+.nodeAddHint[data-hidden='true'] {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .page .nodeAdd,
+  .nodeAddHint {
+    transition: none;
+  }
 }
 .details {
   margin: 18px 0;
