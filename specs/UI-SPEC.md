@@ -902,3 +902,54 @@ basic inventory with unknown extended facts. Use bounded compatibility refresh
 until both apps support the live reporter. Actual connection/authentication/read
 failure still removes availability. Reporter compatibility never grants approval
 or bypasses sharing, fingerprint, reservation or runtime checks.
+
+### Manual six-digit pairing (2026-10-22)
+
+Retain the Connections heading, design and spacing, with two tabs: Share this PC
+and Add device. Share this PC contains sharing controls, shared hardware and
+incoming requests and approvals. Add device contains manual LAN or Tailscale IP
+entry, six-digit verification and outgoing remembered PCs. Remove the separate
+Join cluster tab; this supersedes the earlier requirement to retain all three
+tabs. Rename Invite to Connect. Do not substitute short-code device lookup,
+discovery or embedded network enrollment. Adding a paired PC to the canvas
+remains a separate action.
+
+After connection, automatically open a six-digit numeric-code dialog on the
+initiator; preserve leading zeros and permit paste. The receiver's Requests row
+opens one dialog showing its transient code and waiting state. After verified
+code entry, that same dialog shows Allow/Deny for shared GPU access. The initiator
+shows waiting for approval and then the truthful approved/connected state.
+Remove manual fingerprint comparison from this normal flow; core verification
+and exact identity pinning remain mandatory. Failed verification/cancellation
+keeps the dialog usable, and expiry, exhausted attempts, changed identity and
+unreachable PCs produce specific messages. Successful saved trust reconnects
+without re-entering a code while current sharing permission permits it.
+
+### Canvas membership and device panels (2026-10-23)
+
+Pairing and canvas membership remain separate. Paired available devices stay in
+the Devices inventory, sidebar and Add to canvas picker even when they are not
+on the current canvas. Opening an off-canvas device shows its identity, Device
+details link, the helper text "Add this device to canvas to assign layers."
+and an Add to canvas action. Do not show layer assignment fields until the device
+is on the canvas. Adding it reveals those fields in the same panel; removing it
+returns that panel to the off-canvas state.
+
+Disable Add to canvas while a model is loading or running, or automatic layer
+assignment is in progress. Cluster overview hardware counts, GPU memory totals
+and device assignment rows include only devices on the current canvas. Automatic
+layer assignment likewise considers GPUs only from devices on that canvas.
+
+### Automatic Windows sharing readiness (2026-10-23)
+
+Place the inspected two-tone spinner directly after Allow connections. Show the
+spinner and "Starting sharing…" only while an actual sharing-start operation is
+pending. Keep the switch off and disabled until the selected GPU helpers, listeners
+on the selected address, and the owned firewall rule are ready. A local startup
+failure appears inline; a pending or failed start must not appear as sharing on.
+
+Native PTSS checks confirmed TCP reachability on both sharing ports and subsequent
+cleanup. A later human-approved app startup also loaded the verified helper update,
+enabled sharing with both GPUs selected, and allowed PTSS to reach both actual
+Electron listeners. These checks do not establish fresh app pairing, inference or
+production release readiness.

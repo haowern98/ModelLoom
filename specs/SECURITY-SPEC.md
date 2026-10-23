@@ -73,6 +73,14 @@ The [2026-10-01 investigation](../docs/research/NETWORKING-AND-RUNTIME-UPDATES.m
 
 D02-D03 must decide how these outcomes are achieved without requiring a separate networking installation. Verify both Tailscale and an existing Headscale server. Built-in Headscale hosting is outside scope. Public raw worker RPC is prohibited even if an API key is configured elsewhere.
 
+The user-approved manual code flow is recorded in ADR-0007's 2026-10-22 revision.
+It preserves IP entry and pinned mutual TLS, replaces manual fingerprint comparison
+with identity-bound OPAQUE verification, and still requires receiver consent before
+GPU access. Directional trust uses protected CurrentUser storage, explicit expiry,
+aggregate attempt limits, durable revocation and saved GPU permission intersection.
+Remembered offline permissions remain visible and revocable. These development
+checks do not close the broader D02-D03 or release security gates.
+
 Upstream warns that its RPC backend is a fragile, insecure proof of concept unsuitable for open networks or sensitive environments. Network wrapping is not proof that every upstream weakness is fixed; review parser/runtime risks and document remaining limitations. [llama.cpp RPC documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/rpc/README.md).
 
 ## 4. API access and resource control

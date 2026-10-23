@@ -31,6 +31,29 @@ The user approved the Electron compatibility correction on 2026-10-20: preserve 
 
 Initial manual pairing must authenticate both ends. Accepted user interaction: show each application's full identity fingerprint on both machines and require confirmation that both fingerprints match before approval becomes effective. Incoming invitations and join requests appear in Cluster > Requests, with identity verification available in the approval flow. An Add device invitation appears on the invited PC; a Join cluster request appears on the coordinator. Both provide Approve/Decline. A pending request is not a trusted connection. Do not silently trust the first certificate received, accept a changed identity at a familiar IP, or forward native data while awaiting confirmation. Use a reviewed certificate/pinning verification path; never globally disable TLS verification.
 
+The user's 2026-10-22 PROCEED supersedes the manual fingerprint-comparison UI:
+retain LAN/Tailscale private IP entry and all Connections tabs, use a six-digit
+receiver-displayed code, then one explicit receiver Allow/Deny. The peer utility
+uses pinned `@serenity-kit/opaque` 1.1.0 with protocol version, request ID, both
+stable identity fingerprints, names and roles in authenticated identifiers. Its
+server finish consumes one attempt; a session-key HMAC receipt confirms that
+exact attempt to the initiator. Codes expire in five minutes, permit five attempts
+per request, and share aggregate ten-starts/minute and eight-new-requests/minute
+admission budgets. A new request cannot bypass the aggregate budget. Codes,
+OPAQUE registration records and session keys are never network reply fields or
+persisted trust. No old fingerprint-confirm path grants authority.
+
+Remember successful directional approval in a fixed private, CurrentUser-DPAPI
+file bound to this installation identity; preserve the approved physical GPU set.
+Fresh reconnect validates the current certificate chain and saved stable key,
+and intersects saved GPU permission with present sharing selection. Sharing stays
+off on startup. A changed identity requires fresh pairing; discovering a private
+address alone grants nothing. Revocation immediately denies all sessions for that
+identity, interrupts owned native work, then awaits durable removal before success
+acknowledgment. Failures remain denied and visible. This bounded development change
+does not close D03 overall, constitute a security audit of the composed protocol,
+or establish packaged/two-PC/release evidence for the new flow.
+
 Record approval by stable peer identity, cluster identity, direction/role and allowed GPU identities. Address and display-name changes do not grant or transfer approval. A replacement identity requires fresh pairing. Reject expired/replayed requests. Rate-limit and bound unauthenticated pairing requests without exposing GPU inventory or native operations.
 
 Sharing availability and peer approval are distinct. Turning on sharing permits pairing requests; it does not start an engine, assign layers or grant every tailnet device access. Revocation closes active sessions and denies reconnect until fresh explicit approval. Turning sharing off releases work and stops accepting worker operations. Sharing defaults off on a fresh launch; whether approvals remain stored is separate from sharing availability.
@@ -75,6 +98,23 @@ requests must never silently launch or restart an elevated helper. The private
 owner envelope is bounded and carries only Open, opaque Data and Close; selected
 GPU authority stays fixed at helper launch.
 
+On 2026-10-23 the user approved sharing both selected physical GPUs at the same
+time. The development implementation admits one existing verified helper per
+selected GPU before publishing availability, with one shared two-minute approval
+budget. Windows may request approval for each helper. Each helper still owns at
+most one restricted worker, with its GPU fixed at launch; remote requests cannot
+start an elevated helper. An approved coordinator can open disjoint GPU workers
+concurrently. Competing coordinators and overlapping local work remain blocked.
+
+The authenticated RPC upgrade selects an exact allowed physical UUID through
+`X-ModelLoom-GPU`; each worker has its own heartbeat and release handle. Missing
+selectors are accepted only for a single allowed GPU. Revocation and stopping
+sharing close every affected worker. A failed partial admission closes earlier
+helpers and retains package seals whenever cleanup cannot be confirmed. Both
+PCs need the updated development build for multi-GPU connections. This sharing
+change does not expand the existing two-execution-GPU placement limit or establish
+real two-PC inference correctness or performance.
+
 On 2026-10-21 the user directed removal of the worker's RAM cap entirely. Do not impose a worker Job Object RAM quota or a minimum-free-RAM launch gate in the helper. Preserve the restricted token, single-worker limit, process-bound network restrictions and confirmed lifecycle cleanup. Model resource admission remains separate; this decision does not claim that an uncapped worker cannot exhaust system memory.
 
 Before product implementation, review caller authentication, exact owned-instance binding, native access to app credentials/files, CUDA compatibility, crash ordering, fail-closed filters, bounded cleanup, update/uninstall behavior and effects on unrelated software. WFP application/user filtering is a candidate primitive, not proof of those properties. A bounded diagnostic may test this primitive using a harmless loopback listener and temporary filters; it cannot enable native RPC or establish production containment.
@@ -102,6 +142,28 @@ The [21 October timeout audit](../../docs/research/MULTI-DESKTOP-TIMEOUT-AUDIT-2
 - Incompatible/tampered packages fail before native load, without destroying the local working setup.
 - Compare identical GGUF/settings through ModelLoom and stock RPC on the same two-PC topology. Separately compare one-GPU versus distributed behavior; earlier local-loopback evidence does not establish WAN parity or universal output equivalence.
 - Report tests, actual desktop interaction, native containment, inference correctness and throughput separately. No throughput benchmark is included here.
+
+### Automatic Windows sharing network admission (2026-10-23)
+
+The accepted development direction adds a separate verified network-mode helper
+for automatic sharing admission, without a Windows service. The helper derives
+the allowed executable from retained owner ancestry rather than accepting an
+arbitrary executable path. Its owned firewall rule is restricted to the exact
+selected local address and interface, TCP ports 49301 and 49302, and the applicable
+remote scope: LocalSubnet for LAN or 100.64.0.0/10 for Tailscale.
+
+Normal pairing and mTLS remain the authorization boundary. Restricted worker WFP
+filtering remains the native isolation boundary; the sharing firewall allowance
+does not replace either. Confirm removal of the owned rule during teardown.
+Recover stale rules only from matching ownership records whose owners are
+provably dead. The network helper and every selected GPU helper share the existing
+120-second approval budget; no helper receives a fresh independent budget.
+
+Native PTSS checks confirmed TCP reachability on both ports and confirmed cleanup.
+A later human-approved startup in the actual Electron app loaded the verified
+helper update with both GPUs selected; PTSS reached both app listeners through the
+scoped rule. Fresh pairing approval, inference and production release readiness
+remain separate evidence gates. Sharing was left on for the user's pairing check.
 
 ## Source evidence and decision status
 
