@@ -955,6 +955,13 @@ production release readiness.
 
 ### Default shared GPU selection (2026-10-24)
 
+Connections reads local GPUs, sharing state and addresses without waiting for
+remote status checks or queued network operations. Background checks continue
+updating pending, approved, declined and disconnected peers. Reading the page
+does not grant remote hardware access or replace fresh runtime authorization.
+If a read fails, retain the last inventory and show a Retry action. An initial
+failure replaces the loading placeholders with this error state.
+
 All detected GPUs start checked in Shared hardware. Newly detected GPUs also
 start checked. Keep explicit unticks through inventory refreshes while the panel
 is open, including when that GPU disappears and returns. Removed GPUs must not
@@ -987,3 +994,21 @@ placement only. They do not invent latency, authenticated network links, or
 inference order. Layer assignments remain authoritative. Removing or losing a
 card removes its displayed placement lines. Existing loading, running, planning,
 saving and removal restrictions remain in effect.
+
+### Connection monitoring panel (2026-10-24)
+
+Real canvas placement lines expose a clickable midpoint control. A measured local
+peer connection shows its control round-trip time in milliseconds; unavailable
+measurements show a dash. Clicking opens Connection details in the same right
+panel, with a back arrow to Cluster overview, both device names, status and latency.
+The latency includes control connection setup and is not inference latency.
+
+When both PCs are idle, core automatically samples sending and receiving bandwidth
+with bounded transfers and a cooldown. A loaded model can be idle. Loading,
+planning, token counting and generation cancel bulk tests before native work
+starts. During active work, the panel shows sending and receiving rates from
+existing RPC byte counters, from this PC's perspective, without extra bulk traffic.
+Idle bandwidth is labelled Last measured bandwidth, distinct from live traffic.
+Unavailable observations retain historical values with explicit labels; unsupported
+older reporters remain usable. Do not fabricate a direct measured connection
+between two remote worker cards merely because a placement line joins them.
