@@ -26,7 +26,8 @@ test('Connections matches Appearance heading spacing and uses compact tabs witho
     expect(heading.y).toBeCloseTo(appearanceBox.y, 0);
     expect(tabBox.y - heading.y - heading.height).toBeCloseTo(gap, 0);
     expect(tabBox.x).toBeCloseTo(heading.x, 0);
-    await expect(tabs.getByRole('tab')).toHaveCount(3);
+    await expect(tabs.getByRole('tab')).toHaveCount(2);
+    await expect(tabs.getByRole('tab')).toHaveText(['Share this PC', 'Add device']);
     await expect(
       section.getByText('Approved PCs and shared hardware.', { exact: true }),
     ).toHaveCount(0);
@@ -361,12 +362,14 @@ test('canvas never draws an outline while keyboard controls and control focus st
   await settings.focus();
   await expect(settings).toHaveCSS('outline-style', 'solid');
   await expect(settings).toHaveCSS('outline-width', '2px');
-  await page.keyboard.press('Tab');
-  await expect(page.getByRole('button', { name: /^Connections/u })).toBeFocused();
-  await expect(page.getByRole('button', { name: /^Connections/u })).toHaveCSS(
-    'outline-style',
-    'solid',
-  );
+  const navigation = page.getByRole('navigation', { name: 'Cluster navigation' });
+  for (const name of ['Overview', 'Devices', 'Connections']) {
+    await page.keyboard.press('Tab');
+    const destination = navigation.getByRole('button', { name: new RegExp('^' + name) });
+    await expect(destination).toBeFocused();
+    await expect(destination).toHaveCSS('outline-style', 'solid');
+    await expect(destination).toHaveCSS('outline-width', '2px');
+  }
 });
 
 test('Cluster preserves the reference composition and sample disclosure at desktop sizes', async ({
@@ -692,11 +695,11 @@ test('one device stays centered on resize and beside the details panel without c
   expect(Number((await zoom.textContent())?.replace('%', ''))).toBeLessThan(100);
 });
 
-test('the node Add shortcut stays visible with one connected device and becomes contextual with two', async ({
+test('node Add reveals only the nearest edge on hover or keyboard focus, with a lone-node hint', async ({
   page,
 }) => {
   let deviceCount = 1;
-  // Vary only the fixture data at its module boundary; exercise the real cards, styles and flow.
+  // Vary only the fixture inventory; retain the actual cards, hover events and CSS transitions.
   await page.route('**/src/renderer/mocks/cluster.ts*', async (route) => {
     const response = await route.fetch();
     await route.fulfill({
@@ -709,20 +712,78 @@ test('the node Add shortcut stays visible with one connected device and becomes 
     await page.getByRole('button', { name: 'Cluster', exact: true }).click();
     await page.getByRole('button', { name: 'Fit to view', exact: true }).click();
     await expect(page.getByRole('article')).toHaveCount(deviceCount);
-    const add = page.getByRole('button', { name: 'Add device near studio-desktop' });
+    const card = page.getByRole('article', { name: 'studio-desktop' });
+    const add = card.getByRole('button', { name: 'Add device near studio-desktop' });
+    const hint = page.getByText('Hover near an edge to add a device.', { exact: true });
     await page.mouse.move(0, 0);
-    await expect(add).toHaveCSS('opacity', deviceCount === 1 ? '1' : '0');
+    await expect(add).toHaveCSS('opacity', '0');
+    await expect(add).toHaveCSS('pointer-events', 'none');
+    if (deviceCount === 1) await expect(hint).toHaveCSS('opacity', '1');
+    else await expect(hint).toHaveCount(0);
+    await expect(add).toHaveCSS('transition-duration', '0.075s');
+    const bounds = await card.boundingBox();
+    if (!bounds) throw new Error('Device geometry missing');
+    const edges = [
+      { edge: 'top', x: bounds.x + bounds.width / 2, y: bounds.y + 2 },
+      { edge: 'right', x: bounds.x + bounds.width - 2, y: bounds.y + bounds.height / 2 },
+      { edge: 'bottom', x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height - 2 },
+      { edge: 'left', x: bounds.x + 2, y: bounds.y + bounds.height / 2 },
+    ];
+    for (const { edge, x, y } of edges) {
+      await page.mouse.move(x, y);
+      await expect(add).toHaveAttribute('data-edge', edge);
+      await expect(add).toHaveCSS('opacity', '1');
+      await expect(add).toHaveCSS('pointer-events', 'auto');
+      await expect(card.getByRole('button', { name: /^Add device near / })).toHaveCount(1);
+      if (deviceCount === 1) await expect(hint).toHaveCSS('opacity', '0');
+      const shortcut = (await add.boundingBox())!;
+      const center = { x: shortcut.x + shortcut.width / 2, y: shortcut.y + shortcut.height / 2 };
+      expect(center.x).toBeCloseTo(
+        edge === 'left'
+          ? bounds.x
+          : edge === 'right'
+            ? bounds.x + bounds.width
+            : bounds.x + bounds.width / 2,
+        0,
+      );
+      expect(center.y).toBeCloseTo(
+        edge === 'top'
+          ? bounds.y
+          : edge === 'bottom'
+            ? bounds.y + bounds.height
+            : bounds.y + bounds.height / 2,
+        0,
+      );
+    }
+    await page.mouse.move(0, 0);
+    await expect(add).toHaveCSS('opacity', '0');
+    // Enter keyboard modality before focusing the shortcut so :focus-visible is exercised.
+    await page.keyboard.press('Tab');
     await add.focus();
+    await expect(add).toBeFocused();
     await expect(add).toHaveCSS('opacity', '1');
+    await expect(add).toHaveCSS('outline-style', 'solid');
+    for (const [key, edge] of [
+      ['ArrowUp', 'top'],
+      ['ArrowRight', 'right'],
+      ['ArrowDown', 'bottom'],
+      ['ArrowLeft', 'left'],
+    ]) {
+      await page.keyboard.press(key!);
+      await expect(add).toHaveAttribute('data-edge', edge!);
+      await expect(add).toBeFocused();
+    }
     await page.keyboard.press('Enter');
     await expect(
       page
         .getByRole('complementary', { name: 'Cluster panel' })
         .getByRole('heading', { name: 'Add to canvas' }),
     ).toBeVisible();
+    await page.mouse.move(0, 0);
+    await expect(add).toHaveAttribute('data-edge', 'left');
+    await expect(add).toHaveCSS('opacity', '1');
   }
 });
-
 test('Cluster toolbar uses rounded neutral controls and overlays its panel without moving cards', async ({
   page,
 }) => {

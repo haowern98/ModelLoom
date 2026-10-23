@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('Connections supports keyboard navigation between the three flows', async ({ page }) => {
+test('Connections supports keyboard navigation between the two flows', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
   const navigation = page.getByRole('navigation', { name: 'Cluster navigation' });
@@ -14,8 +14,15 @@ test('Connections supports keyboard navigation between the three flows', async (
   await expect(page.getByRole('tab', { name: 'Add device' })).toBeFocused();
   await expect(page.getByRole('tabpanel', { name: 'Add device' })).toBeVisible();
   await page.keyboard.press('Home');
-  await expect(page.getByRole('tab', { name: 'Join cluster' })).toBeFocused();
-  await expect(page.getByRole('tabpanel', { name: 'Join cluster' })).toBeVisible();
+  await expect(share).toBeFocused();
+  await expect(page.getByRole('tabpanel', { name: 'Share this PC' })).toBeVisible();
+  await page.keyboard.press('End');
+  await expect(page.getByRole('tab', { name: 'Add device' })).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(share).toBeFocused();
+  await expect(
+    page.getByRole('tablist', { name: 'Connection options' }).getByRole('tab'),
+  ).toHaveCount(2);
   await expect(page.getByRole('heading', { name: 'Connections', exact: true })).toBeVisible();
   await expect(navigation.getByRole('button', { name: /^Requests/u })).toHaveCount(0);
   await navigation.getByRole('button', { name: 'Overview', exact: true }).click();
@@ -33,7 +40,7 @@ test('connection controls match the shared typography and sizes at two window wi
     .click();
   for (const width of [1280, 900]) {
     await page.setViewportSize({ width, height: 720 });
-    for (const name of ['Add device', 'Join cluster', 'Share this PC']) {
+    for (const name of ['Add device', 'Share this PC']) {
       await page.getByRole('tab', { name, exact: true }).click();
       const content = page.getByRole('tabpanel', { name, exact: true });
       await expect(page.getByRole('heading', { name: 'Connections', exact: true })).toHaveCSS(
@@ -99,12 +106,12 @@ test('incoming decisions and manual request status stay simulated without changi
     .click();
   await expect(requests.getByRole('heading', { name: 'Pending requests 1' })).toBeFocused();
   await expect(page.getByLabel('1 pending request', { exact: true })).toBeVisible();
-  await requests.getByRole('button', { name: 'Decline join request from office-pc' }).click();
+  await requests.getByRole('button', { name: 'Decline invitation from office-pc' }).click();
   await expect(page.getByLabel(/pending requests?$/)).toHaveCount(0);
   await navigation.getByRole('button', { name: 'Overview', exact: true }).click();
   await expect(page.getByRole('article')).toHaveCount(4);
   await expect(page.getByText(/^Layers /)).toHaveCount(5);
-  await navigation.getByRole('button', { name: 'Connections', exact: true }).click();
+  await navigation.getByRole('button', { name: /^Connections/u }).click();
   await page.getByRole('tab', { name: 'Add device' }).click();
   const add = page.getByRole('tabpanel', { name: 'Add device', exact: true });
   const input = add.getByRole('textbox', { name: 'Private address' });
