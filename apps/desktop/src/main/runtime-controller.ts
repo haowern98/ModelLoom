@@ -70,6 +70,7 @@ interface ActivationDependencies {
     draft: ClusterDraft,
     blockCount: number,
     signal: AbortSignal,
+    devices?: readonly string[],
   ): Promise<readonly GpuRun[]>;
   preflightCluster?(
     file: string,
@@ -605,12 +606,18 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           const selectedFile = source.file,
             currentDraft = read.draft,
             blocks = source.blockCount;
+          const eligible = command.devices;
           planningPeerRuns = currentDraft.runs;
           const runs = await trackCluster(
-            () => deps.planCluster!(selectedFile, currentDraft, blocks, operation.signal),
+            () =>
+              eligible
+                ? deps.planCluster!(selectedFile, currentDraft, blocks, operation.signal, eligible)
+                : deps.planCluster!(selectedFile, currentDraft, blocks, operation.signal),
             operation.signal,
           );
           if (operation.signal.aborted || quitting) throw Error('PLANNING_CANCELLED');
+          if (eligible && runs.some((run) => !eligible.includes(run.uuid)))
+            throw Error('INVALID_CONTROL');
           const reply = await host.cluster(caller, {
             action: 'edit',
             key: command.key,

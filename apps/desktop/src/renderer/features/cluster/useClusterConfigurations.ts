@@ -391,7 +391,8 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
       refresh();
     }
   };
-  const autoPlace = async () => {
+  const autoPlace = async (devices?: readonly string[]) => {
+    const eligible = devices ? [...devices] : undefined;
     const entry = current();
     if (!entry || !bridge || entry.busy || planning.current) return;
     const generation = selectionGeneration.current;
@@ -407,6 +408,7 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
         action: 'auto-place',
         key: entry.key,
         revision: entry.draft!.revision,
+        ...(eligible ? { devices: eligible } : {}),
       });
       if (sequence !== entry.sequence || generation !== selectionGeneration.current) return;
       const reply = success(result);

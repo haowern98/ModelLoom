@@ -3,7 +3,7 @@ import { SidebarItemRow } from '../../components/SidebarItemRow';
 import type { DemoDevice } from '../../mocks/cluster';
 import styles from './ClusterSidebar.module.css';
 
-export type ClusterView = 'overview' | 'devices' | 'connections' | 'add' | 'join' | 'share';
+export type ClusterView = 'overview' | 'devices' | 'connections' | 'add' | 'share';
 
 interface ClusterSidebarProps {
   view: ClusterView;
@@ -59,7 +59,7 @@ export function ClusterSidebar({
               type="button"
               aria-current={
                 view === destination ||
-                (destination === 'connections' && ['add', 'join', 'share'].includes(view))
+                (destination === 'connections' && ['add', 'share'].includes(view))
                   ? 'page'
                   : undefined
               }

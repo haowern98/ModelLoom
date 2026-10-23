@@ -14,19 +14,39 @@ import layout from './ClusterViews.module.css';
 import { ConfigurationSelect } from '../models/ConfigurationControls';
 
 const errors: Record<string, string> = {
+  SHARING_FIREWALL_FAILED:
+    'Could not set up Windows Firewall for sharing. Try again and approve the Windows permission prompt.',
+  SHARING_FIREWALL_PERMISSION_DENIED:
+    'Windows permission was not granted. Allow ModelLoom to set up sharing, then try again.',
+  RPC_SHARING_FAILED:
+    'Could not start sharing on this PC. Approve the Windows permission prompts for the selected GPUs, then try again.',
+  RPC_CLEANUP_FAILED:
+    'Sharing cleanup could not be confirmed. Close and reopen ModelLoom before trying again.',
+  PAIRING_CODE_INVALID: 'Incorrect verification code. Try again.',
+  PAIRING_EXPIRED: 'Pairing expired. Connect again to get a new code.',
+  PAIRING_ATTEMPTS_EXCEEDED: 'Too many attempts. Wait a minute, then connect again.',
+  PAIRING_UPDATE_REQUIRED: 'Update ModelLoom on both PCs to pair.',
+  PAIRING_NOT_VERIFIED: 'Verify the code before approving access.',
+  PEER_TRUST_UNAVAILABLE: 'Trusted device data could not be saved. Please try again.',
+  PEER_IDENTITY_CHANGED: 'The device identity changed. Forget the old device, then pair again.',
+  UNKNOWN_PEER_REQUEST: 'This request expired or was cancelled. Start a new pairing request.',
+  PAIRING_CODE_REQUIRED: 'Update ModelLoom on both PCs to use verification codes.',
   NOT_READY: 'Peer connections are not ready. Wait for startup to finish.',
   PEER_UNAVAILABLE:
     'Could not connect. Check the address, sharing and Windows Firewall on the other PC.',
   PEER_IDENTITY_UNAVAILABLE:
     'The app identity could not be opened. Existing identity data was kept.',
-  FINGERPRINT_MISMATCH: 'The identity fingerprints do not match. Do not approve this connection.',
+  FINGERPRINT_MISMATCH: 'The device identity could not be verified. Start a new pairing request.',
   PEER_DECLINED: 'The other PC declined this request.',
   PAIRING_LIMIT: 'Too many pairing requests. Wait a minute and try again.',
 };
 function usePeers() {
   const [view, setView] = useState<PeerView | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PeerCommand['action'] | null>(null);
+  const [sharingError, setSharingError] = useState<string | null>(null);
   const [notification, setNotification] = useState<ToastMessage | null>(null);
+  const [invited, setInvited] = useState<string | null>(null);
   const fallback = useRef<HTMLButtonElement>(null);
   const mounted = useRef(true),
     working = useRef(false),
@@ -36,6 +56,8 @@ function usePeers() {
     if (!poll) {
       working.current = true;
       setBusy(true);
+      setPendingAction(command.action);
+      if (command.action === 'share') setSharingError(null);
       ++epoch.current;
     }
     const operation = epoch.current;
@@ -44,11 +66,25 @@ function usePeers() {
       if (!bridge) throw new Error('NOT_READY');
       const reply = decodePeerReply(await bridge.command(command));
       if (!reply.ok) throw new Error(reply.error);
-      if (mounted.current && operation === epoch.current) setView(reply.view);
+      if (mounted.current && operation === epoch.current) {
+        setView(reply.view);
+        if (command.action === 'invite')
+          setInvited(
+            reply.view.outgoing.find(
+              (peer) =>
+                peer.address ===
+                  new URL(
+                    command.address.includes('://') ? command.address : `http://${command.address}`,
+                  ).hostname && peer.phase === 'pending',
+            )?.id ?? null,
+          );
+      }
       return true;
     } catch (error) {
       if (mounted.current && !poll) {
         const code = error instanceof Error ? error.message : 'PEER_UNAVAILABLE';
+        if (command.action === 'share')
+          setSharingError(errors[code] ?? 'Could not start sharing on this PC. Please try again.');
         setNotification({
           id: Date.now(),
           kind: 'error',
@@ -60,7 +96,10 @@ function usePeers() {
     } finally {
       if (!poll) {
         working.current = false;
-        if (mounted.current) setBusy(false);
+        if (mounted.current) {
+          setBusy(false);
+          setPendingAction(null);
+        }
       }
     }
   }, []);
@@ -83,8 +122,12 @@ function usePeers() {
   return {
     view,
     busy,
+    pendingAction,
+    sharingError,
     run,
     fallback,
+    invited,
+    setInvited,
     toast: notification ? (
       <Toast
         key={notification.id}
@@ -97,47 +140,45 @@ function usePeers() {
 }
 
 function VerifyPeer({
-  local,
-  remote,
-  action,
+  name,
   onClose,
   onVerify,
   busy,
 }: {
-  local: string;
-  remote: string;
-  action: 'approve' | 'confirm';
+  name: string;
   onClose: () => void;
-  onVerify: () => void;
+  onVerify: (code: string) => Promise<boolean>;
   busy: boolean;
 }) {
-  const [checked, setChecked] = useState(false);
+  const [code, setCode] = useState('');
   return (
-    <Dialog title="Verify app identities" onClose={onClose} initialFocus="cancel">
-      <p>Compare both complete fingerprints with those shown on the other PC.</p>
-      <p>This PC</p>
-      <p className={styles.panelDescription} style={{ overflowWrap: 'anywhere' }}>
-        {local}
-      </p>
-      <p>Other PC</p>
-      <p className={styles.panelDescription} style={{ overflowWrap: 'anywhere' }}>
-        {remote}
-      </p>
-      <label>
+    <Dialog title={'Verify ' + name} onClose={onClose} initialFocus="cancel">
+      <p>Enter the six-digit code shown on {name}.</p>
+      <label className={layout.fieldRow}>
+        Verification code
         <input
-          className={checkboxes.checkbox}
-          type="checkbox"
-          checked={checked}
-          onChange={(event) => setChecked(event.target.checked)}
-        />{' '}
-        I checked both fingerprints on both PCs.
+          aria-label="Verification code"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={6}
+          value={code}
+          onChange={(event) => setCode(event.target.value.replace(/[^0-9]/g, ''))}
+        />
       </label>
       <div className={styles.joiningActions}>
-        <Button data-dialog-cancel onClick={onClose}>
+        <Button data-dialog-cancel disabled={busy} onClick={onClose}>
           Cancel
         </Button>
-        <Button className={styles.whiteAction} disabled={!checked || busy} onClick={onVerify}>
-          {action === 'approve' ? 'Approve verified identity' : 'Confirm verified identity'}
+        <Button
+          className={styles.whiteAction}
+          disabled={busy || !/^[0-9]{6}$/.test(code)}
+          onClick={() => {
+            void onVerify(code).then((ok) => {
+              if (ok) setCode('');
+            });
+          }}
+        >
+          {busy ? 'Verifying...' : 'Verify'}
         </Button>
       </div>
     </Dialog>
@@ -172,19 +213,17 @@ export function LivePeerRequests() {
               <span className={settings.label}>{request.name}</span>
               <p className={settings.description}>Invites this PC to contribute to its cluster.</p>
               {request.localVerified && (
-                <p className={styles.requestStatus}>
-                  Waiting for the other PC to verify your identity.
-                </p>
+                <p className={styles.requestStatus}>Waiting for approval.</p>
               )}
             </div>
             <div className={styles.joiningActions}>
               <Button
-                disabled={busy || request.localVerified}
+                disabled={busy}
                 className={styles.whiteAction}
-                aria-label={'Approve ' + request.name}
+                aria-label={'Review ' + request.name}
                 onClick={() => setVerifying(request.id)}
               >
-                Approve
+                Review
               </Button>
               <Button
                 disabled={busy}
@@ -198,31 +237,66 @@ export function LivePeerRequests() {
           </div>
         ))}
       </div>
-      {view && selected && (
-        <VerifyPeer
-          key={`${view.fingerprint}:${selected.id}:${selected.peerFingerprint}`}
-          local={view.fingerprint}
-          remote={selected.peerFingerprint}
-          action="approve"
-          busy={busy}
+      {selected && (
+        <Dialog
+          title={'Pair with ' + selected.name}
           onClose={() => setVerifying(null)}
-          onVerify={() => {
-            void run({
-              action: 'approve',
-              id: selected.id,
-              fingerprint: selected.peerFingerprint,
-            }).then((ok) => {
-              if (ok) setVerifying(null);
-            });
-          }}
-        />
+          initialFocus="cancel"
+        >
+          {selected.remoteVerified ? (
+            <p>Allow {selected.name} to use your shared GPUs?</p>
+          ) : (
+            <>
+              <p>Enter this code on {selected.name}.</p>
+              <p
+                aria-label="Pairing code"
+                className={styles.panelTitle}
+                style={{ textAlign: 'center', fontFamily: 'monospace', letterSpacing: '0.15em' }}
+              >
+                {selected.pairingCode
+                  ? selected.pairingCode.slice(0, 3) + ' ' + selected.pairingCode.slice(3)
+                  : 'Pairing code unavailable. Start a new request.'}
+              </p>
+              <p>Waiting for code verification...</p>
+              <p>This code expires after 5 minutes.</p>
+            </>
+          )}
+          <div className={styles.joiningActions}>
+            <Button
+              data-dialog-cancel
+              disabled={busy}
+              onClick={() => {
+                void run({ action: 'decline', id: selected.id }).then((ok) => {
+                  if (ok) setVerifying(null);
+                });
+              }}
+            >
+              Deny
+            </Button>
+            {selected.remoteVerified && (
+              <Button
+                disabled={busy}
+                className={styles.whiteAction}
+                onClick={() => {
+                  void run({ action: 'approve', id: selected.id }).then((ok) => {
+                    if (ok) setVerifying(null);
+                  });
+                }}
+              >
+                Allow
+              </Button>
+            )}
+          </div>
+        </Dialog>
       )}
     </section>
   );
 }
 
-export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expanded?: boolean }) {
-  const { view, busy, run, toast, fallback } = usePeers();
+export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: boolean }) {
+  const { view, busy, pendingAction, sharingError, run, toast, fallback, invited, setInvited } =
+    usePeers();
+  const startingSharing = pendingAction === 'share';
   const [selected, setSelected] = useState<string[]>([]);
   const [address, setAddress] = useState('');
   const [bindAddress, setBindAddress] = useState('');
@@ -235,7 +309,7 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expand
     view?.addresses.find((value) => value.startsWith('100.')) ||
     view?.addresses[0] ||
     '';
-  const verifyingPeer = view?.outgoing.find((value) => value.id === verifying);
+  const verifyingPeer = view?.outgoing.find((value) => value.id === (verifying ?? invited));
   const coordinators =
     view?.incoming.filter(
       (peer) => peer.phase === 'approved' && peer.localVerified && peer.remoteVerified,
@@ -272,11 +346,39 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expand
           <div className={settings.group}>
             <div className={settings.row}>
               <div>
-                <label htmlFor={id} className={settings.label}>
+                <label htmlFor={id} className={`${settings.label} ${styles.sharingLabel}`}>
                   Allow connections
+                  {startingSharing && (
+                    <svg
+                      data-testid="sharing-spinner"
+                      className={styles.sharingSpinner}
+                      width="24"
+                      height="24"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <path
+                        opacity="0.3"
+                        d="M18 12C18 8.68629 15.3137 6 12 6C8.68629 6 6 8.68629 6 12C6 15.3137 8.68629 18 12 18C15.3137 18 18 15.3137 18 12ZM20 12C20 16.4183 16.4183 20 12 20C7.58172 20 4 16.4183 4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12Z"
+                        fill="currentColor"
+                      />
+                      <path
+                        d="M12 4C16.4183 4 20 7.58172 20 12C20 16.4183 16.4183 20 12 20C7.58172 20 4 16.4183 4 12H6C6 15.3137 8.68629 18 12 18C15.3137 18 18 15.3137 18 12C18 8.68629 15.3137 6 12 6V4Z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                  )}
                 </label>
-                <p id={id + '-hint'} className={settings.description}>
-                  Sharing allows requests. You approve each PC before it gets access.
+                <p
+                  id={id + '-hint'}
+                  className={settings.description}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {startingSharing
+                    ? 'Starting sharing\u2026'
+                    : 'Sharing allows requests. You approve each PC before it gets access.'}
                 </p>
               </div>
               <input
@@ -284,7 +386,8 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expand
                 type="checkbox"
                 role="switch"
                 aria-describedby={id + '-hint'}
-                checked={view?.sharing ?? false}
+                checked={!startingSharing && (view?.sharing ?? false)}
+                aria-busy={startingSharing}
                 disabled={!view || busy || (!view.sharing && (!selected.length || !source))}
                 className={switches.switch}
                 onChange={() => {
@@ -296,6 +399,7 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expand
                 }}
               />
             </div>
+            {sharingError && <p className={styles.sharingError}>{sharingError}</p>}
             {coordinators.map((peer) => (
               <div key={peer.id} className={settings.row}>
                 <div className={layout.connectionIdentity}>
@@ -395,10 +499,7 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expand
                 : 'Select the GPUs and turn on Allow connections before inviting another PC.'}
             </p>
             <p className={layout.identityDetails}>{source}</p>
-            <p>
-              Approve its invitation in Requests below. Compare both app identities before
-              approving.
-            </p>
+            <p>Open its request below to display the verification code, then approve access.</p>
             <div className={styles.joiningActions}>
               <Button data-dialog-cancel onClick={() => setShowAdd(false)}>
                 Done
@@ -413,7 +514,7 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expand
       {toast}
       <section className={settings.section}>
         <div className={layout.sectionHeader}>
-          <h2>{kind === 'add' ? 'PCs available to add' : 'Available clusters'}</h2>
+          <h2>PCs available to add</h2>
           <div className={layout.actions}>
             <button
               type="button"
@@ -427,20 +528,14 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expand
             >
               <RefreshCw size={16} aria-hidden="true" />
             </button>
-            <Button
-              className={styles.whiteAction}
-              disabled={kind === 'join'}
-              onClick={() => input.current?.focus()}
-            >
+            <Button className={styles.whiteAction} onClick={() => input.current?.focus()}>
               Add
             </Button>
           </div>
         </div>
         <div className={settings.group}>
           <div className={settings.row}>
-            <p className={settings.description}>
-              {kind === 'add' ? 'No available devices' : 'No available clusters'}
-            </p>
+            <p className={settings.description}>No available devices</p>
           </div>
         </div>
       </section>
@@ -450,13 +545,12 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expand
           className={settings.group}
           onSubmit={(event) => {
             event.preventDefault();
-            if (kind === 'add' && address.trim() && !busy)
-              void run({ action: 'invite', address: address.trim() });
+            if (address.trim() && !busy) void run({ action: 'invite', address: address.trim() });
           }}
         >
           <div className={layout.fieldRow}>
             <label htmlFor={id + '-remote'} className={settings.label}>
-              {kind === 'add' ? 'Private address' : 'Coordinator address'}
+              Private address
             </label>
             <input
               ref={input}
@@ -465,25 +559,20 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expand
               aria-describedby={id + '-instructions'}
               value={address}
               maxLength={255}
-              placeholder="Enter a private IP address"
-              disabled={busy || kind === 'join' || !window.modelLoomPeers}
+              placeholder="Enter a LAN or Tailscale IP address"
+              disabled={busy || !window.modelLoomPeers}
               onChange={(event) => setAddress(event.target.value)}
             />
           </div>
           <div className={layout.formActions}>
-            <Button
-              type="submit"
-              className={styles.whiteAction}
-              disabled={busy || !address.trim() || kind === 'join'}
-            >
-              {kind === 'add' ? 'Invite' : 'Request to join'}
+            <Button type="submit" className={styles.whiteAction} disabled={busy || !address.trim()}>
+              Connect
             </Button>
           </div>
         </form>
         <p id={id + '-instructions'} className={layout.note}>
-          {kind === 'add'
-            ? 'The other PC must enable sharing and approve your invitation in Connections → Share this PC → Requests.'
-            : 'Use Add device on the coordinator to invite this PC. Join requests are not enabled yet.'}
+          The other PC must enable sharing and approve your invitation in Connections → Share this
+          PC → Requests.
         </p>
       </section>
       {kind === 'add' && view && view.outgoing.length > 0 && (
@@ -499,7 +588,11 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expand
                       ? 'Approved worker'
                       : peer.phase === 'disconnected'
                         ? 'Not connected'
-                        : 'Waiting for approval'}
+                        : peer.phase === 'declined'
+                          ? 'Request declined'
+                          : !peer.localVerified
+                            ? 'Waiting for code verification...'
+                            : 'Waiting for the other PC to approve...'}
                   </p>
                   {peer.gpus.map((gpu) => (
                     <p key={gpu.id} className={settings.description}>
@@ -507,9 +600,21 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expand
                     </p>
                   ))}
                 </div>
-                {!peer.localVerified && (
+                {peer.phase === 'pending' && !peer.localVerified && (
                   <Button disabled={busy} onClick={() => setVerifying(peer.id)}>
-                    Verify identity
+                    Verify code
+                  </Button>
+                )}
+                {((peer.phase === 'pending' && peer.localVerified) ||
+                  peer.phase === 'disconnected' ||
+                  peer.phase === 'declined') && (
+                  <Button
+                    disabled={busy}
+                    onClick={() => {
+                      void run({ action: 'cancel', id: peer.id });
+                    }}
+                  >
+                    {peer.phase === 'pending' ? 'Cancel' : 'Forget device'}
                   </Button>
                 )}
               </div>
@@ -517,22 +622,26 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'join' | 'share'; expand
           </div>
         </section>
       )}
-      {view && verifyingPeer && (
+      {verifyingPeer && verifyingPeer.phase === 'pending' && !verifyingPeer.localVerified && (
         <VerifyPeer
-          key={view.fingerprint + ':' + verifyingPeer.id + ':' + verifyingPeer.peerFingerprint}
-          local={view.fingerprint}
-          remote={verifyingPeer.peerFingerprint}
-          action="confirm"
+          key={verifyingPeer.id}
+          name={verifyingPeer.name}
           busy={busy}
-          onClose={() => setVerifying(null)}
-          onVerify={() => {
-            void run({
-              action: 'confirm',
-              id: verifyingPeer.id,
-              fingerprint: verifyingPeer.peerFingerprint,
-            }).then((ok) => {
-              if (ok) setVerifying(null);
+          onClose={() => {
+            void run({ action: 'cancel', id: verifyingPeer.id }).then((ok) => {
+              if (ok) {
+                setVerifying(null);
+                setInvited(null);
+              }
             });
+          }}
+          onVerify={async (code) => {
+            const ok = await run({ action: 'verify-code', id: verifyingPeer.id, code });
+            if (ok) {
+              setVerifying(null);
+              setInvited(null);
+            }
+            return ok;
           }}
         />
       )}

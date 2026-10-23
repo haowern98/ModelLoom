@@ -390,14 +390,22 @@ export function developmentDesktopDependencies(
     expectedHash: report.modelSha256,
     packageId: 'llama-cuda-development',
     clusterArtifact: report.artifact,
-    async planCluster(file: string, draft: ClusterDraft, blockCount: number, signal: AbortSignal) {
+    async planCluster(
+      file: string,
+      draft: ClusterDraft,
+      blockCount: number,
+      signal: AbortSignal,
+      devices?: readonly string[],
+    ) {
       return withPlacementModel(file, async (info, inspection) => {
         if (info.sha256 !== draft.modelId || info.blockCount !== blockCount)
           throw Error('MODEL_FILE_UNAVAILABLE');
         const installed = await installClusterRuntime();
         const local = await discoverResources(signal);
         const approved =
-          applicationData && caller
+          applicationData &&
+          caller &&
+          (!devices || devices.some((id) => decodeClusterDevice(id).kind === 'peer'))
             ? await (await getPeerHost()).command(caller, { action: 'read' })
             : null;
         const remoteIds = (
@@ -408,11 +416,19 @@ export function developmentDesktopDependencies(
                   : [],
               )
             : []
-        ).slice(0, 2);
+        )
+          .filter((id) => !devices || devices.includes(id))
+          .slice(0, 2);
         const snapshot = remoteIds.length ? await clusterResources(remoteIds, signal) : local;
         const ids =
           snapshot.gpus
-            ?.filter((g) => g.total !== null && g.free !== null && g.mig !== 'Enabled')
+            ?.filter(
+              (g) =>
+                (!devices || devices.includes(g.uuid)) &&
+                g.total !== null &&
+                g.free !== null &&
+                g.mig !== 'Enabled',
+            )
             .sort((a, b) => b.free! - a.free!)
             .slice(0, 2)
             .map((g) => g.uuid) ?? [];

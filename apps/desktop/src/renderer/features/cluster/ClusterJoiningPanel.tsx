@@ -51,14 +51,10 @@ export function PendingRequests({
                   {request.name}
                 </span>
                 <p className={settingsLayout ? settings.description : styles.panelDescription}>
-                  {request.kind === 'invitation'
-                    ? 'Invites this PC to its cluster.'
-                    : 'Wants to join your cluster.'}
+                  Invites this PC to its cluster.
                 </p>
                 <p className={styles.roleConsequence}>
-                  {request.kind === 'invitation'
-                    ? `${request.name} coordinates; this PC contributes.`
-                    : `This PC coordinates; ${request.name} contributes.`}
+                  {request.name} coordinates; this PC contributes.
                 </p>
               </div>
               {decision ? (
@@ -99,7 +95,7 @@ export function ClusterJoiningPanel({
   joining,
   onJoining,
   expanded = false,
-}: JoiningProps & { kind: 'add' | 'join' | 'share'; expanded?: boolean }) {
+}: JoiningProps & { kind: 'add' | 'share'; expanded?: boolean }) {
   const [address, setAddress] = useState(() => joining.manual[kind + ':LAN'] ?? '');
   const addressId = useId();
   const descriptionId = useId();
@@ -166,7 +162,7 @@ export function ClusterJoiningPanel({
     <>
       <section className={settings.section}>
         <div className={layout.sectionHeader}>
-          <h2>{kind === 'add' ? 'PCs available to add' : 'Available clusters'}</h2>
+          <h2>PCs available to add</h2>
           <Button className={styles.whiteAction} onClick={() => addressInput.current?.focus()}>
             Add
           </Button>
@@ -185,25 +181,18 @@ export function ClusterJoiningPanel({
                   className={pending ? undefined : styles.whiteAction}
                   disabled={pending}
                   aria-label={
-                    pending
-                      ? (kind === 'add' ? 'Invitation' : 'Join request') +
-                        ' pending for ' +
-                        device.name
-                      : (kind === 'add' ? 'Invite' : 'Request to join') + ' ' + device.name
+                    pending ? 'Invitation pending for ' + device.name : 'Invite ' + device.name
                   }
                   onClick={() => onJoining({ type: 'request', key })}
                 >
-                  {pending ? 'Pending' : kind === 'add' ? 'Invite' : 'Request to join'}
+                  {pending ? 'Pending' : 'Invite'}
                 </Button>
               </div>
             );
           })}
         </div>
         <p className={layout.note}>
-          Example devices · not discovered.{' '}
-          {kind === 'add'
-            ? 'The other PC must approve your invitation.'
-            : 'The coordinator must approve your request.'}
+          Example devices · not discovered. The other PC must approve your invitation.
         </p>
       </section>
       <section className={settings.section}>
@@ -218,7 +207,7 @@ export function ClusterJoiningPanel({
         >
           <div className={layout.fieldRow}>
             <label htmlFor={addressId} className={settings.label}>
-              {kind === 'add' ? 'Private address' : 'Coordinator address'}
+              Private address
             </label>
             <input
               ref={addressInput}
@@ -236,17 +225,15 @@ export function ClusterJoiningPanel({
               type="submit"
               className={styles.whiteAction}
               disabled={!address.trim() || manualPending}
-              aria-label={
-                kind === 'add' ? 'Invite private address' : 'Request to join private address'
-              }
+              aria-label="Invite private address"
             >
-              {kind === 'add' ? 'Invite' : 'Request to join'}
+              Invite
             </Button>
           </div>
         </form>
         {manualPending && (
           <p className={styles.requestStatus} role="status">
-            {kind === 'add' ? 'Invitation' : 'Join request'} pending · demo
+            Invitation pending · demo
           </p>
         )}
         <p id={descriptionId} className={layout.note}>

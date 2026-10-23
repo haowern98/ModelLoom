@@ -13,9 +13,10 @@ import { ClusterJoiningPanel } from './ClusterJoiningPanel';
 import type { JoiningProps } from './ClusterJoiningPanel';
 import { connectionLabels } from '../../mocks/clusterJoining';
 import { CanvasDevicePicker } from './CanvasDevicePicker';
+import { Button } from '../../components/Button';
 
 export type ClusterSelection =
-  | { type: 'overview' | 'add' | 'join' | 'share' }
+  | { type: 'overview' | 'add' | 'share' }
   | { type: 'device'; device: DemoDevice; hardwareId?: string; renaming?: boolean }
   | { type: 'link'; link: (typeof demoLinks)[number] };
 
@@ -29,6 +30,7 @@ interface ClusterPanelProps extends JoiningProps {
   selectedModel: DemoModel | undefined;
   loading: boolean;
   editingDisabled: boolean;
+  canvasMutationDisabled: boolean;
   inputs: readonly LayerInput[];
   layerCount: number;
   assignmentStates: Readonly<Record<string, AssignmentStatus>>;
@@ -133,6 +135,7 @@ export function ClusterPanel({
   selectedModel,
   loading,
   editingDisabled,
+  canvasMutationDisabled,
   inputs,
   layerCount,
   assignmentStates,
@@ -326,52 +329,68 @@ export function ClusterPanel({
               <span>Device details</span>
               <CaretRight size={16} aria-hidden="true" />
             </button>
-            <section className={styles.panelSection}>
-              <h3>Layer assignment</h3>
-              <p className={styles.panelDescription}>
-                {selectedModel
-                  ? layerCount > 0
-                    ? `${layerCount} layers · 0–${layerCount - 1}`
-                    : 'Layer metadata is unavailable. Re-import the model to assign layers.'
-                  : 'Choose a model to assign layers.'}
-              </p>
-              <div className={styles.layerEditorGroup}>
-                {selection.device.hardware
-                  .filter((hardware) => hardware.kind !== 'cpu')
-                  .map((hardware) => {
-                    const input = inputs.find((entry) => entry.hardwareId === hardware.id);
-                    const editable = canPlace && Boolean(input);
-                    return (
-                      <section
-                        key={hardware.id}
-                        className={styles.hardwareEditor}
-                        aria-label={`Details for ${hardware.label}`}
-                      >
-                        <h4>{hardware.label}</h4>
-                        <LayerEditor
-                          key={`${selectedModel?.id}-${hardware.id}`}
-                          hardware={hardware}
-                          input={
-                            canPlace && input
-                              ? input
-                              : { hardwareId: hardware.id, first: '', last: '' }
-                          }
-                          layerCount={selectedModel ? layerCount : 0}
-                          disabled={editingDisabled || !editable}
-                          placeholder={editable ? undefined : '\u2014'}
-                          focused={editable && selection.hardwareId === hardware.id}
-                          onEdit={onEdit}
-                          issue={
-                            editable
-                              ? saveIssues.find((issue) => issue.hardwareId === hardware.id)?.field
-                              : undefined
-                          }
-                        />
-                      </section>
-                    );
-                  })}
-              </div>
-            </section>
+            {devices.some((device) => device.id === selection.device.id) ? (
+              <section className={styles.panelSection}>
+                <h3>Layer assignment</h3>
+                <p className={styles.panelDescription}>
+                  {selectedModel
+                    ? layerCount > 0
+                      ? `${layerCount} layers · 0–${layerCount - 1}`
+                      : 'Layer metadata is unavailable. Re-import the model to assign layers.'
+                    : 'Choose a model to assign layers.'}
+                </p>
+                <div className={styles.layerEditorGroup}>
+                  {selection.device.hardware
+                    .filter((hardware) => hardware.kind !== 'cpu')
+                    .map((hardware) => {
+                      const input = inputs.find((entry) => entry.hardwareId === hardware.id);
+                      const editable = canPlace && Boolean(input);
+                      return (
+                        <section
+                          key={hardware.id}
+                          className={styles.hardwareEditor}
+                          aria-label={`Details for ${hardware.label}`}
+                        >
+                          <h4>{hardware.label}</h4>
+                          <LayerEditor
+                            key={`${selectedModel?.id}-${hardware.id}`}
+                            hardware={hardware}
+                            input={
+                              canPlace && input
+                                ? input
+                                : { hardwareId: hardware.id, first: '', last: '' }
+                            }
+                            layerCount={selectedModel ? layerCount : 0}
+                            disabled={editingDisabled || !editable}
+                            placeholder={editable ? undefined : '\u2014'}
+                            focused={editable && selection.hardwareId === hardware.id}
+                            onEdit={onEdit}
+                            issue={
+                              editable
+                                ? saveIssues.find((issue) => issue.hardwareId === hardware.id)
+                                    ?.field
+                                : undefined
+                            }
+                          />
+                        </section>
+                      );
+                    })}
+                </div>
+              </section>
+            ) : (
+              <section className={styles.panelSection}>
+                <p className={styles.panelDescription}>
+                  Add this device to canvas to assign layers.
+                </p>
+                <Button
+                  className={styles.whiteAction}
+                  disabled={canvasMutationDisabled}
+                  onClick={() => onAddToCanvas?.(selection.device)}
+                >
+                  Add to canvas
+                </Button>
+              </section>
+            )}
           </>
         )}
         {selection.type === 'link' && (
@@ -406,11 +425,12 @@ export function ClusterPanel({
         {selection.type === 'add' && (
           <CanvasDevicePicker
             devices={canvasCandidates}
+            disabled={canvasMutationDisabled}
             onChoose={(device) => onAddToCanvas?.(device)}
             onAdd={() => onAddDevice?.()}
           />
         )}
-        {(selection.type === 'join' || selection.type === 'share') && (
+        {selection.type === 'share' && (
           <ClusterJoiningPanel
             key={selection.type}
             kind={selection.type}

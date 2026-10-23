@@ -42,7 +42,7 @@ export function createDemoChat(demo: boolean): DemoChat {
       'setup',
       'Planning a local setup',
       'How do I connect my two PCs?',
-      'You can start from either PC. Open Add in Cluster, then choose Add device or Join cluster.\n\nThe other PC reviews the request before accepting it.',
+      "On the PC sharing its hardware, open Cluster → Connections → Share this PC. On the PC using that hardware, open Add device and enter the sharing PC's address.\n\nEnter its six-digit verification code, then approve the request on the sharing PC. Add the paired device to the canvas separately.",
     ],
     [
       'quantization',

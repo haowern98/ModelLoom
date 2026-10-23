@@ -7,10 +7,12 @@ import styles from './ClusterPage.module.css';
 /** Approved inventory is separate from the user's choice to place a PC on the canvas. */
 export function CanvasDevicePicker({
   devices,
+  disabled = false,
   onChoose,
   onAdd,
 }: {
   devices: readonly DemoDevice[];
+  disabled?: boolean;
   onChoose: (device: DemoDevice) => void;
   onAdd: () => void;
 }) {
@@ -21,6 +23,7 @@ export function CanvasDevicePicker({
           key={device.id}
           type="button"
           className={styles.canvasDeviceChoice}
+          disabled={disabled}
           onClick={() => onChoose(device)}
           aria-label={`Add ${device.name} to canvas`}
         >

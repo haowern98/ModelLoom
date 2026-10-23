@@ -213,7 +213,7 @@ export function ClusterPage({
       ? model.id.replace(/^model-/u, '') === configurations.selection.modelId
       : model.id === placement.modelId,
   );
-  const executableGpus = devices.flatMap((device) => [
+  const executableGpus = canvasDevices.flatMap((device) => [
     ...device.hardware.flatMap((hardware) =>
       hardware.assignmentId ? [{ hardwareId: hardware.id, uuid: hardware.assignmentId }] : [],
     ),
@@ -454,7 +454,10 @@ export function ClusterPage({
                     Boolean(configurations?.planning || configurations?.pending)
                   }
                   onClick={() => {
-                    if (configurations) void configurations.autoPlace();
+                    if (configurations)
+                      void configurations.autoPlace([
+                        ...new Set(executableGpus.map((gpu) => gpu.uuid)),
+                      ]);
                     else dispatch({ type: 'auto-place' });
                   }}
                 >
@@ -702,8 +705,16 @@ export function ClusterPage({
                           : () => {
                               setPlacedPeers((current) => current.filter((id) => id !== device.id));
                               setRemovedDevices((current) => [...current, device.id]);
-                              closePanel();
-                              queueMicrotask(() => panelToggle.current?.focus());
+                              if (
+                                panelOpen &&
+                                currentSelection.type === 'device' &&
+                                currentSelection.device.id === device.id
+                              ) {
+                                queueMicrotask(() => panelRef.current?.focus());
+                              } else {
+                                closePanel();
+                                queueMicrotask(() => panelToggle.current?.focus());
+                              }
                             }
                       }
                       onEdit={(hardwareId) => showPanel({ type: 'device', device, hardwareId })}
@@ -741,7 +752,7 @@ export function ClusterPage({
               joining={joining}
               onJoining={onJoining}
               selection={currentSelection}
-              devices={devices}
+              devices={canvasDevices}
               canvasCandidates={devices.filter(
                 (device) =>
                   device.id !== localDeviceId &&
@@ -754,17 +765,23 @@ export function ClusterPage({
                 setPanelOpen(false);
               }}
               onAddToCanvas={(device) => {
+                if (loading || activeModel || configurations?.planning || configurations?.saving)
+                  return;
                 setRemovedDevices((current) => current.filter((id) => id !== device.id));
                 setPlacedPeers((current) =>
                   current.includes(device.id) ? current : [...current, device.id],
                 );
-                closePanel();
+                if (currentSelection.type !== 'device') closePanel();
               }}
               activeModel={activeModel}
               selectedModel={selectedModel}
               loading={loading}
               editingDisabled={
                 loading || Boolean(configurations?.planning || configurations?.saving)
+              }
+              canvasMutationDisabled={
+                loading ||
+                Boolean(activeModel || configurations?.planning || configurations?.saving)
               }
               inputs={editorInputs}
               layerCount={layerCount}
@@ -786,6 +803,11 @@ export function ClusterPage({
               onOverview={() => setSelection({ type: 'overview' })}
               onSelect={(device) => showPanel({ type: 'device', device })}
               onEdit={(input) => {
+                if (
+                  currentSelection.type !== 'device' ||
+                  !canvasDevices.some((device) => device.id === currentSelection.device.id)
+                )
+                  return;
                 if (!configurations) {
                   dispatch({ type: 'edit', input });
                   return;
@@ -943,7 +965,10 @@ export function ClusterPage({
                 <Button
                   onClick={() => {
                     if (configurations) {
-                      if (selectedModel?.id === modal.model.id) void configurations.autoPlace();
+                      if (selectedModel?.id === modal.model.id)
+                        void configurations.autoPlace([
+                          ...new Set(executableGpus.map((gpu) => gpu.uuid)),
+                        ]);
                       close();
                       return;
                     }

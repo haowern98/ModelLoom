@@ -7,7 +7,7 @@ import styles from './ClusterViews.module.css';
 import settings from '../settings/SettingsPage.module.css';
 import { DeviceInventory } from './DeviceInventory';
 
-export type ClusterView = 'devices' | 'connections' | 'add' | 'join' | 'share';
+export type ClusterView = 'devices' | 'connections' | 'add' | 'share';
 type Link = (typeof demoLinks)[number];
 
 interface ClusterViewsProps extends JoiningProps {
@@ -16,12 +16,11 @@ interface ClusterViewsProps extends JoiningProps {
   links: readonly Link[];
   local: boolean;
   onLink: (link: Link) => void;
-  onConnectionAction: (action: 'add' | 'join' | 'share') => void;
+  onConnectionAction: (action: 'add' | 'share') => void;
   targetDeviceId?: string | undefined;
 }
 
 const tabs = [
-  { kind: 'join', label: 'Join cluster' },
   { kind: 'share', label: 'Share this PC' },
   { kind: 'add', label: 'Add device' },
 ] as const;
@@ -30,7 +29,7 @@ const tabs = [
 export function ClusterViews(props: ClusterViewsProps) {
   const { view, devices, links, demo, local, onLink, onConnectionAction } = props;
   const id = useId();
-  const kind = view === 'add' || view === 'join' ? view : 'share';
+  const kind = view === 'add' ? view : 'share';
   const title = view === 'devices' ? 'Devices' : 'Connections';
   return (
     <section className={`${settings.details} ${styles.settingsPage}`} aria-label={title}>

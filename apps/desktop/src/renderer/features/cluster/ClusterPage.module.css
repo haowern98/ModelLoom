@@ -1196,6 +1196,10 @@
   color: var(--text);
   text-align: left;
 }
+.page .canvasDeviceChoice {
+  min-height: 64px;
+  padding: 8px 12px;
+}
 .canvasDeviceChoice > span {
   flex: 1;
   min-width: 0;
@@ -1307,4 +1311,31 @@
 .placementChoices button {
   flex: 1;
   min-height: var(--control-height-dialog);
+}
+
+.sharingLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.sharingSpinner {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  animation: sharingSpin 2s steps(60, end) infinite;
+}
+.sharingError {
+  margin: 0;
+  padding: 8px 16px;
+  color: var(--muted);
+}
+@keyframes sharingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sharingSpinner {
+    animation: none;
+  }
 }

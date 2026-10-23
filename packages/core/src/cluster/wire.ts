@@ -20,7 +20,7 @@ export type ClusterCommand =
   | { action: 'edit'; key: string; expectedRevision: number | null; edit: ClusterEdit }
   | { action: 'save'; key: string; revision: number; name: string | null }
   | { action: 'discard'; key: string; revision: number }
-  | { action: 'auto-place'; key: string; revision: number }
+  | { action: 'auto-place'; key: string; revision: number; devices?: readonly string[] }
   | { action: 'cancel-planning' };
 const errors = [
   'NOT_READY',
@@ -133,6 +133,18 @@ export function decodeClusterCommand(input: unknown): ClusterCommand {
         revision: revision(v.revision),
         name: v.name === null ? null : decodeConfigurationName(v.name),
       };
+    }
+    if (a === 'auto-place' && Object.hasOwn(input as object, 'devices')) {
+      const v = object(input, ['action', 'key', 'revision', 'devices']);
+      if (!Array.isArray(v.devices) || v.devices.length > 16) return fail();
+      const devices = v.devices.map((device: unknown) => {
+        if (typeof device !== 'string') return fail();
+        decodeClusterDevice(device);
+        return device;
+      });
+      if (new Set(devices.map((device) => device.toLowerCase())).size !== devices.length)
+        return fail();
+      return { action: a, key: key(v.key), revision: revision(v.revision), devices };
     }
     if (a === 'discard' || a === 'auto-place') {
       const v = object(input, ['action', 'key', 'revision']);
