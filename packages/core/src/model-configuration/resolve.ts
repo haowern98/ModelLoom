@@ -3,6 +3,7 @@ import {
   decodeModelConfiguration,
   decodeResolvedRequestSettings,
 } from './contracts.js';
+import { nativeContextSize } from '../runtime/context.js';
 import type {
   ActiveLoadSnapshot,
   GenerationOverrides,
@@ -11,6 +12,21 @@ import type {
   ResolvedRequestSettings,
   RuntimeSettingCapabilities,
 } from './contracts.js';
+
+/** Apply only the pinned native padding to an owned successful load receipt. */
+export function actualizeContext(
+  active: ActiveLoadSnapshot,
+  contextLength: number,
+): ActiveLoadSnapshot {
+  const requested = active.requestedLoad ?? active.load;
+  if (contextLength !== nativeContextSize(requested.contextLength, requested.concurrency).perSlot)
+    throw Error('CONTEXT_MISMATCH');
+  return Object.freeze({
+    ...active,
+    requestedLoad: Object.freeze({ ...requested }),
+    load: Object.freeze({ ...active.load, contextLength }),
+  });
+}
 
 /** Resolve immutable request defaults against the active load, not a pending reload proposal. */
 export function resolveRequestSettings(

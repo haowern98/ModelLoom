@@ -38,9 +38,22 @@ it('shows an unloaded local worker before any model import, without requiring GP
   expect(command.mock.calls.every(([input]) => input?.action === 'snapshot')).toBe(true);
   await user.click(device.getByRole('button', { name: 'Actions for own-pc' }));
   await user.click(screen.getByRole('button', { name: 'Device details' }));
-  await user.click(await screen.findByText('Device details', { selector: 'summary span' }));
-  expect(screen.getByText('Windows', { selector: 'dd' })).toBeVisible();
-  expect(screen.getAllByText('This device', { selector: 'dd' })).toHaveLength(2);
+  await user.click(
+    within(screen.getByRole('complementary', { name: 'Cluster panel' })).getByRole('button', {
+      name: 'Device details',
+    }),
+  );
+  expect(await screen.findByRole('heading', { name: 'Devices', level: 1 })).toBeVisible();
+  const details = within(screen.getByRole('article', { name: 'own-pc' }));
+  expect(details.getByRole('heading', { name: 'own-pc', level: 2 })).toHaveFocus();
+  expect(details.getByText('Worker')).toBeVisible();
+  expect(details.getByText('This device', { selector: 'p' })).toBeVisible();
+  const system = within(details.getByRole('region', { name: 'System' }));
+  expect(system.getByText('Operating system', { selector: 'dt' })).toBeVisible();
+  expect(system.getByText('Windows')).toBeVisible();
+  const cpu = within(details.getByRole('region', { name: 'CPU' }));
+  expect(cpu.getByText('Model', { selector: 'dt' })).toBeVisible();
+  expect(cpu.getByText('Actual CPU')).toBeVisible();
 });
 
 it('offers import for an empty connected runtime without reporting that the runtime is missing', async () => {

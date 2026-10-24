@@ -53,6 +53,27 @@ const log = [
   '',
 ].join('\n');
 describe('stock allocation observations', () => {
+  it('binds remote allocation rows to the owned gateway and qualified peer GPU', () => {
+    const remote = `peer:${'a'.repeat(64)}:${uuids[1]}`;
+    const distributed = {
+      ...load,
+      placement: { ...load.placement, orderedUuids: [uuids[0]!, remote], outputUuid: remote },
+    };
+    const remoteLog = log
+      .replace(`CUDA1 (GPU name) (${physical[1]!.pciBus})`, 'RPC0 (127.0.0.1:49310) (unknown id)')
+      .replaceAll('CUDA1 model buffer', 'RPC0[127.0.0.1:49310] model buffer')
+      .replaceAll('CUDA1 KV buffer', 'RPC0[127.0.0.1:49310] KV buffer')
+      .replaceAll('CUDA1 RS buffer', 'RPC0[127.0.0.1:49310] RS buffer')
+      .replaceAll('CUDA1', 'RPC0');
+    const topology = [physical[0]!, { uuid: remote, rpcEndpoint: '127.0.0.1:49310' }];
+    expect(verifyStockPlacement(remoteLog, distributed, topology, caches).outputUuid).toBe(remote);
+    expect(() =>
+      verifyStockPlacement(remoteLog.replaceAll('49310', '49311'), distributed, topology, caches),
+    ).toThrow('PLACEMENT_MISMATCH');
+    expect(() => verifyStockPlacement(remoteLog, distributed, physical, caches)).toThrow(
+      'PLACEMENT_MISMATCH',
+    );
+  });
   it('derives ordinary dense or hybrid cache ownership from complete observed rows', () => {
     expect(
       verifyStockPlacement(log, load, physical, ['auto', 'auto', 'auto', 'auto']).blocks.map(

@@ -1,7 +1,7 @@
-export type ConnectionAction = 'add' | 'join' | 'share';
+export type ConnectionAction = 'add' | 'share';
 export type ConnectionMode = 'LAN' | 'Tailscale' | 'Headscale';
 
-export const connectionLabels = { add: 'Add device', join: 'Join cluster', share: 'Share this PC' };
+export const connectionLabels = { add: 'Add device', share: 'Share this PC' };
 
 /** Illustration data only: these names are neither discovered nor authenticated peers. */
 export const joiningExamples = {
@@ -9,15 +9,11 @@ export const joiningExamples = {
     { id: 'office', name: 'office-pc', detail: 'Windows 11 · RTX 4060 Ti · 16 GB VRAM' },
     { id: 'render-mac', name: 'render-mac', detail: 'macOS · Apple M2 Ultra' },
   ],
-  join: [
-    { id: 'render', name: 'render-coordinator', detail: 'Linux · Coordinator' },
-    { id: 'studio', name: 'studio-coordinator', detail: 'Windows 11 · Coordinator' },
-  ],
 };
 
 export const incomingExamples = [
   { id: 'invitation', kind: 'invitation', name: 'render-coordinator' },
-  { id: 'join-request', kind: 'join request', name: 'office-pc' },
+  { id: 'office-invitation', kind: 'invitation', name: 'office-pc' },
 ] as const;
 
 export interface DemoJoining {

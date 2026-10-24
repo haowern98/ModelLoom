@@ -1,13 +1,13 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { ChevronDown, LogIn, Monitor, Plus } from 'lucide-react';
+import { ChevronDown, Monitor, Plus } from 'lucide-react';
 import { connectionLabels } from '../../mocks/clusterJoining';
 import type { ConnectionAction } from '../../mocks/clusterJoining';
 import styles from './ClusterPage.module.css';
 
-const actions = ['add', 'join', 'share'] as const;
-const icons = { add: Plus, join: LogIn, share: Monitor };
+const actions = ['add', 'share'] as const;
+const icons = { add: Plus, share: Monitor };
 
-/** One fixed-label trigger opens all three connection panel contexts. */
+/** One fixed-label trigger opens either connection panel context. */
 export function ClusterConnectionMenu({
   onChoose,
 }: {

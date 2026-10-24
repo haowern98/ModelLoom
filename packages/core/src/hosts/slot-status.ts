@@ -1,4 +1,5 @@
 import { request } from 'node:http';
+import { GENERATION_POLICY } from '../generation/contracts.js';
 
 /** Owner-private projection; native prompt/settings fields are discarded. */
 export interface SlotStatus {
@@ -10,7 +11,9 @@ export interface SlotStatus {
 /**
  * Reads only authenticated GET /slots on a captured loopback listener.
  * Rechecks ownership after the response, bounds raw bytes to 1 MiB and the
- * projection to 64 KiB, and aborts after five seconds including slow trickles.
+ * projection to 64 KiB, and enforces the owner's absolute observation deadline.
+ * Local reads default to five seconds; WAN reads may use the generation bound
+ * because native state transfers can block the server's status task queue.
  * Rejects with STATUS_UNCONFIRMED, without retaining raw engine diagnostics.
  * This is an owner capability dependency, never a renderer/utility command.
  */
@@ -20,6 +23,7 @@ export async function readOwnedSlots(
   slots: number,
   owns: () => boolean,
   signal: AbortSignal,
+  observationMs = 5000,
 ): Promise<readonly SlotStatus[]> {
   try {
     if (
@@ -30,6 +34,9 @@ export async function readOwnedSlots(
       !Number.isInteger(slots) ||
       slots < 1 ||
       slots > 1024 ||
+      !Number.isSafeInteger(observationMs) ||
+      observationMs < 5000 ||
+      observationMs > GENERATION_POLICY.generationMs ||
       signal.aborted ||
       !owns()
     )
@@ -70,7 +77,7 @@ export async function readOwnedSlots(
           });
         },
       );
-      const timer = setTimeout(() => req.destroy(new Error('STATUS_UNCONFIRMED')), 5000);
+      const timer = setTimeout(() => req.destroy(new Error('STATUS_UNCONFIRMED')), observationMs);
       req.on('close', () => clearTimeout(timer));
       req.on('error', reject);
       req.end();

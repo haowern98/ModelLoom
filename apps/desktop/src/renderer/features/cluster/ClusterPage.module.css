@@ -384,7 +384,8 @@
   overflow-x: hidden;
   overscroll-behavior: contain;
 }
-.panelContent:has(.overviewSummary) {
+.panelContent:has(.overviewSummary),
+.panelContent:has(.deviceDetailsLink) {
   margin-left: -12px;
   padding-left: 12px;
   /* Leave room for the full row hover surface without moving its text or controls. */
@@ -423,58 +424,19 @@
 .deviceSubtitle {
   margin-top: 2px;
   color: var(--muted);
-  font-size: var(--font-size-description);
-  line-height: var(--line-height-description);
-}
-.deviceDetails {
-  margin-top: 14px;
   font-size: var(--font-size-metadata);
+  line-height: var(--line-height-body);
 }
-.deviceDetails summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding-block: 6px;
+.page .deviceDetailsLink {
+  margin-top: 12px;
   color: var(--muted);
-  font-size: var(--font-size-control);
-  list-style: none;
-  cursor: pointer;
+  line-height: var(--line-height-body);
 }
-.deviceDetails summary::-webkit-details-marker {
-  display: none;
-}
-.deviceDetails summary:hover {
+.page .deviceDetailsLink:hover {
   color: var(--text);
 }
-.deviceDetails summary:focus-visible {
-  outline: 2px solid #78baff;
-}
-.deviceDetails summary svg {
+.deviceDetailsLink svg {
   flex-shrink: 0;
-}
-.deviceDetails[open] > summary svg {
-  transform: rotate(90deg);
-}
-.deviceDetails dl {
-  display: grid;
-  gap: 12px;
-  margin: 8px 0 0;
-}
-.deviceDetails dl > div {
-  display: grid;
-  gap: 4px;
-}
-.deviceDetails dt {
-  color: var(--muted);
-}
-.deviceDetails dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-.deviceDetails + .panelSection {
-  margin-top: 6px;
-  padding-top: 10px;
 }
 .panelHeader h2 {
   font-size: var(--font-size-dialog-title);
@@ -521,7 +483,8 @@
   margin-top: 14px;
   padding-top: 12px;
 }
-.page .overviewSummary .allocationRow {
+.page .overviewSummary .allocationRow,
+.page .devicePanel .deviceDetailsLink {
   padding-block: 8px;
 }
 .overviewMemory dt {
@@ -989,8 +952,6 @@
 }
 .page .nodeAdd {
   position: absolute;
-  right: -17px;
-  top: 50%;
   z-index: 3;
   display: grid;
   place-items: center;
@@ -1003,13 +964,52 @@
   color: #fff;
   opacity: 0;
   pointer-events: none;
+  transition: opacity 75ms ease;
+}
+.page .nodeAdd[data-edge='right'] {
+  right: -17px;
+  top: 50%;
   transform: translateY(-50%);
 }
-.device:hover .nodeAdd,
-.device:focus-within .nodeAdd,
-.page .nodeAddAlways {
+.page .nodeAdd[data-edge='left'] {
+  left: -17px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.page .nodeAdd[data-edge='top'] {
+  top: -17px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.page .nodeAdd[data-edge='bottom'] {
+  bottom: -17px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.page .nodeAdd[data-visible='true'] {
   opacity: 1;
   pointer-events: auto;
+}
+.nodeAddHint {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  margin: 12px 0 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--font-size-metadata);
+  pointer-events: none;
+  transition: opacity 75ms ease;
+}
+.nodeAddHint[data-hidden='true'] {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .page .nodeAdd,
+  .nodeAddHint {
+    transition: none;
+  }
 }
 .details {
   margin: 18px 0;
@@ -1152,8 +1152,32 @@
   min-height: 24px;
 }
 .panelIdentity h2 {
-  font-size: var(--font-size-heading);
-  line-height: 24px;
+  font-size: var(--font-size-dialog-title);
+  line-height: var(--line-height-body);
+}
+.devicePanel .panelDescription,
+.devicePanel .rangeInputs,
+.devicePanel .rangeInputs label {
+  font-size: var(--font-size-metadata);
+  line-height: var(--line-height-body);
+}
+.devicePanel .panelSection {
+  margin-top: 14px;
+  padding-top: 12px;
+}
+.devicePanel .panelSection h3 {
+  font-size: var(--font-size-section-heading);
+  font-weight: var(--font-weight-medium);
+}
+.devicePanel .panelDescription {
+  margin: 4px 0 8px;
+}
+.devicePanel .layerEditorGroup,
+.devicePanel .rangeInputs {
+  margin-top: 8px;
+}
+.devicePanel .hardwareEditor {
+  padding: 12px;
 }
 .renameTrigger {
   flex-shrink: 0;
@@ -1188,6 +1212,56 @@
 .modelPicker {
   position: relative;
   min-width: 0;
+}
+.canvasDeviceChoices {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+.page .canvasDeviceChoice,
+.page .canvasDeviceAdd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 72px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #222222;
+  color: var(--text);
+  text-align: left;
+}
+.page .canvasDeviceChoice {
+  min-height: 64px;
+  padding: 8px 12px;
+}
+.canvasDeviceChoice > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.canvasDeviceChoice svg {
+  flex-shrink: 0;
+}
+.canvasDeviceChoice strong {
+  display: block;
+  font-size: var(--font-size-card-title);
+  font-weight: var(--font-weight-medium);
+}
+.canvasDeviceChoice small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--font-size-metadata);
+  line-height: var(--line-height-body);
+}
+.page .canvasDeviceAdd {
+  justify-content: center;
+  border-style: dashed;
+  background: transparent;
+  color: var(--muted);
 }
 .page .model {
   border: 0;
@@ -1274,4 +1348,31 @@
 .placementChoices button {
   flex: 1;
   min-height: var(--control-height-dialog);
+}
+
+.sharingLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.sharingSpinner {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  animation: sharingSpin 2s steps(60, end) infinite;
+}
+.sharingError {
+  margin: 0;
+  padding: 8px 16px;
+  color: var(--muted);
+}
+@keyframes sharingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sharingSpinner {
+    animation: none;
+  }
 }

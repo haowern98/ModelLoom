@@ -36,6 +36,16 @@ afterEach(() => {
 });
 describe('runtime supervisor', () => {
   it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648, 1.5])(
+    'rejects an unusable captured startup budget %s before launch',
+    async (startupMs) => {
+      const engine = fixture();
+      const core = new RuntimeSupervisor('d1', engine.adapter, LIFECYCLE_POLICY);
+      await expect(core.load(selection, startupMs)).rejects.toThrow('INVALID_CONTROL');
+      expect(engine.launchCalls()).toBe(0);
+      expect(core.snapshot().phase).toBe('stopped');
+    },
+  );
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648, 1.5])(
     'rejects unusable deadline override %s',
     (startupMs) => {
       const engine = fixture();

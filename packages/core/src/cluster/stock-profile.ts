@@ -2,6 +2,7 @@ import type { ClusterEffectiveLoad } from './effective-load.js';
 import type { CandidateEstimate, EstimateParts } from './estimate.js';
 import type { ResourceSnapshot } from '../runtime/gpu-resources.js';
 import { SERVER_CACHE_POLICY } from '../runtime/preflight.js';
+import { decodeClusterDevice } from './device-id.js';
 
 export interface StockClusterReport {
   readonly fingerprint: string;
@@ -14,7 +15,14 @@ export interface StockClusterReport {
 }
 const reports = new WeakMap<StockClusterReport, string>();
 const mib = 1048576;
-const physicalUuid = /^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu;
+const validDevice = (id: string) => {
+  try {
+    decodeClusterDevice(id);
+    return true;
+  } catch {
+    return false;
+  }
+};
 const fail = (): never => {
   throw Error('NEEDS_RESOURCE_EVIDENCE');
 };
@@ -53,7 +61,7 @@ export function requireStockClusterProfile(
     !/^[a-f0-9]{64}$/u.test(load.fingerprint) ||
     load.placement.orderedUuids.length < 1 ||
     load.placement.orderedUuids.length > 2 ||
-    load.placement.orderedUuids.some((uuid) => !physicalUuid.test(uuid)) ||
+    load.placement.orderedUuids.some((uuid) => !validDevice(uuid)) ||
     new Set(load.placement.orderedUuids.map((uuid) => uuid.toLowerCase())).size !==
       load.placement.orderedUuids.length
   )

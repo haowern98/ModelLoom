@@ -81,25 +81,86 @@
 }
 .inventory {
   margin: 0;
+  border-radius: 12px;
 }
-.inventory .inventoryRow {
+.settingsPage .inventory .inventoryRow {
   display: grid;
   grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr);
+  min-height: 40px;
+  padding: 10px 0;
+  gap: 8px 24px;
+  font-size: var(--font-size-metadata);
+  line-height: var(--line-height-body);
 }
 .inventoryRow dt,
 .inventoryRow dd {
   min-width: 0;
-  overflow-wrap: anywhere;
 }
 .inventoryRow dd {
   margin: 0;
   color: var(--neutral-muted);
-  font-size: var(--font-size-description);
-  line-height: var(--line-height-description);
+  font-size: var(--font-size-metadata);
+  line-height: var(--line-height-body);
   text-align: right;
 }
-.inventoryNote {
-  margin-top: 10px;
+.deviceArticle {
+  margin-bottom: 40px;
+}
+.deviceHeader {
+  margin-bottom: 20px;
+  border-radius: 8px;
+}
+.deviceHeader .identity {
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  margin-bottom: 4px;
+}
+.settingsPage .deviceHeader h2 {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-dialog-title);
+  font-weight: var(--font-weight-medium);
+  scroll-margin-top: 24px;
+}
+.deviceHeader .badge {
+  flex-shrink: 0;
+}
+.deviceStatus {
+  color: var(--neutral-muted);
+  font-size: var(--font-size-metadata);
+}
+.hardwareGroup + .hardwareGroup {
+  margin-top: 20px;
+}
+.hardwareGroup h3 {
+  margin-bottom: 12px;
+  font-size: var(--font-size-section-heading);
+  font-weight: var(--font-weight-medium);
+}
+.deviceArticle[data-targeted='true'] .deviceHeader {
+  animation: highlightDevice 1.4s ease-out;
+}
+@keyframes highlightDevice {
+  from {
+    background: #ffffff14;
+  }
+  to {
+    background: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .deviceArticle[data-targeted='true'] .deviceHeader {
+    animation: none;
+  }
+}
+@media (max-width: 720px) {
+  .settingsPage .inventory .inventoryRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .inventoryRow dd {
+    text-align: left;
+  }
 }
 .settingsPage .connection {
   display: flex;
@@ -147,7 +208,121 @@
   white-space: nowrap;
 }
 .joining {
-  max-width: 800px;
+  min-width: 0;
+}
+.settingsPage .tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 40px;
+}
+.settingsPage .tabs button {
+  min-height: var(--control-height);
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--neutral-muted);
+  font: inherit;
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-control);
+}
+.settingsPage .tabs button[aria-selected='true'] {
+  color: var(--neutral-text);
+  background: #2c2c2c;
+}
+.settingsPage .tabs button:hover {
+  color: var(--neutral-text);
+  background: #262626;
+}
+.settingsPage .tabs button:active {
+  background: #353535;
+}
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.sectionHeader h2 {
+  margin: 0;
+  font-size: var(--font-size-section-heading);
+  font-weight: var(--font-weight-medium);
+}
+.sectionHeader .actions {
+  align-items: center;
+}
+.sectionHeader .actions button {
+  min-height: var(--control-height);
+}
+.sectionHeader .refresh {
+  padding: 4px;
+  min-width: var(--control-height);
+  border: 0;
+  background: transparent;
+  color: var(--neutral-muted);
+}
+.fieldRow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 0;
+}
+.fieldRow input {
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--control-height-search);
+  padding: 8px 12px;
+  border: 1px solid var(--neutral-border);
+  border-radius: 10px;
+  background: #262626;
+  color: var(--neutral-text);
+  font: inherit;
+  font-size: var(--font-size-control);
+}
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--neutral-border);
+  padding: 14px 0;
+}
+.note {
+  margin-top: 10px;
+  color: var(--neutral-muted);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+.identityDetails {
+  margin-top: 14px;
+  color: var(--neutral-muted);
+  font-size: var(--font-size-description);
+  overflow-wrap: anywhere;
+}
+.identityDetails summary {
+  cursor: pointer;
+}
+.identityDetails p {
+  margin-top: 10px;
+}
+.joining input:disabled,
+.joining select:disabled {
+  cursor: not-allowed;
+}
+.joining label {
+  min-width: 0;
+}
+.joining label > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.settingsPage .joining > section:has(.sectionHeader) h2 {
+  margin-bottom: 0;
+}
+.settingsPage :focus-visible {
+  outline-color: #ababab;
 }
 @media (max-width: 1100px) {
   .page {

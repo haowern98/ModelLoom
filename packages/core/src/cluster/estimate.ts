@@ -1,4 +1,5 @@
 import type { ClusterEffectiveLoad } from './effective-load.js';
+import { clusterDeviceNames } from './device-id.js';
 export interface EstimateParts {
   readonly model: number;
   readonly context: number;
@@ -26,10 +27,10 @@ export function parseClusterEstimate(
     return fail();
   }
   const rows = text.split(/\r?\n/u);
-  const expected = [...load.placement.orderedUuids.map((_, i) => `CUDA${i}`), 'Host'];
+  const expected = [...clusterDeviceNames(load.placement.orderedUuids), 'Host'];
   if (rows.length !== expected.length) return fail();
   const parsed = rows.map((row, i) => {
-    const m = /^\s*(CUDA\d+|Host)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/u.exec(row);
+    const m = /^\s*((?:CUDA|RPC)\d+|Host)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/u.exec(row);
     if (!m || m[1] !== expected[i]) return fail();
     const values = m.slice(2).map((v) => (Number(v) + 1) * 1048576);
     if (values.some((v) => !Number.isSafeInteger(v) || v < 1048576)) return fail();

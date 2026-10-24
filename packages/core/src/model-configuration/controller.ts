@@ -66,7 +66,7 @@ export class ConfigurationController {
         pendingReload:
           active !== null &&
           active.modelId === record.modelId &&
-          (!isDeepStrictEqual(record.load, active.load) ||
+          (!isDeepStrictEqual(record.load, active.requestedLoad ?? active.load) ||
             !isDeepStrictEqual(
               record.preferences,
               active.preferences ??

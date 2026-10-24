@@ -1,11 +1,14 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import type { Dispatch } from 'react';
 import { Button } from '../../components/Button';
 import { incomingExamples, joiningExamples } from '../../mocks/clusterJoining';
-import type { ConnectionMode, DemoJoining, JoiningAction } from '../../mocks/clusterJoining';
+import type { DemoJoining, JoiningAction } from '../../mocks/clusterJoining';
 import styles from './ClusterPage.module.css';
 import settings from '../settings/SettingsPage.module.css';
+import layout from './ClusterViews.module.css';
+import switches from '../../components/Switch.module.css';
 import checkboxStyles from '../../components/Checkbox.module.css';
+import { LivePeerPanel, LivePeerRequests } from './LivePeers';
 
 export interface JoiningProps {
   demo: boolean;
@@ -21,7 +24,7 @@ export function PendingRequests({
   settingsLayout = false,
 }: JoiningProps & { settingsLayout?: boolean }) {
   const heading = useRef<HTMLHeadingElement>(null);
-  if (!demo) return null;
+  if (!demo) return <LivePeerRequests />;
   const pending = incomingExamples.filter((request) => !joining.decisions[request.id]).length;
   const Heading = settingsLayout ? 'h2' : 'h3';
   return (
@@ -48,14 +51,10 @@ export function PendingRequests({
                   {request.name}
                 </span>
                 <p className={settingsLayout ? settings.description : styles.panelDescription}>
-                  {request.kind === 'invitation'
-                    ? 'Invites this PC to its cluster.'
-                    : 'Wants to join your cluster.'}
+                  Invites this PC to its cluster.
                 </p>
                 <p className={styles.roleConsequence}>
-                  {request.kind === 'invitation'
-                    ? `${request.name} coordinates; this PC contributes.`
-                    : `This PC coordinates; ${request.name} contributes.`}
+                  {request.name} coordinates; this PC contributes.
                 </p>
               </div>
               {decision ? (
@@ -96,214 +95,151 @@ export function ClusterJoiningPanel({
   joining,
   onJoining,
   expanded = false,
-}: JoiningProps & { kind: 'add' | 'join' | 'share'; expanded?: boolean }) {
-  const [mode, setMode] = useState<ConnectionMode>('LAN');
-  const [address, setAddress] = useState(() => joining.manual[`${kind}:LAN`] ?? '');
+}: JoiningProps & { kind: 'add' | 'share'; expanded?: boolean }) {
+  const [address, setAddress] = useState(() => joining.manual[kind + ':LAN'] ?? '');
   const addressId = useId();
   const descriptionId = useId();
-  const sharingSwitch = useRef<HTMLButtonElement>(null);
   const addressInput = useRef<HTMLInputElement>(null);
-  const [manualOpen, setManualOpen] = useState(!expanded);
-  useEffect(() => {
-    if (expanded && manualOpen) addressInput.current?.focus();
-  }, [expanded, manualOpen]);
+  if (!demo) return <LivePeerPanel kind={kind} expanded={expanded} />;
   if (kind === 'share') {
     return (
       <>
-        <p className={styles.panelDescription}>
-          Choose whether this PC can receive participation requests.
-        </p>
-        <section className={styles.panelSection}>
-          <div className={styles.sharingRow}>
-            <label htmlFor={addressId} className={styles.joiningName}>
-              Allow participation requests
-            </label>
-            <button
-              ref={sharingSwitch}
-              id={addressId}
-              type="button"
-              role="switch"
-              aria-checked={joining.sharing}
-              aria-describedby={descriptionId}
-              className={styles.sharingSwitch}
-              disabled={!demo}
-              onClick={() => onJoining({ type: 'sharing', enabled: !joining.sharing })}
-            >
-              <span />
-            </button>
+        <section className={settings.section}>
+          <h2>PCs that can use this PC</h2>
+          <div className={settings.group}>
+            <div className={settings.row}>
+              <div>
+                <label htmlFor={addressId} className={settings.label}>
+                  Allow connections
+                </label>
+                <p id={descriptionId} className={settings.description}>
+                  You approve each invitation before this PC joins.
+                </p>
+              </div>
+              <input
+                id={addressId}
+                type="checkbox"
+                role="switch"
+                aria-describedby={descriptionId}
+                className={switches.switch}
+                checked={joining.sharing}
+                onChange={(event) => onJoining({ type: 'sharing', enabled: event.target.checked })}
+              />
+            </div>
+            <div className={settings.row}>
+              <p className={settings.description}>No approved PCs · demo</p>
+            </div>
           </div>
-          <p id={descriptionId} className={styles.panelDescription}>
-            You approve each invitation before this PC joins.
-          </p>
         </section>
-        <section className={styles.panelSection}>
-          <h3>Hardware to share</h3>
-          <div className={styles.hardwareChoices}>
+        <section className={settings.section}>
+          <h2>Shared hardware</h2>
+          <div className={settings.group}>
             {(['gpu', 'cpu'] as const).map((hardware) => (
-              <label key={hardware}>
+              <label key={hardware} className={settings.row}>
+                <span className={settings.label}>{hardware.toUpperCase()}</span>
                 <input
                   type="checkbox"
                   className={checkboxStyles.checkbox}
                   checked={joining[hardware]}
-                  disabled={!demo || !joining.sharing}
+                  disabled={!joining.sharing}
                   onChange={(event) =>
                     onJoining({ type: 'hardware', hardware, enabled: event.target.checked })
                   }
                 />
-                {hardware.toUpperCase()}
               </label>
             ))}
           </div>
+          <p className={layout.note}>
+            Sharing preferences are kept for this app session only. No device is advertised.
+          </p>
         </section>
-        <section className={styles.panelSection}>
-          <h3>Participation</h3>
-          <dl className={styles.details}>
-            <div>
-              <dt>Status</dt>
-              <dd>{joining.sharing ? 'Available for requests · demo' : 'Not sharing'}</dd>
-            </div>
-            <div>
-              <dt>Coordinator</dt>
-              <dd>Not connected</dd>
-            </div>
-          </dl>
-          <p className={styles.panelDescription}>Sharing availability does not start inference.</p>
-          {joining.sharing && (
-            <Button
-              onClick={() => {
-                onJoining({ type: 'sharing', enabled: false });
-                sharingSwitch.current?.focus();
-              }}
-            >
-              Stop sharing
-            </Button>
-          )}
-        </section>
-        <p className={styles.panelDescription}>
-          {demo
-            ? 'Sharing preferences are kept for this app session only. No device is advertised.'
-            : 'Participation requires networking integration.'}
-        </p>
       </>
     );
   }
-  const manualKey = `${kind}:${mode}`;
+  const manualKey = kind + ':LAN';
   const manualPending = Boolean(address.trim()) && joining.manual[manualKey] === address.trim();
   return (
     <>
-      <p className={styles.panelDescription}>
-        {kind === 'add'
-          ? 'Invite another PC to contribute to your cluster.'
-          : 'Ask a coordinator to use this PC in its cluster.'}
-      </p>
-      <div className={styles.networkModes} role="group" aria-label="Connection mode">
-        {(['LAN', 'Tailscale', 'Headscale'] as const).map((next) => (
-          <Button
-            key={next}
-            aria-pressed={mode === next}
-            onClick={() => {
-              setMode(next);
-              setAddress(joining.manual[`${kind}:${next}`] ?? '');
-            }}
-          >
-            {next}
+      <section className={settings.section}>
+        <div className={layout.sectionHeader}>
+          <h2>PCs available to add</h2>
+          <Button className={styles.whiteAction} onClick={() => addressInput.current?.focus()}>
+            Add
           </Button>
-        ))}
-        {expanded && (
-          <Button
-            className={styles.whiteAction}
-            aria-expanded={manualOpen}
-            onClick={() => setManualOpen(!manualOpen)}
-          >
-            Connect manually
-          </Button>
-        )}
-      </div>
-      <section className={styles.panelSection}>
-        <h3>{kind === 'add' ? 'Available devices' : 'Available clusters'}</h3>
-        <p className={styles.panelDescription}>
-          {demo
-            ? 'Example devices · not discovered'
-            : kind === 'add'
-              ? 'No available devices'
-              : 'No available clusters'}
-        </p>
-        <div className={expanded ? styles.candidateGrid : undefined}>
-          {demo &&
-            joiningExamples[kind].map((device) => {
-              const key = `${kind}:${mode}:${device.id}`;
-              const pending = joining.outgoing[key];
-              return (
-                <div key={key} className={styles.candidateRow}>
-                  <div>
-                    <span className={styles.joiningName}>{device.name}</span>
-                    <span className={styles.candidateDetail}>{device.detail}</span>
-                  </div>
-                  <Button
-                    className={pending ? undefined : styles.whiteAction}
-                    disabled={pending}
-                    aria-label={
-                      pending
-                        ? `${kind === 'add' ? 'Invitation' : 'Join request'} pending for ${device.name}`
-                        : `${kind === 'add' ? 'Invite' : 'Request to join'} ${device.name}`
-                    }
-                    onClick={() => onJoining({ type: 'request', key })}
-                  >
-                    {pending ? 'Pending' : kind === 'add' ? 'Invite' : 'Request to join'}
-                  </Button>
-                </div>
-              );
-            })}
         </div>
-        <p className={styles.panelDescription}>
-          {kind === 'add'
-            ? 'The other PC must approve your invitation.'
-            : 'The coordinator must approve your request.'}
+        <div className={settings.group}>
+          {joiningExamples[kind].map((device) => {
+            const key = kind + ':LAN:' + device.id;
+            const pending = joining.outgoing[key];
+            return (
+              <div key={key} className={settings.row}>
+                <div>
+                  <span className={settings.label}>{device.name}</span>
+                  <p className={settings.description}>{device.detail}</p>
+                </div>
+                <Button
+                  className={pending ? undefined : styles.whiteAction}
+                  disabled={pending}
+                  aria-label={
+                    pending ? 'Invitation pending for ' + device.name : 'Invite ' + device.name
+                  }
+                  onClick={() => onJoining({ type: 'request', key })}
+                >
+                  {pending ? 'Pending' : 'Invite'}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+        <p className={layout.note}>
+          Example devices · not discovered. The other PC must approve your invitation.
         </p>
       </section>
-      {manualOpen && (
-        <section className={styles.panelSection}>
-          <h3>Private address</h3>
-          <form
-            className={styles.addressForm}
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (demo && address.trim() && !manualPending)
-                onJoining({ type: 'manual', key: manualKey, address: address.trim() });
-            }}
-          >
+      <section className={settings.section}>
+        <h2>Connect manually</h2>
+        <form
+          className={settings.group}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (address.trim() && !manualPending)
+              onJoining({ type: 'manual', key: manualKey, address: address.trim() });
+          }}
+        >
+          <div className={layout.fieldRow}>
+            <label htmlFor={addressId} className={settings.label}>
+              Private address
+            </label>
             <input
               ref={addressInput}
               id={addressId}
               aria-label="Private address"
               aria-describedby={descriptionId}
               value={address}
-              disabled={!demo}
               maxLength={255}
-              placeholder="Enter a private address…"
+              placeholder="Enter a private IP address"
               onChange={(event) => setAddress(event.target.value)}
             />
+          </div>
+          <div className={layout.formActions}>
             <Button
               type="submit"
               className={styles.whiteAction}
-              disabled={!demo || !address.trim() || manualPending}
-              aria-label={
-                kind === 'add' ? 'Invite private address' : 'Request to join private address'
-              }
+              disabled={!address.trim() || manualPending}
+              aria-label="Invite private address"
             >
-              {kind === 'add' ? 'Invite' : 'Request to join'}
+              Invite
             </Button>
-          </form>
-          {manualPending && (
-            <p className={styles.requestStatus} role="status">
-              {kind === 'add' ? 'Invitation' : 'Join request'} pending · demo
-            </p>
-          )}
-          <p id={descriptionId} className={styles.panelDescription}>
-            No discovery, request delivery or pairing occurs. {mode} integration is not connected.
+          </div>
+        </form>
+        {manualPending && (
+          <p className={styles.requestStatus} role="status">
+            Invitation pending · demo
           </p>
-        </section>
-      )}
+        )}
+        <p id={descriptionId} className={layout.note}>
+          No discovery, request delivery or pairing occurs. LAN integration is not connected.
+        </p>
+      </section>
     </>
   );
 }

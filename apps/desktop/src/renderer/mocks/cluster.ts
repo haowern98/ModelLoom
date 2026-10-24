@@ -1,3 +1,4 @@
+import type { PeerTelemetry } from '../../shared/peers';
 import type { DeviceInventory } from '../../shared/runtime';
 /** Screen-reference fixtures only; no values represent discovered hardware or valid GGUF placement. */
 export interface DemoHardware {
@@ -7,6 +8,8 @@ export interface DemoHardware {
   readonly detail: string;
   readonly memoryGb: number;
   readonly kind: 'cpu' | 'gpu' | 'unified';
+  /** Trusted execution identity, when this row represents discovered hardware. */
+  readonly assignmentId?: string;
 }
 
 export interface DemoDevice {
@@ -17,6 +20,7 @@ export interface DemoDevice {
   readonly address: string;
   readonly hardware: readonly DemoHardware[];
   readonly inventory?: DeviceInventory;
+  readonly telemetry?: PeerTelemetry;
 }
 
 export const demoDevices: readonly DemoDevice[] = [

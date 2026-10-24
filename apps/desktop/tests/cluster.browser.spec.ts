@@ -1,48 +1,41 @@
 import { expect, test } from '@playwright/test';
 
-test('Connections groups its subtitle beneath the heading and centers actions beside both', async ({
+test('Connections matches Appearance heading spacing and uses compact tabs without a subtitle', async ({
   page,
 }) => {
   await page.goto('http://127.0.0.1:5176');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const appearance = page.getByRole('heading', { name: 'Appearance', exact: true });
+  const theme = page.getByRole('heading', { name: 'Theme', exact: true });
+  const appearanceBox = (await appearance.boundingBox())!;
+  const themeBox = (await theme.boundingBox())!;
+  const gap = themeBox.y - appearanceBox.y - appearanceBox.height;
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
   await page
     .getByRole('navigation', { name: 'Cluster navigation' })
     .getByRole('button', { name: 'Connections', exact: true })
     .click();
   const section = page.getByRole('region', { name: 'Connections', exact: true });
-  const heading = section.getByRole('heading', { name: 'Connections', exact: true });
-  const subtitle = section.getByText('Network connections will appear here.', { exact: true });
-  for (const width of [1280, 1000]) {
+  for (const width of [1280, 900]) {
     await page.setViewportSize({ width, height: 720 });
-    const titleBounds = (await heading.boundingBox())!;
-    const subtitleBounds = (await subtitle.boundingBox())!;
-    expect(subtitleBounds.x).toBe(titleBounds.x);
-    expect(subtitleBounds.y - titleBounds.y - titleBounds.height).toBeCloseTo(6, 0);
-    const center = (titleBounds.y + subtitleBounds.y - 2 + subtitleBounds.height) / 2;
-    for (const name of ['Join cluster', 'Share this PC', 'Add device']) {
-      const bounds = (await section.getByRole('button', { name, exact: true }).boundingBox())!;
-      expect(Math.abs(bounds.y + bounds.height / 2 - center)).toBeLessThan(1);
-      expect(bounds.x).toBeGreaterThan(subtitleBounds.x + subtitleBounds.width);
+    const heading = (await section
+      .getByRole('heading', { name: 'Connections', exact: true })
+      .boundingBox())!;
+    const tabs = section.getByRole('tablist', { name: 'Connection options' });
+    const tabBox = (await tabs.boundingBox())!;
+    expect(heading.y).toBeCloseTo(appearanceBox.y, 0);
+    expect(tabBox.y - heading.y - heading.height).toBeCloseTo(gap, 0);
+    expect(tabBox.x).toBeCloseTo(heading.x, 0);
+    await expect(tabs.getByRole('tab')).toHaveCount(2);
+    await expect(tabs.getByRole('tab')).toHaveText(['Share this PC', 'Add device']);
+    await expect(
+      section.getByText('Approved PCs and shared hardware.', { exact: true }),
+    ).toHaveCount(0);
+    for (const tab of await tabs.getByRole('tab').all()) {
+      await expect(tab).toHaveCSS('border-width', '0px');
+      await expect(tab).toHaveCSS('border-radius', '8px');
     }
-    const stationary = [
-      heading,
-      ...['Join cluster', 'Share this PC', 'Add device'].map((name) =>
-        section.getByRole('button', { name, exact: true }),
-      ),
-      section.getByText('No verified network connections.', { exact: true }),
-    ];
-    const before = await Promise.all(stationary.map((element) => element.boundingBox()));
-    await subtitle.evaluate((element) => {
-      element.style.top = '0px';
-    });
-    expect(await Promise.all(stationary.map((element) => element.boundingBox()))).toEqual(before);
-    expect((await subtitle.boundingBox())!.y).toBe(subtitleBounds.y - 2);
-    await subtitle.evaluate((element) => {
-      element.style.removeProperty('top');
-    });
   }
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await page.screenshot({ path: 'E:/ModelLoom-Project/plans/connections-header.png' });
 });
 import type { Page } from '@playwright/test';
 
@@ -276,7 +269,7 @@ test('toast timers pause on hover and keyboard focus, and replacements get a fre
   await page.mouse.move(10, 10);
   await page.clock.runFor(6000);
   await expect(toast).toBeVisible();
-  await page.getByRole('button', { name: 'Add device', exact: true }).focus();
+  await page.getByRole('button', { name: /^Connections/u }).focus();
   await page.clock.runFor(2001);
   await expect(toast).toHaveCount(0);
   await editSampleProposal(page);
@@ -292,7 +285,7 @@ test('toast timers pause on hover and keyboard focus, and replacements get a fre
   await page.clock.runFor(2000);
   await expect(toast).toHaveText('Device renamed');
   await page.mouse.move(10, 10);
-  await page.getByRole('button', { name: 'Add device', exact: true }).focus();
+  await page.getByRole('button', { name: /^Connections/u }).focus();
   await page.clock.runFor(3001);
   await expect(toast).toHaveCount(0);
 });
@@ -369,12 +362,14 @@ test('canvas never draws an outline while keyboard controls and control focus st
   await settings.focus();
   await expect(settings).toHaveCSS('outline-style', 'solid');
   await expect(settings).toHaveCSS('outline-width', '2px');
-  await page.keyboard.press('Tab');
-  await expect(page.getByRole('button', { name: 'Add device', exact: true })).toBeFocused();
-  await expect(page.getByRole('button', { name: 'Add device', exact: true })).toHaveCSS(
-    'outline-style',
-    'solid',
-  );
+  const navigation = page.getByRole('navigation', { name: 'Cluster navigation' });
+  for (const name of ['Overview', 'Devices', 'Connections']) {
+    await page.keyboard.press('Tab');
+    const destination = navigation.getByRole('button', { name: new RegExp('^' + name) });
+    await expect(destination).toBeFocused();
+    await expect(destination).toHaveCSS('outline-style', 'solid');
+    await expect(destination).toHaveCSS('outline-width', '2px');
+  }
 });
 
 test('Cluster preserves the reference composition and sample disclosure at desktop sizes', async ({
@@ -553,8 +548,10 @@ test('nodes select independently of role and expose the same contextual Add devi
   await expect(add).toHaveCSS('opacity', '1');
   await add.click();
   const panel = page.getByRole('complementary', { name: 'Cluster panel' });
-  await expect(panel.getByRole('heading', { name: 'Add device' })).toBeVisible();
-  await expect(panel.getByText('Example devices · not discovered')).toBeVisible();
+  await expect(panel.getByRole('heading', { name: 'Add to canvas' })).toBeVisible();
+  await expect(panel.getByText('Choose a PC to add to this canvas.')).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Add device in Connections' })).toBeVisible();
+  await expect(panel.getByRole('textbox')).toHaveCount(0);
   await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
   await page.getByRole('button', { name: 'Select ml-workstation' }).focus();
   await page.keyboard.press('Enter');
@@ -698,11 +695,11 @@ test('one device stays centered on resize and beside the details panel without c
   expect(Number((await zoom.textContent())?.replace('%', ''))).toBeLessThan(100);
 });
 
-test('the node Add shortcut stays visible with one connected device and becomes contextual with two', async ({
+test('node Add reveals only the nearest edge on hover or keyboard focus, with a lone-node hint', async ({
   page,
 }) => {
   let deviceCount = 1;
-  // Vary only the fixture data at its module boundary; exercise the real cards, styles and flow.
+  // Vary only the fixture inventory; retain the actual cards, hover events and CSS transitions.
   await page.route('**/src/renderer/mocks/cluster.ts*', async (route) => {
     const response = await route.fetch();
     await route.fulfill({
@@ -715,20 +712,78 @@ test('the node Add shortcut stays visible with one connected device and becomes 
     await page.getByRole('button', { name: 'Cluster', exact: true }).click();
     await page.getByRole('button', { name: 'Fit to view', exact: true }).click();
     await expect(page.getByRole('article')).toHaveCount(deviceCount);
-    const add = page.getByRole('button', { name: 'Add device near studio-desktop' });
+    const card = page.getByRole('article', { name: 'studio-desktop' });
+    const add = card.getByRole('button', { name: 'Add device near studio-desktop' });
+    const hint = page.getByText('Hover near an edge to add a device.', { exact: true });
     await page.mouse.move(0, 0);
-    await expect(add).toHaveCSS('opacity', deviceCount === 1 ? '1' : '0');
+    await expect(add).toHaveCSS('opacity', '0');
+    await expect(add).toHaveCSS('pointer-events', 'none');
+    if (deviceCount === 1) await expect(hint).toHaveCSS('opacity', '1');
+    else await expect(hint).toHaveCount(0);
+    await expect(add).toHaveCSS('transition-duration', '0.075s');
+    const bounds = await card.boundingBox();
+    if (!bounds) throw new Error('Device geometry missing');
+    const edges = [
+      { edge: 'top', x: bounds.x + bounds.width / 2, y: bounds.y + 2 },
+      { edge: 'right', x: bounds.x + bounds.width - 2, y: bounds.y + bounds.height / 2 },
+      { edge: 'bottom', x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height - 2 },
+      { edge: 'left', x: bounds.x + 2, y: bounds.y + bounds.height / 2 },
+    ];
+    for (const { edge, x, y } of edges) {
+      await page.mouse.move(x, y);
+      await expect(add).toHaveAttribute('data-edge', edge);
+      await expect(add).toHaveCSS('opacity', '1');
+      await expect(add).toHaveCSS('pointer-events', 'auto');
+      await expect(card.getByRole('button', { name: /^Add device near / })).toHaveCount(1);
+      if (deviceCount === 1) await expect(hint).toHaveCSS('opacity', '0');
+      const shortcut = (await add.boundingBox())!;
+      const center = { x: shortcut.x + shortcut.width / 2, y: shortcut.y + shortcut.height / 2 };
+      expect(center.x).toBeCloseTo(
+        edge === 'left'
+          ? bounds.x
+          : edge === 'right'
+            ? bounds.x + bounds.width
+            : bounds.x + bounds.width / 2,
+        0,
+      );
+      expect(center.y).toBeCloseTo(
+        edge === 'top'
+          ? bounds.y
+          : edge === 'bottom'
+            ? bounds.y + bounds.height
+            : bounds.y + bounds.height / 2,
+        0,
+      );
+    }
+    await page.mouse.move(0, 0);
+    await expect(add).toHaveCSS('opacity', '0');
+    // Enter keyboard modality before focusing the shortcut so :focus-visible is exercised.
+    await page.keyboard.press('Tab');
     await add.focus();
+    await expect(add).toBeFocused();
     await expect(add).toHaveCSS('opacity', '1');
+    await expect(add).toHaveCSS('outline-style', 'solid');
+    for (const [key, edge] of [
+      ['ArrowUp', 'top'],
+      ['ArrowRight', 'right'],
+      ['ArrowDown', 'bottom'],
+      ['ArrowLeft', 'left'],
+    ]) {
+      await page.keyboard.press(key!);
+      await expect(add).toHaveAttribute('data-edge', edge!);
+      await expect(add).toBeFocused();
+    }
     await page.keyboard.press('Enter');
     await expect(
       page
         .getByRole('complementary', { name: 'Cluster panel' })
-        .getByRole('heading', { name: 'Add device' }),
+        .getByRole('heading', { name: 'Add to canvas' }),
     ).toBeVisible();
+    await page.mouse.move(0, 0);
+    await expect(add).toHaveAttribute('data-edge', 'left');
+    await expect(add).toHaveCSS('opacity', '1');
   }
 });
-
 test('Cluster toolbar uses rounded neutral controls and overlays its panel without moving cards', async ({
   page,
 }) => {
@@ -836,26 +891,31 @@ test('Cluster destinations preserve the canvas viewport and expose device setup'
   await page.keyboard.press('ArrowRight');
   const transform = await diagram.getAttribute('style');
   const controlBounds = await controls.boundingBox();
-  for (const destination of ['Devices', 'Connections', 'Requests', 'Add device']) {
+  for (const destination of ['Devices', 'Connections', 'Add device']) {
     await navigation
       .getByRole('button', {
-        name: destination === 'Requests' ? /^Requests/ : destination,
+        name: destination === 'Devices' ? 'Devices' : /^Connections/u,
         exact: true,
       })
       .click();
-    await expect(page.getByRole('heading', { name: destination, exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('heading', {
+        name: destination === 'Devices' ? 'Devices' : 'Connections',
+        exact: true,
+      }),
+    ).toBeVisible();
     await expect(canvas).toBeHidden();
     await expect(controls).toBeHidden();
     expect(await diagram.getAttribute('style')).toEqual(transform);
     if (destination === 'Add device') {
-      const addPage = page.getByRole('region', { name: 'Add device', exact: true });
+      await page.getByRole('tab', { name: 'Add device' }).click();
+      const addPage = page.getByRole('tabpanel', { name: 'Add device', exact: true });
       await expect(
         addPage.getByRole('button', { name: 'Invite office-pc', exact: true }),
       ).toBeVisible();
       await expect(
         addPage.getByRole('button', { name: 'Invite render-mac', exact: true }),
       ).toBeVisible();
-      await addPage.getByRole('button', { name: 'Connect manually', exact: true }).click();
       await expect(
         addPage.getByRole('textbox', { name: 'Private address', exact: true }),
       ).toBeVisible();

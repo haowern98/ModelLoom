@@ -8,7 +8,7 @@
   background: #1c1c1c;
 }
 .header {
-  padding: 14px 18px 12px;
+  padding: 14px 18px 0;
 }
 .header h1 {
   font-size: var(--font-size-dialog-title);
@@ -28,7 +28,7 @@
   font-weight: var(--font-weight-semibold);
 }
 .content nav .groupHeading {
-  margin-top: 16px;
+  margin-top: 19px;
 }
 .sidebar .content button:not([data-sidebar-row-button]) {
   display: flex;

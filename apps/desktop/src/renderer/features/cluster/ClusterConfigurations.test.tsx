@@ -282,13 +282,22 @@ it('shows saved physical GPU ranges immediately and only marks them in use after
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     expect(lastDraft).toHaveValue('63');
-    const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+    let panel = screen.getByRole('complementary', { name: 'Cluster panel' });
     expect(within(panel).getByText('64 layers \u00b7 0\u201363')).toBeVisible();
     expect(within(panel).getByRole('heading', { name: 'Observed device' })).toBeVisible();
     expect(within(panel).getByText('This device \u00b7 Coordinator')).toBeVisible();
     await user.click(within(panel).getByText('Device details'));
-    for (const name of ['OS', 'Address', 'Connection'])
-      expect(within(panel).getByText(name)).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Devices' })).toBeVisible();
+    const device = screen.getByRole('article', { name: 'Observed device' });
+    for (const name of ['Operating system', 'Address'])
+      expect(within(device).getByText(name)).toBeVisible();
+    expect(within(device).getByText('This device', { selector: 'p' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Overview' }));
+    await user.click(screen.getByRole('button', { name: 'Edit layers for Observed device GPU 1' }));
+    panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+    expect(within(panel).getByRole('spinbutton', { name: 'Last layer for GPU 1' })).toHaveValue(
+      '63',
+    );
     const editor = within(panel)
       .getByRole('heading', { name: 'Layer assignment' })
       .closest('section')!;

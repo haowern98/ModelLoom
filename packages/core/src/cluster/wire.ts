@@ -5,6 +5,7 @@ import {
   decodeSavedClusterConfiguration,
   decodeConfigurationName,
 } from './contracts.js';
+import { decodeClusterDevice } from './device-id.js';
 import type {
   AssignmentIssue,
   CapturedClusterLoad,
@@ -19,7 +20,7 @@ export type ClusterCommand =
   | { action: 'edit'; key: string; expectedRevision: number | null; edit: ClusterEdit }
   | { action: 'save'; key: string; revision: number; name: string | null }
   | { action: 'discard'; key: string; revision: number }
-  | { action: 'auto-place'; key: string; revision: number }
+  | { action: 'auto-place'; key: string; revision: number; devices?: readonly string[] }
   | { action: 'cancel-planning' };
 const errors = [
   'NOT_READY',
@@ -37,6 +38,13 @@ const errors = [
   'INSUFFICIENT_RESOURCES',
   'INCOMPATIBLE_DRIVER',
   'CLEANUP_FAILED',
+  'GPU_BUSY',
+  'PEER_UNAVAILABLE',
+  'PEER_NOT_APPROVED',
+  'GPU_NOT_SHARED',
+  'INCOMPATIBLE_RUNTIME',
+  'RPC_PACKAGE_REQUIRED',
+  'UNSUPPORTED_PEER_GPU',
 ] as const;
 export type ClusterError = (typeof errors)[number];
 export type ClusterReply =
@@ -126,6 +134,18 @@ export function decodeClusterCommand(input: unknown): ClusterCommand {
         name: v.name === null ? null : decodeConfigurationName(v.name),
       };
     }
+    if (a === 'auto-place' && Object.hasOwn(input as object, 'devices')) {
+      const v = object(input, ['action', 'key', 'revision', 'devices']);
+      if (!Array.isArray(v.devices) || v.devices.length > 16) return fail();
+      const devices = v.devices.map((device: unknown) => {
+        if (typeof device !== 'string') return fail();
+        decodeClusterDevice(device);
+        return device;
+      });
+      if (new Set(devices.map((device) => device.toLowerCase())).size !== devices.length)
+        return fail();
+      return { action: a, key: key(v.key), revision: revision(v.revision), devices };
+    }
     if (a === 'discard' || a === 'auto-place') {
       const v = object(input, ['action', 'key', 'revision']);
       return { action: a, key: key(v.key), revision: revision(v.revision) };
@@ -154,10 +174,11 @@ export function decodeClusterReply(input: unknown): ClusterReply {
       return fail();
     const issues: AssignmentIssue[] = v.issues.map((input: unknown) => {
       const i = object(input, ['uuid', 'field', 'code']);
+      if (i.uuid !== null) {
+        if (typeof i.uuid !== 'string') return fail();
+        decodeClusterDevice(i.uuid);
+      }
       if (
-        (i.uuid !== null &&
-          (typeof i.uuid !== 'string' ||
-            !/^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(i.uuid))) ||
         !['first', 'last', 'coverage', 'load'].includes(String(i.field)) ||
         ![
           'invalid-integer',

@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { OwnerChatChannel, UtilityChatTransport } from './chat-channel.js';
 import type { TerminalOutcome } from '../generation/contracts.js';
 import type { ChatTransport } from '../generation/service.js';
@@ -19,6 +19,25 @@ const identity = {
   attemptId: 'attempt',
 };
 const messages = [{ role: 'user' as const, content: 'test' }];
+it('allows native token preparation past the old two-minute IPC limit', async () => {
+  vi.useFakeTimers();
+  const sent: unknown[] = [];
+  const remote = new UtilityChatTransport(selection, (value) => sent.push(value));
+  const count = remote.tokenCount(messages, new AbortController().signal);
+  const outcome = count.then(
+    (value) => ({ value }),
+    () => ({ failed: true }),
+  );
+  try {
+    await vi.advanceTimersByTimeAsync(180000);
+    expect(sent).toHaveLength(1);
+    remote.receive({ type: 'generation-result', id: 1, result: 'count', tokens: 10 });
+    expect(await outcome).toEqual({ value: 10 });
+  } finally {
+    remote.close();
+    vi.useRealTimers();
+  }
+});
 it('uses only the matching owner-confirmed engine exit to interrupt pending remote generation', async () => {
   const chunks: unknown[] = [];
   const remote = new UtilityChatTransport(selection, () => undefined);

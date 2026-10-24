@@ -70,12 +70,62 @@ export async function stageDevelopment(output, candidate = path.join(bootstrap, 
     path.join(core, 'assets/development-root.json'),
     path.join(output, 'core/assets/development-root.json'),
   );
-  for (const name of ['ownership.node', 'history.node'])
+  for (const name of ['ownership.node', 'history.node', 'peer-identity.node'])
     await copy(path.join(core, 'out/native', name), path.join(output, 'core/out/native', name));
   await copy(
     path.join(core, 'scripts/utility-entry.cjs'),
     path.join(output, 'core/scripts/utility-entry.cjs'),
   );
+  await copy(
+    path.join(core, 'scripts/peer-entry.cjs'),
+    path.join(output, 'core/scripts/peer-entry.cjs'),
+  );
+  await copy(
+    path.join(core, 'scripts/relay-rpc-worker.ps1'),
+    path.join(output, 'core/scripts/relay-rpc-worker.ps1'),
+  );
+  const peerBootstrap = path.join(bootstrap, 'peers');
+  let peerPackage = false;
+  try {
+    peerPackage = (await lstat(path.join(peerBootstrap, 'repository'))).isDirectory();
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  if (peerPackage) {
+    const receipt = await createDevelopmentRuntimeVerifier().verify(
+      path.join(peerBootstrap, 'repository'),
+      `${output}.peer-verification`,
+    );
+    const peerInventory = packageEvidence(receipt).inventory;
+    if (
+      peerInventory.upstreamCommit !== inventory.upstreamCommit ||
+      peerInventory.artifact !== inventory.artifact ||
+      !['ModelLoom-peer-host.exe', 'ggml-rpc-server.exe'].every((name) =>
+        peerInventory.files.some((file) => file.path === name),
+      )
+    )
+      throw new Error('UNSUPPORTED_RUNTIME');
+    const candidate = path.join(peerBootstrap, 'candidate');
+    if (
+      JSON.stringify(await files(candidate)) !==
+      JSON.stringify(peerInventory.files.map((file) => file.path).sort())
+    )
+      throw new Error('INVALID_RUNTIME_TREE');
+    for (const file of peerInventory.files) {
+      const source = path.join(candidate, file.path);
+      if ((await lstat(source)).size !== file.length || (await digest(source)) !== file.sha256)
+        throw new Error('FILE_MISMATCH');
+      await copy(source, path.join(output, 'bootstrap/peers/candidate', file.path));
+    }
+    for (const name of await files(path.join(peerBootstrap, 'repository'))) {
+      if (!/^(?:root|[1-9][0-9]*\.root|timestamp|snapshot|targets|inventory)\.json$/.test(name))
+        throw new Error('INVALID_METADATA');
+      await copy(
+        path.join(peerBootstrap, 'repository', name),
+        path.join(output, 'bootstrap/peers/repository', name),
+      );
+    }
+  }
   await writeFile(
     path.join(output, 'core/package.json'),
     JSON.stringify({ type: 'module', private: true }),
@@ -103,7 +153,28 @@ export async function stageDevelopment(output, candidate = path.join(bootstrap, 
     .flatMap((entry) => Object.entries(entry.inputs))
     .filter(([, info]) => info.bytesInOutput > 0)
     .map(([file]) => file);
-  if (retained.some((file) => /fixture-engine|publisher\//.test(file)))
+  // This entry keeps installation identity outside the model-specific utility.
+  const peers = await build({
+    absWorkingDir: workspace,
+    entryPoints: ['packages/core/out/peers/utility.js'],
+    outdir: path.join(output, 'core/out/peers'),
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node24',
+    banner: {
+      js: "import { createRequire as makeRequire } from 'node:module'; const require = makeRequire(import.meta.url);",
+    },
+    metafile: true,
+    legalComments: 'eof',
+  });
+  retained.push(
+    ...Object.values(peers.metafile.outputs)
+      .flatMap((entry) => Object.entries(entry.inputs))
+      .filter(([, info]) => info.bytesInOutput > 0)
+      .map(([file]) => file),
+  );
+  if (retained.some((file) => /fixture-engine|publisher\/|diagnostic-rpc/.test(file)))
     throw new Error('FORBIDDEN_CORE_GRAPH');
   const dependencies = new Map();
   for (const file of retained.filter((file) => file.includes('node_modules/'))) {

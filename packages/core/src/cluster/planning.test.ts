@@ -19,6 +19,39 @@ const saved = {
     { uuid: b, first: 48, last: 63 },
   ],
 };
+it('keeps requested context in the shared estimator/server tuple and rejects padded overflow', () => {
+  const requested = {
+    ...saved,
+    load: {
+      ...saved.load,
+      defaults: {
+        ...saved.load.defaults,
+        contextLength: 30246,
+        concurrency: 3,
+      },
+    },
+  };
+  const load = resolveClusterLoad(requested, 'test-artifact');
+  expect(load.contextPerSlot).toBe(30246);
+  const args = clusterLoadArguments(load);
+  expect(args[args.indexOf('--ctx-size') + 1]).toBe('90738');
+  expect(() =>
+    resolveClusterLoad(
+      {
+        ...requested,
+        load: {
+          ...requested.load,
+          defaults: {
+            ...requested.load.defaults,
+            contextLength: 2147483647,
+            concurrency: 1,
+          },
+        },
+      },
+      'test-artifact',
+    ),
+  ).toThrow('INVALID_CONFIGURATION');
+});
 it('binds the complete tuple and exact ordered split without changing request sampling', () => {
   const load = resolveClusterLoad(saved, 'test-artifact');
   expect(clusterLoadArguments(load)).toContain('layer');

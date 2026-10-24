@@ -793,3 +793,222 @@ models, devices and conversations remain opt-in test/demo fixtures only. The
 Windows development launcher prepares its existing approved core before opening
 the app, and a preparation failure stops startup instead of substituting samples.
 This preserves screen layouts, saved chats and existing runtime security gates.
+
+## Connections layout revision, 22 October 2026
+
+The subsequent canvas-picker revision replaces the contextual Add device panel's
+connection forms with Add to canvas. Keep the device-details header's back arrow,
+title alignment and muted subtitle: "Choose a PC to add to this canvas." List
+approved remote PCs not yet placed as clickable name/hardware cards, followed by
+a matching dashed card with a centered plus. With no candidates, show only the
+plus card. It opens Connections → Add device. Selecting a PC places it on the
+canvas and closes the panel. New peer approval alone does not place it; placement
+choices are session-only, while saved assignments and active allocations keep
+their referenced PCs visible. Connecting, approving and placing remain separate
+actions; the picker never grants peer access.
+
+Remote node menus include Remove from canvas below Rename device. The local PC
+never offers this action, regardless of its coordinator/worker role. Removal is
+session-only presentation state: retain pairing and inventory, remove the node
+and its displayed links, and make its card available in Add to canvas again.
+Disable removal during model loading, any running model, automatic assignment,
+configuration saving, and while the PC has layer assignments or an active
+allocation. Do not clear assignments, revoke access or stop a workload implicitly.
+
+The user's PROCEED adopts the supplied Connections reference and the subsequent
+Join cluster, Share this PC and Add device mockups. This supersedes the separate
+Requests destination and header action trio described earlier in this document.
+
+- Keep one Connections destination in the Cluster sidebar. Its right-side badge
+  counts incoming pending requests and is omitted at zero. Remove the separate
+  Requests and Add device sidebar destinations; contextual canvas Add device
+  controls still work.
+- Reuse Appearance's Settings details surface, 44px top inset, 728px centered
+  column, page-title typography and 40px heading-to-first-control gap. Remove
+  the Connections subtitle and its reserved space.
+- Below Connections, render compact Join cluster, Share this PC and Add device
+  tabs in that order. Only the active tab has a neutral rounded background.
+  Keep the Connections title while switching tabs. Support arrow keys, Home,
+  End, visible focus, and properly associated tab panels.
+- Use Settings sections and rounded groups. Share this PC places Allow
+  connections and approved coordinators in its first group, then separate GPU
+  rows under Shared hardware, the existing address selection, and incoming
+  Requests. The address selector reuses Model Configuration's ConfigurationSelect
+  component, including the Stop at Limit pill and its dropdown. Omit the setup hint
+  and App identity disclosure from the page; identities remain in the verification
+  dialog and setup instructions remain in Add. Approval, denial and
+  revocation continue to require existing acknowledged peer commands.
+- The share toggle and Model Configuration toggle use the same shared artwork:
+  32px track width, 20px track height, 16px thumb. GPU checkboxes use the existing
+  shared Checkbox module, including its 16px artwork and neutral checked state.
+- Add device and Join cluster use grouped available-PC rows and an immediately
+  visible manual-address form. The small section-header Add action focuses that
+  form; Share's Add opens instructions for connecting from the other PC.
+- Production views show actual supplied peer state and honest empty/unavailable
+  states. This UI revision does not implement discovery, outgoing Join requests,
+  or pairing codes. Existing full-fingerprint verification remains mandatory;
+  approval alone must not be labelled as a verified live connection. Demo actions
+  remain explicitly simulated and never alter live placement or authorization.
+
+### Devices grouping and direct navigation (2026-10-22)
+
+The approved Devices revision stacks PCs vertically, with System, CPU, Memory
+and each GPU grouped under its PC. Unified-memory hardware keeps appropriate
+labels without double-counting VRAM. Retain reported fields and explicit unknown
+values; omit Last checked. Use the existing Settings page alignment, 18px PC
+names, 14px medium group headings, 12px labels/values, 40px minimum rows,
+12px card corners, 20px between groups and 40px between PCs. Long names/values
+use the shared per-line fade and hover scrolling, respecting reduced motion.
+At narrow widths, values stack under labels.
+
+Device details in the canvas inspector replaces the inline disclosure with
+navigation to Devices. Scroll to and focus the matching PC heading, with a brief
+subtle highlight suppressed under reduced motion. Returning to Overview restores
+the selected panel and preserves canvas membership and viewport. This navigation
+does not pair a PC or place it on the canvas.
+
+### Live approved-peer hardware (2026-10-22)
+
+PTSS reports its own OS, architecture, CPU, memory, GPU memory/driver and verified
+runtime backend facts through the existing mutually approved peer connection.
+Unknown readings stay unknown. Renderer inventory is presentation only; native
+placement still rechecks owned resources and physical GPU identities.
+
+Use the accepted local native device-change scan to publish hardware changes.
+An authenticated bounded inventory watch wakes when the worker publishes a new
+snapshot, then utility/main/preload invalidations refresh Devices and canvas
+without waiting for their fallback poll. Routine memory telemetry reuses the
+10-second scan cache. A network failure requires bounded detection, not a claim
+of zero elapsed time. Each idle watch renews after three seconds inside the
+existing five-second exchange deadline; Quit cancels watches and retries.
+
+Only shared enabled physical GPUs appear remotely. Disabling/removing one removes
+its available card; re-enabling it restores it if its sharing permission remains.
+A disconnected peer's whole Devices section and canvas node disappear; retain
+its existing connection record for recovery. Do not invent durable pairing
+persistence across application restarts. Affected planning/loading/running work
+is interrupted through the existing owned stop path, retaining cleanup gates;
+unrelated local work and ordinary free-memory changes continue.
+
+Retain the last accepted display while a replacement snapshot is read, discard
+superseded replies, and clear failed/disconnected data. Both desktops require the
+updated peer reporter for this live contract. Local TLS fixtures and browser
+fixtures do not establish a successful PTSS deployment or a live hardware test.
+An older approved peer that rejects the live-inventory extension must not be
+classified as disconnected for that reason alone. Recheck the existing approved
+status and shared GPU inventory through the same authenticated connection; retain
+basic inventory with unknown extended facts. Use bounded compatibility refresh
+until both apps support the live reporter. Actual connection/authentication/read
+failure still removes availability. Reporter compatibility never grants approval
+or bypasses sharing, fingerprint, reservation or runtime checks.
+
+### Manual six-digit pairing (2026-10-22)
+
+Retain the Connections heading, design and spacing, with two tabs: Share this PC
+and Add device. Share this PC contains sharing controls, shared hardware and
+incoming requests and approvals. Add device contains manual LAN or Tailscale IP
+entry, six-digit verification and outgoing remembered PCs. Remove the separate
+Join cluster tab; this supersedes the earlier requirement to retain all three
+tabs. Rename Invite to Connect. Do not substitute short-code device lookup,
+discovery or embedded network enrollment. Adding a paired PC to the canvas
+remains a separate action.
+
+After connection, automatically open a six-digit numeric-code dialog on the
+initiator; preserve leading zeros and permit paste. The receiver's Requests row
+opens one dialog showing its transient code and waiting state. After verified
+code entry, that same dialog shows Allow/Deny for shared GPU access. The initiator
+shows waiting for approval and then the truthful approved/connected state.
+Remove manual fingerprint comparison from this normal flow; core verification
+and exact identity pinning remain mandatory. Failed verification/cancellation
+keeps the dialog usable, and expiry, exhausted attempts, changed identity and
+unreachable PCs produce specific messages. Successful saved trust reconnects
+without re-entering a code while current sharing permission permits it.
+
+### Canvas membership and device panels (2026-10-23)
+
+Pairing and canvas membership remain separate. Paired available devices stay in
+the Devices inventory, sidebar and Add to canvas picker even when they are not
+on the current canvas. Opening an off-canvas device shows its identity, Device
+details link, the helper text "Add this device to canvas to assign layers."
+and an Add to canvas action. Do not show layer assignment fields until the device
+is on the canvas. Adding it reveals those fields in the same panel; removing it
+returns that panel to the off-canvas state.
+
+Disable Add to canvas while a model is loading or running, or automatic layer
+assignment is in progress. Cluster overview hardware counts, GPU memory totals
+and device assignment rows include only devices on the current canvas. Automatic
+layer assignment likewise considers GPUs only from devices on that canvas.
+
+### Automatic Windows sharing readiness (2026-10-23)
+
+Place the inspected two-tone spinner directly after Allow connections. Show the
+spinner and "Starting sharing…" only while an actual sharing-start operation is
+pending. Keep the switch off and disabled until the selected GPU helpers, listeners
+on the selected address, and the owned firewall rule are ready. A local startup
+failure appears inline; a pending or failed start must not appear as sharing on.
+
+Native PTSS checks confirmed TCP reachability on both sharing ports and subsequent
+cleanup. A later human-approved app startup also loaded the verified helper update,
+enabled sharing with both GPUs selected, and allowed PTSS to reach both actual
+Electron listeners. These checks do not establish fresh app pairing, inference or
+production release readiness.
+
+### Default shared GPU selection (2026-10-24)
+
+Connections reads local GPUs, sharing state and addresses without waiting for
+remote status checks or queued network operations. Background checks continue
+updating pending, approved, declined and disconnected peers. Reading the page
+does not grant remote hardware access or replace fresh runtime authorization.
+If a read fails, retain the last inventory and show a Retry action. An initial
+failure replaces the loading placeholders with this error state.
+
+All detected GPUs start checked in Shared hardware. Newly detected GPUs also
+start checked. Keep explicit unticks through inventory refreshes while the panel
+is open, including when that GPU disappears and returns. Removed GPUs must not
+remain in a sharing request. If every available GPU is unticked, disable Allow
+connections until at least one is selected. Selection alone does not start
+sharing; the user still enables Allow connections. While sharing is active,
+display the actual shared GPU IDs and keep selection controls disabled. This
+revision does not add persistent preferences across app restarts.
+
+### Canvas edge add affordance (2026-10-24)
+
+The approved mockup replaces the always-visible single-node plus with one add
+button per hovered or keyboard-focused card, positioned on the edge nearest the
+pointer. It can occupy the top, right, bottom or left edge; never display four
+pluses together on one card. Keep the active edge pinned while its picker is
+open and retain it while crossing onto the button outside the card. Use a quiet
+150ms opacity fade, without moving animations, and disable the fade for reduced
+motion. Keyboard focus reveals the control; arrow keys choose its edge and
+Enter opens the existing picker.
+
+A lone card shows the small muted hint "Hover near an edge to add a device."
+beneath it. Fade the hint out on hover or focus. After the first successful
+addition, retain dismissal as an optional local presentation preference; denied
+browser storage falls back to dismissal for the current page session.
+
+The chosen PC is added on the selected side of the source card. Occupied cells
+move the new card farther along that direction; automatic row heights prevent
+overlap between cards of different heights. Neutral dotted lines describe canvas
+placement only. They do not invent latency, authenticated network links, or
+inference order. Layer assignments remain authoritative. Removing or losing a
+card removes its displayed placement lines. Existing loading, running, planning,
+saving and removal restrictions remain in effect.
+
+### Connection monitoring panel (2026-10-24)
+
+Real canvas placement lines expose a clickable midpoint control. A measured local
+peer connection shows its control round-trip time in milliseconds; unavailable
+measurements show a dash. Clicking opens Connection details in the same right
+panel, with a back arrow to Cluster overview, both device names, status and latency.
+The latency includes control connection setup and is not inference latency.
+
+When both PCs are idle, core automatically samples sending and receiving bandwidth
+with bounded transfers and a cooldown. A loaded model can be idle. Loading,
+planning, token counting and generation cancel bulk tests before native work
+starts. During active work, the panel shows sending and receiving rates from
+existing RPC byte counters, from this PC's perspective, without extra bulk traffic.
+Idle bandwidth is labelled Last measured bandwidth, distinct from live traffic.
+Unavailable observations retain historical values with explicit labels; unsupported
+older reporters remain usable. Do not fabricate a direct measured connection
+between two remote worker cards merely because a placement line joins them.

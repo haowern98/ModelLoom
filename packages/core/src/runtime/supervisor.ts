@@ -47,14 +47,17 @@ export class RuntimeSupervisor {
   /**
    * Starts a fresh correlated operation. Startup failure returns a failed snapshot; cleanup
    * may continue after the startup deadline and keeps admission closed until exit is confirmed.
+   * startupMs is an optional trusted-owner budget, never a serialized control field.
    * @throws Rejected INVALID_CONTROL, INVALID_TRANSITION or BUSY for invalid/conflicting commands.
    */
-  async load(selection: Selection): Promise<Snapshot> {
+  async load(selection: Selection, startupMs = this.policy.startupMs): Promise<Snapshot> {
     const event = decodeEvent(JSON.stringify({ type: 'start', selection }));
     if (event.type !== 'start') throw new Error('INVALID_CONTROL');
     const chosen = event.selection;
     if (chosen.deploymentId !== this.state.deploymentId) throw new Error('INVALID_TRANSITION');
     if (this.attempt !== null) throw new Error('BUSY');
+    if (!Number.isInteger(startupMs) || startupMs <= 0 || startupMs > 2_147_483_647)
+      throw new Error('INVALID_CONTROL');
     const key = JSON.stringify(identity(chosen));
     if (this.used.has(key)) throw new Error('INVALID_TRANSITION');
     this.state = transition(this.state, event);
@@ -84,7 +87,7 @@ export class RuntimeSupervisor {
       },
     );
     try {
-      await within(this.start(attempt), this.policy.startupMs, 'START_TIMEOUT', controller.signal);
+      await within(this.start(attempt), startupMs, 'START_TIMEOUT', controller.signal);
     } catch (error: unknown) {
       if (this.attempt === attempt && !attempt.stopRequested) {
         const code =

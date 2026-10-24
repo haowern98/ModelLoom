@@ -1,14 +1,42 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { readOwnedSlots } from './slot-status.js';
 
 const servers: Server[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
   for (const server of servers.splice(0)) {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+it('allows a remote status response beyond five seconds within the owner deadline', async () => {
+  let respond!: () => void;
+  const server = createServer((_request, response) => {
+    respond = () => response.end(body);
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw Error('FIXTURE');
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const result = readOwnedSlots(
+    address.port,
+    'test-only-key',
+    2,
+    () => true,
+    new AbortController().signal,
+    300_000,
+  );
+  void result.catch(() => undefined);
+  while (!respond) await new Promise<void>((resolve) => setImmediate(resolve));
+  await vi.advanceTimersByTimeAsync(6000);
+  respond();
+  await expect(result).resolves.toEqual([
+    { id: 0, processing: true, task: 42 },
+    { id: 1, processing: false, task: null },
+  ]);
 });
 async function fixture(body: string | Buffer, status = 200, delay = false) {
   let observed: { path: string | undefined; authorization: string | undefined } | undefined;

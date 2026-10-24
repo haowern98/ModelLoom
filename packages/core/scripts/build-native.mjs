@@ -7,7 +7,10 @@ import { createRequire } from 'node:module';
 if (process.platform !== 'win32' || process.arch !== 'x64')
   throw new Error('Native development fixtures require Windows x64');
 const options = process.argv.slice(2);
-if (options.length > 1 || (options.length === 1 && options[0] !== '--check'))
+if (
+  options.length > 1 ||
+  (options.length === 1 && !['--check', '--peer-identity'].includes(options[0]))
+)
   throw new Error('Unknown native development command');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const vswhere = path.join(
@@ -57,6 +60,7 @@ if (options[0] === '--check') {
     path.join(root, 'tests/native/engine-fixture.cc'),
     path.join(root, 'native/runtime-control.cc'),
     path.join(root, 'native/history-directory.cc'),
+    path.join(root, 'native/peer-identity.cc'),
     path.join(root, 'tests/native/console-fixture.cc'),
   ];
   const llvm = path.join(installation, 'VC/Tools/Llvm/bin');
@@ -104,6 +108,30 @@ execFileSync(
   ],
   { cwd: output, env, stdio: 'inherit' },
 );
+execFileSync(
+  compiler,
+  [
+    ...common,
+    '/LD',
+    `/I${path.join(headers, 'include/node')}`,
+    path.join(root, 'native/peer-identity.cc'),
+    `/Fo${path.join(output, 'peer-identity.obj')}`,
+    '/link',
+    path.join(output, 'delay-hook.obj'),
+    path.join(headers, 'x64/node.lib'),
+    'delayimp.lib',
+    'crypt32.lib',
+    'iphlpapi.lib',
+    'ws2_32.lib',
+    '/DELAYLOAD:node.exe',
+    `/OUT:${path.join(output, 'peer-identity.node')}`,
+  ],
+  { cwd: output, env, stdio: 'inherit' },
+);
+if (options[0] === '--peer-identity') {
+  console.log('Built the peer identity binding without rebuilding active desktop modules.');
+  process.exit(0);
+}
 execFileSync(
   compiler,
   [

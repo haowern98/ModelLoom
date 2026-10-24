@@ -1,4 +1,6 @@
 export const MAX_CONTROL_BYTES = 1024 * 1024;
+/** Allow cold WAN weight transfers within a bounded remote startup window. */
+export const REMOTE_STARTUP_MS = 30 * 60_000;
 export const LIFECYCLE_POLICY = Object.freeze({
   startupMs: 180_000,
   gracefulStopMs: 5_000,

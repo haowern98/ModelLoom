@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest';
+import { decodeClusterReply } from './wire.js';
 import {
   decodeClusterDraft,
   decodeConfigurationName,
@@ -48,6 +49,22 @@ test('strict load fields and ranges', () => {
 });
 const uuid = 'GPU-11111111-1111-1111-1111-111111111111';
 const edit = { modelId: 'a'.repeat(64), load, runs: [{ uuid, first: '', last: '-' }] };
+
+test('returns field errors for qualified peer GPU assignments without losing their identity', () => {
+  const issue = { uuid: `peer:${'b'.repeat(64)}:${uuid}`, field: 'first', code: 'invalid-integer' };
+  const reply = {
+    ok: true,
+    configurations: [],
+    configuration: null,
+    draft: null,
+    load: null,
+    issues: [issue],
+  };
+  expect(decodeClusterReply(reply)).toEqual(reply);
+  expect(() =>
+    decodeClusterReply({ ...reply, issues: [{ ...issue, uuid: `peer:bad:${uuid}` }] }),
+  ).toThrow();
+});
 test('edit excludes internal identities and preserves bounded incomplete strings', () => {
   expect(decodeClusterEdit(edit).runs).toEqual(edit.runs);
   for (const extra of ['profileId', 'id', 'revision', 'key', 'path', 'arguments', 'receipt'])

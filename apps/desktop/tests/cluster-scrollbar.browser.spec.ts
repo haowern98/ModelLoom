@@ -8,9 +8,9 @@ test('panel scrolling retains its padded frame and contains a neutral scrollbar'
 }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
-  await page.getByRole('button', { name: 'Select mac-studio' }).click();
+  await page.getByRole('button', { name: 'Select studio-desktop' }).click();
   const panel = page.getByRole('complementary', { name: 'Cluster panel' });
-  await panel.locator('summary').filter({ hasText: 'Device details' }).click();
+
   const content = panel.getByRole('region', { name: 'Cluster panel content' });
   for (const width of [1280, 1000]) {
     await page.setViewportSize({ width, height: 480 });
@@ -29,9 +29,9 @@ test('panel scrolling retains its padded frame and contains a neutral scrollbar'
     const header = await panel.locator('header').boundingBox();
     if (!header) throw new Error('Panel header is missing');
     expect(header.x - frame.x).toBeCloseTo(frame.x + frame.width - header.x - header.width, 0);
-    expect(viewport.x + viewport.width - 6 - header.x - header.width).toBeCloseTo(8, 0);
-    expect(frame.x + frame.width - viewport.x - viewport.width).toBeGreaterThanOrEqual(4);
-    expect(frame.x + frame.width - viewport.x - viewport.width).toBeLessThanOrEqual(6);
+    expect(viewport.x + viewport.width - 6 - header.x - header.width).toBeCloseTo(12, 0);
+    expect(frame.x + frame.width - viewport.x - viewport.width).toBeGreaterThanOrEqual(0);
+    expect(frame.x + frame.width - viewport.x - viewport.width).toBeLessThanOrEqual(2);
     await content.evaluate((element) => {
       element.scrollTop = 0;
     });
@@ -64,7 +64,7 @@ test('panel scrolling retains its padded frame and contains a neutral scrollbar'
         ),
     );
     expect(await page.screenshot({ clip })).toEqual(hiddenRail);
-    // A short viewport with device details expanded retains real scrolling in the compact editor,
+    // A short viewport with both GPU layer editors retains real scrolling in the compact editor,
     // then exercise its actual middle and bottom instead of assuming a minimum content length.
     expect(scrollbar.overflow).toBeGreaterThan(0);
     await content.evaluate((element) => {
@@ -84,9 +84,7 @@ test('panel scrolling retains its padded frame and contains a neutral scrollbar'
     expect(await content.evaluate((element) => element.scrollTop)).toBe(scrollbar.overflow);
     expect(await panel.boundingBox()).toEqual(frame);
     expect(await content.boundingBox()).toEqual(viewport);
-    await expect(
-      page.getByRole('spinbutton', { name: 'Last layer for Apple Silicon (M2 Ultra)' }),
-    ).toBeInViewport();
+    await expect(page.getByRole('spinbutton', { name: 'Last layer for GPU 1' })).toBeInViewport();
     await page.screenshot({ path: `test-results/cluster-panel-bottom-${width}.png` });
   }
   await panel.getByRole('button', { name: 'Back to cluster overview', exact: true }).click();
@@ -97,12 +95,10 @@ test('panel scrolling retains its padded frame and contains a neutral scrollbar'
     overviewFrame.x + overviewFrame.width - overviewHeader.x - overviewHeader.width,
     0,
   );
-  await page.getByRole('button', { name: 'Select mac-studio' }).click();
-  await page
-    .getByRole('spinbutton', { name: 'First layer for Apple Silicon (M2 Ultra)' })
-    .fill('73');
+  await page.getByRole('button', { name: 'Select studio-desktop' }).click();
+  await page.getByRole('spinbutton', { name: 'First layer for GPU 1' }).fill('29');
   await expect(page.getByRole('button', { name: 'Apply and restart' })).toBeInViewport();
   await page.getByRole('button', { name: 'Apply and restart' }).focus();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', { name: 'Select mac-studio' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Select studio-desktop' })).toBeFocused();
 });

@@ -3,6 +3,7 @@ import { afterEach, expect, it } from 'vitest';
 import { ConfigurationController } from './controller.js';
 import { ModelConfigurationStore } from './store.js';
 import { capabilities, record } from './test-fixtures.js';
+import { actualizeContext } from './resolve.js';
 
 const databases: DatabaseSync[] = [];
 afterEach(() => databases.splice(0).forEach((database) => database.close()));
@@ -26,11 +27,44 @@ function setup() {
   );
   return {
     controller,
-    activate: async () => {
+    activate: async (contextLength?: number) => {
       active = await controller.captureLoad(record().modelId);
+      if (contextLength !== undefined) active = actualizeContext(active, contextLength);
     },
   };
 }
+it('uses native context for requests while preserving saved defaults and reload comparisons', async () => {
+  const { controller, activate } = setup();
+  const initial = await controller.command('window', { action: 'read', modelId: record().modelId });
+  if (!initial.ok) throw Error('Expected configuration');
+  await controller.command('window', {
+    action: 'save',
+    modelId: record().modelId,
+    expectedRevision: 0,
+    record: { ...initial.record, load: { ...initial.record.load, contextLength: 7401 } },
+  });
+  await activate(7424);
+  expect(
+    await controller.command('window', { action: 'read', modelId: record().modelId }),
+  ).toMatchObject({ ok: true, record: { load: { contextLength: 7401 } }, pendingReload: false });
+  const requested = await controller.captureLoad(record().modelId);
+  const active = actualizeContext(requested, 7424);
+  expect((await controller.resolve(active)).contextLength).toBe(7424);
+  for (const invalid of [7401, 7168, 7680, 0, NaN])
+    expect(() => actualizeContext(requested, invalid)).toThrow('CONTEXT_MISMATCH');
+  const changed = await controller.command('window', {
+    action: 'save',
+    modelId: record().modelId,
+    expectedRevision: 1,
+    record: {
+      ...initial.record,
+      revision: 1,
+      load: { ...initial.record.load, contextLength: 7410 },
+    },
+  });
+  expect(changed).toMatchObject({ ok: true, pendingReload: true });
+  expect((await controller.resolve(active)).contextLength).toBe(7424);
+});
 
 it('denies management callers and model identities that do not belong to this deployment', async () => {
   const { controller } = setup();

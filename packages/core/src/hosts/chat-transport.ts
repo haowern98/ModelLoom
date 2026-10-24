@@ -9,7 +9,7 @@ import type {
 } from '../model-configuration/contracts.js';
 import { request } from 'node:http';
 import type { IncomingMessage } from 'node:http';
-import { decodeExecutionIdentity } from '../generation/contracts.js';
+import { decodeExecutionIdentity, GENERATION_POLICY } from '../generation/contracts.js';
 import type { TerminalOutcome } from '../generation/contracts.js';
 import { parseGenerationStream } from '../generation/stream.js';
 export interface OwnedChatOptions {
@@ -161,7 +161,7 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
     const cancel = () => abort.abort();
     signal.addEventListener('abort', cancel, { once: true });
     if (signal.aborted) abort.abort();
-    const timer = setTimeout(cancel, 120000);
+    const timer = setTimeout(cancel, GENERATION_POLICY.generationMs);
     const read = async (route: '/apply-template' | '/tokenize', data: string): Promise<unknown> => {
       const response = await post(route, data, abort.signal);
       let size = 0;
@@ -242,7 +242,7 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
       const cancel = () => abort.abort();
       signal.addEventListener('abort', cancel, { once: true });
       if (signal.aborted) abort.abort();
-      const timer = setTimeout(cancel, 120000);
+      const timer = setTimeout(cancel, GENERATION_POLICY.generationMs);
       try {
         const response = await post(
           '/v1/chat/completions/input_tokens',

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Cpu } from '@phosphor-icons/react/dist/csr/Cpu';
 import { GraphicsCard as Gpu } from '@phosphor-icons/react/dist/csr/GraphicsCard';
 import { AppleLogo as Apple } from '@phosphor-icons/react/dist/csr/AppleLogo';
@@ -8,6 +8,7 @@ import { Plus } from '@phosphor-icons/react/dist/csr/Plus';
 import type { DemoDevice, SampleRange } from '../../mocks/cluster';
 import { Button } from '../../components/Button';
 import styles from './ClusterPage.module.css';
+import type { CanvasEdge } from './canvas-layout';
 
 interface DeviceCardProps {
   device: DemoDevice;
@@ -23,8 +24,11 @@ interface DeviceCardProps {
   onDetails: (device: DemoDevice) => void;
   onRename: (device: DemoDevice) => void;
   selected: boolean;
-  alwaysShowAdd: boolean;
-  onAdd: () => void;
+  showAddHint?: boolean;
+  addEdge?: CanvasEdge | undefined;
+  onAdd: (edge: CanvasEdge) => void;
+  onRemove?: (() => void) | undefined;
+  removeDisabled?: boolean;
 }
 
 export function DeviceCard({
@@ -41,16 +45,87 @@ export function DeviceCard({
   onDetails,
   onRename,
   selected,
-  alwaysShowAdd,
+  showAddHint = false,
+  addEdge,
   onAdd,
+  onRemove,
+  removeDisabled = false,
 }: DeviceCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuAnchor = useRef<HTMLDivElement>(null);
+  const [hoverEdge, setHoverEdge] = useState<CanvasEdge>('right');
+  const [pointerInside, setPointerInside] = useState(false);
+  const [focusInside, setFocusInside] = useState(false);
+  const [fading, setFading] = useState(false);
+  const desiredEdge = useRef<CanvasEdge>('right');
+  const edgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelEdgeTimer = () => {
+    if (edgeTimer.current !== null) clearTimeout(edgeTimer.current);
+    edgeTimer.current = null;
+  };
+  useEffect(() => {
+    // Pinning is externally controlled. Clear an in-flight hover transition so it cannot
+    // move the control after the picker closes, without introducing effect state updates.
+    if (addEdge && edgeTimer.current !== null) {
+      clearTimeout(edgeTimer.current);
+      edgeTimer.current = null;
+    }
+    return () => {
+      if (edgeTimer.current !== null) clearTimeout(edgeTimer.current);
+    };
+  }, [addEdge]);
+  const edge = addEdge ?? hoverEdge;
+  const visible = Boolean(addEdge) || ((pointerInside || focusInside) && !fading);
   return (
     <article
       aria-label={device.name}
       className={`${styles.device} ${device.role === 'Coordinator' ? styles.coordinator : ''}`}
       data-selected={selected}
+      onPointerMove={(event) => {
+        setPointerInside(true);
+        if (addEdge || (event.target instanceof Element && event.target.closest('[data-edge]')))
+          return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        const distances: [CanvasEdge, number][] = [
+          ['top', Math.abs(event.clientY - rect.top)],
+          ['right', Math.abs(rect.right - event.clientX)],
+          ['bottom', Math.abs(rect.bottom - event.clientY)],
+          ['left', Math.abs(event.clientX - rect.left)],
+        ];
+        distances.sort((first, second) => first[1] - second[1]);
+        const next = distances[0]![0];
+        if (desiredEdge.current === next && edgeTimer.current !== null) return;
+        desiredEdge.current = next;
+        cancelEdgeTimer();
+        if (
+          !pointerInside ||
+          next === hoverEdge ||
+          window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+        ) {
+          setHoverEdge(next);
+          setFading(false);
+          return;
+        }
+        setFading(true);
+        edgeTimer.current = setTimeout(() => {
+          edgeTimer.current = null;
+          setHoverEdge(desiredEdge.current);
+          setFading(false);
+        }, 75);
+      }}
+      onPointerLeave={(event) => {
+        if (!(
+          event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)
+        )) {
+          cancelEdgeTimer();
+          setFading(false);
+          setPointerInside(false);
+        }
+      }}
+      onFocus={() => setFocusInside(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocusInside(false);
+      }}
       onClick={(event) => {
         if (event.target instanceof Element && event.target.closest('button, input, a')) return;
         onDetails(device);
@@ -58,13 +133,48 @@ export function DeviceCard({
     >
       <button
         type="button"
-        className={`${styles.nodeAdd} ${alwaysShowAdd ? styles.nodeAddAlways : ''}`}
+        className={styles.nodeAdd}
+        data-edge={edge}
+        data-visible={visible}
         aria-label={`Add device near ${device.name}`}
-        title="Add device to cluster"
-        onClick={onAdd}
+        aria-description="Use arrow keys to choose an edge, then press Enter to add a device."
+        title="Add device to canvas"
+        onKeyDown={(event) => {
+          const edges: Record<string, CanvasEdge> = {
+            ArrowUp: 'top',
+            ArrowRight: 'right',
+            ArrowDown: 'bottom',
+            ArrowLeft: 'left',
+          };
+          const next = edges[event.key];
+          if (!next) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (!addEdge) {
+            cancelEdgeTimer();
+            desiredEdge.current = next;
+            setHoverEdge(next);
+            setFading(false);
+          }
+        }}
+        onClick={() => {
+          cancelEdgeTimer();
+          desiredEdge.current = edge;
+          setHoverEdge(edge);
+          setFading(false);
+          onAdd(edge);
+        }}
       >
         <Plus size={16} aria-hidden="true" />
       </button>
+      {showAddHint && (
+        <p
+          className={styles.nodeAddHint}
+          data-hidden={Boolean(addEdge) || pointerInside || focusInside}
+        >
+          Hover near an edge to add a device.
+        </p>
+      )}
       <header className={styles.deviceHeader}>
         <div className={styles.identity}>
           <h2 aria-label={device.name}>
@@ -123,6 +233,23 @@ export function DeviceCard({
                 >
                   Rename device
                 </button>
+                {onRemove && (
+                  <button
+                    type="button"
+                    disabled={removeDisabled}
+                    title={
+                      removeDisabled
+                        ? 'Stop the model and finish assigning layers before removing this PC.'
+                        : undefined
+                    }
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onRemove();
+                    }}
+                  >
+                    Remove from canvas
+                  </button>
+                )}
               </div>
             )}
           </div>

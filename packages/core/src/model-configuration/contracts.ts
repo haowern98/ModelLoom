@@ -79,6 +79,8 @@ export interface ActiveLoadSnapshot {
   readonly revision: number;
   readonly profileId: string;
   readonly load: LoadDefaults;
+  /** Original next-load preferences retained for pending-reload comparison after readback. */
+  readonly requestedLoad?: LoadDefaults;
   readonly preferences?: AdvancedPreferences;
 }
 /** Capture before queue admission; saving defaults cannot change this value. */

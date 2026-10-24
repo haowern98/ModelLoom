@@ -13,8 +13,9 @@ export const GENERATION_LIMITS = Object.freeze({
 export const GENERATION_POLICY = Object.freeze({
   activeLimit: 4,
   pendingLimit: 8,
-  queueMs: 120_000,
-  generationMs: 300_000,
+  // WAN model execution and native checkpoint transfers can exceed local-only limits.
+  queueMs: 30 * 60_000,
+  generationMs: 30 * 60_000,
   cancellationMs: 5_000,
 });
 export type GenerationPolicy = Readonly<Record<keyof typeof GENERATION_POLICY, number>>;

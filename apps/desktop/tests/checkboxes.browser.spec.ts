@@ -90,17 +90,17 @@ test('Cluster hardware checkboxes preserve layout, labels and disabled behavior'
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
   await page
     .getByRole('navigation', { name: 'Cluster navigation' })
-    .getByRole('button', { name: 'Connections', exact: true })
+    .getByRole('button', { name: /^Connections/u })
     .click();
-  await page.getByRole('button', { name: 'Share this PC', exact: true }).click();
-  const panel = page.getByRole('region', { name: 'Share this PC', exact: true });
+  await page.getByRole('tab', { name: 'Share this PC', exact: true }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Share this PC', exact: true });
   const checkboxes = panel.getByRole('checkbox');
   await expect(checkboxes).toHaveCount(2);
   for (const width of [1280, 1000]) {
     await page.setViewportSize({ width, height: 900 });
-    await checkGeometry(panel, checkboxes, 13);
+    await checkGeometry(panel, checkboxes, 14);
   }
-  const sharing = panel.getByRole('switch', { name: 'Allow participation requests' });
+  const sharing = panel.getByRole('switch', { name: 'Allow connections' });
   if (!(await sharing.isChecked())) await sharing.click();
   const gpu = panel.getByRole('checkbox', { name: 'GPU', exact: true });
   const wasChecked = await gpu.isChecked();

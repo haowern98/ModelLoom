@@ -23,6 +23,8 @@ import { Button } from '../components/Button';
 import { useRuntime } from './useRuntime';
 import { supportedDeviceGpus } from '../../shared/runtime';
 import { useLiveChat } from '../features/chat/useLiveChat';
+import { usePeerInventory } from '../features/cluster/usePeerInventory';
+import { peerDevices } from '../features/cluster/peer-devices';
 
 type Modal =
   { type: 'remove' | 'details'; model: DemoModel } | { type: 'info'; title: string; text: string };
@@ -35,6 +37,7 @@ export function App() {
   const demo = __DEMO_DATA_ENABLED__;
   const localDevice = runtime.view?.device;
   const local = live || (!demo && Boolean(localDevice));
+  const peers = usePeerInventory(local && Boolean(window.modelLoomPeers));
   const [library, dispatch] = useReducer(transitionDemoLibrary, undefined, () =>
     demo ? createDemoLibrary() : { models: [], activeModelId: null },
   );
@@ -273,50 +276,56 @@ export function App() {
         />
       ) : destination === 'Cluster' ? (
         <ClusterPage
+          pendingPeerRequests={
+            peers?.incoming.filter((request) => request.phase === 'pending').length ?? 0
+          }
           demo={demo && !local}
           {...(local && window.modelLoomCluster ? { configurations: clusterConfigurations } : {})}
           joining={joining}
           onJoining={dispatchJoining}
           devices={
             local
-              ? localDevice
-                ? [
-                    {
-                      id: 'local',
-                      name: localDevice.name,
-                      role: localDevice.role,
-                      os: localDevice.os,
-                      ...(localDevice.inventory ? { inventory: localDevice.inventory } : {}),
-                      address: 'This device',
-                      hardware: [
+              ? [
+                  ...(localDevice
+                    ? [
                         {
-                          id: 'local-cpu',
-                          label: 'CPU',
-                          name: localDevice.cpuName,
-                          detail:
-                            localDevice.threads > 0
-                              ? `${localDevice.inventory?.cpuCores !== undefined ? `${localDevice.inventory.cpuCores} cores · ` : ''}${localDevice.threads} threads`
-                              : 'Unavailable',
-                          memoryGb: 0,
-                          kind: 'cpu',
+                          id: 'local',
+                          name: localDevice.name,
+                          role: localDevice.role,
+                          os: localDevice.os,
+                          ...(localDevice.inventory ? { inventory: localDevice.inventory } : {}),
+                          address: 'This device',
+                          hardware: [
+                            {
+                              id: 'local-cpu',
+                              label: 'CPU',
+                              name: localDevice.cpuName,
+                              detail:
+                                localDevice.threads > 0
+                                  ? `${localDevice.inventory?.cpuCores !== undefined ? `${localDevice.inventory.cpuCores} cores · ` : ''}${localDevice.threads} threads`
+                                  : 'Unavailable',
+                              memoryGb: 0,
+                              kind: 'cpu' as const,
+                            },
+                            ...supportedDeviceGpus(localDevice.inventory?.gpus ?? []).map(
+                              (gpu, index, gpus) => ({
+                                id: `local-${gpu.id}`,
+                                label: gpus.length > 1 ? `GPU ${index}` : 'GPU',
+                                name: gpu.name,
+                                detail:
+                                  gpu.totalMemoryBytes !== undefined
+                                    ? `${(gpu.totalMemoryBytes / 2 ** 30).toFixed(1)} GiB dedicated memory`
+                                    : 'Dedicated memory unavailable',
+                                memoryGb: (gpu.totalMemoryBytes ?? 0) / 2 ** 30,
+                                kind: 'gpu' as const,
+                              }),
+                            ),
+                          ],
                         },
-                        ...supportedDeviceGpus(localDevice.inventory?.gpus ?? []).map(
-                          (gpu, index, gpus) => ({
-                            id: `local-${gpu.id}`,
-                            label: gpus.length > 1 ? `GPU ${index}` : 'GPU',
-                            name: gpu.name,
-                            detail:
-                              gpu.totalMemoryBytes !== undefined
-                                ? `${(gpu.totalMemoryBytes / 2 ** 30).toFixed(1)} GiB dedicated memory`
-                                : 'Dedicated memory unavailable',
-                            memoryGb: (gpu.totalMemoryBytes ?? 0) / 2 ** 30,
-                            kind: 'gpu' as const,
-                          }),
-                        ),
-                      ],
-                    },
-                  ]
-                : []
+                      ]
+                    : []),
+                  ...peerDevices(peers),
+                ]
               : demoDevices.map((device) => ({
                   ...device,
                   name: deviceNames[device.id] ?? device.name,

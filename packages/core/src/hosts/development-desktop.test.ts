@@ -4,6 +4,7 @@ import { developmentDesktopDependencies } from './development-desktop.js';
 import type * as DevelopmentPolicy from '../runtime-package/development-policy.js';
 import type { DesktopDeployment } from './desktop.js';
 import { discoverResources } from './resource-probe.js';
+import type { ClusterDraft } from '../cluster/contracts.js';
 
 const startup = vi.hoisted(() => ({
   admit: vi.fn(),
@@ -11,7 +12,51 @@ const startup = vi.hoisted(() => ({
   verify: vi.fn(),
   install: vi.fn(),
   adapter: vi.fn(),
+  candidates: vi.fn((...args: unknown[]) => {
+    void args;
+    return Promise.resolve({ code: 'NO_FIT' });
+  }),
   deployment: undefined as DesktopDeployment | undefined,
+}));
+vi.mock('../cluster/auto-place.js', () => ({ autoPlace: startup.candidates }));
+vi.mock('./placement-estimator.js', () => ({
+  withPlacementModel: (_file: string, callback: (info: unknown) => unknown) =>
+    callback({ sha256: 'a'.repeat(64), blockCount: 8 }),
+  runPlacementEstimator: vi.fn(),
+}));
+vi.mock('../peers/desktop.js', () => ({
+  createDesktopPeerHost: () =>
+    Promise.resolve({
+      subscribe: () => () => undefined,
+      command: () =>
+        Promise.resolve({
+          ok: true,
+          view: {
+            outgoing: [
+              {
+                phase: 'approved',
+                localVerified: true,
+                remoteVerified: true,
+                peerFingerprint: 'b'.repeat(64),
+                gpus: [{ id: 'GPU-11111111-1111-1111-1111-111111111111' }],
+              },
+            ],
+          },
+        }),
+      resources: () =>
+        Promise.resolve({
+          runtimeId: 'verified-runtime',
+          ram: 32 * 2 ** 30,
+          gpus: [
+            {
+              uuid: 'GPU-11111111-1111-1111-1111-111111111111',
+              total: 24 * 2 ** 30,
+              free: 23 * 2 ** 30,
+              mig: '[N/A]',
+            },
+          ],
+        }),
+    }),
 }));
 vi.mock('./windows-ownership.js', () => ({
   ownershipBinding: () => ({
@@ -62,6 +107,29 @@ vi.mock('./resource-probe.js', () => ({
   ),
 }));
 beforeEach(() => vi.clearAllMocks());
+
+it.each([
+  ['local only', ['GPU-22c23971-dacf-2123-2169-ad70d8f6729a']],
+  ['remote only', [`peer:${'b'.repeat(64)}:GPU-11111111-1111-1111-1111-111111111111`]],
+  ['empty canvas', []],
+] as const)('limits planner candidates to the explicit %s canvas', async (_name, devices) => {
+  const deps = developmentDesktopDependencies(
+    () => {
+      throw Error('UNEXPECTED_FORK');
+    },
+    'unused',
+    'trusted-profile',
+    'captured-window',
+  );
+  startup.verify.mockResolvedValueOnce('verified');
+  startup.install.mockResolvedValueOnce({});
+  const draft = { modelId: 'a'.repeat(64) } as ClusterDraft;
+  await expect(
+    deps.planCluster('model.gguf', draft, 8, new AbortController().signal, devices),
+  ).rejects.toThrow('INSUFFICIENT_RESOURCES');
+  expect(startup.candidates).toHaveBeenCalledTimes(1);
+  expect(startup.candidates.mock.calls[0]?.[1]).toEqual(devices);
+});
 
 it('keeps writable verification and installations outside bundled bootstrap assets', async () => {
   const bootstrap = path.resolve('fixture-package/bootstrap');

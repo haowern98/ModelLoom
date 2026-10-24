@@ -27,6 +27,17 @@ const selection = {
   packageId: 'fixture',
   modelId: 'fixture',
 };
+it('admits a bounded context readback only on an owned ready receipt', () => {
+  const receipt = { type: 'engine', phase: 'ready', selection, code: 0, contextLength: 30464 };
+  expect(decodeEngine(JSON.stringify(receipt))).toMatchObject({ contextLength: 30464 });
+  for (const contextLength of [0, -1, 1.5, 2147483648, '30464', null])
+    expect(() => decodeEngine(JSON.stringify({ ...receipt, contextLength }))).toThrow(
+      'INVALID_CONTROL',
+    );
+  expect(() => decodeEngine(JSON.stringify({ ...receipt, phase: 'captured' }))).toThrow(
+    'INVALID_CONTROL',
+  );
+});
 it('strictly decodes inherited broker and owned-exit receipt variants', () => {
   expect(decodeBroker(JSON.stringify({ type: 'broker', action: 'launch', selection }))).toEqual({
     action: 'launch',

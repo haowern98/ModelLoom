@@ -77,6 +77,27 @@ function setup(tokens = 10, unconfirmed = false, count?: ChatTransport['tokenCou
 async function drain() {
   for (let i = 0; i < 25; i++) await Promise.resolve();
 }
+it('keeps slow native token preparation alive beyond two minutes', async () => {
+  vi.useFakeTimers();
+  let complete!: (tokens: number) => void;
+  const { service, store, executions } = setup(
+    10,
+    false,
+    () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+  );
+  const conversation = await store.newConversation();
+  const sending = service.send('window1', { conversationId: conversation.id, text: 'Hello' });
+  const result = sending.catch((error: Error) => error.message);
+  await drain();
+  await vi.advanceTimersByTimeAsync(180000);
+  complete(10);
+  await result;
+  await drain();
+  expect(executions).toHaveLength(1);
+});
 it('cancels caller-owned preparation without native work or changing another chat', async () => {
   let counting: AbortSignal | undefined;
   const { service, store, executions } = setup(10, false, (_messages, signal) => {

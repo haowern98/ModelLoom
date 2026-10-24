@@ -9,6 +9,7 @@ import type { RuntimeConfiguration } from '../runtime/preflight.js';
 import { checkResources } from '../runtime/preflight.js';
 import { decodeSavedClusterConfiguration } from '../cluster/contracts.js';
 import type { SavedClusterConfiguration } from '../cluster/contracts.js';
+import { nativeContextSize } from '../runtime/context.js';
 import { openHistoryDirectory } from './windows-directory.js';
 import type { TrustedHistoryRoot } from './windows-directory.js';
 export interface Provenance {
@@ -162,7 +163,10 @@ function provenance(value: Provenance): Provenance {
   if (
     cluster &&
     (cluster.modelId !== cfg.modelSha256 ||
-      cluster.load.defaults.contextLength !== cfg.contextPerSlot ||
+      (cluster.load.defaults.contextLength !== cfg.contextPerSlot &&
+        (value.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77' ||
+          nativeContextSize(cluster.load.defaults.contextLength, cfg.slots).perSlot !==
+            cfg.contextPerSlot)) ||
       cluster.load.defaults.concurrency !== cfg.slots ||
       cluster.load.cacheK !== cfg.cacheK ||
       cluster.load.cacheV !== cfg.cacheV)

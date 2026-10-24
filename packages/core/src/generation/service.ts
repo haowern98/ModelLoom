@@ -347,7 +347,7 @@ export class GenerationService {
       const timer = setTimeout(() => {
         detach();
         reject(new Error('TOKEN_COUNT_TIMEOUT'));
-      }, 120000);
+      }, GENERATION_POLICY.generationMs + 2000);
       const aborted = () => {
         detach();
         reject(new Error('NOT_READY'));

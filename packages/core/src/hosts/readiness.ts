@@ -1,4 +1,5 @@
 import { request } from 'node:http';
+import { nativeContextSize } from '../runtime/context.js';
 /** Fixed loopback endpoints, bounded payloads, no redirects and no public-health readiness shortcut. */
 export async function checkOwnedReadiness(
   port: number,
@@ -8,8 +9,9 @@ export async function checkOwnedReadiness(
   slots: number,
   ownsListener: () => boolean,
   signal: AbortSignal,
-): Promise<void> {
+): Promise<number> {
   try {
+    const allocation = nativeContextSize(context, slots);
     if (
       !Number.isInteger(port) ||
       port < 1024 ||
@@ -95,12 +97,14 @@ export async function checkOwnedReadiness(
       !settings ||
       typeof settings !== 'object' ||
       !('n_ctx' in settings) ||
-      settings.n_ctx !== context ||
       !ownsListener() ||
       signal.aborted
     )
       throw new Error('NOT_READY');
-  } catch {
-    throw new Error('NOT_READY');
+    if (settings.n_ctx !== allocation.perSlot) throw Error('CONTEXT_MISMATCH');
+    return settings.n_ctx;
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CONTEXT_MISMATCH') throw error;
+    throw new Error('NOT_READY', { cause: error });
   }
 }

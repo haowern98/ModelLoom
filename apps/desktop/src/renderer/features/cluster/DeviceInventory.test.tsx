@@ -2,6 +2,38 @@ import { render, screen, within } from '@testing-library/react';
 import { expect, it } from 'vitest';
 import { demoDevices } from '../../mocks/cluster';
 import { DeviceInventory } from './DeviceInventory';
+import { ClusterSidebar } from './ClusterSidebar';
+
+it('distinguishes this PC from a shared remote PC in the sidebar and inventory', () => {
+  const coordinator = {
+    ...demoDevices.find((device) => device.role === 'Coordinator')!,
+    id: 'local',
+    role: 'Worker' as const,
+  };
+  const worker = {
+    ...demoDevices.find((device) => device.role === 'Worker')!,
+    role: 'Coordinator' as const,
+  };
+  render(
+    <>
+      <ClusterSidebar
+        view="devices"
+        onNavigate={() => {}}
+        devices={[coordinator, worker]}
+        onSelect={() => {}}
+        pendingRequests={0}
+        local
+      />
+      <DeviceInventory devices={[coordinator, worker]} demo={false} local />
+    </>,
+  );
+  const remoteButton = screen.getByRole('button', { name: `Inspect ${worker.name}` });
+  expect(within(remoteButton).queryByText('This device')).not.toBeInTheDocument();
+  expect(within(remoteButton).getByText('Coordinator')).toBeVisible();
+  const remoteInventory = screen.getByRole('article', { name: worker.name });
+  expect(within(remoteInventory).queryByText('This device')).not.toBeInTheDocument();
+  expect(within(remoteInventory).getByText('Approved remote device')).toBeVisible();
+});
 
 it('shows every supplied PC with plain hardware rows and no details actions', () => {
   const { container } = render(<DeviceInventory devices={demoDevices} demo local={false} />);
@@ -18,7 +50,7 @@ it('shows every supplied PC with plain hardware rows and no details actions', ()
 });
 
 it('reports unknown fields instead of inventing local memory or backend support', () => {
-  render(<DeviceInventory devices={demoDevices.slice(0, 1)} demo={false} local />);
+  render(<DeviceInventory devices={[{ ...demoDevices[0]!, id: 'local' }]} demo={false} local />);
   expect(screen.getByText('This device', { exact: true })).toBeVisible();
   expect(screen.getAllByText('Unavailable').length).toBeGreaterThan(0);
   expect(screen.queryByText(/Not reported:/)).not.toBeInTheDocument();
@@ -74,7 +106,7 @@ it('excludes unsupported, virtual and disabled GPUs and renumbers the remaining 
   };
   const { rerender } = render(<DeviceInventory devices={[device]} demo={false} local />);
   expect(screen.getByText('AMD GPU')).toBeVisible();
-  expect(screen.getByText('GPU model')).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'GPU' })).toBeVisible();
   for (const name of ['Virtual display', 'Intel GPU', 'Disabled GPU'])
     expect(screen.queryByText(name)).not.toBeInTheDocument();
   rerender(
@@ -86,6 +118,22 @@ it('excludes unsupported, virtual and disabled GPUs and renumbers the remaining 
   );
   expect(screen.queryByText('AMD GPU')).not.toBeInTheDocument();
   expect(screen.getByText('No enabled AMD or NVIDIA GPU detected')).toBeVisible();
+});
+
+it('groups hardware underneath each PC and omits the last-checked timestamp', () => {
+  const device = {
+    ...demoDevices[0]!,
+    inventory: { sampledAt: Date.now(), architecture: 'x86_64' },
+  };
+  render(<DeviceInventory devices={[device, demoDevices[1]!]} demo local={false} />);
+  const pcs = screen.getAllByRole('article');
+  expect(pcs).toHaveLength(2);
+  const pc = within(pcs[0]!);
+  for (const name of ['System', 'CPU', 'Memory', 'GPU 0', 'GPU 1']) {
+    expect(pc.getByRole('region', { name })).toBeVisible();
+  }
+  expect(pc.getByText('x86_64')).toBeVisible();
+  expect(screen.queryByText(/Last checked:/)).not.toBeInTheDocument();
 });
 
 it('shows Apple unified memory once without counting it as separate VRAM', () => {

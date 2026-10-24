@@ -37,6 +37,11 @@ import { incomingExamples } from '../../mocks/clusterJoining';
 import type { JoiningProps } from './ClusterJoiningPanel';
 import type { AssignmentStatus, ClusterSelection } from './ClusterPanel';
 import styles from './ClusterPage.module.css';
+import { canvasPositions, placeBeside } from './canvas-layout';
+import type { CanvasLink, CanvasPosition } from './canvas-layout';
+import { CanvasPlacementLinks } from './CanvasPlacementLinks';
+
+const edgeHintKey = 'modelloom.canvas-edge-add-discovered';
 
 type Modal =
   | { type: 'placement'; model: DemoModel }
@@ -44,6 +49,15 @@ type Modal =
   | { type: 'name' }
   | { type: 'delete'; configuration: SavedClusterConfiguration };
 const configurationErrors: Readonly<Record<string, string>> = {
+  GPU_BUSY: 'The selected GPU is in use by another ModelLoom workload. Stop it and try again.',
+  PEER_UNAVAILABLE: 'The other PC disconnected. Check its connection and sharing, then try again.',
+  PEER_NOT_APPROVED: 'Verify and approve both app identities before assigning a remote GPU.',
+  GPU_NOT_SHARED: 'The selected GPU is no longer shared. Choose a currently shared GPU.',
+  INCOMPATIBLE_RUNTIME:
+    'Both PCs need the same compatible stock RPC runtime. Update and reconnect.',
+  RPC_PACKAGE_REQUIRED:
+    'A verified peer runtime is required on both PCs before using a remote GPU.',
+  UNSUPPORTED_PEER_GPU: 'Share one GPU on the other PC for the current peer runtime.',
   CLEANUP_FAILED:
     'Runtime shutdown could not be confirmed. Restart the app before trying another allocation.',
   NEEDS_RESOURCE_EVIDENCE:
@@ -65,6 +79,7 @@ const configurationErrors: Readonly<Record<string, string>> = {
 
 interface ClusterPageProps extends JoiningProps {
   demo: boolean;
+  pendingPeerRequests?: number;
   configurations?: ClusterConfigurations;
   devices: readonly DemoDevice[];
   onRenameDevice: (id: string, name: string) => void;
@@ -97,12 +112,14 @@ export function ClusterPage({
   onStop,
   localRuntime,
   configurations,
+  pendingPeerRequests = 0,
 }: ClusterPageProps) {
   const [configurationName, setConfigurationName] = useState('');
   const [validatedDemoInputs, setValidatedDemoInputs] = useState<readonly LayerInput[] | null>(
     null,
   );
   const [view, setView] = useState<ClusterView>('overview');
+  const [deviceDetailsTarget, setDeviceDetailsTarget] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const panelId = useId();
   const panelToggle = useRef<HTMLButtonElement>(null);
@@ -151,18 +168,59 @@ export function ClusterPage({
   };
   const [modal, setModal] = useState<Modal | null>(null);
   const devices = demo || localRuntime ? availableDevices : [];
+  const [placedPeers, setPlacedPeers] = useState<readonly string[]>([]);
+  const [removedDevices, setRemovedDevices] = useState<readonly string[]>([]);
+  const [arrangement, setArrangement] = useState<{
+    positions: Record<string, CanvasPosition>;
+    links: readonly CanvasLink[];
+  }>({ positions: {}, links: [] });
+  const [edgeDiscovered, setEdgeDiscovered] = useState(() => {
+    try {
+      return localStorage.getItem(edgeHintKey) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const localDeviceId = localRuntime ? 'local' : availableDevices[0]?.id;
+  const canvasDevices = devices.filter(
+    (device) =>
+      (!removedDevices.includes(device.id) &&
+        (!device.id.startsWith('peer:') || placedPeers.includes(device.id))) ||
+      device.hardware.some(
+        (hardware) =>
+          configurations?.raw?.runs.some(
+            (run) => run.uuid === hardware.assignmentId && (run.first.trim() || run.last.trim()),
+          ) || localRuntime?.activeCluster?.runs.some((run) => run.uuid === hardware.assignmentId),
+      ),
+  );
   const navigate = (next: ClusterView) => {
     setView(next);
+    if (next === 'overview' && deviceDetailsTarget) {
+      setDeviceDetailsTarget(null);
+      setPanelOpen(true);
+      return;
+    }
+    setDeviceDetailsTarget(null);
     setPanelOpen(false);
     setSelection({ type: 'overview' });
   };
+  const positions = canvasPositions(canvasDevices, arrangement.positions);
+  const spatial = Object.keys(arrangement.positions).length > 0;
+  const minColumn = Math.min(0, ...Object.values(positions).map((position) => position.column));
+  const minRow = Math.min(0, ...Object.values(positions).map((position) => position.row));
+  const columns =
+    Math.max(0, ...Object.values(positions).map((position) => position.column)) - minColumn + 1;
+  const placementLinks = arrangement.links.filter(
+    (link) => positions[link.from] && positions[link.to],
+  );
   const inspectDevice = (device: DemoDevice) => {
+    setDeviceDetailsTarget(null);
     setView('overview');
     showPanel({ type: 'device', device });
   };
   const pendingRequests = demo
     ? incomingExamples.filter((request) => !joining.decisions[request.id]).length
-    : 0;
+    : pendingPeerRequests;
   const currentSelection: ClusterSelection =
     selection.type === 'device'
       ? {
@@ -172,21 +230,25 @@ export function ClusterPage({
       : selection;
   const links = demoLinks.filter(
     (link) =>
-      devices.some((device) => device.id === link.from) &&
-      devices.some((device) => device.id === link.to),
+      !spatial &&
+      canvasDevices.some((device) => device.id === link.from) &&
+      canvasDevices.some((device) => device.id === link.to),
   );
   const selectedModel = models.find((model) =>
     configurations?.selection
       ? model.id.replace(/^model-/u, '') === configurations.selection.modelId
       : model.id === placement.modelId,
   );
-  const executableGpus = devices.flatMap((device) =>
-    (device.inventory?.gpus ?? []).flatMap((gpu) =>
+  const executableGpus = canvasDevices.flatMap((device) => [
+    ...device.hardware.flatMap((hardware) =>
+      hardware.assignmentId ? [{ hardwareId: hardware.id, uuid: hardware.assignmentId }] : [],
+    ),
+    ...(device.inventory?.gpus ?? []).flatMap((gpu) =>
       gpu.executionIdentity
         ? [{ hardwareId: `local-${gpu.id}`, uuid: gpu.executionIdentity.uuid }]
         : [],
     ),
-  );
+  ]);
   const editorInputs = configurations
     ? executableGpus.map((gpu) => ({
         hardwareId: gpu.hardwareId,
@@ -356,9 +418,7 @@ export function ClusterPage({
           if (configuration) setModal({ type: 'delete', configuration });
         }}
       />
-      <div
-        className={`${styles.main} ${['devices', 'connections', 'requests'].includes(view) ? styles.detailsMain : ''}`}
-      >
+      <div className={`${styles.main} ${view !== 'overview' ? styles.detailsMain : ''}`}>
         {notification && (
           <Toast
             key={notification.id}
@@ -420,7 +480,10 @@ export function ClusterPage({
                     Boolean(configurations?.planning || configurations?.pending)
                   }
                   onClick={() => {
-                    if (configurations) void configurations.autoPlace();
+                    if (configurations)
+                      void configurations.autoPlace([
+                        ...new Set(executableGpus.map((gpu) => gpu.uuid)),
+                      ]);
                     else dispatch({ type: 'auto-place' });
                   }}
                 >
@@ -579,14 +642,33 @@ export function ClusterPage({
         </div>
         <div className={styles.workspace}>
           <div className={styles.overview} hidden={view !== 'overview'}>
-            {devices.length ? (
+            {canvasDevices.length ? (
               <ClusterCanvas
-                singleDevice={devices.length === 1}
-                panelId={devices.length === 1 && panelOpen ? panelId : undefined}
+                singleDevice={canvasDevices.length === 1}
+                panelId={canvasDevices.length === 1 && panelOpen ? panelId : undefined}
+                layoutStyle={
+                  spatial
+                    ? {
+                        width: columns * 498 + (columns - 1) * 96,
+                        gridTemplateColumns: `repeat(${columns}, minmax(0, 498px))`,
+                        gap: 96,
+                        minHeight: 0,
+                      }
+                    : undefined
+                }
                 onClear={() => {
                   setSelection({ type: 'overview' });
                 }}
               >
+                {placementLinks.length > 0 && (
+                  <CanvasPlacementLinks
+                    links={placementLinks}
+                    devices={canvasDevices}
+                    onSelect={(link) =>
+                      showPanel({ type: 'connection', from: link.from, to: link.to })
+                    }
+                  />
+                )}
                 <svg
                   className={styles.connections}
                   viewBox="0 0 100 100"
@@ -609,13 +691,15 @@ export function ClusterPage({
                     {link.latencyMs} ms
                   </button>
                 ))}
-                {devices.map((device) => (
+                {canvasDevices.map((device) => (
                   <div
                     key={device.id}
                     className={styles.deviceSlot}
+                    data-canvas-device={device.id}
                     style={{
-                      gridColumn:
-                        devices.length === 1
+                      gridColumn: spatial
+                        ? String(positions[device.id]!.column - minColumn + 1)
+                        : canvasDevices.length === 1
                           ? '1'
                           : device.role === 'Coordinator'
                             ? '1 / -1'
@@ -624,7 +708,11 @@ export function ClusterPage({
                               : device.id === 'mac'
                                 ? '2'
                                 : '3',
-                      gridRow: devices.length === 1 || device.role === 'Coordinator' ? '1' : '2',
+                      gridRow: spatial
+                        ? String(positions[device.id]!.row - minRow + 1)
+                        : canvasDevices.length === 1 || device.role === 'Coordinator'
+                          ? '1'
+                          : '2',
                     }}
                   >
                     <DeviceCard
@@ -642,8 +730,52 @@ export function ClusterPage({
                       onDetails={(device) => showPanel({ type: 'device', device })}
                       onRename={(device) => showPanel({ type: 'device', device, renaming: true })}
                       selected={selection.type === 'device' && selection.device.id === device.id}
-                      alwaysShowAdd={devices.length === 1}
-                      onAdd={() => showPanel({ type: 'add' })}
+                      showAddHint={canvasDevices.length === 1 && !edgeDiscovered}
+                      addEdge={
+                        panelOpen &&
+                        selection.type === 'add' &&
+                        selection.anchor?.deviceId === device.id
+                          ? selection.anchor.edge
+                          : undefined
+                      }
+                      onAdd={(edge) =>
+                        showPanel({ type: 'add', anchor: { deviceId: device.id, edge } })
+                      }
+                      removeDisabled={
+                        loading ||
+                        Boolean(activeModel) ||
+                        Boolean(configurations?.planning || configurations?.saving) ||
+                        device.hardware.some(
+                          (hardware) =>
+                            editorInputs.some(
+                              (input) =>
+                                input.hardwareId === hardware.id &&
+                                Boolean(input.first.trim() || input.last.trim()),
+                            ) ||
+                            appliedRanges.some((range) => range.hardwareId === hardware.id) ||
+                            localRuntime?.activeCluster?.runs.some(
+                              (run) => run.uuid === hardware.assignmentId,
+                            ),
+                        )
+                      }
+                      onRemove={
+                        device.id === localDeviceId
+                          ? undefined
+                          : () => {
+                              setPlacedPeers((current) => current.filter((id) => id !== device.id));
+                              setRemovedDevices((current) => [...current, device.id]);
+                              if (
+                                panelOpen &&
+                                currentSelection.type === 'device' &&
+                                currentSelection.device.id === device.id
+                              ) {
+                                queueMicrotask(() => panelRef.current?.focus());
+                              } else {
+                                closePanel();
+                                queueMicrotask(() => panelToggle.current?.focus());
+                              }
+                            }
+                      }
                       onEdit={(hardwareId) => showPanel({ type: 'device', device, hardwareId })}
                     />
                   </div>
@@ -668,6 +800,7 @@ export function ClusterPage({
               links={demo ? demoLinks : []}
               onLink={(link) => showPanel({ type: 'link', link })}
               onConnectionAction={navigate}
+              targetDeviceId={deviceDetailsTarget ?? undefined}
             />
           )}
           {panelOpen && (
@@ -678,12 +811,64 @@ export function ClusterPage({
               joining={joining}
               onJoining={onJoining}
               selection={currentSelection}
-              devices={devices}
+              devices={canvasDevices}
+              canvasCandidates={devices.filter(
+                (device) =>
+                  device.id !== localDeviceId &&
+                  !canvasDevices.some((placed) => placed.id === device.id),
+              )}
+              onAddDevice={() => navigate('add')}
+              onDeviceDetails={(device) => {
+                setDeviceDetailsTarget(device.id);
+                setView('devices');
+                setPanelOpen(false);
+              }}
+              onAddToCanvas={(device) => {
+                if (loading || activeModel || configurations?.planning || configurations?.saving)
+                  return;
+                const requested =
+                  currentSelection.type === 'add' ? currentSelection.anchor : undefined;
+                const anchor =
+                  requested && positions[requested.deviceId]
+                    ? requested
+                    : canvasDevices[0]
+                      ? { deviceId: canvasDevices[0].id, edge: 'right' as const }
+                      : undefined;
+                if (anchor) {
+                  const next = placeBeside(positions, anchor.deviceId, anchor.edge);
+                  setArrangement({
+                    positions: { ...positions, [device.id]: next },
+                    links: [
+                      ...arrangement.links.filter((link) => link.to !== device.id),
+                      {
+                        from: anchor.deviceId,
+                        to: device.id,
+                        edge: anchor.edge,
+                      },
+                    ],
+                  });
+                }
+                setEdgeDiscovered(true);
+                try {
+                  localStorage.setItem(edgeHintKey, 'true');
+                } catch {
+                  /* Optional presentation preference; session state still dismisses the hint. */
+                }
+                setRemovedDevices((current) => current.filter((id) => id !== device.id));
+                setPlacedPeers((current) =>
+                  current.includes(device.id) ? current : [...current, device.id],
+                );
+                if (currentSelection.type !== 'device') closePanel();
+              }}
               activeModel={activeModel}
               selectedModel={selectedModel}
               loading={loading}
               editingDisabled={
                 loading || Boolean(configurations?.planning || configurations?.saving)
+              }
+              canvasMutationDisabled={
+                loading ||
+                Boolean(activeModel || configurations?.planning || configurations?.saving)
               }
               inputs={editorInputs}
               layerCount={layerCount}
@@ -705,6 +890,11 @@ export function ClusterPage({
               onOverview={() => setSelection({ type: 'overview' })}
               onSelect={(device) => showPanel({ type: 'device', device })}
               onEdit={(input) => {
+                if (
+                  currentSelection.type !== 'device' ||
+                  !canvasDevices.some((device) => device.id === currentSelection.device.id)
+                )
+                  return;
                 if (!configurations) {
                   dispatch({ type: 'edit', input });
                   return;
@@ -862,7 +1052,10 @@ export function ClusterPage({
                 <Button
                   onClick={() => {
                     if (configurations) {
-                      if (selectedModel?.id === modal.model.id) void configurations.autoPlace();
+                      if (selectedModel?.id === modal.model.id)
+                        void configurations.autoPlace([
+                          ...new Set(executableGpus.map((gpu) => gpu.uuid)),
+                        ]);
                       close();
                       return;
                     }

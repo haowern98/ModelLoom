@@ -180,9 +180,22 @@ async function createWindow(): Promise<void> {
       throw Error('INVALID_CONTROL');
     return windowController.cluster(input);
   });
+  ipcMain.handle('modelloom:peers', async (event, input: unknown) => {
+    if (
+      event.sender !== window.webContents ||
+      event.senderFrame !== window.webContents.mainFrame ||
+      quitting
+    )
+      throw new Error('INVALID_CONTROL');
+    return windowController.peers(input);
+  });
   windowController.subscribeChat(() => {
     if (!quitting && !window.webContents.isDestroyed())
       window.webContents.send('modelloom:chat-changed');
+  });
+  windowController.subscribePeers(() => {
+    if (!quitting && !window.webContents.isDestroyed())
+      window.webContents.send('modelloom:peers-changed');
   });
   window.on('close', (event) => {
     if (!quitConfirmed) {

@@ -11,6 +11,19 @@ const state = vi.hoisted(() => ({
   release: vi.fn(),
   output: undefined as string | undefined,
   ready: vi.fn(),
+  lost: undefined as (() => void) | undefined,
+  forced: vi.fn(),
+}));
+vi.mock('./peer-relays.js', () => ({
+  createPeerRelays: (
+    _devices: readonly string[],
+    _allowed: unknown,
+    _open: unknown,
+    lost?: () => void,
+  ) => {
+    state.lost = lost;
+    return Promise.resolve({ arguments: [], physical: [], close: () => Promise.resolve() });
+  },
 }));
 const uuid = 'GPU-22c23971-dacf-2123-2169-ad70d8f6729a';
 vi.mock('../runtime-package/development-policy.js', () => ({
@@ -60,6 +73,7 @@ vi.mock('./windows-ownership.js', () => ({
       };
     },
     forceStop: () => {
+      state.forced();
       state.stopped = true;
     },
     release: () => {},
@@ -85,6 +99,7 @@ afterEach(() => {
   state.ready.mockReset();
   state.discover.mockReset();
   state.launch.mockReset();
+  state.lost = undefined;
   state.release.mockReset();
 });
 function fixture(
@@ -192,6 +207,29 @@ it.each(['cancel', 'abort', 'driver'] as const)(
     await f.adapter.close();
   },
 );
+
+it('invalidates a ready instance and confirms owned exit when a retained peer relay is lost', async () => {
+  const f = fixture(() => Promise.resolve(true));
+  state.discover.mockResolvedValue(f.snapshot);
+  state.launch.mockReturnValue({});
+  state.output = 'ENGINE 100\n' + allocationLog();
+  state.ready.mockResolvedValue(4096);
+  const engine = await f.adapter.launch(f.selection, new AbortController().signal);
+  try {
+    await engine.waitReady(new AbortController().signal);
+    expect(state.stopped).toBe(false);
+    expect(state.lost).toBeTypeOf('function');
+    state.lost!();
+    await engine.exited;
+    expect(state.forced).toHaveBeenCalledOnce();
+    expect(state.release).toHaveBeenCalledOnce();
+    expect(f.adapter.children()).toEqual([]);
+  } finally {
+    await engine.forceStop();
+    await engine.exited;
+    await f.adapter.close();
+  }
+});
 
 function allocationLog() {
   return [

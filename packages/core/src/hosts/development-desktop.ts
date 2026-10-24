@@ -10,12 +10,22 @@ import { createDevelopmentRuntimeVerifier } from '../runtime-package/verifier.js
 import { installExpanded, requireInstalledLive } from '../runtime-package/install.js';
 import type { InstalledPackage } from '../runtime-package/install.js';
 import { inspectGGUF } from '../runtime/gguf.js';
+import { LIFECYCLE_POLICY, REMOTE_STARTUP_MS } from '../runtime/contracts.js';
+import { GENERATION_POLICY } from '../generation/contracts.js';
+import { withPeerActivity } from '../generation/peer-activity-transport.js';
 import { checkCudaResources } from '../runtime/gpu-resources.js';
 import { discoverResources } from './resource-probe.js';
 import { confirmExit, ownershipBinding } from './windows-ownership.js';
 import { realEngineAdapter } from './real-engine.js';
 import { createDesktopEngineHost } from './desktop.js';
 import type { UtilityFork } from './desktop.js';
+import { createDesktopPeerHost } from '../peers/desktop.js';
+import type { DesktopPeerHost } from '../peers/desktop.js';
+import type { PeerReply } from '../peers/wire.js';
+import { decodePeerHardware } from '../peers/hardware.js';
+import type { PeerHardware } from '../peers/hardware.js';
+import { decodeClusterDevice, qualifyPeerGpu } from '../cluster/device-id.js';
+import type { ResourceSnapshot } from '../runtime/gpu-resources.js';
 import type { ModelSource } from '../model-configuration/model-source.js';
 import type { ModelConfigurationRecord } from '../model-configuration/contracts.js';
 import type { ClusterDraft, SavedClusterConfiguration, GpuRun } from '../cluster/contracts.js';
@@ -48,6 +58,77 @@ export function developmentDesktopDependencies(
   let sharedMemoryConfirmed = false;
   let preflightGeneration = 0;
   let installation: Promise<InstalledPackage> | undefined;
+  let peerHost: Promise<DesktopPeerHost> | undefined;
+  let peerHardware: PeerHardware | undefined;
+  const peerListeners = new Set<(reply: PeerReply) => void>();
+  let peersClosed = false;
+  const getPeerHost = () => {
+    if (!applicationData || !caller || peersClosed) throw new Error('NOT_READY');
+    ownershipBinding().privateDirectory(path.resolve(stateBase));
+    peerHost ??= createDesktopPeerHost(fork, applicationData, caller, {
+      bootstrap: path.join(base, 'peers'),
+      state: path.join(stateBase, 'peers'),
+    })
+      .then(async (host) => {
+        host.subscribe((reply) => {
+          for (const listener of peerListeners) listener(reply);
+        });
+        if (peerHardware) await host.updateHardware(peerHardware);
+        return host;
+      })
+      .catch((error) => {
+        peerHost = undefined;
+        throw error;
+      });
+    return peerHost;
+  };
+  async function clusterResources(
+    ids: readonly string[],
+    signal: AbortSignal,
+  ): Promise<ResourceSnapshot> {
+    const local = await discoverResources(signal);
+    const remote = ids.filter((id) => decodeClusterDevice(id).kind === 'peer');
+    if (!remote.length) return local;
+    const owner = await getPeerHost();
+    const expected = await owner.resources(null);
+    const observed = await Promise.all(
+      remote.map(async (id) => {
+        const device = decodeClusterDevice(id);
+        if (device.kind !== 'peer') throw Error('INVALID_CLUSTER_DEVICE');
+        const report = await owner.resources(id);
+        if (signal.aborted) throw Error('PLANNING_CANCELLED');
+        if (report.runtimeId !== expected.runtimeId) throw Error('INCOMPATIBLE_RUNTIME');
+        if (report.ram < 1536 * 1048576) throw Error('INSUFFICIENT_RESOURCES');
+        const matches = report.gpus.filter(
+          (gpu) => gpu.uuid.toLowerCase() === device.uuid.toLowerCase(),
+        );
+        if (matches.length !== 1) throw Error('GPU_NOT_SHARED');
+        return { ...matches[0]!, uuid: id };
+      }),
+    );
+    return { ram: local.ram, gpus: [...(local.gpus ?? []), ...observed] };
+  }
+  const openPeer = async (device: string) => (await getPeerHost()).openRpc(device);
+  const reservePlanningLocal =
+    applicationData && caller
+      ? async (devices: readonly string[]) => {
+          const peer = await getPeerHost();
+          await peer.setRuntimeBusy(true);
+          let lease;
+          try {
+            lease = await peer.reserveLocal(devices);
+          } catch (error) {
+            await peer.setRuntimeBusy(false);
+            throw error;
+          }
+          return {
+            async release() {
+              await lease.release();
+              await peer.setRuntimeBusy(false);
+            },
+          };
+        }
+      : undefined;
   const installClusterRuntime = async () => {
     installation ??= (async () => {
       const capability = await createDevelopmentRuntimeVerifier().verify(
@@ -94,6 +175,8 @@ export function developmentDesktopDependencies(
           load,
           signal,
           inspection,
+          openPeer,
+          reservePlanningLocal,
         ),
         info.nextnPredictLayers ?? 0,
       );
@@ -114,6 +197,10 @@ export function developmentDesktopDependencies(
     const native = ownershipBinding(),
       root = native.createDeployment();
     let adapter: ReturnType<typeof realEngineAdapter> | undefined;
+    const activityTransports = new WeakMap<object, ReturnType<typeof withPeerActivity>>();
+    let localGpuIds: readonly string[] = [];
+    let startupMs: number = LIFECYCLE_POLICY.startupMs;
+    let leaseExit: Promise<void> | undefined;
     let preparedFile: string | undefined, preparedFingerprint: string | undefined;
     let preparation: Promise<void> | undefined;
     let closed = false,
@@ -129,6 +216,7 @@ export function developmentDesktopDependencies(
           /* Failed preparation cannot authorize launch. */
         }
         await Promise.all([adapter?.close(), confirmExit(() => native.coresExited(root))]);
+        await leaseExit;
       })();
       return closing;
     };
@@ -166,7 +254,7 @@ export function developmentDesktopDependencies(
                   contextPerSlot: load.contextPerSlot,
                   slots: load.slots,
                   gpuLayers: load.blockCount + 1,
-                  gpuDevice: load.placement.orderedUuids[0]!,
+                  gpuDevice: decodeClusterDevice(load.placement.orderedUuids[0]!).uuid,
                   cacheK: load.cacheK,
                   cacheV: load.cacheV,
                 }
@@ -183,11 +271,36 @@ export function developmentDesktopDependencies(
               return confirmed;
             },
             load && budget
-              ? { load, report: budget, ...(confirmMemory ? { confirmMemory } : {}) }
+              ? {
+                  load,
+                  report: budget,
+                  ...(confirmMemory ? { confirmMemory } : {}),
+                  ...(load.placement.orderedUuids.some(
+                    (id) => decodeClusterDevice(id).kind === 'peer',
+                  )
+                    ? {
+                        peers: {
+                          open: openPeer,
+                          resources: (signal: AbortSignal) =>
+                            clusterResources(load.placement.orderedUuids, signal),
+                        },
+                      }
+                    : {}),
+                }
               : undefined,
           );
+          localGpuIds = load
+            ? load.placement.orderedUuids.filter((id) => decodeClusterDevice(id).kind === 'local')
+            : selectedConfiguration.gpuDevice
+              ? [selectedConfiguration.gpuDevice]
+              : [];
           preparedFile = file;
           preparedFingerprint = load?.fingerprint;
+          startupMs = load?.placement.orderedUuids.some(
+            (id) => decodeClusterDevice(id).kind === 'peer',
+          )
+            ? REMOTE_STARTUP_MS
+            : LIFECYCLE_POLICY.startupMs;
         });
       return preparation;
     };
@@ -195,10 +308,31 @@ export function developmentDesktopDependencies(
       const host = await createDesktopEngineHost(
         fork,
         {
+          startupMs: () => startupMs,
           adapter: {
             async launch(selection, signal) {
               if (closed || !adapter) throw new Error('NOT_READY');
-              return adapter.launch(selection, signal);
+              await leaseExit;
+              const peer = applicationData && caller ? await getPeerHost() : undefined;
+              await peer?.setRuntimeBusy(true);
+              let lease: { release(): Promise<void> } | undefined;
+              try {
+                lease = localGpuIds.length ? await peer?.reserveLocal(localGpuIds) : undefined;
+                const engine = await adapter.launch(selection, signal);
+                leaseExit = engine.exited.then(async () => {
+                  await lease?.release();
+                  await peer?.setRuntimeBusy(false);
+                });
+                void leaseExit.catch(() => undefined);
+                await peer?.setRuntimeBusy(false);
+                return engine;
+              } catch (error) {
+                // A failed launch cannot release hardware until its adapter proves exit.
+                await adapter.close();
+                await lease?.release();
+                await peer?.setRuntimeBusy(false);
+                throw error;
+              }
             },
           },
           children: () => adapter?.children() ?? [],
@@ -211,7 +345,14 @@ export function developmentDesktopDependencies(
             ? {
                 chat: (engine: Parameters<ReturnType<typeof realEngineAdapter>['chat']>[0]) => {
                   if (closed || !adapter) throw new Error('NOT_READY');
-                  return adapter.chat(engine);
+                  let transport = activityTransports.get(engine);
+                  if (!transport) {
+                    transport = withPeerActivity(adapter.chat(engine), async (busy) => {
+                      await (await getPeerHost()).setRuntimeBusy(busy);
+                    });
+                    activityTransports.set(engine, transport);
+                  }
+                  return transport;
                 },
                 chatSetup: {
                   applicationData,
@@ -249,21 +390,75 @@ export function developmentDesktopDependencies(
     }
   }
   const dependencies = {
+    subscribePeers(listener: (reply: PeerReply) => void) {
+      peerListeners.add(listener);
+      return () => peerListeners.delete(listener);
+    },
+    async updatePeerHardware(hardware: PeerHardware): Promise<void> {
+      peerHardware = decodePeerHardware(hardware);
+      if (peerHost && !peersClosed) await (await peerHost).updateHardware(peerHardware);
+    },
+    async peers(input: unknown): Promise<PeerReply> {
+      if (!applicationData || !caller || peersClosed) return { ok: false, error: 'NOT_READY' };
+      return (await getPeerHost()).command(caller, input);
+    },
+    async beginPeerQuit(): Promise<void> {
+      peersClosed = true;
+      if (peerHost) {
+        const reply = await (await peerHost).command(caller!, { action: 'stop-sharing' });
+        if (!reply.ok) throw Error(reply.error);
+      }
+    },
+    async closePeers(): Promise<void> {
+      peersClosed = true;
+      peerListeners.clear();
+      if (peerHost) await (await peerHost).close();
+    },
     /** Installed and verifier-accepted inventory only; hardware brands do not imply backend support. */
     runtimeBackends: () => verifiedBackends,
     enabled: true as const,
     expectedHash: report.modelSha256,
     packageId: 'llama-cuda-development',
     clusterArtifact: report.artifact,
-    async planCluster(file: string, draft: ClusterDraft, blockCount: number, signal: AbortSignal) {
+    async planCluster(
+      file: string,
+      draft: ClusterDraft,
+      blockCount: number,
+      signal: AbortSignal,
+      devices?: readonly string[],
+    ) {
       return withPlacementModel(file, async (info, inspection) => {
         if (info.sha256 !== draft.modelId || info.blockCount !== blockCount)
           throw Error('MODEL_FILE_UNAVAILABLE');
         const installed = await installClusterRuntime();
-        const snapshot = await discoverResources(signal);
+        const local = await discoverResources(signal);
+        const approved =
+          applicationData &&
+          caller &&
+          (!devices || devices.some((id) => decodeClusterDevice(id).kind === 'peer'))
+            ? await (await getPeerHost()).command(caller, { action: 'read' })
+            : null;
+        const remoteIds = (
+          approved?.ok
+            ? approved.view.outgoing.flatMap((peer) =>
+                peer.phase === 'approved' && peer.localVerified && peer.remoteVerified
+                  ? peer.gpus.map((gpu) => qualifyPeerGpu(peer.peerFingerprint, gpu.id))
+                  : [],
+              )
+            : []
+        )
+          .filter((id) => !devices || devices.includes(id))
+          .slice(0, 2);
+        const snapshot = remoteIds.length ? await clusterResources(remoteIds, signal) : local;
         const ids =
           snapshot.gpus
-            ?.filter((g) => g.total !== null && g.free !== null && g.mig !== 'Enabled')
+            ?.filter(
+              (g) =>
+                (!devices || devices.includes(g.uuid)) &&
+                g.total !== null &&
+                g.free !== null &&
+                g.mig !== 'Enabled',
+            )
             .sort((a, b) => b.free! - a.free!)
             .slice(0, 2)
             .map((g) => g.uuid) ?? [];
@@ -307,10 +502,12 @@ export function developmentDesktopDependencies(
                 load,
                 signal,
                 inspection,
+                openPeer,
+                reservePlanningLocal,
               ),
               info.nextnPredictLayers ?? 0,
             );
-            const fresh = await discoverResources(signal);
+            const fresh = await clusterResources(load.placement.orderedUuids, signal);
             const admission = checkStockClusterResources(load, budget, fresh);
             if (
               admission.code === 'NEEDS_RESOURCE_EVIDENCE' ||
@@ -339,7 +536,7 @@ export function developmentDesktopDependencies(
               : null;
           },
           signal,
-          Date.now() + 120000,
+          Date.now() + (remoteIds.length ? GENERATION_POLICY.generationMs : 120000),
           preferredCut,
         );
         if (result.code === 'PROPOSED') return result.runs;
@@ -402,7 +599,10 @@ export function developmentDesktopDependencies(
       const admission = checkStockClusterResources(
         resolveClusterLoad(saved, report.artifact),
         budget,
-        await discoverResources(signal),
+        await clusterResources(
+          saved.runs.map((run) => run.uuid),
+          signal,
+        ),
         allowSharedMemory,
       );
       if (admission.code !== 'ADMITTED') throw Error(admission.code);

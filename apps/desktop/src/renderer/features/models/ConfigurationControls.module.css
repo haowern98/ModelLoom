@@ -4,7 +4,7 @@
   height: var(--control-height);
   max-width: 100%;
 }
-.selectTrigger {
+.select .selectTrigger {
   /* Centre Cluster's 32px pill in the existing 28px settings slot. */
   position: absolute;
   top: 50%;
@@ -25,13 +25,13 @@
   text-align: left;
   box-shadow: none;
 }
-.selectTrigger:not(:disabled):hover {
+.select .selectTrigger:not(:disabled):hover {
   background: #3a3a3a;
 }
-.selectTrigger:disabled {
+.select .selectTrigger:disabled {
   opacity: 0.45;
 }
-.selectTrigger > span {
+.select .selectTrigger > span {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -55,7 +55,7 @@
   color: var(--text);
   box-shadow: 0 8px 22px #0005;
 }
-.selectOption {
+.select .selectOption {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -72,8 +72,8 @@
   line-height: var(--line-height-body);
   text-align: left;
 }
-.selectOption:hover,
-.selectOption[aria-selected='true'] {
+.select .selectOption:hover,
+.select .selectOption[aria-selected='true'] {
   background: #2f2f2f;
 }
 .numberField {

@@ -16,17 +16,22 @@ import { ConfigurationController } from '../model-configuration/controller.js';
 import { ClusterController } from '../cluster/controller.js';
 import { createConfigurationProfile } from '../model-configuration/development-profile.js';
 import type { ActiveLoadSnapshot } from '../model-configuration/contracts.js';
+import { actualizeContext } from '../model-configuration/resolve.js';
 import type { ConfigurationReply } from '../model-configuration/wire.js';
 import { ApiController } from '../local-api/controller.js';
 import { windowsApiKeyProtection } from '../model-configuration/windows-protection.js';
 import type { ApiOwnerReply } from '../local-api/wire.js';
 import { captureClusterRun, captureClusterDraft } from '../cluster/run-plan.js';
 import { requireStockClusterProfile } from '../cluster/stock-profile.js';
+import { decodeClusterDevice } from '../cluster/device-id.js';
 import {
   decodeSavedClusterConfiguration,
   decodeCapturedClusterLoad,
 } from '../cluster/contracts.js';
 import { isDeepStrictEqual } from 'node:util';
+import { PeerOwner } from '../peers/owner.js';
+import { decodePeerCommand } from '../peers/wire.js';
+import type { PeerReply } from '../peers/wire.js';
 
 export interface UtilityChannel {
   send(text: string): void;
@@ -62,6 +67,9 @@ export function runUtility(
   let configuration = injectedConfiguration;
   let cluster = injectedCluster;
   let lastCluster = 0;
+  let lastPeer = 0;
+  let peerSetup: { applicationData: string; caller: string } | undefined;
+  let peerPreparation: Promise<PeerOwner> | undefined;
   let api = injectedApi,
     lastApi = 0;
   let configurationOwner: ReturnType<typeof openModelConfigurationStore> | undefined;
@@ -118,6 +126,35 @@ export function runUtility(
     try {
       if (typeof input !== 'string') throw new Error('INVALID_CONTROL');
       const envelope = decodeObject(input);
+      if (envelope.type === 'peer-command') {
+        exact(envelope, ['type', 'id', 'caller', 'command']);
+        if (
+          !admitted ||
+          typeof envelope.id !== 'number' ||
+          !Number.isSafeInteger(envelope.id) ||
+          envelope.id <= lastPeer ||
+          !peerSetup ||
+          envelope.caller !== peerSetup.caller
+        )
+          throw new Error('INVALID_CONTROL');
+        lastPeer = envelope.id;
+        const command = decodePeerCommand(envelope.command);
+        const setup = peerSetup;
+        if (!quitting) peerPreparation ??= PeerOwner.open(setup.applicationData, setup.caller);
+        void (async (): Promise<PeerReply> => {
+          try {
+            const owner = await peerPreparation;
+            return !quitting && owner
+              ? await owner.command(setup.caller, command)
+              : { ok: false, error: 'NOT_READY' };
+          } catch {
+            return { ok: false, error: 'PEER_UNAVAILABLE' };
+          }
+        })()
+          .then((reply) => send({ type: 'peer-reply', id: envelope.id, reply }))
+          .catch(() => channel.exit(1));
+        return;
+      }
       if (envelope.type === 'cluster-command') {
         exact(envelope, ['type', 'id', 'caller', 'command']);
         if (
@@ -273,6 +310,7 @@ export function runUtility(
           provenance = setup.provenance as Provenance;
           const caller = setup.caller,
             applicationData = setup.applicationData;
+          peerSetup = { caller, applicationData };
           if (
             !injectedConfiguration &&
             provenance.upstreamCommit === '4f31296a907d73f3409f720429bcf31111615d77' &&
@@ -388,8 +426,22 @@ export function runUtility(
               }
               activeLoad = loadConfigurations.get(selectionKey(entry.selection)) ?? null;
               if (chat && provenance) {
-                const activeProvenance =
+                let activeProvenance =
                   loadProvenances.get(selectionKey(entry.selection)) ?? provenance;
+                if (
+                  activeLoad &&
+                  provenance.upstreamCommit === '4f31296a907d73f3409f720429bcf31111615d77'
+                ) {
+                  if (event.contextLength === undefined) throw Error('CONTEXT_MISMATCH');
+                  activeLoad = actualizeContext(activeLoad, event.contextLength);
+                  activeProvenance = Object.freeze({
+                    ...activeProvenance,
+                    configuration: Object.freeze({
+                      ...activeProvenance.configuration,
+                      contextPerSlot: activeLoad.load.contextLength,
+                    }),
+                  });
+                }
                 remote = new UtilityChatTransport(entry.selection, send, () => ++generationId);
                 try {
                   await chat.bind({
@@ -461,6 +513,7 @@ export function runUtility(
         throw new Error('INVALID_CONTROL');
       const command = decodeObject(envelope.text);
       const handle = async () => {
+        let remoteLoad = false;
         if (command.action === 'quit') quitting = true;
         if (command.action === 'quit' || command.action === 'stop') chatEpoch++;
         if (command.action === 'quit' || command.action === 'stop') activeLoad = null;
@@ -561,6 +614,9 @@ export function runUtility(
                 'b11306-cuda12.4-msvc14.44-dev1',
               );
               requireStockClusterProfile(effective);
+              remoteLoad = effective.placement.orderedUuids.some(
+                (uuid) => decodeClusterDevice(uuid).kind === 'peer',
+              );
               snapshot = Object.freeze({
                 modelId: saved.modelId,
                 revision: saved.revision,
@@ -574,7 +630,7 @@ export function runUtility(
                   ...provenance,
                   configuration: Object.freeze({
                     ...provenance.configuration,
-                    gpuDevice: effective.placement.orderedUuids[0]!,
+                    gpuDevice: decodeClusterDevice(effective.placement.orderedUuids[0]!).uuid,
                     modelSha256: effective.modelSha256,
                     contextPerSlot: effective.contextPerSlot,
                     slots: effective.slots,
@@ -605,6 +661,7 @@ export function runUtility(
               _clusterDraft !== undefined)
             ? JSON.stringify(lifecycleCommand)
             : (envelope.text as string),
+          remoteLoad,
         );
         if (command.action === 'load' && reply.reply.error) {
           try {
@@ -614,6 +671,10 @@ export function runUtility(
           }
         }
         if (reply.quit) {
+          await peerPreparation?.then(
+            (owner) => owner.close(),
+            () => undefined,
+          );
           await chat?.close();
           await configurationPreparation?.catch(() => undefined);
           await configuration?.close();
