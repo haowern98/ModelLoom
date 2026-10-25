@@ -15,6 +15,8 @@ import type { PeerResources } from './resources.js';
 import { decodePeerHardware } from './hardware.js';
 import type { PeerHardware } from './hardware.js';
 import { decodePeerReply } from './wire.js';
+import { overlayChannel } from './overlay-channel.js';
+import type { PeerOverlayTransport } from './overlay.js';
 
 export interface PeerUtilityChannel {
   send(text: string): void;
@@ -22,6 +24,8 @@ export interface PeerUtilityChannel {
   exit(code: number): void;
 }
 interface Service {
+  setOverlay?(transport: PeerOverlayTransport): void;
+  acceptOverlay?(port: number, stream: Duplex): void;
   setRuntimeBusy?(busy: boolean): void | Promise<void>;
   updateHardware?(hardware: PeerHardware): Promise<void>;
   subscribe?(listener: (reply: PeerReply) => void): () => void;
@@ -65,9 +69,26 @@ export function runPeerUtility(
       ...(owner.setRuntimeBusy ? { setRuntimeBusy: owner.setRuntimeBusy.bind(owner) } : {}),
     };
   }, send);
+  const overlay = overlayChannel(send);
+  overlay.incoming((port, stream) => {
+    if (!preparation || closed) {
+      stream.destroy();
+      return;
+    }
+    void preparation
+      .then((owner) => {
+        if (closed || stream.destroyed || !owner.acceptOverlay) {
+          stream.destroy();
+          return;
+        }
+        owner.acceptOverlay(port, stream);
+      })
+      .catch(() => stream.destroy());
+  });
   async function close(code: number) {
     if (closed) return;
     closed = true;
+    overlay.close();
     unsubscribe?.();
     for (const pipe of streams.values()) pipe.stream.destroy();
     streams.clear();
@@ -86,9 +107,17 @@ export function runPeerUtility(
   }
   channel.receive((input) => {
     try {
-      if (typeof input !== 'string' || Buffer.byteLength(input) > 16384 || closed)
+      if (typeof input !== 'string' || Buffer.byteLength(input) > 262144 || closed)
         throw new Error('INVALID_CONTROL');
       const message = decodeObject(input);
+      // Only the bounded route snapshot may exceed ordinary control-frame size.
+      if (message.type !== 'overlay-routes' && Buffer.byteLength(input) > 16384)
+        throw Error('INVALID_CONTROL');
+      if (typeof message.type === 'string' && message.type.startsWith('overlay-')) {
+        if (!preparation) throw Error('INVALID_CONTROL');
+        overlay.receive(message);
+        return;
+      }
       if (message.type === 'hardware-update') {
         exact(message, ['type', 'hardware']);
         if (!preparation) throw Error('INVALID_CONTROL');
@@ -197,6 +226,7 @@ export function runPeerUtility(
         void preparation.then(
           (owner) => {
             if (!closed) {
+              owner.setOverlay?.(overlay.transport);
               unsubscribe = owner.subscribe?.((reply) => {
                 if (!closed) send({ type: 'peer-changed', reply: decodePeerReply(reply) });
               });
