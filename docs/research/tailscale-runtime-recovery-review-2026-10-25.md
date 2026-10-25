@@ -396,3 +396,210 @@ launch correction began at 08:22 UTC. No cluster records were recreated and no
 profile was migrated. The app was relaunched through the same independent
 canonical command as PID 34404. Temporary verification launch tasks were removed;
 the running app and its checkout-owned toolchain remain independent of Codex.
+
+## Transfer fragmentation diagnosis and correction
+
+The first transfer trace located acknowledgement waits but did not isolate their
+cause. Its separate SSH measurement was not a controlled comparison of the app's
+transport and did not establish that IPC was, or was not, the main limiter.
+
+A subsequent A/B/A/B comparison kept the same running apps, approved identities,
+embedded Tailscale enrollment and authenticated diagnostic path. The changed
+variable was the local parent/core IPC fragment size: 8 KiB versus 32 KiB. Both
+variants used the same temporary 64-KiB producer chunks, four-second samples and
+64-MiB per-direction ceiling. Normal activity cancellation remained enabled.
+No model, sampling setting, GPU workload, enrollment or pairing was changed for
+this comparison. Payload contents and credentials were not recorded.
+
+| Sample | IPC fragment | Upload Mbps | Download Mbps |
+| ------ | ------------ | ----------: | ------------: |
+| A1     | 8 KiB        |       61.58 |        117.72 |
+| B1     | 32 KiB       |       88.78 |        115.52 |
+| A2     | 8 KiB        |       33.72 |        100.64 |
+| B2     | 32 KiB       |      104.24 |        122.33 |
+
+The mean upload increased from 47.65 to 96.51 Mbps in these samples, about 2.03x.
+Two subsequent 32-KiB samples measured 92.02 and 95.64 Mbps. These are bounded
+observations on this connection, not a promised speed multiplier for every link.
+
+The cause is unnecessary fragmentation before and after TLS, with a serialized
+local acknowledgement per fragment. A 16,406-byte encrypted record was reproduced
+as three IPC messages of 8192, 8192 and 22 bytes. A regression first failed on
+that sequence; the corrected transport carries the same bytes in one message.
+The permanent change uses 32-KiB frames, still with one fragment in flight,
+canonical base64, exact sequence/channel checks, backpressure and the existing
+deadline. The 64-KiB write bound is unchanged. Only native/overlay data envelopes
+receive a 64-KiB JSON allowance; ordinary controls retain their 16-KiB limit.
+A second regression reproduced rejection of an otherwise valid 32-KiB native
+frame before that envelope guard was corrected.
+
+The UI also changed units between idle bandwidth in Mbps and live traffic in
+MiB/s. For example, 60 Mbps is approximately 7.15 MiB/s. Both views now use the
+same byte-rate formatter, and the active description includes model loading.
+Fonts, CSS and layout controls are unchanged.
+
+Checks passed: 175 peer/network tests, 95 desktop connection/loading/runtime/
+shutdown tests, desktop/core type checking, and changed-file lint/format checks.
+These include byte equality, backpressure, timeout, forged channel, ordering,
+oversized/noncanonical data and the admitted native-RPC path. They do not replace
+the separate inference-correctness acceptance gate.
+
+The normal Bonsai loading path was then exercised with the permanent transport
+change and the original diagnostic budgets restored. The existing test22 saved
+configuration still assigned layers 0-30 locally and 31-63 to PTSS. During the
+bounded minute of model transfer, 30 observed loading snapshots above 1 MiB/s
+averaged 11.26 MiB/s and peaked at 14.55 MiB/s. The earlier unmodified loading
+trace peaked at 7.14 MiB/s. The test intentionally requested Stop after that
+minute; Stop returned stopped with no runtime error or memory override. Ready
+was not observed, so this establishes the native transfer path, not a complete
+model-load or generation acceptance result.
+
+The deployed PTSS checkout also passed the 17 focused IPC/overlay/native-admission
+tests. Final implementation and regression-test sources match between PCs by
+SHA256. The temporary producer/budget changes, mode switches, main-process
+driver, samples, backups and scheduled diagnostic tasks were removed after the
+normal source relaunch. Only the fix, regression coverage and this evidence
+record remain in the project diff; unrelated working-tree/index entries remain.
+
+## Complete two-PC load comparison and latency tracing
+
+The subsequent comparison used the normal `run-configuration` bridge with saved
+`test22` revision 1 on both source-development apps. Both apps were launched only
+with `npm run electron dev` from their respective workspace roots, in the normal
+interactive Windows user context. The temporary baseline changed only
+`RPC_IPC_FRAME_BYTES` from 32 KiB to 8 KiB on both PCs, then restored the exact
+32-KiB source backup. Its SHA256 on both PCs was
+`305c32baba19894844403e9e6238b956cd11aeb102a1b99f57ba1cb5074fc5d5`.
+
+The model remained Bonsai-27B-Q1_0.gguf, with layers 0-30 on HAOWERNSLAPPY's
+4060 Ti and 31-63 on PTSS's 4070 SUPER. Context, four-slot concurrency, batches,
+KV types, flash attention and all saved preferences remained unchanged.
+
+| Completed run          | Command start to Ready | First loading snapshot | Mean observed transfer above 1 MiB/s | Peak observed transfer |
+| ---------------------- | ---------------------: | ---------------------: | -----------------------------------: | ---------------------: |
+| Previous 8-KiB framing |              474.834 s |               62.089 s |            5.09 MiB/s (59 snapshots) |             6.89 MiB/s |
+| Current 32-KiB framing |              257.687 s |               65.871 s |           11.09 MiB/s (27 snapshots) |            13.17 MiB/s |
+
+Both command results actually reported Ready and the same active cluster runs.
+The elapsed reduction was 217.147 seconds, or 45.73%, in this consecutive pair.
+The similar preflight times and native startup logs place the gain in loading,
+rather than an earlier resource-admission completion. These are one successful
+run per condition, without a cold-cache reset or statistical repetitions, not
+a guaranteed percentage for every load. PTSS's existing Kryptex miner remained
+running in both conditions; its PID's CUDA engine measured approximately 100%
+utilization. No unrelated application was stopped. No generation or output
+equivalence claim follows from reaching Ready.
+
+Other attempts failed: a 32-KiB attempt exited after 524.465 seconds without
+Ready, and transient peer failures cancelled planning with `PLANNING_CANCELLED`
+before native startup in other attempts. Those failures are excluded from the
+successful-run timings and remain relevant reliability limitations.
+
+Latency was traced separately. The existing `pingTelemetry` formula still times
+a fresh authenticated control call, including overlay dial, TLS and response.
+It is not a WireGuard RTT measurement. During a healthy transfer, independent
+OS ping to PTSS measured 17-19 ms. Plain fresh TCP/HTTP discovery measured about
+18-31 ms to connect and 37-56 ms for the full HTTP request. Earlier samples also
+had real external-path variation and packet loss; not every historical spike
+can be assigned to application IPC.
+
+Conditional logpoints matched the same overlay dial ID across both processes.
+In a 45-second loading window, 60 complete dials showed 0-336 ms between the
+peer core sending its request and the parent receiving it, averaging 67.12 ms
+over all operation types. Examples waited 198, 228, 216 and 270 ms on that hop,
+followed by parent-side TCP dials of 19, 15, 16 and 20 ms respectively. Return IPC
+was normally 0-1 ms. Thus a substantial part of the displayed loading latency
+was internal control-message delay on the IPC path shared with bulk transfer.
+Fresh TLS/request setup adds further round trips. This measurement locates the
+delay boundary; it does not establish the exact Electron scheduler or OS
+mechanism that delayed delivery.
+
+For snapshots with transfer above 1 MiB/s, displayed median latency was 344.29 ms
+with 8-KiB framing and 292.20 ms with 32-KiB framing. The transport improvement
+did not eliminate control-path delay. Separating or prioritizing bulk/control
+delivery and measuring an established connection are follow-up work, not fixes
+claimed by this comparison.
+
+The temporary peer-call tracer had a teardown defect: removing its global trace
+buffer while a wrapped request was still pending could throw from its `finally`
+block, incorrectly failing that request. The model stopped after the measured
+32-KiB Ready result during that teardown. The original PeerNode and TLS functions
+were restored and inspected, with no tracer hooks or buffers remaining. A final
+normal load and cleanup verification follows this correction.
+
+Further profiling located the blocking native call, rather than only the IPC
+boundary. `getPeerHost` in `hosts/development-desktop.ts` called
+`ownershipBinding().privateDirectory(stateBase)` on every peer read, including
+when the host promise already existed. That native function applies an
+inheritable protected DACL synchronously using `SetNamedSecurityInfoW`. A
+30-second main-process CPU profile attributed 8.232 seconds to that native call
+under the `getPeerHost -> peers` stack. A second dial trace showed `postMessage`
+itself returning within 0-1 ms, followed by 177-235 ms without parent delivery;
+the core ran 11-14 ten-millisecond timer callbacks in those waits, while the
+parent generally ran only one. Repeated permission application blocks the main
+event loop and delays the authenticated control path.
+
+After explicit PROCEED approval, permission setup was moved inside first host
+initialization. The same native ownership/ACL operation still runs before host
+creation and runs again if initialization fails and is retried. Cached reads do
+not rewrite permissions. New tests first failed with nine permission calls for
+nine reads, then passed with one call. They also cover concurrent reads, failing
+closed before host creation on permission failure, and rechecking permissions
+after a failed host initialization. No RPC authentication, identity storage,
+directory policy or native ACL implementation was changed.
+
+The user then approved temporarily pausing the exact existing PTSS Kryptex miner
+for a second comparison. Its executable path and process creation time were
+recorded before reversible suspension, and GPU utilization dropped from 100%
+to 0%. Models, credentials, pairing records and load preferences were retained.
+The original 8-KiB/permission-rewrite baseline runs against the already compiled
+old build; source edits are applied only on the subsequent canonical relaunch.
+
+The mining-paused old-build baseline did not reach Ready within ten minutes;
+the explicit Stop observation at 620.829 seconds already saw a failed view and
+returned stopped without an error. It is an incomplete/failed baseline, not a
+successful load-time measurement. With both approved fixes rebuilt on both PCs,
+the subsequent transfer showed 14-19 ms ordinary ping (six replies, no loss)
+while app control latency was 86-89 ms in contemporaneous snapshots. Later
+transfer snapshots measured about 70-93 ms. The fixed main-process profiles
+contained no repeated `getPeerHost` permission-call samples. The preflight
+profile instead showed ordinary file hashing and file reads.
+
+Validation after restoring the permanent 32-KiB framing: 47 focused tests passed
+across six files, including peer hosting, desktop deadlines, initialization
+retry and IPC data admission. The PTSS checkout independently passed all 16
+development-desktop tests. Core type checking, changed-source ESLint and
+Prettier passed. Running the new 32-KiB tests while the deliberate 8-KiB baseline
+was selected had correctly failed those frame-admission assertions; restoring
+the permanent source made the focused suite pass. Both PCs' implementation and
+regression-test file hashes matched after deployment.
+
+The final mining-paused run reached Ready in **381.844 seconds** from the normal
+saved-configuration command. Its first loading snapshot was at 140.884 seconds,
+so file/resource preflight accounted for roughly 2m21s before loading. Both
+expected layer runs were present in `activeCluster`, with no runtime error.
+Across 33 loading snapshots above 1 MiB/s, median displayed control latency was
+83.47 ms, mean was 90.79 ms, mean transfer was 8.88 MiB/s and peak was 10.15
+MiB/s. This establishes a completed distributed load with the latency fix; it
+does not turn the failed ten-minute baseline into an exact percentage gain.
+The earlier completed framing-only pair remains the 474.834-to-257.687-second
+comparison, under its separately recorded conditions.
+
+The same recorded Kryptex process was resumed after Ready, using both executable
+path and creation time to reject PID reuse. PTSS GPU utilization returned to
+100%. Diagnostic prototypes had already been restored; no peer/TLS wrappers are
+part of the product change. Final cleanup removes the temporary scripts,
+logpoint/profiler output, baseline source backups and diagnostic scheduled tasks
+on both PCs, while retaining the approved fix, regression tests and this record.
+
+Post-cleanup bridge reads still reported Ready, no runtime error, the same two
+active layer runs and an approved PTSS peer. Kryptex restarted its miner child
+processes after resumption; GPU utilization remained 100%. Both source apps
+remained open, with one primary app process per PC. The diagnostic scheduled
+tasks, per-run directories and inspector listeners were removed/closed. Automatic
+approval review initially rejected local directory deletion with only `blocked
+by policy`; the user deleted it manually. A subsequent check confirmed the
+directory was absent, no diagnostic tasks or app inspector listeners remained,
+and exactly one primary local source app process was running. No generation
+test was run, no credentials were reset, and no commit or push was made for this
+diagnostic/fix slice.
