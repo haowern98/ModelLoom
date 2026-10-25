@@ -78,6 +78,8 @@ const configurationErrors: Readonly<Record<string, string>> = {
 };
 
 interface ClusterPageProps extends JoiningProps {
+  connectionsRequest?: number;
+  onConnectionsOpened?: () => void;
   demo: boolean;
   pendingPeerRequests?: number;
   configurations?: ClusterConfigurations;
@@ -113,6 +115,8 @@ export function ClusterPage({
   localRuntime,
   configurations,
   pendingPeerRequests = 0,
+  connectionsRequest = 0,
+  onConnectionsOpened,
 }: ClusterPageProps) {
   const [configurationName, setConfigurationName] = useState('');
   const [validatedDemoInputs, setValidatedDemoInputs] = useState<readonly LayerInput[] | null>(
@@ -193,17 +197,32 @@ export function ClusterPage({
           ) || localRuntime?.activeCluster?.runs.some((run) => run.uuid === hardware.assignmentId),
       ),
   );
-  const navigate = (next: ClusterView) => {
-    setView(next);
-    if (next === 'overview' && deviceDetailsTarget) {
+  const navigate = useCallback(
+    (next: ClusterView) => {
+      setView(next);
+      if (next === 'overview' && deviceDetailsTarget) {
+        setDeviceDetailsTarget(null);
+        setPanelOpen(true);
+        return;
+      }
       setDeviceDetailsTarget(null);
-      setPanelOpen(true);
-      return;
-    }
-    setDeviceDetailsTarget(null);
-    setPanelOpen(false);
-    setSelection({ type: 'overview' });
-  };
+      setPanelOpen(false);
+      setSelection({ type: 'overview' });
+    },
+    [deviceDetailsTarget],
+  );
+  useEffect(() => {
+    if (!connectionsRequest) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      navigate('add');
+      onConnectionsOpened?.();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [connectionsRequest, navigate, onConnectionsOpened]);
   const positions = canvasPositions(canvasDevices, arrangement.positions);
   const spatial = Object.keys(arrangement.positions).length > 0;
   const minColumn = Math.min(0, ...Object.values(positions).map((position) => position.column));

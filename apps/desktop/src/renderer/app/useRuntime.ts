@@ -21,7 +21,13 @@ export function useRuntime() {
             !busy.current || importing.current
               ? next
               : previous
-                ? { ...previous, memoryWarning: next.memoryWarning ?? null }
+                ? {
+                    ...previous,
+                    ...(['starting', 'loading'].includes(next.phase)
+                      ? { phase: next.phase, error: null }
+                      : {}),
+                    memoryWarning: next.memoryWarning ?? null,
+                  }
                 : null,
           );
       } catch {
@@ -44,7 +50,12 @@ export function useRuntime() {
     const current = ++generation.current;
     busy.current = true;
     importing.current = command.action === 'import';
-    setLoading(command.action === 'load' || command.action === 'run-configuration');
+    const startsLoad = command.action === 'load' || command.action === 'run-configuration';
+    setLoading(startsLoad);
+    // A retry is a new observation. Do not redisplay the previous attempt's fault
+    // while main is still preparing the next one.
+    if (startsLoad)
+      setView((previous) => (previous ? { ...previous, error: null, memoryWarning: null } : null));
     try {
       const next = await bridge.command(command);
       if (current === generation.current) setView(next);
