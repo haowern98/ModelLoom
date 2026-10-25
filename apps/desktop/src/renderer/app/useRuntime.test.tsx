@@ -65,7 +65,7 @@ it('polls memory warnings during a pending load without replacing its final resu
   });
   snapshot = { ...base, phase: 'loading', memoryWarning: { id: 'first' } };
   await waitFor(() => expect(hook.result.current.view?.memoryWarning?.id).toBe('first'));
-  expect(hook.result.current.view?.phase).toBe('stopped');
+  expect(hook.result.current.view?.phase).toBe('loading');
   expect(hook.result.current.loading).toBe(true);
   let answer!: Promise<void>;
   act(() => {
@@ -90,5 +90,37 @@ it('polls memory warnings during a pending load without replacing its final resu
     id: 'first',
     loadAnyway: false,
   });
+  hook.unmount();
+});
+
+it('clears the previous failure on retry and ignores stale failed polls until that attempt finishes', async () => {
+  const failed: RuntimeView = { enabled: true, model: null, phase: 'failed', error: 'Old failure' };
+  let snapshot = failed;
+  let finish!: (value: RuntimeView) => void;
+  window.modelLoomRuntime = {
+    command: (input) =>
+      input.action === 'load'
+        ? new Promise<RuntimeView>((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve(snapshot),
+  };
+  const hook = renderHook(() => module.useRuntime());
+  await waitFor(() => expect(hook.result.current.view?.error).toBe('Old failure'));
+  let pending!: Promise<void>;
+  act(() => {
+    pending = hook.result.current.run({ action: 'load', modelId: 'model-123' });
+  });
+  expect(hook.result.current.view?.error).toBeNull();
+  await new Promise((resolve) => setTimeout(resolve, 550));
+  expect(hook.result.current.view?.error).toBeNull();
+  snapshot = { ...failed, phase: 'loading', error: null };
+  await waitFor(() => expect(hook.result.current.view?.phase).toBe('loading'));
+  await act(async () => {
+    finish({ ...failed, error: 'New failure' });
+    await pending;
+  });
+  expect(hook.result.current.view?.error).toBe('New failure');
+  expect(hook.result.current.loading).toBe(false);
   hook.unmount();
 });
