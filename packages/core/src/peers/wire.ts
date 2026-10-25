@@ -34,7 +34,7 @@ export interface PeerView {
 export type PeerCommand =
   | { readonly action: 'read' | 'stop-sharing' }
   | { readonly action: 'share'; readonly address: string; readonly gpuIds: readonly string[] }
-  | { readonly action: 'invite'; readonly address: string }
+  | { readonly action: 'invite'; readonly address: string; readonly expectedFingerprint?: string }
   | { readonly action: 'approve' | 'cancel'; readonly id: string }
   | { readonly action: 'verify-code'; readonly id: string; readonly code: string }
   | { readonly action: 'decline'; readonly id: string };
@@ -129,8 +129,18 @@ export function decodePeerCommand(input: unknown): PeerCommand {
       shape(input, ['action']);
       return { action };
     case 'invite': {
-      const value = shape(input, ['action', 'address']);
-      return { action, address: decodePeerAddress(value.address).href };
+      const expected =
+        !!input && typeof input === 'object' && Object.hasOwn(input, 'expectedFingerprint');
+      const value = shape(input, [
+        'action',
+        'address',
+        ...(expected ? ['expectedFingerprint'] : []),
+      ]);
+      return {
+        action,
+        address: decodePeerAddress(value.address).href,
+        ...(expected ? { expectedFingerprint: fingerprint(value.expectedFingerprint) } : {}),
+      };
     }
     case 'share': {
       const value = shape(input, ['action', 'address', 'gpuIds']);
