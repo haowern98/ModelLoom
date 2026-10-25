@@ -1,7 +1,9 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import type * as FsPromises from 'node:fs/promises';
 import {
   link,
+  copyFile,
   mkdtemp,
   mkdir,
   readFile,
@@ -9,6 +11,7 @@ import {
   rename,
   rm,
   symlink,
+  statfs,
   writeFile,
 } from 'node:fs/promises';
 import os from 'node:os';
@@ -17,8 +20,21 @@ import { repository } from '../../tests/package-repository.js';
 import { inventory } from '../../tests/inventory-fixture.js';
 import { createFixtureVerifier } from './verifier.js';
 import { installExpanded, revalidateInstalled, requireInstalledLive } from './install.js';
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromises>();
+  return {
+    ...actual,
+    statfs: vi.fn(actual.statfs),
+    copyFile: vi.fn(actual.copyFile),
+    rm: vi.fn(actual.rm),
+  };
+});
+const actualFs = await vi.importActual<typeof FsPromises>('node:fs/promises');
 const dirs: string[] = [];
 afterEach(async () => {
+  vi.mocked(statfs).mockReset().mockImplementation(actualFs.statfs);
+  vi.mocked(copyFile).mockReset().mockImplementation(actualFs.copyFile);
+  vi.mocked(rm).mockReset().mockImplementation(actualFs.rm);
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 async function setup() {
@@ -49,8 +65,110 @@ async function setup() {
   await writeFile(path.join(bundle, 'ModelLoom-runtime-host.exe'), second);
   const signed = await repository(repo, description);
   const capability = await createFixtureVerifier(signed.root).verify(repo, path.join(dir, 'state'));
-  return { dir, bundle, root, capability };
+  return { dir, bundle, root, capability, repo, signed };
 }
+it('reuses a verified installation with a fresh receipt and freshly verified capability', async () => {
+  const { capability, bundle, root, dir, repo, signed } = await setup();
+  const first = await installExpanded(capability, bundle, root);
+  const nextCapability = await createFixtureVerifier(signed.root).verify(
+    repo,
+    path.join(dir, 'next-state'),
+  );
+  const second = await installExpanded(nextCapability, bundle, root);
+  expect(second).not.toBe(first);
+  expect(second.directory).toBe(first.directory);
+  expect(await readdir(root)).toHaveLength(1);
+  const lock = await revalidateInstalled(second);
+  lock.release();
+  await expect(revalidateInstalled({ ...second })).rejects.toThrow('INSTALL_FAILED');
+  expect(() => requireInstalledLive(second)).toThrow('UNVERIFIED_PACKAGE');
+});
+it('serializes concurrent installation requests into one verified directory', async () => {
+  const { capability, bundle, root } = await setup();
+  const installed = await Promise.all(
+    Array.from({ length: 3 }, () => installExpanded(capability, bundle, root)),
+  );
+  expect(new Set(installed.map((item) => item.directory)).size).toBe(1);
+  expect(await readdir(root)).toHaveLength(1);
+});
+it('reissues authority for a verified cached installation in a fresh module lifetime', async () => {
+  const { capability, bundle, root, dir, repo, signed } = await setup();
+  const previous = await installExpanded(capability, bundle, root);
+  vi.resetModules();
+  const freshVerifier = await import('./verifier.js');
+  const freshInstaller = await import('./install.js');
+  const freshCapability = await freshVerifier
+    .createFixtureVerifier(signed.root)
+    .verify(repo, path.join(dir, 'fresh-state'));
+  const current = await freshInstaller.installExpanded(freshCapability, bundle, root);
+  expect(current.directory).toBe(previous.directory);
+  await expect(freshInstaller.revalidateInstalled(previous)).rejects.toThrow('INSTALL_FAILED');
+  const lock = await freshInstaller.revalidateInstalled(current);
+  lock.release();
+  expect(() => freshInstaller.requireInstalledLive(current)).toThrow('UNVERIFIED_PACKAGE');
+});
+it('preserves a tampered matching installation and creates a verified replacement', async () => {
+  const { capability, bundle, root } = await setup();
+  const first = await installExpanded(capability, bundle, root);
+  await writeFile(path.join(first.directory, 'llama-server.exe'), 'bad');
+  const second = await installExpanded(capability, bundle, root);
+  expect(second.directory).not.toBe(first.directory);
+  expect(await readFile(path.join(first.directory, 'llama-server.exe'), 'utf8')).toBe('bad');
+  expect(await readFile(path.join(second.directory, 'llama-server.exe'), 'utf8')).toBe('exe');
+  expect(await readdir(root)).toHaveLength(2);
+});
+it('rejects insufficient free space before creating an installation candidate', async () => {
+  const { capability, bundle, root } = await setup();
+  const disk = await actualFs.statfs(bundle);
+  vi.mocked(statfs).mockResolvedValue({ ...disk, bavail: 0 });
+  vi.mocked(copyFile).mockClear();
+  await expect(installExpanded(capability, bundle, root)).rejects.toThrow(
+    'INSUFFICIENT_DISK_SPACE',
+  );
+  expect(await readdir(root)).toEqual([]);
+  expect(copyFile).not.toHaveBeenCalled();
+});
+it('reuses a verified installation even when no free disk space remains', async () => {
+  const { capability, bundle, root } = await setup();
+  const first = await installExpanded(capability, bundle, root);
+  const disk = await actualFs.statfs(bundle);
+  vi.mocked(statfs).mockResolvedValue({ ...disk, bavail: 0 });
+  vi.mocked(copyFile).mockClear();
+  const second = await installExpanded(capability, bundle, root);
+  expect(second.directory).toBe(first.directory);
+  expect(await readdir(root)).toHaveLength(1);
+  expect(copyFile).not.toHaveBeenCalled();
+});
+it('removes only its partial candidate when copying runs out of disk space', async () => {
+  const { capability, bundle, root } = await setup();
+  const previous = await installExpanded(capability, bundle, root);
+  await writeFile(path.join(previous.directory, 'llama-server.exe'), 'bad');
+  vi.mocked(copyFile).mockClear();
+  vi.mocked(copyFile)
+    .mockImplementationOnce(actualFs.copyFile)
+    .mockRejectedValueOnce(Object.assign(new Error('full'), { code: 'ENOSPC' }));
+  await expect(installExpanded(capability, bundle, root)).rejects.toThrow(
+    'INSUFFICIENT_DISK_SPACE',
+  );
+  expect(copyFile).toHaveBeenCalledTimes(2);
+  expect(await readdir(root)).toEqual([path.basename(previous.directory)]);
+  expect(await readFile(path.join(previous.directory, 'llama-server.exe'), 'utf8')).toBe('bad');
+});
+it('retains the disk-space failure and cleanup error when a partial candidate cannot be removed', async () => {
+  const { capability, bundle, root } = await setup();
+  const diskError = Object.assign(new Error('full'), { code: 'ENOSPC' });
+  const cleanupError = Object.assign(new Error('busy'), { code: 'EBUSY' });
+  vi.mocked(copyFile).mockRejectedValueOnce(diskError);
+  vi.mocked(rm).mockRejectedValueOnce(cleanupError);
+  const failure: unknown = await installExpanded(capability, bundle, root).catch(
+    (error: unknown) => error,
+  );
+  expect(failure).toBeInstanceOf(Error);
+  expect(failure).toMatchObject({ message: 'INSUFFICIENT_DISK_SPACE' });
+  expect((failure as Error).cause).toBeInstanceOf(AggregateError);
+  expect(((failure as Error).cause as AggregateError).errors).toEqual([diskError, cleanupError]);
+  expect(await readdir(root)).toHaveLength(1);
+});
 it('copies checked dependencies into a new version and retains file locks during revalidation', async () => {
   const { capability, bundle, root } = await setup();
   const installed = await installExpanded(capability, bundle, root);

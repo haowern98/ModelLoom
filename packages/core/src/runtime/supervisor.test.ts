@@ -96,6 +96,24 @@ describe('runtime supervisor', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(engine.isAlive()).toBe(false);
   });
+  it.each(['RPC_DISCONNECTED', 'PLACEMENT_MISMATCH', 'CONTEXT_MISMATCH'])(
+    'retains the safe startup reason %s without exposing native output',
+    async (reason) => {
+      const engine = fixture();
+      const core = new RuntimeSupervisor(
+        'd1',
+        {
+          async launch(chosen, signal) {
+            const owned = await engine.adapter.launch(chosen, signal);
+            return { ...owned, waitReady: () => Promise.reject(Error(reason)) };
+          },
+        },
+        LIFECYCLE_POLICY,
+      );
+      expect((await core.load(selection)).fault?.message).toBe(`Engine startup failed (${reason})`);
+      await core.stop();
+    },
+  );
   it('releases an abandoned launch after its late rejection proves no owned instance exists', async () => {
     let rejectLaunch!: (reason: unknown) => void;
     const delayed = new Promise<OwnedEngine>((_resolve, reject) => {
