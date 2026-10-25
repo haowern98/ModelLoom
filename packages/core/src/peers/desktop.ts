@@ -15,8 +15,11 @@ import { peerResourceClient } from './resource-channel.js';
 import type { PeerResources } from './resources.js';
 import { decodePeerHardware } from './hardware.js';
 import type { PeerHardware } from './hardware.js';
+import type { PeerOverlay } from './overlay.js';
+import { overlayChannel } from './overlay-channel.js';
 
 export interface DesktopPeerHost {
+  attachOverlay?(overlay: PeerOverlay): void;
   setRuntimeBusy(busy: boolean): Promise<void>;
   command(caller: string, input: unknown): Promise<PeerReply>;
   close(): Promise<void>;
@@ -83,6 +86,7 @@ export async function createDesktopPeerHost(
     child.postMessage(JSON.stringify(value));
   };
   const reservations = localReservationClient(send);
+  const overlay = overlayChannel(send);
   const resources = peerResourceClient(send);
   const admit = () => {
     if (!spawned || !booted || admitted) return;
@@ -102,6 +106,7 @@ export async function createDesktopPeerHost(
     }
   });
   child.on('exit', (code: unknown) => {
+    overlay.close();
     exitCode = typeof code === 'number' ? code : undefined;
     reservations.close();
     resources.close();
@@ -127,6 +132,7 @@ export async function createDesktopPeerHost(
       if (typeof input !== 'string' || Buffer.byteLength(input) > 131072)
         throw new Error('INVALID_CONTROL');
       const message = decodeObject(input);
+      if (overlay.receive(message)) return;
       if (message.type === 'peer-changed') {
         exact(message, ['type', 'reply']);
         if (!admitted) throw Error('INVALID_CONTROL');
@@ -201,11 +207,16 @@ export async function createDesktopPeerHost(
           await peerDeadline(exit, PEER_CLEANUP_MS + 2000, 'PEER_STOP_TIMEOUT');
         }
       } finally {
+        // Queued overlay frames remain valid until the core has finished its teardown.
+        overlay.close();
         native.closeDeployment(root);
         await confirmExit(() => native.coresExited(root), 3000);
       }
       if (!cleanupConfirmed || exitCode !== 0) throw Error('PEER_CLEANUP_FAILED');
-    })();
+    })().catch((error) => {
+      closing = undefined;
+      throw error;
+    });
     return closing;
   }
   try {
@@ -215,6 +226,7 @@ export async function createDesktopPeerHost(
     throw error;
   }
   return {
+    attachOverlay: (source) => overlay.attach(source),
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
