@@ -110,8 +110,9 @@ export function runPeerUtility(
       if (typeof input !== 'string' || Buffer.byteLength(input) > 262144 || closed)
         throw new Error('INVALID_CONTROL');
       const message = decodeObject(input);
-      // Only the bounded route snapshot may exceed ordinary control-frame size.
-      if (message.type !== 'overlay-routes' && Buffer.byteLength(input) > 16384)
+      // Data holds one bounded 32-KiB fragment in base64. Control frames stay 16 KiB.
+      const data = message.type === 'overlay-data' || message.type === 'rpc-data';
+      if (message.type !== 'overlay-routes' && Buffer.byteLength(input) > (data ? 65536 : 16384))
         throw Error('INVALID_CONTROL');
       if (typeof message.type === 'string' && message.type.startsWith('overlay-')) {
         if (!preparation) throw Error('INVALID_CONTROL');

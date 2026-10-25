@@ -66,23 +66,27 @@ export function developmentDesktopDependencies(
   let peersClosed = false;
   const getPeerHost = () => {
     if (!applicationData || !caller || peersClosed) throw new Error('NOT_READY');
-    ownershipBinding().privateDirectory(path.resolve(stateBase));
-    peerHost ??= createDesktopPeerHost(fork, applicationData, caller, {
-      bootstrap: path.join(base, 'peers'),
-      state: path.join(stateBase, 'peers'),
-    })
-      .then(async (host) => {
-        if (overlay) host.attachOverlay?.(overlay);
-        host.subscribe((reply) => {
-          for (const listener of peerListeners) listener(reply);
-        });
-        if (peerHardware) await host.updateHardware(peerHardware);
-        return host;
+    if (!peerHost) {
+      // Applying inheritable ACLs is synchronous. Set them before creating the
+      // owned host, rather than blocking the GUI on every telemetry/state read.
+      ownershipBinding().privateDirectory(path.resolve(stateBase));
+      peerHost = createDesktopPeerHost(fork, applicationData, caller, {
+        bootstrap: path.join(base, 'peers'),
+        state: path.join(stateBase, 'peers'),
       })
-      .catch((error) => {
-        peerHost = undefined;
-        throw error;
-      });
+        .then(async (host) => {
+          if (overlay) host.attachOverlay?.(overlay);
+          host.subscribe((reply) => {
+            for (const listener of peerListeners) listener(reply);
+          });
+          if (peerHardware) await host.updateHardware(peerHardware);
+          return host;
+        })
+        .catch((error) => {
+          peerHost = undefined;
+          throw error;
+        });
+    }
     return peerHost;
   };
   async function clusterResources(

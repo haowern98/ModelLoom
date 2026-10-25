@@ -126,7 +126,7 @@ export function ConnectionDetails({
           {!direct
             ? 'This line shows canvas placement, not a direct device connection.'
             : telemetry?.state === 'active'
-              ? 'Application traffic during inference.'
+              ? 'Application traffic during loading and inference.'
               : telemetry?.state === 'testing'
                 ? 'Testing connection while idle...'
                 : telemetry?.state === 'unsupported'
@@ -144,7 +144,7 @@ export function ConnectionDetails({
               {telemetry?.state === 'active'
                 ? rate(telemetry.sendingBytesPerSecond)
                 : telemetry?.uploadMbps != null
-                  ? `${telemetry.uploadMbps.toFixed(1)} Mbps`
+                  ? rate((telemetry.uploadMbps * 1000000) / 8)
                   : 'Unavailable'}
             </dd>
           </div>
@@ -154,7 +154,7 @@ export function ConnectionDetails({
               {telemetry?.state === 'active'
                 ? rate(telemetry.receivingBytesPerSecond)
                 : telemetry?.downloadMbps != null
-                  ? `${telemetry.downloadMbps.toFixed(1)} Mbps`
+                  ? rate((telemetry.downloadMbps * 1000000) / 8)
                   : 'Unavailable'}
             </dd>
           </div>
