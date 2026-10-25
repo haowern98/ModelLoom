@@ -192,3 +192,50 @@ it('relays an owned RPC connection through the parent-only channel and tears it 
   expect(socket.destroyed).toBe(true);
   expect(pipe.stream.destroyed).toBe(true);
 });
+
+it('accepts one bounded 32-KiB native data frame after trusted RPC admission', async () => {
+  let receive!: (message: unknown) => void;
+  const send = vi.fn(),
+    exit = vi.fn(),
+    socket = new PassThrough(),
+    id = randomUUID();
+  const chunks: Buffer[] = [];
+  socket.on('data', (bytes: Buffer) => chunks.push(bytes));
+  runPeerUtility(
+    {
+      receive: (handler) => {
+        receive = handler;
+      },
+      send,
+      exit,
+    },
+    () =>
+      Promise.resolve({
+        command: () => Promise.resolve<PeerReply>({ ok: false, error: 'NOT_READY' }),
+        close: () => Promise.resolve(),
+        openRpc: () => Promise.resolve(socket),
+      }),
+  );
+  receive(JSON.stringify({ type: 'admit', applicationData: 'E:/test-peer', caller: 'window' }));
+  await vi.waitFor(() => expect(send).toHaveBeenCalledWith(JSON.stringify({ type: 'ready' })));
+  receive(
+    JSON.stringify({
+      type: 'rpc-open',
+      id,
+      device: `peer:${'a'.repeat(64)}:GPU-11111111-1111-1111-1111-111111111111`,
+    }),
+  );
+  await vi.waitFor(() =>
+    expect(send).toHaveBeenCalledWith(JSON.stringify({ type: 'rpc-ready', id })),
+  );
+  const input = Buffer.alloc(32768, 173);
+  try {
+    receive(JSON.stringify({ type: 'rpc-data', id, sequence: 1, bytes: input.toString('base64') }));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(exit).not.toHaveBeenCalled();
+    expect(Buffer.concat(chunks)).toEqual(input);
+  } finally {
+    receive(JSON.stringify({ type: 'quit' }));
+    await vi.waitFor(() => expect(exit).toHaveBeenCalled());
+  }
+});

@@ -5,6 +5,7 @@ import type * as DevelopmentPolicy from '../runtime-package/development-policy.j
 import type { DesktopDeployment } from './desktop.js';
 import { discoverResources } from './resource-probe.js';
 import type { ClusterDraft } from '../cluster/contracts.js';
+import { createDesktopPeerHost } from '../peers/desktop.js';
 
 const startup = vi.hoisted(() => ({
   admit: vi.fn(),
@@ -14,6 +15,7 @@ const startup = vi.hoisted(() => ({
   adapter: vi.fn(),
   setRuntimeBusy: vi.fn(() => Promise.resolve()),
   closePeers: vi.fn(() => Promise.resolve()),
+  privateDirectory: vi.fn(() => undefined),
   candidates: vi.fn((...args: unknown[]) => {
     void args;
     return Promise.resolve({ code: 'NO_FIT' });
@@ -27,7 +29,7 @@ vi.mock('./placement-estimator.js', () => ({
   runPlacementEstimator: vi.fn(),
 }));
 vi.mock('../peers/desktop.js', () => ({
-  createDesktopPeerHost: () =>
+  createDesktopPeerHost: vi.fn(() =>
     Promise.resolve({
       subscribe: () => () => undefined,
       setRuntimeBusy: startup.setRuntimeBusy,
@@ -61,11 +63,12 @@ vi.mock('../peers/desktop.js', () => ({
           ],
         }),
     }),
+  ),
 }));
 vi.mock('./windows-ownership.js', () => ({
   ownershipBinding: () => ({
     createDeployment: () => ({}),
-    privateDirectory: () => undefined,
+    privateDirectory: startup.privateDirectory,
     admitCore: startup.admit,
     closeDeployment: startup.close,
     coresExited: () => true,
@@ -111,6 +114,43 @@ vi.mock('./resource-probe.js', () => ({
   ),
 }));
 beforeEach(() => vi.clearAllMocks());
+
+it('initializes peer directory permissions once while concurrent reads reuse the host', async () => {
+  const deps = developmentDesktopDependencies(vi.fn(), 'bootstrap', 'profile', 'window', 'state');
+  await Promise.all(Array.from({ length: 8 }, () => deps.peers({ action: 'read' })));
+  await deps.peers({ action: 'read' });
+  expect(createDesktopPeerHost).toHaveBeenCalledTimes(1);
+  expect(startup.privateDirectory).toHaveBeenCalledTimes(1);
+  expect(startup.privateDirectory).toHaveBeenCalledWith(path.resolve('state'));
+  expect(startup.privateDirectory.mock.invocationCallOrder[0]).toBeLessThan(
+    vi.mocked(createDesktopPeerHost).mock.invocationCallOrder[0]!,
+  );
+  await deps.closePeers();
+});
+
+it('fails closed on peer directory permission failure and checks again on retry', async () => {
+  const deps = developmentDesktopDependencies(vi.fn(), 'bootstrap', 'profile', 'window', 'state');
+  startup.privateDirectory.mockImplementationOnce(() => {
+    throw Error('OWNERSHIP_FAILED');
+  });
+  await expect(deps.peers({ action: 'read' })).rejects.toThrow('OWNERSHIP_FAILED');
+  expect(createDesktopPeerHost).not.toHaveBeenCalled();
+  await deps.peers({ action: 'read' });
+  expect(startup.privateDirectory).toHaveBeenCalledTimes(2);
+  expect(createDesktopPeerHost).toHaveBeenCalledTimes(1);
+  await deps.closePeers();
+});
+
+it('rechecks directory permissions when peer host initialization must be retried', async () => {
+  const deps = developmentDesktopDependencies(vi.fn(), 'bootstrap', 'profile', 'window', 'state');
+  vi.mocked(createDesktopPeerHost).mockRejectedValueOnce(Error('CORE_START_FAILED'));
+  await expect(deps.peers({ action: 'read' })).rejects.toThrow('CORE_START_FAILED');
+  await deps.peers({ action: 'read' });
+  await deps.peers({ action: 'read' });
+  expect(startup.privateDirectory).toHaveBeenCalledTimes(2);
+  expect(createDesktopPeerHost).toHaveBeenCalledTimes(2);
+  await deps.closePeers();
+});
 
 it.each([
   ['local only', ['GPU-22c23971-dacf-2123-2169-ad70d8f6729a']],
