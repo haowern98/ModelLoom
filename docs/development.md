@@ -124,11 +124,27 @@ The recommended source boundaries are in the technical spec; create directories 
 
 Run these from `E:\ModelLoom-Project`. The current privileged/headless development host is Windows x64, Node 24.21.0 and pnpm 11.19.0. The original desktop-foundation checks used Node 24.7.0; native Node-API headers/import-library compatibility is described in the core README. Direct dependency versions are pinned and the workspace lockfile is present. The pnpm workspace uses `nodeLinker: hoisted` for Forge and explicitly permits Electron/esbuild build steps. No global tool settings were changed.
 
+**Interactive development launch, 2026-10-25:** Use only this command from the
+repository root for ordinary manual sessions:
+
+```powershell
+npm run electron dev
+```
+
+This launcher uses the source development app and its existing persistent profile:
+`%APPDATA%\ModelLoom` on Windows, with the existing `.modelloom` core profile. It
+does not migrate enrollment, settings or identities from packaged development
+profiles. Do not launch a packaged `.exe`, use `pnpm dev`, invoke Electron or Forge
+directly, or supply profile overrides for ordinary manual sessions. Dependency
+installation, builds and tests continue to use pnpm; npm is only the interactive
+launcher. Packaging, CI and isolated test launches remain separate validation
+paths, not alternate ways to run the user's development session. Dated evidence
+below may retain commands used before this launch policy.
+
 | Command                          | Purpose and verified scope                                                                                                                                                                                                                                                 |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm install --frozen-lockfile` | Restore the approved tuple; initial install and lockfile policy validation passed.                                                                                                                                                                                         |
-| `pnpm dev`                       | Open the ordinary Electron desktop without sample models/devices. On Windows, rebuild hosts and enable the approved development core before opening the window; preparation failure stops startup. First launch may download the pinned Electron binary.                   |
-| `pnpm dev:web`                   | Ordinary browser preview at `http://127.0.0.1:5173`, without sample data or a native bridge; do not run alongside another server using that port.                                                                                                                          |
+| `npm run electron dev`           | The only ordinary interactive desktop launcher. Open the source development app with its persistent profile, without sample models/devices; preparation failure stops startup. First launch may download the pinned Electron binary.                                       |
 | `pnpm typecheck`                 | Strict source/configuration/test type checking.                                                                                                                                                                                                                            |
 | `pnpm lint`                      | Type-aware TypeScript linting and conventional Node configuration checks.                                                                                                                                                                                                  |
 | `pnpm format:check`              | Verify owned code and configuration formatting. `pnpm format` applies it.                                                                                                                                                                                                  |
@@ -227,3 +243,7 @@ output, even if a test fails. An ordinary host build correctly rejects the two
 staging mutation cases before their intended assertions with
 `DEVELOPMENT_BUILD_REQUIRED`; that is a setup failure, not tamper-test evidence.
 These tests verify existing signed inputs and do not renew or sign metadata.
+
+## Embedded Tailscale development
+
+See [embedded networking developer notes](development-network.md) for exact Go/Tailscale pins, prebuilt artifact checks, protected-state behavior and the distinction between cross-builds and native platform acceptance.
