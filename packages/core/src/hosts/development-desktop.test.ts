@@ -12,6 +12,8 @@ const startup = vi.hoisted(() => ({
   verify: vi.fn(),
   install: vi.fn(),
   adapter: vi.fn(),
+  setRuntimeBusy: vi.fn(() => Promise.resolve()),
+  closePeers: vi.fn(() => Promise.resolve()),
   candidates: vi.fn((...args: unknown[]) => {
     void args;
     return Promise.resolve({ code: 'NO_FIT' });
@@ -28,6 +30,8 @@ vi.mock('../peers/desktop.js', () => ({
   createDesktopPeerHost: () =>
     Promise.resolve({
       subscribe: () => () => undefined,
+      setRuntimeBusy: startup.setRuntimeBusy,
+      close: startup.closePeers,
       command: () =>
         Promise.resolve({
           ok: true,
@@ -360,4 +364,108 @@ it('binds the admitted engine after verification and closes it with the history 
   await expect(
     startup.deployment!.adapter.launch(selection, new AbortController().signal),
   ).rejects.toThrow('NOT_READY');
+});
+
+function pending<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function preparedChatFixture() {
+  const dependencies = developmentDesktopDependencies(
+    () => {
+      throw new Error('UNEXPECTED_FORK');
+    },
+    'unused',
+    'trusted-profile',
+    'captured-window',
+  );
+  const host = await dependencies.createHistoryHost();
+  const cancelled = { status: 'cancelled' as const, reason: 'USER_CANCELLED' as const };
+  const generated = pending<typeof cancelled>();
+  const counted = pending<number>();
+  const native = {
+    tokenCount: vi.fn(() => counted.promise),
+    start: vi.fn(() => ({
+      settled: generated.promise,
+      cancel: vi.fn(() => generated.resolve(cancelled)),
+    })),
+  };
+  const engine = {
+    selection: {
+      deploymentId: dependencies.deploymentId,
+      packageId: dependencies.packageId,
+      modelId: dependencies.expectedHash,
+      sessionId: 'session',
+      operationId: 'load',
+    },
+    exited: Promise.resolve({ code: 0, signal: null }),
+    waitReady: () => Promise.resolve(),
+    requestStop: () => Promise.resolve(),
+    forceStop: () => Promise.resolve(),
+  };
+  startup.verify.mockResolvedValueOnce('verified');
+  startup.install.mockResolvedValueOnce({});
+  startup.adapter.mockReturnValueOnce({
+    chat: () => native,
+    close: () => Promise.resolve(),
+  });
+  await host.prepare('approved.gguf');
+  const transport = startup.deployment!.chat!(engine);
+  const identity = {
+    kind: 'api' as const,
+    deploymentId: dependencies.deploymentId,
+    sessionId: 'session',
+    operationId: 'load',
+    callerId: 'http',
+    requestId: 'request',
+  };
+  return { dependencies, host, transport, native, counted, cancelled, identity };
+}
+
+it('finishes active generation cancellation after peer Quit admission closes', async () => {
+  const fixture = await preparedChatFixture();
+  try {
+    const execution = fixture.transport.start(fixture.identity, [], () => undefined);
+    await vi.waitFor(() => expect(fixture.native.start).toHaveBeenCalledOnce());
+    await fixture.dependencies.beginPeerQuit();
+    await execution.cancel();
+    await expect(execution.settled).resolves.toEqual(fixture.cancelled);
+    expect(startup.setRuntimeBusy.mock.calls).toEqual([[true], [false]]);
+  } finally {
+    await fixture.host.close();
+    await fixture.dependencies.closePeers();
+  }
+});
+
+it('finishes pending token counting after peer Quit admission closes', async () => {
+  const fixture = await preparedChatFixture();
+  try {
+    const counted = fixture.transport.tokenCount([], new AbortController().signal);
+    await vi.waitFor(() => expect(fixture.native.tokenCount).toHaveBeenCalledOnce());
+    await fixture.dependencies.beginPeerQuit();
+    fixture.counted.resolve(3);
+    await expect(counted).resolves.toBe(3);
+    expect(startup.setRuntimeBusy.mock.calls).toEqual([[true], [false]]);
+  } finally {
+    await fixture.host.close();
+    await fixture.dependencies.closePeers();
+  }
+});
+
+it('rejects first use of a retained chat transport after peer Quit begins', async () => {
+  const fixture = await preparedChatFixture();
+  try {
+    await fixture.dependencies.beginPeerQuit();
+    const execution = fixture.transport.start(fixture.identity, [], () => undefined);
+    await expect(execution.settled).rejects.toThrow('NOT_READY');
+    expect(fixture.native.start).not.toHaveBeenCalled();
+    expect(startup.setRuntimeBusy).not.toHaveBeenCalled();
+  } finally {
+    await fixture.host.close();
+    await fixture.dependencies.closePeers();
+  }
 });

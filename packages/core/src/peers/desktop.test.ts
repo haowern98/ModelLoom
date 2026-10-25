@@ -1,6 +1,9 @@
 import { EventEmitter } from 'node:events';
+import { Duplex } from 'node:stream';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { createDesktopPeerHost } from './desktop.js';
+import { runPeerUtility } from './utility.js';
+import type { PeerOverlayTransport } from './overlay.js';
 
 const owned = vi.hoisted(() => ({ admit: vi.fn(), close: vi.fn(), exited: vi.fn(() => true) }));
 vi.mock('../hosts/windows-ownership.js', () => ({
@@ -15,6 +18,142 @@ vi.mock('../hosts/windows-ownership.js', () => ({
 }));
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+it.each([false, true])(
+  'validates an in-flight overlay frame during Quit (malformed: %s)',
+  async (malformed) => {
+    const events = new EventEmitter();
+    let receive!: (message: unknown) => void;
+    let transport!: PeerOverlayTransport;
+    let held: string | undefined;
+    let exited = false;
+    const serviceClose = vi.fn(async () => {});
+    owned.close.mockImplementation(() => {
+      if (!exited) {
+        exited = true;
+        events.emit('exit', 1);
+      }
+    });
+    const host = await createDesktopPeerHost(
+      () => {
+        queueMicrotask(() => {
+          events.emit('spawn');
+          runPeerUtility(
+            {
+              receive: (handler) => {
+                receive = handler;
+              },
+              send(text) {
+                if ((JSON.parse(text) as { type: string }).type === 'overlay-data') held = text;
+                else queueMicrotask(() => events.emit('message', text));
+              },
+              exit(code) {
+                queueMicrotask(() => {
+                  if (!exited) {
+                    exited = true;
+                    events.emit('exit', code);
+                  }
+                });
+              },
+            },
+            () =>
+              Promise.resolve({
+                setOverlay(value) {
+                  transport = value;
+                },
+                command: () => Promise.resolve({ ok: false, error: 'NOT_READY' }),
+                close: serviceClose,
+              }),
+          );
+        });
+        return {
+          pid: 1234,
+          on: events.on.bind(events),
+          kill: () => true,
+          postMessage(text: string) {
+            if ((JSON.parse(text) as { type: string }).type === 'quit' && held) {
+              const frame = malformed
+                ? JSON.stringify({ ...(JSON.parse(held) as object), sequence: 0 })
+                : held;
+              held = undefined;
+              queueMicrotask(() => events.emit('message', frame));
+            }
+            queueMicrotask(() => {
+              if (!exited) receive(text);
+            });
+          },
+        };
+      },
+      'E:/private-profile',
+      'window',
+    );
+    try {
+      host.attachOverlay!({
+        addresses: () => ['100.64.0.2'],
+        subscribe: () => () => {},
+        incoming: () => () => {},
+        dial: () =>
+          Promise.resolve(
+            new Duplex({
+              read() {},
+              write(_bytes, _encoding, callback) {
+                callback();
+              },
+            }),
+          ),
+      });
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      const stream = await transport.dial('100.64.0.2', 49301);
+      stream.write(Buffer.from('in-flight control response'), () => {});
+      await vi.waitFor(() => expect(held).toBeDefined());
+      if (malformed) {
+        await expect(host.close()).rejects.toThrow('PEER_CLEANUP_FAILED');
+        expect(serviceClose).not.toHaveBeenCalled();
+      } else {
+        await expect(host.close()).resolves.toBeUndefined();
+        expect(serviceClose).toHaveBeenCalledTimes(1);
+      }
+    } finally {
+      owned.close.mockReset();
+      events.emit('exit', 0);
+    }
+  },
+);
+
+it('rechecks native exit after a failed confirmation without resending Quit', async () => {
+  const events = new EventEmitter();
+  let quits = 0;
+  const host = await createDesktopPeerHost(
+    () => {
+      queueMicrotask(() => {
+        events.emit('spawn');
+        events.emit('message', JSON.stringify({ type: 'booted' }));
+      });
+      return {
+        pid: 1234,
+        on: events.on.bind(events),
+        kill: () => true,
+        postMessage(text: string) {
+          const { type } = JSON.parse(text) as { type: string };
+          queueMicrotask(() => {
+            if (type === 'admit') events.emit('message', JSON.stringify({ type: 'ready' }));
+            if (type === 'quit') {
+              ++quits;
+              events.emit('message', JSON.stringify({ type: 'closed' }));
+              events.emit('exit', 0);
+            }
+          });
+        },
+      };
+    },
+    'E:/private-profile',
+    'window',
+  );
+  owned.exited.mockReturnValueOnce(false);
+  await expect(host.close()).rejects.toThrow('CLEANUP_FAILED');
+  await expect(host.close()).resolves.toBeUndefined();
+  expect(quits).toBe(1);
 });
 
 it('binds peer management to the admitted caller and stops its retained owner independently of model hosts', async () => {
@@ -236,6 +375,7 @@ it.each([
     'E:/private-profile',
     'window',
   );
+  await expect(host.close()).rejects.toThrow('PEER_CLEANUP_FAILED');
   await expect(host.close()).rejects.toThrow('PEER_CLEANUP_FAILED');
 });
 
