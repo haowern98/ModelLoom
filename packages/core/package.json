@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:network": "node scripts/build-network.mjs",
+    "check:network": "node scripts/build-network.mjs --check",
     "build:hosts": "tsc -p tsconfig.build.json",
     "build:native": "node scripts/build-native.mjs",
     "check:native": "node scripts/build-native.mjs --check",
