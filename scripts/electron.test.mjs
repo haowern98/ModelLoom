@@ -16,19 +16,23 @@ test('uses this checkout and preserves the profile environment without inherited
   const previous = process.env.ELECTRON_RUN_AS_NODE;
   process.env.ELECTRON_RUN_AS_NODE = '1';
   try {
-    const status = launchDevelopment(['dev'], (executable, args, options) => {
-      assert.equal(executable, process.execPath);
-      assert.equal(args[1], 'start');
-      assert.match(args[0], /electron-forge[\\/]cli[\\/]dist[\\/]electron-forge\.js$/);
-      assert.match(options.cwd, /apps[\\/]desktop[\\/]?$/);
-      assert.equal(options.env.MODELLOOM_DEV_LAUNCH, 'electron-dev');
-      assert.equal(options.env.ELECTRON_RUN_AS_NODE, undefined);
-      assert.equal(options.env.MODELLOOM_DEMO, undefined);
-      assert.equal(options.env.APPDATA, process.env.APPDATA);
-      assert.equal(options.env.LOCALAPPDATA, process.env.LOCALAPPDATA);
-      assert.equal(options.stdio, 'inherit');
-      return { status: 7, error: undefined };
-    });
+    const status = launchDevelopment(
+      ['dev'],
+      (executable, args, options) => {
+        assert.equal(executable, process.execPath);
+        assert.equal(args[1], 'start');
+        assert.match(args[0], /electron-forge[\\/]cli[\\/]dist[\\/]electron-forge\.js$/);
+        assert.match(options.cwd, /apps[\\/]desktop[\\/]?$/);
+        assert.equal(options.env.MODELLOOM_DEV_LAUNCH, 'electron-dev');
+        assert.equal(options.env.ELECTRON_RUN_AS_NODE, undefined);
+        assert.equal(options.env.MODELLOOM_DEMO, undefined);
+        assert.equal(options.env.APPDATA, process.env.APPDATA);
+        assert.equal(options.env.LOCALAPPDATA, process.env.LOCALAPPDATA);
+        assert.equal(options.stdio, 'inherit');
+        return { status: 7, error: undefined };
+      },
+      () => {},
+    );
     assert.equal(status, 7);
   } finally {
     if (previous === undefined) delete process.env.ELECTRON_RUN_AS_NODE;
@@ -38,8 +42,27 @@ test('uses this checkout and preserves the profile environment without inherited
 
 test('reports a failed process launch rather than claiming success', () => {
   assert.throws(
-    () => launchDevelopment(['dev'], () => ({ error: Error('spawn failed') })),
+    () =>
+      launchDevelopment(
+        ['dev'],
+        () => ({ error: Error('spawn failed') }),
+        () => {},
+      ),
     /spawn failed/,
+  );
+});
+
+test('checks independent storage before starting Forge and never launches after a rejected context', () => {
+  assert.throws(
+    () =>
+      launchDevelopment(
+        ['dev'],
+        () => assert.fail('must not spawn'),
+        () => {
+          throw Error('ModelLoom needs a normal Windows terminal');
+        },
+      ),
+    /normal Windows terminal/,
   );
 });
 

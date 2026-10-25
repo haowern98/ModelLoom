@@ -15,6 +15,25 @@ import {
 const modelId = 'a'.repeat(64);
 const uuid = 'GPU-11111111-1111-1111-1111-111111111111';
 const configId = '11111111-1111-4111-8111-111111111111';
+it('retains canvas presentation while automatic assignment replaces only GPU runs', async () => {
+  const f = setup();
+  try {
+    await f.initialize();
+    const canvas = { positions: { local: { column: 0, row: 0 } }, links: [] };
+    Object.assign(f.draft(), { canvas });
+    await f.controller.cluster({
+      action: 'auto-place',
+      key: f.draft().key,
+      revision: f.draft().revision,
+    });
+    const edit = f.host.cluster.mock.calls
+      .map(([, command]) => command)
+      .find((command) => command.action === 'edit');
+    expect(edit).toMatchObject({ edit: { canvas } });
+  } finally {
+    await f.controller.quit();
+  }
+});
 it('passes the canvas GPU scope to planning and rejects assignments outside it', async () => {
   const f = setup();
   try {

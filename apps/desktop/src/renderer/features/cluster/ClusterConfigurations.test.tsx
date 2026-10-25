@@ -18,6 +18,7 @@ import { createDemoLibrary } from '../../mocks/modelLibrary';
 import { createDemoJoining, transitionDemoJoining } from '../../mocks/clusterJoining';
 const uuid = 'GPU-12345678-1234-1234-1234-123456789abc';
 const secondUuid = 'GPU-87654321-4321-4321-4321-cba987654321';
+const peerId = `peer:${'b'.repeat(64)}`;
 const model = {
   ...createDemoLibrary().models[0]!,
   id: `model-${record().modelId}`,
@@ -178,179 +179,211 @@ it('confirms unsaved model switches, discards assignments, and plans the next mo
     database.close();
   }
 });
-it('shows saved physical GPU ranges immediately and only marks them in use after verified loading', async () => {
-  const database = new DatabaseSync(':memory:');
-  const store = new ModelConfigurationStore(
-    database,
-    () => {},
-    (id) => id === record().modelId,
-    capabilities,
-    record().load,
-  );
-  const controller = new ClusterController(store, 'window', { cacheK: 'q8_0', cacheV: 'q8_0' });
-  const bridge: ClusterBridge = { command: (input) => controller.command('window', input) };
-  await store.recordImport(record().modelId, 123, {
-    modelId: record().modelId,
-    file: 'E:\\Models\\fixture.gguf',
-    name: model.name,
-    size: '4 GB',
-    sizeBytes: 4000,
-    modifiedMs: 1,
-    architecture: 'llama',
-    contextLimit: 32768,
-    blockCount: 64,
-    quantization: 'Q4_K_M',
-    parameters: '4B',
-  });
-  const user = userEvent.setup();
-  const run = vi.fn();
-  let view = render(<Harness bridge={bridge} onRun={run} twoGpus blockCount={64} />);
-  const checkRanges = () => {
-    for (const [index, text, width] of [
-      [0, 'Layers 0 – 15', '25%'],
-      [1, 'Layers 16 – 63', '75%'],
-    ] as const) {
-      const tile = screen.getByRole('region', { name: `Observed device GPU ${index}` });
-      expect(within(tile).getByText(text)).toBeInTheDocument();
-      const bar = tile.querySelector(
-        '[title="Layer allocation share, not measured memory use"] > span',
-      );
-      expect(bar).toHaveStyle({ width });
-      expect(within(tile).queryByText('Unassigned')).not.toBeInTheDocument();
-    }
-  };
-  const checkOverview = async (state: string) => {
-    let panel = screen.queryByRole('complementary', { name: 'Cluster panel' });
-    if (!panel) {
-      await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
-      panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-    } else {
-      const back = within(panel).queryByRole('button', { name: 'Back to cluster overview' });
-      if (back) await user.click(back);
-    }
-    expect(within(panel).getByRole('heading', { name: 'Hardware' })).toBeVisible();
-    expect(within(panel).getByText('1 device \u00b7 2 GPUs')).toBeVisible();
-    expect(within(panel).getByText('16.0 GiB')).toBeVisible();
-    expect(within(panel).queryByText('Unified memory')).not.toBeInTheDocument();
-    expect(within(panel).queryByText('Placement not confirmed')).not.toBeInTheDocument();
-    expect(
-      within(panel).queryByText('Proposed layer assignments. Save before Run.'),
-    ).not.toBeInTheDocument();
-    const row = within(panel).getByRole('button', {
-      name: new RegExp(`Observed device.*${state}`),
+it.each(['edit and save', 'restore and load'] as const)(
+  'shows physical GPU ranges through %s without claiming unverified use',
+  async (scenario) => {
+    const database = new DatabaseSync(':memory:');
+    const store = new ModelConfigurationStore(
+      database,
+      () => {},
+      (id) => id === record().modelId,
+      capabilities,
+      record().load,
+    );
+    const controller = new ClusterController(store, 'window', { cacheK: 'q8_0', cacheV: 'q8_0' });
+    const bridge: ClusterBridge = { command: (input) => controller.command('window', input) };
+    await store.recordImport(record().modelId, 123, {
+      modelId: record().modelId,
+      file: 'E:\\Models\\fixture.gguf',
+      name: model.name,
+      size: '4 GB',
+      sizeBytes: 4000,
+      modifiedMs: 1,
+      architecture: 'llama',
+      contextLimit: 32768,
+      blockCount: 64,
+      quantization: 'Q4_K_M',
+      parameters: '4B',
     });
-    expect(within(row).getByText(state)).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
-  };
-  try {
-    for (const name of ['Undo', 'Redo', 'Reset to default', 'Save configuration']) {
-      expect(screen.getByRole('button', { name })).toBeVisible();
-      expect(screen.getByRole('button', { name })).toBeDisabled();
+    if (scenario === 'restore and load') {
+      const draft = store.cluster.writeDraft(`model:${record().modelId}`, null, {
+        modelId: record().modelId,
+        load: { defaults: record().load, cacheK: 'q8_0', cacheV: 'q8_0' },
+        runs: [
+          { uuid, first: '0', last: '15' },
+          { uuid: secondUuid, first: '16', last: '63' },
+        ],
+      });
+      const saved = store.cluster.saveDraft(draft.key, draft.revision, 'Two GPUs');
+      if (!saved.ok) throw Error('fixture save failed');
     }
-    const history = screen.getByRole('group', { name: 'Assignment history' });
-    const picker = screen.getByRole('button', { name: 'Choose model' });
-    expect(history.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Choose model' }));
-    await user.click(screen.getByRole('menuitem', { name: /Observed model/ }));
-    await checkOverview('No assignment');
-    await user.click(screen.getByRole('button', { name: 'Edit layers for Observed device GPU 0' }));
-    for (const [index, first, last] of [
-      [0, '0', '15'],
-      [1, '16', '63'],
-    ] as const) {
-      await user.type(
-        screen.getByRole('spinbutton', { name: `First layer for GPU ${index}` }),
-        first,
+    const user = userEvent.setup();
+    const run = vi.fn();
+    let view = render(<Harness bridge={bridge} onRun={run} twoGpus blockCount={64} />);
+    const checkRanges = () => {
+      for (const [index, text, width] of [
+        [0, 'Layers 0 – 15', '25%'],
+        [1, 'Layers 16 – 63', '75%'],
+      ] as const) {
+        const tile = screen.getByRole('region', { name: `Observed device GPU ${index}` });
+        expect(within(tile).getByText(text)).toBeInTheDocument();
+        const bar = tile.querySelector(
+          '[title="Layer allocation share, not measured memory use"] > span',
+        );
+        expect(bar).toHaveStyle({ width });
+        expect(within(tile).queryByText('Unassigned')).not.toBeInTheDocument();
+      }
+    };
+    const checkOverview = async (state: string) => {
+      let panel = screen.queryByRole('complementary', { name: 'Cluster panel' });
+      if (!panel) {
+        await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
+        panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+      } else {
+        const back = within(panel).queryByRole('button', { name: 'Back to cluster overview' });
+        if (back) await user.click(back);
+      }
+      expect(within(panel).getByRole('heading', { name: 'Hardware' })).toBeVisible();
+      expect(within(panel).getByText('1 device \u00b7 2 GPUs')).toBeVisible();
+      expect(within(panel).getByText('16.0 GiB')).toBeVisible();
+      expect(within(panel).queryByText('Unified memory')).not.toBeInTheDocument();
+      expect(within(panel).queryByText('Placement not confirmed')).not.toBeInTheDocument();
+      expect(
+        within(panel).queryByText('Proposed layer assignments. Save before Run.'),
+      ).not.toBeInTheDocument();
+      const row = within(panel).getByRole('button', {
+        name: new RegExp(`Observed device.*${state}`),
+      });
+      expect(within(row).getByText(state)).toBeVisible();
+      await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
+    };
+    try {
+      if (scenario === 'edit and save') {
+        for (const name of ['Undo', 'Redo', 'Reset to default', 'Save configuration']) {
+          expect(screen.getByRole('button', { name })).toBeVisible();
+          expect(screen.getByRole('button', { name })).toBeDisabled();
+        }
+        const history = screen.getByRole('group', { name: 'Assignment history' });
+        const picker = screen.getByRole('button', { name: 'Choose model' });
+        expect(
+          history.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+        await user.click(screen.getByRole('button', { name: 'Choose model' }));
+        await user.click(screen.getByRole('menuitem', { name: /Observed model/ }));
+        await checkOverview('No assignment');
+        await user.click(
+          screen.getByRole('button', { name: 'Edit layers for Observed device GPU 0' }),
+        );
+        for (const [index, first, last] of [
+          [0, '0', '15'],
+          [1, '16', '63'],
+        ] as const) {
+          await user.type(
+            screen.getByRole('spinbutton', { name: `First layer for GPU ${index}` }),
+            first,
+          );
+          await user.type(
+            screen.getByRole('spinbutton', { name: `Last layer for GPU ${index}` }),
+            last,
+          );
+        }
+        expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Save configuration' })).toBeEnabled();
+        let lastDraft = screen.getByRole('spinbutton', { name: 'Last layer for GPU 1' });
+        await user.clear(lastDraft);
+        await user.type(lastDraft, '-');
+        await checkOverview('Draft');
+        await user.click(
+          screen.getByRole('button', { name: 'Edit layers for Observed device GPU 1' }),
+        );
+        lastDraft = screen.getByRole('spinbutton', { name: 'Last layer for GPU 1' });
+        await user.click(screen.getByRole('button', { name: 'Undo' }));
+        expect(lastDraft).toHaveValue('');
+        await user.click(screen.getByRole('button', { name: 'Redo' }));
+        expect(lastDraft).toHaveValue('-');
+        await user.click(screen.getByRole('button', { name: 'Undo' }));
+        await user.click(screen.getByRole('button', { name: 'Undo' }));
+        expect(lastDraft).toHaveValue('63');
+        let panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+        expect(within(panel).getByText('64 layers \u00b7 0\u201363')).toBeVisible();
+        expect(within(panel).getByRole('heading', { name: 'Observed device' })).toBeVisible();
+        expect(within(panel).getByText('This device \u00b7 Coordinator')).toBeVisible();
+        await user.click(within(panel).getByText('Device details'));
+        expect(screen.getByRole('heading', { name: 'Devices' })).toBeVisible();
+        const device = screen.getByRole('article', { name: 'Observed device' });
+        for (const name of ['Operating system', 'Address'])
+          expect(within(device).getByText(name)).toBeVisible();
+        expect(within(device).getByText('This device', { selector: 'p' })).toBeVisible();
+        await user.click(screen.getByRole('button', { name: 'Overview' }));
+        await user.click(
+          screen.getByRole('button', { name: 'Edit layers for Observed device GPU 1' }),
+        );
+        panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+        expect(within(panel).getByRole('spinbutton', { name: 'Last layer for GPU 1' })).toHaveValue(
+          '63',
+        );
+        const editor = within(panel)
+          .getByRole('heading', { name: 'Layer assignment' })
+          .closest('section')!;
+        expect(within(editor).queryByRole('heading', { name: 'CPU' })).not.toBeInTheDocument();
+        expect(within(editor).queryByText(/dedicated memory|NVIDIA/)).not.toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Save configuration' }));
+        await user.type(screen.getByRole('textbox', { name: 'Configuration name' }), 'Two GPUs');
+        await user.click(
+          within(screen.getByRole('dialog')).getByRole('button', { name: /^Save$/u }),
+        );
+        await screen.findByRole('button', { name: 'Two GPUs' });
+        for (const name of ['Undo', 'Redo', 'Reset to default', 'Save configuration']) {
+          await waitFor(() => expect(screen.getByRole('button', { name })).toBeDisabled());
+        }
+        checkRanges();
+        expect(screen.queryByText('In use')).not.toBeInTheDocument();
+        await checkOverview('Saved');
+        const saved = store.cluster.list()[0]!;
+        expect(saved.runs).toEqual([
+          { uuid, first: 0, last: 15 },
+          { uuid: secondUuid, first: 16, last: 63 },
+        ]);
+        expect(run).not.toHaveBeenCalled();
+        return;
+      }
+      const saved = store.cluster.list()[0]!;
+      view.unmount();
+      view = render(<Harness bridge={bridge} onRun={run} twoGpus blockCount={64} />);
+      await user.click(await screen.findByRole('button', { name: 'Two GPUs' }));
+      await waitFor(checkRanges);
+      await user.click(screen.getByRole('button', { name: 'Run model' }));
+      expect(run).toHaveBeenCalledWith(saved.id, saved.revision);
+      await checkOverview('Saved');
+      expect(screen.queryByText('In use')).not.toBeInTheDocument();
+      view.rerender(
+        <Harness
+          bridge={bridge}
+          onRun={run}
+          twoGpus
+          blockCount={64}
+          activeCluster={{ configurationId: saved.id, revision: saved.revision, runs: saved.runs }}
+        />,
       );
-      await user.type(
-        screen.getByRole('spinbutton', { name: `Last layer for GPU ${index}` }),
-        last,
+      checkRanges();
+      expect(screen.getAllByText('In use')).toHaveLength(2);
+      await checkOverview('In use');
+      await user.click(
+        screen.getByRole('button', { name: 'Edit layers for Observed device GPU 0' }),
       );
+      await user.clear(screen.getByRole('spinbutton', { name: 'Last layer for GPU 0' }));
+      await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU 0' }), '14');
+      expect(screen.getByText('Planned layers 0 – 14')).toBeInTheDocument();
+      expect(screen.getByText('Active layers 0 – 15')).toBeInTheDocument();
+      await checkOverview('Draft');
+      expect(screen.getAllByText('In use')).toHaveLength(2);
+    } finally {
+      view.unmount();
+      await controller.close();
+      database.close();
     }
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Save configuration' })).toBeEnabled();
-    let lastDraft = screen.getByRole('spinbutton', { name: 'Last layer for GPU 1' });
-    await user.clear(lastDraft);
-    await user.type(lastDraft, '-');
-    await checkOverview('Draft');
-    await user.click(screen.getByRole('button', { name: 'Edit layers for Observed device GPU 1' }));
-    lastDraft = screen.getByRole('spinbutton', { name: 'Last layer for GPU 1' });
-    await user.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(lastDraft).toHaveValue('');
-    await user.click(screen.getByRole('button', { name: 'Redo' }));
-    expect(lastDraft).toHaveValue('-');
-    await user.click(screen.getByRole('button', { name: 'Undo' }));
-    await user.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(lastDraft).toHaveValue('63');
-    let panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-    expect(within(panel).getByText('64 layers \u00b7 0\u201363')).toBeVisible();
-    expect(within(panel).getByRole('heading', { name: 'Observed device' })).toBeVisible();
-    expect(within(panel).getByText('This device \u00b7 Coordinator')).toBeVisible();
-    await user.click(within(panel).getByText('Device details'));
-    expect(screen.getByRole('heading', { name: 'Devices' })).toBeVisible();
-    const device = screen.getByRole('article', { name: 'Observed device' });
-    for (const name of ['Operating system', 'Address'])
-      expect(within(device).getByText(name)).toBeVisible();
-    expect(within(device).getByText('This device', { selector: 'p' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Overview' }));
-    await user.click(screen.getByRole('button', { name: 'Edit layers for Observed device GPU 1' }));
-    panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-    expect(within(panel).getByRole('spinbutton', { name: 'Last layer for GPU 1' })).toHaveValue(
-      '63',
-    );
-    const editor = within(panel)
-      .getByRole('heading', { name: 'Layer assignment' })
-      .closest('section')!;
-    expect(within(editor).queryByRole('heading', { name: 'CPU' })).not.toBeInTheDocument();
-    expect(within(editor).queryByText(/dedicated memory|NVIDIA/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Save configuration' }));
-    await user.type(screen.getByRole('textbox', { name: 'Configuration name' }), 'Two GPUs');
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Save$/u }));
-    await screen.findByRole('button', { name: 'Two GPUs' });
-    for (const name of ['Undo', 'Redo', 'Reset to default', 'Save configuration']) {
-      await waitFor(() => expect(screen.getByRole('button', { name })).toBeDisabled());
-    }
-    checkRanges();
-    expect(screen.queryByText('In use')).not.toBeInTheDocument();
-    await checkOverview('Saved');
-    const saved = store.cluster.list()[0]!;
-    expect(saved.runs).toEqual([
-      { uuid, first: 0, last: 15 },
-      { uuid: secondUuid, first: 16, last: 63 },
-    ]);
-    view.unmount();
-    view = render(<Harness bridge={bridge} onRun={run} twoGpus blockCount={64} />);
-    await user.click(await screen.findByRole('button', { name: 'Two GPUs' }));
-    await waitFor(checkRanges);
-    await user.click(screen.getByRole('button', { name: 'Run model' }));
-    expect(run).toHaveBeenCalledWith(saved.id, saved.revision);
-    await checkOverview('Saved');
-    expect(screen.queryByText('In use')).not.toBeInTheDocument();
-    view.rerender(
-      <Harness
-        bridge={bridge}
-        onRun={run}
-        twoGpus
-        blockCount={64}
-        activeCluster={{ configurationId: saved.id, revision: saved.revision, runs: saved.runs }}
-      />,
-    );
-    checkRanges();
-    expect(screen.getAllByText('In use')).toHaveLength(2);
-    await checkOverview('In use');
-    await user.click(screen.getByRole('button', { name: 'Edit layers for Observed device GPU 0' }));
-    await user.clear(screen.getByRole('spinbutton', { name: 'Last layer for GPU 0' }));
-    await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU 0' }), '14');
-    expect(screen.getByText('Planned layers 0 – 14')).toBeInTheDocument();
-    expect(screen.getByText('Active layers 0 – 15')).toBeInTheDocument();
-    await checkOverview('Draft');
-    expect(screen.getAllByText('In use')).toHaveLength(2);
-  } finally {
-    view.unmount();
-    await controller.close();
-    database.close();
-  }
-});
+  },
+);
 function Harness({
   bridge,
   onRun,
@@ -359,6 +392,7 @@ function Harness({
   activeCluster = null,
   models,
   onRunDraft = vi.fn(),
+  remote = false,
 }: {
   bridge: ClusterBridge;
   onRun: (id: string, revision: number) => void;
@@ -367,6 +401,7 @@ function Harness({
   activeCluster?: RuntimeView['activeCluster'];
   models?: readonly (typeof model)[];
   onRunDraft?: (target: { key: string; revision: number; modelId: string }) => void;
+  remote?: boolean;
 }) {
   const configurations = useClusterConfigurations(bridge);
   const [joining, onJoining] = useReducer(transitionDemoJoining, undefined, createDemoJoining);
@@ -405,6 +440,28 @@ function Harness({
             })),
           },
         },
+        ...(remote
+          ? [
+              {
+                id: peerId,
+                name: 'Observed worker',
+                role: 'Worker' as const,
+                os: 'Windows',
+                address: 'Connected device',
+                hardware: [
+                  {
+                    id: `${peerId}:${secondUuid}`,
+                    assignmentId: `${peerId}:${secondUuid}`,
+                    label: 'GPU',
+                    name: 'Observed remote GPU',
+                    kind: 'gpu' as const,
+                    memoryGb: 12,
+                    detail: 'Observed memory',
+                  },
+                ],
+              },
+            ]
+          : []),
       ]}
       models={models ?? [{ ...model, blockCount }]}
       activeModel={activeCluster ? { ...model, blockCount } : undefined}
@@ -425,6 +482,137 @@ function Harness({
     />
   );
 }
+
+it('reopens a legacy saved placement with connected equal-width live canvas columns', async () => {
+  const database = new DatabaseSync(':memory:');
+  const store = new ModelConfigurationStore(
+    database,
+    () => {},
+    () => true,
+    capabilities,
+    record().load,
+  );
+  const controller = new ClusterController(store, 'window', { cacheK: 'q8_0', cacheV: 'q8_0' });
+  await store.recordImport(record().modelId, 123, {
+    modelId: record().modelId,
+    file: 'E:\\Models\\fixture.gguf',
+    name: model.name,
+    size: '4 GB',
+    sizeBytes: 4000,
+    modifiedMs: 1,
+    architecture: 'llama',
+    contextLimit: 32768,
+    blockCount: 8,
+    quantization: 'Q4_K_M',
+    parameters: '4B',
+  });
+  const draft = store.cluster.writeDraft(`model:${record().modelId}`, null, {
+    modelId: record().modelId,
+    load: { defaults: record().load, cacheK: 'q8_0', cacheV: 'q8_0' },
+    runs: [
+      { uuid, first: '0', last: '3' },
+      { uuid: `${peerId}:${secondUuid}`, first: '4', last: '7' },
+    ],
+  });
+  const saved = store.cluster.saveDraft(draft.key, draft.revision, 'Restored pair');
+  if (!saved.ok) throw Error('fixture save failed');
+  const bridge: ClusterBridge = { command: (input) => controller.command('window', input) };
+  const run = vi.fn();
+  const user = userEvent.setup();
+  const view = render(<Harness bridge={bridge} onRun={run} remote />);
+  try {
+    await user.click(await screen.findByRole('button', { name: 'Restored pair' }));
+    const worker = await screen.findByRole('article', { name: 'Observed worker' });
+    const local = screen.getByRole('article', { name: 'Observed device' });
+    const world = local.closest<HTMLElement>('[data-canvas-device]')!.parentElement!;
+    expect(world.style.gridTemplateColumns).toBe('repeat(2, minmax(0, 498px))');
+    expect(local.closest<HTMLElement>('[data-canvas-device]')!.style.gridColumn).toBe('1');
+    expect(worker.closest<HTMLElement>('[data-canvas-device]')!.style.gridColumn).toBe('2');
+    const lines = screen.getByRole('img', { name: 'Canvas layout connections' });
+    expect(lines.querySelector('path')).toHaveAttribute('data-from', 'local');
+    expect(lines.querySelector('path')).toHaveAttribute('data-to', peerId);
+    expect(screen.getByRole('button', { name: 'Save configuration' })).toBeDisabled();
+    expect(run).not.toHaveBeenCalled();
+  } finally {
+    view.unmount();
+    await controller.close();
+    database.close();
+  }
+});
+it('saves a bottom-edge connection with assignments and restores both after a new session', async () => {
+  const database = new DatabaseSync(':memory:');
+  const store = new ModelConfigurationStore(
+    database,
+    () => {},
+    () => true,
+    capabilities,
+    record().load,
+  );
+  const controller = new ClusterController(store, 'window', { cacheK: 'q8_0', cacheV: 'q8_0' });
+  await store.recordImport(record().modelId, 123, {
+    modelId: record().modelId,
+    file: 'E:\\Models\\fixture.gguf',
+    name: model.name,
+    size: '4 GB',
+    sizeBytes: 4000,
+    modifiedMs: 1,
+    architecture: 'llama',
+    contextLimit: 32768,
+    blockCount: 8,
+    quantization: 'Q4_K_M',
+    parameters: '4B',
+  });
+  const bridge: ClusterBridge = { command: (input) => controller.command('window', input) };
+  const run = vi.fn();
+  const user = userEvent.setup();
+  let view = render(<Harness bridge={bridge} onRun={run} remote />);
+  try {
+    await user.click(screen.getByRole('button', { name: 'Choose model' }));
+    await user.click(screen.getByRole('menuitem', { name: /Observed model/ }));
+    const add = screen.getByRole('button', { name: 'Add device near Observed device' });
+    add.focus();
+    await user.keyboard('{ArrowDown}{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Add Observed worker to canvas' }));
+    for (const [device, first, last] of [
+      ['Observed device', '0', '3'],
+      ['Observed worker', '4', '7'],
+    ]) {
+      await user.click(screen.getByRole('button', { name: `Edit layers for ${device} GPU` }));
+      await user.type(screen.getByRole('spinbutton', { name: 'First layer for GPU' }), first!);
+      await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU' }), last!);
+    }
+    await user.click(screen.getByRole('button', { name: 'Save configuration' }));
+    await user.type(screen.getByRole('textbox', { name: 'Configuration name' }), 'Bottom pair');
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Save$/u }));
+    await screen.findByRole('button', { name: 'Bottom pair' });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Save configuration' })).toBeDisabled(),
+    );
+    expect(store.cluster.list()[0]?.canvas).toEqual({
+      positions: { local: { column: 0, row: 0 }, [peerId]: { column: 0, row: 1 } },
+      links: [{ from: 'local', to: peerId, edge: 'bottom' }],
+    });
+    view.unmount();
+    store.cluster.clearSessionDrafts();
+    view = render(<Harness bridge={bridge} onRun={run} remote />);
+    await user.click(await screen.findByRole('button', { name: 'Bottom pair' }));
+    const worker = await screen.findByRole('article', { name: 'Observed worker' });
+    const local = screen.getByRole('article', { name: 'Observed device' });
+    expect(local.closest<HTMLElement>('[data-canvas-device]')!.style.gridRow).toBe('1');
+    expect(worker.closest<HTMLElement>('[data-canvas-device]')!.style.gridRow).toBe('2');
+    expect(
+      screen.getByRole('img', { name: 'Canvas layout connections' }).querySelector('path'),
+    ).toHaveAttribute('data-to', peerId);
+    expect(screen.getByText('Layers 0 – 3')).toBeVisible();
+    expect(screen.getByText('Layers 4 – 7')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Save configuration' })).toBeDisabled();
+    expect(run).not.toHaveBeenCalled();
+  } finally {
+    view.unmount();
+    await controller.close();
+    database.close();
+  }
+});
 it('uses durable core storage for Save-only validation, named selection and restart restoration', async () => {
   const database = new DatabaseSync(':memory:');
   const store = new ModelConfigurationStore(

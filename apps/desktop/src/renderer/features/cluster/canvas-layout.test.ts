@@ -1,5 +1,40 @@
 import { expect, it } from 'vitest';
-import { canvasPositions, placeBeside } from './canvas-layout';
+import { canvasPositions, placeBeside, restoreCanvas } from './canvas-layout';
+
+it('restores a legacy canvas deterministically even when discovery returns peers first', () => {
+  const local = { id: 'local', role: 'Coordinator' };
+  const remote = { id: 'remote', role: 'Worker' };
+  const expected = {
+    positions: { local: { column: 0, row: 0 }, remote: { column: 1, row: 0 } },
+    links: [{ from: 'local', to: 'remote', edge: 'right' }],
+  };
+  for (const devices of [
+    [local, remote],
+    [remote, local],
+  ])
+    expect(restoreCanvas(devices, { positions: {}, links: [] })).toEqual(expected);
+});
+
+it('preserves an existing connection rooted at a worker without adding a reverse edge', () => {
+  const layout = {
+    positions: { local: { column: 0, row: 0 }, remote: { column: 0, row: -1 } },
+    links: [{ from: 'remote', to: 'local', edge: 'bottom' as const }],
+  };
+  expect(
+    restoreCanvas(
+      [
+        { id: 'local', role: 'Coordinator' },
+        { id: 'remote', role: 'Worker' },
+      ],
+      layout,
+    ),
+  ).toEqual(layout);
+  expect(restoreCanvas([{ id: 'local', role: 'Coordinator' }], layout)).toEqual({
+    positions: { local: { column: 0, row: 0 } },
+    links: [],
+  });
+  expect(layout.links).toHaveLength(1);
+});
 
 it.each([
   ['top', { column: 0, row: -1 }],
