@@ -158,6 +158,24 @@ describe('PeerTelemetryMonitor', () => {
     expect(s.monitor.view().state).toBe('unavailable');
     expect(s.bandwidth).toHaveBeenCalledTimes(2);
   });
+  it('keeps a healthy control connection idle when the bandwidth endpoint is temporarily busy', async () => {
+    const s = setup();
+    s.bandwidth.mockRejectedValueOnce(Error('DIAGNOSTICS_BUSY'));
+    await s.monitor.tick();
+    expect(s.monitor.view()).toMatchObject({ state: 'idle', latencyMs: 12, uploadMbps: null });
+  });
+  it('retains a successful direction when the other bandwidth sample is unavailable', async () => {
+    const monitor = new PeerTelemetryMonitor({
+      ping: () => Promise.resolve(12),
+      bandwidth: () => Promise.resolve({ downloadMbps: 42, uploadMbps: null }),
+      totals: () => ({ sent: 0, received: 0 }),
+      active: () => false,
+      changed: () => {},
+    });
+    await monitor.tick();
+    expect(monitor.view()).toMatchObject({ state: 'idle', downloadMbps: 42, uploadMbps: null });
+    monitor.close();
+  });
   it.each(['UNKNOWN_PEER_OPERATION', 'DIAGNOSTICS_UNSUPPORTED'])(
     'stops unsupported bandwidth attempts: %s',
     async (error) => {
