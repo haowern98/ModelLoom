@@ -8,8 +8,19 @@ import (
 	"testing"
 )
 
+func vaultTestRoot(t *testing.T) string {
+	t.Helper()
+	// Match the canonical root supplied by the desktop, even through temporary-directory aliases.
+	temporary := t.TempDir()
+	root, err := filepath.EvalSymlinks(temporary)
+	if err != nil {
+		t.Fatalf("resolve vault test root %q: %v", temporary, err)
+	}
+	return root
+}
+
 func TestVaultAtomicCiphertextRoundtrip(t *testing.T) {
-	v := &cipherVault{root: t.TempDir()}
+	v := &cipherVault{root: vaultTestRoot(t)}
 	if value, err := v.apply(frame{Action: "read"}); err != nil || value.Found {
 		t.Fatal("unexpected initial state", err)
 	}
@@ -50,7 +61,7 @@ func TestVaultAtomicCiphertextRoundtrip(t *testing.T) {
 }
 
 func TestVaultRejectsOutOfOrderAndOversizedCiphertext(t *testing.T) {
-	v := &cipherVault{root: t.TempDir()}
+	v := &cipherVault{root: vaultTestRoot(t)}
 	if _, err := v.apply(frame{Action: "append", Seq: 1, Data: "eA=="}); err == nil {
 		t.Fatal("append without begin")
 	}
@@ -75,7 +86,7 @@ func TestVaultRejectsOutOfOrderAndOversizedCiphertext(t *testing.T) {
 }
 
 func TestVaultRejectsLinkedEnrollment(t *testing.T) {
-	root := t.TempDir()
+	root := vaultTestRoot(t)
 	other := filepath.Join(t.TempDir(), "other.bin")
 	os.WriteFile(other, []byte("untouched"), 0600)
 	if err := os.Symlink(other, filepath.Join(root, "enrollment.bin")); err != nil {

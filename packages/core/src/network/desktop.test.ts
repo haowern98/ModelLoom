@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 
@@ -44,6 +44,7 @@ afterEach(async () => {
   fixtures.ciphertext = undefined;
 });
 async function setup() {
+  await mkdir(path.resolve('out'), { recursive: true });
   const root = await mkdtemp(path.resolve('out/network-desktop-test-'));
   roots.push(root);
   const executable = path.join(root, 'component');
