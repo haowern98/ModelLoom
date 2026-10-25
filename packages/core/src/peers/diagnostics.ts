@@ -5,9 +5,12 @@ import { once } from 'node:events';
 import { peerFingerprint, validatePeerCertificate } from './windows-identity.js';
 import type { WindowsPeerIdentity } from './windows-identity.js';
 import type { PeerRpcTarget } from './rpc.js';
+import { connect as tlsConnect } from 'node:tls';
+import type { PeerOverlayTransport } from './overlay.js';
+import { overlaySocket } from './overlay-socket.js';
 
 export const DIAGNOSTIC_BYTES = 16 * 1024 * 1024;
-export const DIAGNOSTIC_MS = 1500;
+export const DIAGNOSTIC_MS = 5000;
 const chunk = Buffer.alloc(4 * 1024);
 export type DiagnosticDirection = 'upload' | 'download';
 
@@ -73,9 +76,24 @@ export async function measureDiagnostic(
   target: PeerRpcTarget,
   direction: DiagnosticDirection,
   signal: AbortSignal,
+  overlay?: PeerOverlayTransport,
 ): Promise<number> {
   validatePeerCertificate(target.certificate, target.authority);
   const combined = AbortSignal.any([signal, AbortSignal.timeout(DIAGNOSTIC_MS)]);
+  const raw = overlay?.has(target.address)
+    ? overlaySocket(await overlay.dial(target.address, target.securePort, combined))
+    : undefined;
+  const tls = {
+    pfx: identity.pfx,
+    ca: new X509Certificate(target.authority).toString(),
+    minVersion: 'TLSv1.3' as const,
+    maxVersion: 'TLSv1.3' as const,
+    rejectUnauthorized: true,
+    checkServerIdentity: (_host: string, cert: { raw: Buffer }) =>
+      peerFingerprint(cert.raw) === peerFingerprint(target.certificate)
+        ? undefined
+        : Error('FINGERPRINT_MISMATCH'),
+  };
   return new Promise<number>((resolve, reject) => {
     const request = httpsRequest(
       {
@@ -83,21 +101,14 @@ export async function measureDiagnostic(
         port: target.securePort,
         path: `/v1/diagnostics/${target.id}/${direction}`,
         method: 'POST',
-        agent: false,
+        agent: raw ? undefined : false,
+        ...(raw ? { createConnection: () => tlsConnect({ ...tls, socket: raw }) } : {}),
         signal: combined,
         headers:
           direction === 'download'
             ? { 'Content-Length': 0 }
             : { 'Content-Type': 'application/octet-stream' },
-        pfx: identity.pfx,
-        ca: new X509Certificate(target.authority).toString(),
-        minVersion: 'TLSv1.3',
-        maxVersion: 'TLSv1.3',
-        rejectUnauthorized: true,
-        checkServerIdentity: (_host, cert) =>
-          peerFingerprint(cert.raw) === peerFingerprint(target.certificate)
-            ? undefined
-            : Error('FINGERPRINT_MISMATCH'),
+        ...tls,
       },
       (response) => {
         void (async () => {
@@ -198,7 +209,7 @@ export class DiagnosticAdmission {
     const controller = new AbortController();
     this.current = controller;
     return {
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(DIAGNOSTIC_MS)]),
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(2 * DIAGNOSTIC_MS)]),
       release: () => {
         if (this.current === controller) this.current = undefined;
       },
