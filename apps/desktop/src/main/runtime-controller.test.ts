@@ -46,14 +46,20 @@ it('keeps an active model ready when an unevidenced saved configuration is rejec
 function setup(enabled = true, overrides: Record<string, unknown> = {}, history = false) {
   let phase = 'stopped';
   const host = {
-    command: vi.fn((text: string) => {
-      const value: unknown = JSON.parse(text);
-      if (!value || typeof value !== 'object' || !('action' in value))
-        throw new Error('INVALID_CONTROL');
-      if (value.action === 'load') phase = 'ready';
-      if (value.action === 'stop' || value.action === 'quit') phase = 'stopped';
-      return Promise.resolve({ snapshot: { phase, fault: null } });
-    }),
+    command: vi.fn(
+      (
+        text: string,
+      ): Promise<{
+        snapshot: { phase: string; fault: { code: string; message: string } | null };
+      }> => {
+        const value: unknown = JSON.parse(text);
+        if (!value || typeof value !== 'object' || !('action' in value))
+          throw new Error('INVALID_CONTROL');
+        if (value.action === 'load') phase = 'ready';
+        if (value.action === 'stop' || value.action === 'quit') phase = 'stopped';
+        return Promise.resolve({ snapshot: { phase, fault: null } });
+      },
+    ),
     close: vi.fn(() => Promise.resolve()),
   };
   const deps = {
@@ -72,6 +78,33 @@ function setup(enabled = true, overrides: Record<string, unknown> = {}, history 
   const controller = Reflect.get(module, 'createRuntimeController')?.(deps);
   return { controller, host, deps };
 }
+it.each([
+  ['START_TIMEOUT', 'Startup deadline exceeded', 'Model loading timed out.'],
+  ['ENGINE_EXITED', 'Owned engine exited', 'The model runtime exited unexpectedly.'],
+  [
+    'START_FAILED',
+    'Engine startup failed (RPC_DISCONNECTED)',
+    'The connection to the remote GPU closed during loading.',
+  ],
+])(
+  'reports the observed failure %s instead of the generic startup popup',
+  async (code, message, expected) => {
+    const { controller, host } = setup();
+    await controller.command({ action: 'import' });
+    const imported = await controller.command({ action: 'snapshot' });
+    host.command.mockImplementation((text: string) =>
+      Promise.resolve({
+        snapshot:
+          (JSON.parse(text) as { action: string }).action === 'load'
+            ? { phase: 'failed', fault: { code, message } }
+            : { phase: 'stopped', fault: null },
+      }),
+    );
+    const view = await controller.command({ action: 'load', modelId: imported.model!.id });
+    expect(view.error).toContain(expected);
+    await controller.quit();
+  },
+);
 it('publishes only the current coalesced device scan to the peer owner', async () => {
   const updatePeerHardware = vi.fn((): Promise<void> => Promise.resolve());
   const { controller, deps } = setup(true, { updatePeerHardware });

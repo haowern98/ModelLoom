@@ -12,3 +12,6 @@ coverage/
 test-results/
 playwright-report/
 *.log
+
+# Packaged embedded networking binaries and local integration evidence
+/components/tailscale/out/

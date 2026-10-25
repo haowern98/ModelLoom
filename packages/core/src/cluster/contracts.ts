@@ -1,5 +1,7 @@
 import { decodeAdvancedPreferences } from '../model-configuration/contracts.js';
 import type { LoadDefaults, AdvancedPreferences } from '../model-configuration/contracts.js';
+import { decodeClusterCanvasLayout } from './canvas-layout.js';
+import type { ClusterCanvasLayout } from './canvas-layout.js';
 
 export interface RawGpuRun {
   readonly uuid: string;
@@ -19,6 +21,7 @@ export interface CapturedClusterLoad {
 }
 /** Trusted controller identities, separate from editable caller data. */
 export interface ClusterDraft {
+  readonly canvas?: ClusterCanvasLayout;
   readonly key: string;
   readonly configurationId: string | null;
   readonly modelId: string;
@@ -27,8 +30,9 @@ export interface ClusterDraft {
   readonly load: CapturedClusterLoad;
   readonly runs: readonly RawGpuRun[];
 }
-export type ClusterEdit = Pick<ClusterDraft, 'modelId' | 'load' | 'runs'>;
+export type ClusterEdit = Pick<ClusterDraft, 'modelId' | 'load' | 'runs' | 'canvas'>;
 export interface SavedClusterConfiguration {
+  readonly canvas?: ClusterCanvasLayout;
   readonly id: string;
   readonly name: string;
   readonly revision: number;
@@ -147,8 +151,9 @@ function rawRuns(input: unknown): readonly RawGpuRun[] {
 }
 /** Caller edits cannot choose identities, revisions, profiles, paths or arguments. */
 export function decodeClusterEdit(input: unknown): ClusterEdit {
-  const v = object(input, ['modelId', 'load', 'runs']);
+  const v = object(input, ['modelId', 'load', 'runs', ...canvasKeys(input)]);
   return Object.freeze({
+    ...canvasValue(v),
     modelId: match(v.modelId, model),
     load: decodeCapturedClusterLoad(v.load),
     runs: rawRuns(v.runs),
@@ -163,11 +168,13 @@ export function decodeClusterDraft(input: unknown): ClusterDraft {
     'baseSavedRevision',
     'load',
     'runs',
+    ...canvasKeys(input),
   ]);
   const key = text(v.key, 160);
   if (!key || Array.from(key).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127))
     return invalid();
   return Object.freeze({
+    ...canvasValue(v),
     key,
     configurationId: v.configurationId === null ? null : match(v.configurationId, id),
     modelId: match(v.modelId, model),
@@ -197,6 +204,7 @@ export function decodeSavedClusterConfiguration(input: unknown): SavedClusterCon
     'profileId',
     'load',
     'runs',
+    ...canvasKeys(input),
   ]);
   if (!Array.isArray(v.runs) || v.runs.length < 1 || v.runs.length > 2) return invalid();
   const blockCount = integer(v.blockCount, 1, 2147483647);
@@ -217,6 +225,7 @@ export function decodeSavedClusterConfiguration(input: unknown): SavedClusterCon
   )
     return invalid();
   return Object.freeze({
+    ...canvasValue(v),
     id: match(v.id, id),
     name: decodeConfigurationName(v.name),
     revision: integer(v.revision),
@@ -226,4 +235,11 @@ export function decodeSavedClusterConfiguration(input: unknown): SavedClusterCon
     load: decodeCapturedClusterLoad(v.load),
     runs: Object.freeze(runs),
   });
+}
+
+function canvasKeys(input: unknown): string[] {
+  return input && typeof input === 'object' && Object.hasOwn(input, 'canvas') ? ['canvas'] : [];
+}
+function canvasValue(value: Record<string, unknown>): { canvas?: ClusterCanvasLayout } {
+  return value.canvas === undefined ? {} : { canvas: decodeClusterCanvasLayout(value.canvas) };
 }

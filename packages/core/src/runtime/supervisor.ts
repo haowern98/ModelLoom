@@ -94,7 +94,7 @@ export class RuntimeSupervisor {
           error instanceof Error && error.message === 'START_TIMEOUT'
             ? 'START_TIMEOUT'
             : 'START_FAILED';
-        this.fail(attempt, code);
+        this.fail(attempt, code, error instanceof Error ? error.message : undefined);
         controller.abort();
         void this.clean(attempt);
       }
@@ -192,7 +192,7 @@ export class RuntimeSupervisor {
     if (attempt.controller.signal.aborted && attempt.cleanupFinished) void this.clean(attempt);
   }
 
-  private fail(attempt: Attempt, code: FaultCode): void {
+  private fail(attempt: Attempt, code: FaultCode, reason?: string): void {
     if (this.attempt !== attempt) return;
     const fault = Object.freeze({
       code,
@@ -203,7 +203,11 @@ export class RuntimeSupervisor {
             ? 'Startup deadline exceeded'
             : code === 'CLEANUP_FAILED'
               ? 'Owned exit could not be confirmed'
-              : 'Engine startup failed',
+              : ['RPC_DISCONNECTED', 'PLACEMENT_MISMATCH', 'CONTEXT_MISMATCH'].includes(
+                    reason ?? '',
+                  )
+                ? `Engine startup failed (${reason})`
+                : 'Engine startup failed',
     });
     // A cleanup failure is a new ownership failure, rather than a duplicate engine-exit receipt.
     if (this.state.phase === 'failed' && code === 'CLEANUP_FAILED') {

@@ -11,6 +11,22 @@ import type {
 } from '../../../shared/cluster-configuration';
 const load = { defaults: {}, cacheK: 'f16', cacheV: 'f16' } as CapturedClusterLoad;
 
+it('acknowledges an assigned draft with canvas metadata before running', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectModel('a'.repeat(64)));
+  act(() => {
+    result.current.edit([{ uuid: 'gpu', first: '0', last: '7' }]);
+    result.current.editCanvas({ positions: { local: { column: 0, row: 0 } }, links: [] });
+  });
+  let target: Awaited<ReturnType<typeof result.current.prepareRun>>;
+  await act(async () => {
+    target = await result.current.prepareRun();
+  });
+  expect(target!).toMatchObject({ key: `model:${'a'.repeat(64)}`, modelId: 'a'.repeat(64) });
+  expect(result.current.error).toBeNull();
+});
+
 it('captures canvas GPU candidates before awaiting draft synchronization', async () => {
   const fixture = historyBridge();
   const original = fixture.bridge.command;

@@ -4,6 +4,12 @@ export {
   decodeClusterReply,
 } from '../../../../packages/core/src/cluster/wire';
 export type {
+  ClusterCanvasLayout,
+  ClusterCanvasPosition,
+  ClusterCanvasLink,
+  ClusterCanvasEdge,
+} from '../../../../packages/core/src/cluster/canvas-layout';
+export type {
   ClusterBridge,
   ClusterCommand,
   ClusterReply,

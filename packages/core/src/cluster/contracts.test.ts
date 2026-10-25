@@ -50,6 +50,62 @@ test('strict load fields and ranges', () => {
 const uuid = 'GPU-11111111-1111-1111-1111-111111111111';
 const edit = { modelId: 'a'.repeat(64), load, runs: [{ uuid, first: '', last: '-' }] };
 
+test('retains detached presentation geometry without changing execution assignments', () => {
+  const peer = `peer:${'b'.repeat(64)}`;
+  const canvas = {
+    positions: { local: { column: 0, row: 0 }, [peer]: { column: 0, row: 1 } },
+    links: [{ from: 'local', to: peer, edge: 'bottom' }],
+  };
+  const decoded = decodeClusterEdit({ ...edit, canvas });
+  expect(decoded.canvas).toEqual(canvas);
+  expect(decoded.runs).toEqual(edit.runs);
+  expect(Object.isFrozen(decoded.canvas?.positions.local)).toBe(true);
+  canvas.positions.local.row = 3;
+  expect(decoded.canvas?.positions.local?.row).toBe(0);
+});
+
+test.each([
+  { positions: { local: { column: Infinity, row: 0 } }, links: [] },
+  { positions: { local: { column: 1000000, row: 0 } }, links: [] },
+  { positions: { '../path': { column: 0, row: 0 } }, links: [] },
+  {
+    positions: { local: { column: 0, row: 0 } },
+    links: [{ from: 'local', to: 'missing', edge: 'right' }],
+  },
+  {
+    positions: { local: { column: 0, row: 0 } },
+    links: [{ from: 'local', to: 'local', edge: 'right' }],
+  },
+])('rejects malformed or unbounded canvas geometry', (canvas) => {
+  expect(() => decodeClusterEdit({ ...edit, canvas })).toThrow('INVALID_CLUSTER_CONFIGURATION');
+});
+
+test('rejects cycles, overlapping cells, extra fields and oversized canvas records', () => {
+  const peer = `peer:${'b'.repeat(64)}`;
+  const positions = { local: { column: 0, row: 0 }, [peer]: { column: 1, row: 0 } };
+  for (const canvas of [
+    {
+      positions,
+      links: [
+        { from: 'local', to: peer, edge: 'right' },
+        { from: peer, to: 'local', edge: 'left' },
+      ],
+    },
+    { positions: { ...positions, [peer]: positions.local }, links: [] },
+    { positions, links: [], runtimePath: 'untrusted' },
+    {
+      positions: Object.fromEntries(
+        Array.from({ length: 33 }, (_, index) => [
+          `peer:${index.toString(16).padStart(64, '0')}`,
+          { column: index, row: 0 },
+        ]),
+      ),
+      links: [],
+    },
+  ])
+    expect(() => decodeClusterEdit({ ...edit, canvas })).toThrow('INVALID_CLUSTER_CONFIGURATION');
+});
+
 test('returns field errors for qualified peer GPU assignments without losing their identity', () => {
   const issue = { uuid: `peer:${'b'.repeat(64)}:${uuid}`, field: 'first', code: 'invalid-integer' };
   const reply = {

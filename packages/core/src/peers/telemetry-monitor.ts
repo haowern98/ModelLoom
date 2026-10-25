@@ -2,7 +2,9 @@ import { emptyTelemetry, type PeerTelemetry } from './telemetry-view.js';
 
 interface MonitorOptions {
   ping(signal: AbortSignal): Promise<number>;
-  bandwidth(signal: AbortSignal): Promise<{ uploadMbps: number; downloadMbps: number }>;
+  bandwidth(
+    signal: AbortSignal,
+  ): Promise<{ uploadMbps: number | null; downloadMbps: number | null }>;
   totals(): { sent: number; received: number };
   active(): boolean;
   changed(): void;
@@ -145,8 +147,9 @@ export class PeerTelemetryMonitor {
           return;
         }
         if (
+          [result.uploadMbps, result.downloadMbps].every((value) => value === null) ||
           ![result.uploadMbps, result.downloadMbps].every(
-            (value) => Number.isFinite(value) && value >= 0,
+            (value) => value === null || (Number.isFinite(value) && value >= 0),
           )
         )
           throw Error('INVALID_DIAGNOSTICS');
@@ -157,7 +160,13 @@ export class PeerTelemetryMonitor {
         const message = error instanceof Error ? error.message : String(error);
         this.unsupported =
           message === 'UNKNOWN_PEER_OPERATION' || message === 'DIAGNOSTICS_UNSUPPORTED';
-        this.idleState = this.unsupported ? 'unsupported' : 'unavailable';
+        // Busy is a scheduling result, not a failed control connection.
+        this.idleState =
+          message === 'DIAGNOSTICS_BUSY'
+            ? 'idle'
+            : this.unsupported
+              ? 'unsupported'
+              : 'unavailable';
         this.update({ state: this.busy() ? 'active' : this.idleState });
       }
     } finally {

@@ -1,7 +1,7 @@
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
-import { rpcIpcStream } from './ipc-rpc.js';
+import { rpcIpcStream, RPC_IPC_FRAME_BYTES } from './ipc-rpc.js';
 import { GENERATION_POLICY } from '../generation/contracts.js';
 
 it('carries opaque bytes with bounded backpressure and closes both ends', async () => {
@@ -20,7 +20,7 @@ it('carries opaque bytes with bounded backpressure and closes both ends', async 
   });
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(written).toBe(false);
-  expect(right.stream.readableLength).toBeLessThanOrEqual(16384);
+  expect(right.stream.readableLength).toBeLessThanOrEqual(2 * RPC_IPC_FRAME_BYTES);
   const received = new Promise<void>((resolve) => {
     right.stream.on('data', (bytes: Buffer) => {
       chunks.push(bytes);
@@ -81,5 +81,50 @@ it('still closes an unacknowledged bounded fragment after the full execution bud
   } finally {
     pipe.stream.destroy();
     vi.useRealTimers();
+  }
+});
+
+it('carries a full encrypted TLS record without serial acknowledgement-sized fragments', async () => {
+  const id = randomUUID();
+  const frames: number[] = [];
+  const left = rpcIpcStream(id, (message) => {
+    if (message.type === 'rpc-data') frames.push(Buffer.from(message.bytes, 'base64').length);
+    queueMicrotask(() => right.receive(message));
+  });
+  const right = rpcIpcStream(id, (message) => queueMicrotask(() => left.receive(message)));
+  const input = Buffer.alloc(16 * 1024 + 22, 173);
+  const received: Buffer[] = [];
+  const delivered = new Promise<void>((resolve) =>
+    right.stream.on('data', (bytes: Buffer) => {
+      received.push(bytes);
+      if (received.reduce((total, part) => total + part.length, 0) === input.length) resolve();
+    }),
+  );
+  try {
+    await new Promise<void>((resolve, reject) =>
+      left.stream.write(input, (error) => (error ? reject(error) : resolve())),
+    );
+    await delivered;
+    expect(Buffer.concat(received).equals(input)).toBe(true);
+    expect(frames).toEqual([input.length]);
+  } finally {
+    const closed = once(right.stream, 'close');
+    left.stream.destroy();
+    await closed;
+  }
+});
+
+it('rejects oversized and noncanonical data before accepting bytes', () => {
+  for (const bytes of [Buffer.alloc(32769).toString('base64'), 'YQ', 'YQ===']) {
+    const id = randomUUID();
+    const pipe = rpcIpcStream(id, () => undefined);
+    try {
+      expect(() => pipe.receive({ type: 'rpc-data', id, sequence: 1, bytes })).toThrow(
+        'INVALID_RPC_CHANNEL',
+      );
+      expect(pipe.stream.readableLength).toBe(0);
+    } finally {
+      pipe.stream.destroy();
+    }
   }
 });

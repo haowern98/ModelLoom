@@ -16,12 +16,14 @@ export function ClusterCanvas({
   singleDevice = false,
   panelId,
   layoutStyle,
+  fitOnMount = false,
 }: {
   children: ReactNode;
   onClear: () => void;
   singleDevice?: boolean;
   panelId?: string | undefined;
   layoutStyle?: CSSProperties | undefined;
+  fitOnMount?: boolean;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
@@ -106,7 +108,8 @@ export function ClusterCanvas({
     const content = world.current;
     if (!element || !content) return;
     const recenter = () => {
-      if (singleDevice || !touched.current) centerView();
+      if (fitOnMount && !touched.current) fitView();
+      else if (singleDevice || !touched.current) centerView();
     };
     recenter();
     const observer =
@@ -140,7 +143,7 @@ export function ClusterCanvas({
       observer?.disconnect();
       element.removeEventListener('wheel', wheel);
     };
-  }, [centerView, singleDevice, panelId]);
+  }, [centerView, fitOnMount, fitView, singleDevice, panelId]);
 
   return (
     <div

@@ -5,6 +5,9 @@ import { X509Certificate } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import type { Duplex } from 'node:stream';
+import { connect as tlsConnect } from 'node:tls';
+import { overlaySocket } from './overlay-socket.js';
+import type { PeerOverlayTransport } from './overlay.js';
 import type { WindowsPeerIdentity } from './windows-identity.js';
 import { peerFingerprint, validatePeerCertificate } from './windows-identity.js';
 import { peerDeadline, RPC_OPEN_MS } from './deadline.js';
@@ -39,15 +42,19 @@ export interface PeerRpcTarget {
 }
 
 /** mTLS and exact approved-key verification precede exposing the opaque stream. */
-export function connectPeerRpc(
+export async function connectPeerRpc(
   identity: WindowsPeerIdentity,
   target: PeerRpcTarget,
   signal?: AbortSignal,
   gpuId?: string,
+  overlay?: PeerOverlayTransport,
 ): Promise<Duplex> {
   if (gpuId !== undefined && !/^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(gpuId))
     return Promise.reject(new Error('INVALID_GPU_RESERVATION'));
   validatePeerCertificate(target.certificate, target.authority);
+  const raw = overlay?.has(target.address)
+    ? overlaySocket(await overlay.dial(target.address, target.securePort, signal))
+    : undefined;
   return new Promise((resolve, reject) => {
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), rpcUpgradeTimeout);
@@ -55,7 +62,7 @@ export function connectPeerRpc(
       clearTimeout(timer);
       reject(error);
     };
-    const req = request({
+    const options = {
       host: target.address,
       port: target.securePort,
       signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal,
@@ -71,12 +78,18 @@ export function connectPeerRpc(
       pfx: identity.pfx,
       ca: new X509Certificate(target.authority).toString(),
       rejectUnauthorized: true,
-      minVersion: 'TLSv1.3',
-      maxVersion: 'TLSv1.3',
-      checkServerIdentity: (_host, cert) =>
+      minVersion: 'TLSv1.3' as const,
+      maxVersion: 'TLSv1.3' as const,
+      checkServerIdentity: (_host: string, cert: { raw: Buffer }) =>
         peerFingerprint(cert.raw) === peerFingerprint(target.certificate)
           ? undefined
           : new Error('FINGERPRINT_MISMATCH'),
+    };
+    const req = request({
+      ...options,
+      ...(raw
+        ? { agent: undefined, createConnection: () => tlsConnect({ ...options, socket: raw }) }
+        : {}),
     });
     req.once('upgrade', (response, socket, head) => {
       clearTimeout(timer);

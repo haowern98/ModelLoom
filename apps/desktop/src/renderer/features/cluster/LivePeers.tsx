@@ -12,8 +12,11 @@ import checkboxes from '../../components/Checkbox.module.css';
 import switches from '../../components/Switch.module.css';
 import layout from './ClusterViews.module.css';
 import { ConfigurationSelect } from '../models/ConfigurationControls';
+import { TailscaleCandidates } from './TailscaleCandidates';
 
 const errors: Record<string, string> = {
+  INSUFFICIENT_DISK_SPACE:
+    'Not enough disk space to install the runtime. Free space on the runtime drive and try again.',
   SHARING_FIREWALL_FAILED:
     'Could not set up Windows Firewall for sharing. Try again and approve the Windows permission prompt.',
   SHARING_FIREWALL_PERMISSION_DENIED:
@@ -327,6 +330,20 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: bool
     setInvited,
   } = usePeers();
   const startingSharing = pendingAction === 'share';
+  const networkRefreshing = useRef(false);
+  const [networkRefreshError, setNetworkRefreshError] = useState(false);
+  async function refreshNetwork() {
+    if (networkRefreshing.current || !window.modelLoomNetwork) return;
+    networkRefreshing.current = true;
+    try {
+      const reply = await window.modelLoomNetwork.command({ action: 'refresh' });
+      setNetworkRefreshError(!reply.ok);
+    } catch {
+      setNetworkRefreshError(true);
+    } finally {
+      networkRefreshing.current = false;
+    }
+  }
   const [excludedGpuIds, setExcludedGpuIds] = useState<string[]>([]);
   const selected =
     view?.gpus.filter((gpu) => !excludedGpuIds.includes(gpu.id)).map((gpu) => gpu.id) ?? [];
@@ -558,6 +575,7 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: bool
               disabled={busy}
               onClick={() => {
                 void run({ action: 'read' });
+                void refreshNetwork();
               }}
             >
               <RefreshCw size={16} aria-hidden="true" />
@@ -568,9 +586,25 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: bool
           </div>
         </div>
         <div className={settings.group}>
-          <div className={settings.row}>
-            <p className={settings.description}>No available devices</p>
-          </div>
+          {networkRefreshError && (
+            <div className={settings.row} role="alert">
+              <p className={settings.description}>
+                Could not refresh Tailscale devices. Try again.
+              </p>
+            </div>
+          )}
+          {window.modelLoomNetwork ? (
+            <TailscaleCandidates
+              onInvited={(requestId) => {
+                setInvited(requestId);
+                void run({ action: 'read' });
+              }}
+            />
+          ) : (
+            <div className={settings.row}>
+              <p className={settings.description}>No available devices</p>
+            </div>
+          )}
         </div>
       </section>
       <section className={settings.section}>

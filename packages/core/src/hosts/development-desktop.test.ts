@@ -5,6 +5,7 @@ import type * as DevelopmentPolicy from '../runtime-package/development-policy.j
 import type { DesktopDeployment } from './desktop.js';
 import { discoverResources } from './resource-probe.js';
 import type { ClusterDraft } from '../cluster/contracts.js';
+import { createDesktopPeerHost } from '../peers/desktop.js';
 
 const startup = vi.hoisted(() => ({
   admit: vi.fn(),
@@ -12,6 +13,9 @@ const startup = vi.hoisted(() => ({
   verify: vi.fn(),
   install: vi.fn(),
   adapter: vi.fn(),
+  setRuntimeBusy: vi.fn(() => Promise.resolve()),
+  closePeers: vi.fn(() => Promise.resolve()),
+  privateDirectory: vi.fn(() => undefined),
   candidates: vi.fn((...args: unknown[]) => {
     void args;
     return Promise.resolve({ code: 'NO_FIT' });
@@ -25,9 +29,11 @@ vi.mock('./placement-estimator.js', () => ({
   runPlacementEstimator: vi.fn(),
 }));
 vi.mock('../peers/desktop.js', () => ({
-  createDesktopPeerHost: () =>
+  createDesktopPeerHost: vi.fn(() =>
     Promise.resolve({
       subscribe: () => () => undefined,
+      setRuntimeBusy: startup.setRuntimeBusy,
+      close: startup.closePeers,
       command: () =>
         Promise.resolve({
           ok: true,
@@ -57,11 +63,12 @@ vi.mock('../peers/desktop.js', () => ({
           ],
         }),
     }),
+  ),
 }));
 vi.mock('./windows-ownership.js', () => ({
   ownershipBinding: () => ({
     createDeployment: () => ({}),
-    privateDirectory: () => undefined,
+    privateDirectory: startup.privateDirectory,
     admitCore: startup.admit,
     closeDeployment: startup.close,
     coresExited: () => true,
@@ -107,6 +114,43 @@ vi.mock('./resource-probe.js', () => ({
   ),
 }));
 beforeEach(() => vi.clearAllMocks());
+
+it('initializes peer directory permissions once while concurrent reads reuse the host', async () => {
+  const deps = developmentDesktopDependencies(vi.fn(), 'bootstrap', 'profile', 'window', 'state');
+  await Promise.all(Array.from({ length: 8 }, () => deps.peers({ action: 'read' })));
+  await deps.peers({ action: 'read' });
+  expect(createDesktopPeerHost).toHaveBeenCalledTimes(1);
+  expect(startup.privateDirectory).toHaveBeenCalledTimes(1);
+  expect(startup.privateDirectory).toHaveBeenCalledWith(path.resolve('state'));
+  expect(startup.privateDirectory.mock.invocationCallOrder[0]).toBeLessThan(
+    vi.mocked(createDesktopPeerHost).mock.invocationCallOrder[0]!,
+  );
+  await deps.closePeers();
+});
+
+it('fails closed on peer directory permission failure and checks again on retry', async () => {
+  const deps = developmentDesktopDependencies(vi.fn(), 'bootstrap', 'profile', 'window', 'state');
+  startup.privateDirectory.mockImplementationOnce(() => {
+    throw Error('OWNERSHIP_FAILED');
+  });
+  await expect(deps.peers({ action: 'read' })).rejects.toThrow('OWNERSHIP_FAILED');
+  expect(createDesktopPeerHost).not.toHaveBeenCalled();
+  await deps.peers({ action: 'read' });
+  expect(startup.privateDirectory).toHaveBeenCalledTimes(2);
+  expect(createDesktopPeerHost).toHaveBeenCalledTimes(1);
+  await deps.closePeers();
+});
+
+it('rechecks directory permissions when peer host initialization must be retried', async () => {
+  const deps = developmentDesktopDependencies(vi.fn(), 'bootstrap', 'profile', 'window', 'state');
+  vi.mocked(createDesktopPeerHost).mockRejectedValueOnce(Error('CORE_START_FAILED'));
+  await expect(deps.peers({ action: 'read' })).rejects.toThrow('CORE_START_FAILED');
+  await deps.peers({ action: 'read' });
+  await deps.peers({ action: 'read' });
+  expect(startup.privateDirectory).toHaveBeenCalledTimes(2);
+  expect(createDesktopPeerHost).toHaveBeenCalledTimes(2);
+  await deps.closePeers();
+});
 
 it.each([
   ['local only', ['GPU-22c23971-dacf-2123-2169-ad70d8f6729a']],
@@ -360,4 +404,108 @@ it('binds the admitted engine after verification and closes it with the history 
   await expect(
     startup.deployment!.adapter.launch(selection, new AbortController().signal),
   ).rejects.toThrow('NOT_READY');
+});
+
+function pending<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function preparedChatFixture() {
+  const dependencies = developmentDesktopDependencies(
+    () => {
+      throw new Error('UNEXPECTED_FORK');
+    },
+    'unused',
+    'trusted-profile',
+    'captured-window',
+  );
+  const host = await dependencies.createHistoryHost();
+  const cancelled = { status: 'cancelled' as const, reason: 'USER_CANCELLED' as const };
+  const generated = pending<typeof cancelled>();
+  const counted = pending<number>();
+  const native = {
+    tokenCount: vi.fn(() => counted.promise),
+    start: vi.fn(() => ({
+      settled: generated.promise,
+      cancel: vi.fn(() => generated.resolve(cancelled)),
+    })),
+  };
+  const engine = {
+    selection: {
+      deploymentId: dependencies.deploymentId,
+      packageId: dependencies.packageId,
+      modelId: dependencies.expectedHash,
+      sessionId: 'session',
+      operationId: 'load',
+    },
+    exited: Promise.resolve({ code: 0, signal: null }),
+    waitReady: () => Promise.resolve(),
+    requestStop: () => Promise.resolve(),
+    forceStop: () => Promise.resolve(),
+  };
+  startup.verify.mockResolvedValueOnce('verified');
+  startup.install.mockResolvedValueOnce({});
+  startup.adapter.mockReturnValueOnce({
+    chat: () => native,
+    close: () => Promise.resolve(),
+  });
+  await host.prepare('approved.gguf');
+  const transport = startup.deployment!.chat!(engine);
+  const identity = {
+    kind: 'api' as const,
+    deploymentId: dependencies.deploymentId,
+    sessionId: 'session',
+    operationId: 'load',
+    callerId: 'http',
+    requestId: 'request',
+  };
+  return { dependencies, host, transport, native, counted, cancelled, identity };
+}
+
+it('finishes active generation cancellation after peer Quit admission closes', async () => {
+  const fixture = await preparedChatFixture();
+  try {
+    const execution = fixture.transport.start(fixture.identity, [], () => undefined);
+    await vi.waitFor(() => expect(fixture.native.start).toHaveBeenCalledOnce());
+    await fixture.dependencies.beginPeerQuit();
+    await execution.cancel();
+    await expect(execution.settled).resolves.toEqual(fixture.cancelled);
+    expect(startup.setRuntimeBusy.mock.calls).toEqual([[true], [false]]);
+  } finally {
+    await fixture.host.close();
+    await fixture.dependencies.closePeers();
+  }
+});
+
+it('finishes pending token counting after peer Quit admission closes', async () => {
+  const fixture = await preparedChatFixture();
+  try {
+    const counted = fixture.transport.tokenCount([], new AbortController().signal);
+    await vi.waitFor(() => expect(fixture.native.tokenCount).toHaveBeenCalledOnce());
+    await fixture.dependencies.beginPeerQuit();
+    fixture.counted.resolve(3);
+    await expect(counted).resolves.toBe(3);
+    expect(startup.setRuntimeBusy.mock.calls).toEqual([[true], [false]]);
+  } finally {
+    await fixture.host.close();
+    await fixture.dependencies.closePeers();
+  }
+});
+
+it('rejects first use of a retained chat transport after peer Quit begins', async () => {
+  const fixture = await preparedChatFixture();
+  try {
+    await fixture.dependencies.beginPeerQuit();
+    const execution = fixture.transport.start(fixture.identity, [], () => undefined);
+    await expect(execution.settled).rejects.toThrow('NOT_READY');
+    expect(fixture.native.start).not.toHaveBeenCalled();
+    expect(startup.setRuntimeBusy).not.toHaveBeenCalled();
+  } finally {
+    await fixture.host.close();
+    await fixture.dependencies.closePeers();
+  }
 });

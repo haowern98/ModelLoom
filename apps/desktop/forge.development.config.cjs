@@ -1,6 +1,7 @@
 const path = require('node:path');
 const { VitePlugin } = require('@electron-forge/plugin-vite');
 const ordinary = require('./forge.config.cjs');
+const { prepareNetworkResource } = require('./scripts/network-resource.cjs');
 module.exports = (stage) => {
   if (!stage || path.basename(stage) !== 'modelloom-development')
     throw new Error('Explicit development staging required');
@@ -13,7 +14,7 @@ module.exports = (stage) => {
       executableName: 'ModelLoom Development',
       extraResource: [stage],
     },
-    hooks: {},
+    hooks: { prePackage: prepareNetworkResource },
     plugins: [
       new VitePlugin({
         build: [

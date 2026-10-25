@@ -2,16 +2,18 @@
 import { createRequire } from 'node:module';
 import type * as ChildProcess from 'node:child_process';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
 const childProcess = require('node:child_process') as typeof ChildProcess;
 const forge = require('../../forge.config.cjs') as { hooks?: { preStart: () => void } };
 const coreRoot = path.resolve(import.meta.dirname, '../../../../packages/core');
 const previousDemo = process.env.MODELLOOM_DEMO;
+beforeEach(() => vi.stubEnv('MODELLOOM_DEV_LAUNCH', 'electron-dev'));
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   if (previousDemo === undefined) delete process.env.MODELLOOM_DEMO;
   else process.env.MODELLOOM_DEMO = previousDemo;
 });

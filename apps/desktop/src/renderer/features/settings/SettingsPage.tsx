@@ -8,6 +8,7 @@ import { Button } from '../../components/Button';
 import { ChatGptSidebarIcon } from '../../components/ChatGptSidebarIcon';
 import { Dialog } from '../../components/Dialog';
 import { SearchField } from '../../components/SearchField';
+import { NetworkSettings } from './NetworkSettings';
 import styles from './SettingsPage.module.css';
 
 export type SettingsCategory =
@@ -26,7 +27,7 @@ const categories = [
     keywords: 'installed engines packs updates GGUF llama.cpp log level downloads',
   },
   { name: 'Storage', icon: Database, keywords: 'model cache folder location limits cleanup' },
-  { name: 'Network', icon: Network, keywords: 'LAN Tailscale Headscale connectivity API access' },
+  { name: 'Network', icon: Network, keywords: 'LAN Tailscale connectivity API access' },
   { name: 'Diagnostics', icon: 'diagnostics', keywords: 'health logs metrics export' },
   { name: 'Advanced', icon: 'advanced', keywords: 'advanced options' },
 ] as const;
@@ -34,7 +35,7 @@ const categories = [
 const appearanceUnavailable = 'Appearance changes are not available yet.';
 const runtimeUnavailable = 'Runtime integration is not connected.';
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className={styles.section} aria-label={title}>
       <h2>{title}</h2>
@@ -43,7 +44,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Row({
+export function Row({
   label,
   description,
   children,
@@ -216,10 +217,12 @@ export function SettingsPage({
   category,
   onCategory,
   onApi,
+  onConnections,
 }: {
   category: SettingsCategory;
   onCategory: (category: SettingsCategory) => void;
   onApi: () => void;
+  onConnections?: () => void;
 }) {
   const [query, setQuery] = useState('');
   const details = useRef<HTMLDivElement>(null);
@@ -287,12 +290,13 @@ export function SettingsPage({
             <Appearance />
           ) : category === 'Runtime' ? (
             <Runtime />
+          ) : category === 'Network' ? (
+            <NetworkSettings onApi={onApi} {...(onConnections ? { onConnections } : {})} />
           ) : (
             <Section title={category}>
               <div className={styles.pending}>
                 <p className={styles.label}>{category} settings are not available yet.</p>
                 <p className={styles.description}>{pendingDescriptions[category]}</p>
-                {category === 'Network' && <Button onClick={onApi}>Open API settings</Button>}
               </div>
             </Section>
           )}

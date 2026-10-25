@@ -2,7 +2,7 @@ import type { VerifiedPackage } from './verifier.js';
 import { packageEvidence, requireLivePackage } from './verifier.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { copyFile, lstat, mkdir, opendir, rm } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, opendir, rm, statfs } from 'node:fs/promises';
 import path from 'node:path';
 import { ownershipBinding } from '../hosts/windows-ownership.js';
 import type { Inventory } from './inventory.js';
@@ -11,6 +11,7 @@ export interface InstalledPackage {
   readonly directory: string;
 }
 const installedPackages = new WeakMap<object, VerifiedPackage>();
+const installations = new Map<string, Promise<void>>();
 /** Only verifier-issued live packages can reach the production broker; fixture receipts never promote. */
 export function requireInstalledLive(installed: InstalledPackage): Inventory {
   const capability = installedPackages.get(installed);
@@ -56,8 +57,63 @@ async function inspect(directory: string, inventory: Inventory): Promise<void> {
     if (digest.digest('hex') !== file.sha256) throw new Error('FILE_MISMATCH');
   }
 }
-/** Expanded bootstrap only. A fresh private directory preserves every existing installed version. */
+function receipt(capability: VerifiedPackage, directory: string): InstalledPackage {
+  const { inventory } = packageEvidence(capability);
+  const result = Object.freeze({ packageId: inventory.packageId, directory });
+  installedPackages.set(result, capability);
+  return result;
+}
+
+async function existingInstallation(
+  capability: VerifiedPackage,
+  root: string,
+): Promise<InstalledPackage | undefined> {
+  const { inventory } = packageEvidence(capability);
+  const prefix = `${inventory.packageId}-${inventory.version}-`;
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const stream = await opendir(root);
+  let entries = 0;
+  for await (const entry of stream) {
+    if (++entries > 1024) throw new Error('INVALID_TREE');
+    if (!entry.isDirectory() || !entry.name.startsWith(prefix)) continue;
+    if (!uuid.test(entry.name.slice(prefix.length))) continue;
+    const result = receipt(capability, path.join(root, entry.name));
+    try {
+      // A directory name is only a hint. Current signed inventory and native locks grant reuse.
+      const lock = await revalidateInstalled(result);
+      lock.release();
+      return result;
+    } catch {
+      // Preserve damaged or older copies; never overwrite a potentially retained installation.
+    }
+  }
+  return undefined;
+}
+
+/** Expanded bootstrap only. Reuse requires fresh verification against this caller's capability. */
 export async function installExpanded(
+  capability: VerifiedPackage,
+  bundle: string,
+  root: string,
+): Promise<InstalledPackage> {
+  const directory = path.resolve(root);
+  const key = process.platform === 'win32' ? directory.toLowerCase() : directory;
+  const previous = installations.get(key);
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  installations.set(key, pending);
+  await previous;
+  try {
+    return await installSerialized(capability, bundle, directory);
+  } finally {
+    release();
+    if (installations.get(key) === pending) installations.delete(key);
+  }
+}
+
+async function installSerialized(
   capability: VerifiedPackage,
   bundle: string,
   root: string,
@@ -68,29 +124,48 @@ export async function installExpanded(
     const { inventory } = packageEvidence(capability);
     source = native.sealFiles(inventory.files.map((file) => path.resolve(bundle, file.path)));
     await inspect(bundle, inventory);
-    native.privateDirectory(path.resolve(root));
-    candidate = path.join(
-      path.resolve(root),
-      `${inventory.packageId}-${inventory.version}-${randomUUID()}`,
-    );
+    native.privateDirectory(root);
+    const existing = await existingInstallation(capability, root);
+    if (existing) return existing;
+    const space = await statfs(root, { bigint: true });
+    const required = inventory.files.reduce((bytes, file) => bytes + BigInt(file.length), 0n);
+    if (space.bavail * space.bsize < required) throw new Error('INSUFFICIENT_DISK_SPACE');
+    candidate = path.join(root, `${inventory.packageId}-${inventory.version}-${randomUUID()}`);
     native.privateDirectory(candidate);
     for (const file of inventory.files) {
       const destination = path.join(candidate, file.path);
       await mkdir(path.dirname(destination), { recursive: true });
       await copyFile(path.join(bundle, file.path), destination);
     }
-    const result = Object.freeze({ packageId: inventory.packageId, directory: candidate });
-    installedPackages.set(result, capability);
+    const result = receipt(capability, candidate);
     const lock = await revalidateInstalled(result);
     lock.release();
     candidate = undefined;
     return result;
-  } catch {
-    if (candidate) await rm(candidate, { recursive: true, force: true });
-    throw new Error('INSTALL_FAILED');
+  } catch (error) {
+    let cleanupFailure: unknown;
+    if (candidate) {
+      try {
+        await rm(candidate, { recursive: true, force: true });
+      } catch (cleanupError) {
+        cleanupFailure = cleanupError;
+      }
+    }
+    throw installationError(error, cleanupFailure);
   } finally {
     if (source) native.releaseFiles(source);
   }
+}
+
+function installationError(error: unknown, cleanupFailure: unknown): Error {
+  const insufficient =
+    error instanceof Error &&
+    (error.message === 'INSUFFICIENT_DISK_SPACE' || ('code' in error && error.code === 'ENOSPC'));
+  const cause =
+    cleanupFailure === undefined
+      ? error
+      : new AggregateError([error, cleanupFailure], 'Installation and partial cleanup failed');
+  return new Error(insufficient ? 'INSUFFICIENT_DISK_SPACE' : 'INSTALL_FAILED', { cause });
 }
 /** Rehash every dependency with native file and ancestor handles retained until the consumer releases. */
 export async function revalidateInstalled(

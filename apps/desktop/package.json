@@ -7,7 +7,6 @@
   "main": ".vite/build/index.cjs",
   "author": "ModelLoom",
   "scripts": {
-    "start": "electron-forge start",
     "dev:web": "vite --config vite.renderer.config.ts --host 127.0.0.1 --port 5173 --strictPort",
     "build": "vite build --config vite.renderer.config.ts",
     "build:demo": "vite build --config vite.renderer.config.ts --mode demo",

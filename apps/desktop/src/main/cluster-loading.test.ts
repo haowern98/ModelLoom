@@ -15,6 +15,25 @@ import {
 const modelId = 'a'.repeat(64);
 const uuid = 'GPU-11111111-1111-1111-1111-111111111111';
 const configId = '11111111-1111-4111-8111-111111111111';
+it('retains canvas presentation while automatic assignment replaces only GPU runs', async () => {
+  const f = setup();
+  try {
+    await f.initialize();
+    const canvas = { positions: { local: { column: 0, row: 0 } }, links: [] };
+    Object.assign(f.draft(), { canvas });
+    await f.controller.cluster({
+      action: 'auto-place',
+      key: f.draft().key,
+      revision: f.draft().revision,
+    });
+    const edit = f.host.cluster.mock.calls
+      .map(([, command]) => command)
+      .find((command) => command.action === 'edit');
+    expect(edit).toMatchObject({ edit: { canvas } });
+  } finally {
+    await f.controller.quit();
+  }
+});
 it('passes the canvas GPU scope to planning and rejects assignments outside it', async () => {
   const f = setup();
   try {
@@ -699,6 +718,129 @@ it('quietly cancels a shortage first discovered at native creation', async () =>
   if (typeof confirm !== 'function') throw Error('Missing trusted confirmation');
   expect(await (confirm as () => Promise<boolean>)()).toBe(false);
   await f.controller.quit();
+});
+
+it('binds an idle model draft to its owner before acknowledging it for Run', async () => {
+  const f = setup();
+  try {
+    await f.initialize();
+    f.deps.inspect.mockResolvedValueOnce({
+      sha256: 'b'.repeat(64),
+      size: '14 GB',
+      blockCount: 65,
+      contextLimit: 32768,
+    });
+    await f.controller.command({ action: 'import' });
+    let current: ClusterDraft | null = null;
+    f.host.close.mockImplementation(() => {
+      current = null;
+      return Promise.resolve();
+    });
+    f.host.cluster.mockImplementation((_caller, command) => {
+      if (command.action === 'edit') {
+        expect(command.expectedRevision).toBe(current?.revision ?? null);
+        current = {
+          ...f.draft(),
+          ...command.edit,
+          key: command.key,
+          configurationId: null,
+          baseSavedRevision: null,
+          revision: (current?.revision ?? 0) + 1,
+        };
+      }
+      return Promise.resolve({
+        ok: true,
+        configurations: [],
+        configuration: null,
+        draft: current,
+        load: f.saved.load,
+        issues: [],
+      });
+    });
+    await f.controller.cluster({ action: 'read', modelId, configurationId: null });
+    expect(f.deps.createHistoryHost).toHaveBeenLastCalledWith(expect.objectContaining({ modelId }));
+    const acknowledged = await f.controller.cluster({
+      action: 'edit',
+      key: `model:${modelId}`,
+      expectedRevision: null,
+      edit: { modelId, load: f.saved.load, runs: [{ uuid, first: '0', last: '63' }] },
+    });
+    if (!acknowledged.ok || !acknowledged.draft) throw Error('Missing draft acknowledgement');
+    const closed = f.host.close.mock.calls.length;
+    const loaded = await f.controller.command({
+      action: 'load',
+      modelId: `model-${modelId}`,
+      draft: { key: acknowledged.draft.key, revision: acknowledged.draft.revision },
+    });
+    expect(loaded).toMatchObject({ phase: 'ready', error: null });
+    expect(f.host.close).toHaveBeenCalledTimes(closed);
+  } finally {
+    await f.controller.quit();
+  }
+});
+
+it('does not replace a ready owner when reading another model draft', async () => {
+  const f = setup();
+  try {
+    await f.initialize();
+    f.deps.inspect.mockResolvedValueOnce({
+      sha256: 'b'.repeat(64),
+      size: '14 GB',
+      blockCount: 65,
+      contextLimit: 32768,
+    });
+    const second = await f.controller.command({ action: 'import' });
+    f.deps.inspect.mockResolvedValueOnce({
+      sha256: 'b'.repeat(64),
+      size: '14 GB',
+      blockCount: 65,
+      contextLimit: 32768,
+    });
+    expect((await f.controller.command({ action: 'load', modelId: second.model!.id })).phase).toBe(
+      'ready',
+    );
+    const created = f.deps.createHistoryHost.mock.calls.length;
+    const closed = f.host.close.mock.calls.length;
+    await f.controller.cluster({ action: 'read', modelId, configurationId: null });
+    expect(f.deps.createHistoryHost).toHaveBeenCalledTimes(created);
+    expect(f.host.close).toHaveBeenCalledTimes(closed);
+    expect((await f.controller.command({ action: 'snapshot' })).phase).toBe('ready');
+  } finally {
+    await f.controller.quit();
+  }
+});
+
+it('does not let a queued model read replace an owner once loading starts', async () => {
+  const f = setup();
+  const gate = deferred<typeof f.host>();
+  try {
+    await f.initialize();
+    f.deps.inspect.mockResolvedValueOnce({
+      sha256: 'b'.repeat(64),
+      size: '14 GB',
+      blockCount: 65,
+      contextLimit: 32768,
+    });
+    await f.controller.command({ action: 'import' });
+    f.deps.createHistoryHost.mockClear();
+    f.deps.createHistoryHost.mockImplementationOnce(() => gate.promise);
+    const reading = f.controller.cluster({ action: 'read', modelId, configurationId: null });
+    await vi.waitFor(() => expect(f.deps.createHistoryHost).toHaveBeenCalledOnce());
+    const queued = f.controller.cluster({
+      action: 'read',
+      modelId: 'b'.repeat(64),
+      configurationId: null,
+    });
+    const loading = f.controller.command({ action: 'load', modelId: `model-${modelId}` });
+    gate.resolve(f.host);
+    await reading;
+    expect(await queued).toMatchObject({ ok: true });
+    expect((await loading).phase).toBe('ready');
+    expect(f.deps.createHistoryHost).toHaveBeenCalledOnce();
+  } finally {
+    gate.resolve(f.host);
+    await f.controller.quit();
+  }
 });
 
 it('loads an acknowledged unnamed draft without saving a named configuration', async () => {

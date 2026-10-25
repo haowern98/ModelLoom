@@ -35,6 +35,38 @@ const source = {
   quantization: 'Q4_K_M',
   parameters: '4B',
 };
+it('restores named canvas geometry after reopening and discards only unsaved geometry', async () => {
+  const { db, store } = setup();
+  await store.recordImport(edit.modelId, 123, source);
+  const peer = `peer:${'b'.repeat(64)}`;
+  const canvas = {
+    positions: { local: { column: 0, row: 0 }, [peer]: { column: -1, row: 0 } },
+    links: [{ from: 'local', to: peer, edge: 'left' as const }],
+  };
+  const input = { ...edit, runs: [{ uuid, first: '0', last: '63' }], canvas };
+  const draft = store.cluster.writeDraft(`model:${edit.modelId}`, null, input);
+  const saved = store.cluster.saveDraft(draft.key, draft.revision, 'Left worker');
+  if (!saved.ok) throw Error('fixture save failed');
+  const reopened = new ModelConfigurationStore(
+    db,
+    () => {},
+    () => true,
+    capabilities,
+    record().load,
+  );
+  reopened.cluster.clearSessionDrafts();
+  expect(reopened.cluster.read(saved.configuration.id)?.canvas).toEqual(canvas);
+  const changed = reopened.cluster.writeDraft(saved.draft.key, null, {
+    ...edit,
+    runs: input.runs,
+    canvas: { positions: { local: { column: 0, row: 0 } }, links: [] },
+  });
+  expect(reopened.cluster.read(saved.configuration.id)?.canvas).toEqual(canvas);
+  expect(reopened.cluster.discardDraft(changed.key, changed.revision)?.canvas).toEqual(canvas);
+  expect(reopened.cluster.read(saved.configuration.id)?.runs).toEqual([
+    { uuid, first: 0, last: 63 },
+  ]);
+});
 it('deletes only the requested saved configuration and its draft, preserving model settings and other drafts', async () => {
   const { store } = setup();
   await store.recordImport(edit.modelId, 123, source);

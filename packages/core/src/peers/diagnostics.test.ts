@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { DiagnosticAdmission } from './diagnostics.js';
+import { DiagnosticAdmission, DIAGNOSTIC_MS } from './diagnostics.js';
 
 it('serializes probes, enforces per-direction cooldown and cancels before runtime admission', () => {
   const gate = new DiagnosticAdmission();
@@ -22,3 +22,15 @@ it('bounds cooldown entries even when an authenticated client invents test IDs',
   expect(() => gate.acquire('17', 1)).toThrow('DIAGNOSTICS_BUSY');
   gate.acquire('17', 60000).release();
 });
+
+it('allows two directional probe budgets before expiring a complete idle measurement', async () => {
+  const gate = new DiagnosticAdmission();
+  const probe = gate.acquire('out:peer');
+  try {
+    await new Promise((resolve) => setTimeout(resolve, DIAGNOSTIC_MS + 50));
+    expect(probe.signal.aborted).toBe(false);
+  } finally {
+    gate.cancel();
+    probe.release();
+  }
+}, 15000);

@@ -21,6 +21,7 @@ import { createDesktopEngineHost } from './desktop.js';
 import type { UtilityFork } from './desktop.js';
 import { createDesktopPeerHost } from '../peers/desktop.js';
 import type { DesktopPeerHost } from '../peers/desktop.js';
+import type { PeerOverlay } from '../peers/overlay.js';
 import type { PeerReply } from '../peers/wire.js';
 import { decodePeerHardware } from '../peers/hardware.js';
 import type { PeerHardware } from '../peers/hardware.js';
@@ -48,6 +49,7 @@ export function developmentDesktopDependencies(
   applicationData?: string,
   caller?: string,
   stateBase: string = base,
+  overlay?: PeerOverlay,
 ) {
   const report = DEVELOPMENT_MEMORY_REPORTS.find((entry) => entry.configuration.slots === 4);
   if (!DEVELOPMENT_BUILD || !report) throw new Error('DEVELOPMENT_BUILD_REQUIRED');
@@ -64,22 +66,27 @@ export function developmentDesktopDependencies(
   let peersClosed = false;
   const getPeerHost = () => {
     if (!applicationData || !caller || peersClosed) throw new Error('NOT_READY');
-    ownershipBinding().privateDirectory(path.resolve(stateBase));
-    peerHost ??= createDesktopPeerHost(fork, applicationData, caller, {
-      bootstrap: path.join(base, 'peers'),
-      state: path.join(stateBase, 'peers'),
-    })
-      .then(async (host) => {
-        host.subscribe((reply) => {
-          for (const listener of peerListeners) listener(reply);
-        });
-        if (peerHardware) await host.updateHardware(peerHardware);
-        return host;
+    if (!peerHost) {
+      // Applying inheritable ACLs is synchronous. Set them before creating the
+      // owned host, rather than blocking the GUI on every telemetry/state read.
+      ownershipBinding().privateDirectory(path.resolve(stateBase));
+      peerHost = createDesktopPeerHost(fork, applicationData, caller, {
+        bootstrap: path.join(base, 'peers'),
+        state: path.join(stateBase, 'peers'),
       })
-      .catch((error) => {
-        peerHost = undefined;
-        throw error;
-      });
+        .then(async (host) => {
+          if (overlay) host.attachOverlay?.(overlay);
+          host.subscribe((reply) => {
+            for (const listener of peerListeners) listener(reply);
+          });
+          if (peerHardware) await host.updateHardware(peerHardware);
+          return host;
+        })
+        .catch((error) => {
+          peerHost = undefined;
+          throw error;
+        });
+    }
     return peerHost;
   };
   async function clusterResources(
@@ -347,8 +354,10 @@ export function developmentDesktopDependencies(
                   if (closed || !adapter) throw new Error('NOT_READY');
                   let transport = activityTransports.get(engine);
                   if (!transport) {
+                    const peer = getPeerHost();
                     transport = withPeerActivity(adapter.chat(engine), async (busy) => {
-                      await (await getPeerHost()).setRuntimeBusy(busy);
+                      // Quit closes admission, but existing work still owes its idle acknowledgement.
+                      await (await (busy ? getPeerHost() : peer)).setRuntimeBusy(busy);
                     });
                     activityTransports.set(engine, transport);
                   }

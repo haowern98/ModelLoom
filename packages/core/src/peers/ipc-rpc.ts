@@ -1,6 +1,9 @@
 import { Duplex } from 'node:stream';
 import { GENERATION_POLICY } from '../generation/contracts.js';
 type StreamCallback = (error?: Error | null) => void;
+// One full TLS record (16 KiB plus framing) must fit without serial tiny tails.
+export const RPC_IPC_FRAME_BYTES = 32 * 1024;
+const encodedFrameBytes = Math.ceil(RPC_IPC_FRAME_BYTES / 3) * 4;
 
 export type RpcIpcMessage =
   | Readonly<{ type: 'rpc-data'; id: string; sequence: number; bytes: string }>
@@ -10,7 +13,7 @@ const invalid = (): never => {
   throw new Error('INVALID_RPC_CHANNEL');
 };
 
-/** Parent/core-only byte pipe. At most one 8-KiB fragment is in flight; a full
+/** Parent/core-only byte pipe. At most one 32-KiB fragment is in flight; a full
  * readable buffer withholds its acknowledgement until the consumer pulls.
  * This IPC schema is never exposed through the renderer's peer bridge. */
 export function rpcIpcStream(id: string, send: (message: RpcIpcMessage) => void) {
@@ -28,7 +31,7 @@ export function rpcIpcStream(id: string, send: (message: RpcIpcMessage) => void)
       callback();
       return;
     }
-    pending.end = Math.min(pending.offset + 8192, pending.bytes.length);
+    pending.end = Math.min(pending.offset + RPC_IPC_FRAME_BYTES, pending.bytes.length);
     // Acknowledgement includes downstream native backpressure, not just IPC delivery.
     timer = setTimeout(
       () => stream.destroy(new Error('RPC_IPC_TIMEOUT')),
@@ -42,7 +45,7 @@ export function rpcIpcStream(id: string, send: (message: RpcIpcMessage) => void)
     });
   };
   const stream = new Duplex({
-    highWaterMark: 8192,
+    highWaterMark: RPC_IPC_FRAME_BYTES,
     read() {
       if (blockedAck !== undefined) {
         const sequence = blockedAck;
@@ -117,11 +120,12 @@ export function rpcIpcStream(id: string, send: (message: RpcIpcMessage) => void)
         blockedAck !== undefined ||
         typeof message.bytes !== 'string' ||
         !message.bytes.length ||
-        message.bytes.length > 10924
+        message.bytes.length > encodedFrameBytes
       )
         return invalid();
       const bytes = Buffer.from(message.bytes, 'base64');
-      if (bytes.length > 8192 || bytes.toString('base64') !== message.bytes) invalid();
+      if (bytes.length > RPC_IPC_FRAME_BYTES || bytes.toString('base64') !== message.bytes)
+        invalid();
       ++received;
       if (stream.push(bytes)) send({ type: 'rpc-ack', id, sequence: received });
       else blockedAck = received;

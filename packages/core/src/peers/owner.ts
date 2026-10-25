@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { ownershipBinding } from '../hosts/windows-ownership.js';
 import { discoverResources } from '../hosts/resource-probe.js';
+import { ReconnectBackoff } from './reconnect-backoff.js';
 import { openWindowsPeerIdentity } from './windows-identity.js';
 import type { WindowsPeerIdentity } from './windows-identity.js';
 import { PeerNode } from './node.js';
@@ -20,9 +21,16 @@ import type { PeerRpcBackend } from './rpc.js';
 import type { PeerResources } from './resources.js';
 import { PeerTrustStore } from './trust-store.js';
 import { PeerTelemetryMonitor } from './telemetry-monitor.js';
+import type { PeerOverlayTransport } from './overlay.js';
 
 /** One utility-owned installation identity. No renderer filesystem/root input. */
 export class PeerOwner {
+  setOverlay(transport: PeerOverlayTransport): void {
+    this.node.setOverlay(transport);
+  }
+  acceptOverlay(port: number, stream: Duplex): void {
+    this.node.acceptOverlay(port, stream);
+  }
   private operations: Promise<void> = Promise.resolve();
   private queued = 0;
   private closed = false;
@@ -175,13 +183,21 @@ export class PeerOwner {
     }
   }
   private reconnect(): void {
+    const retries = new ReconnectBackoff();
     const run = async () => {
       if (this.closed) return;
-      for (const address of this.node.rememberedAddresses()) {
+      const addresses = this.node.rememberedAddresses();
+      retries.retain(addresses);
+      for (const address of addresses) {
         if (this.closed) break;
         const peers = this.node.snapshot().outgoing;
-        if (peers.some((p) => p.address === address && this.remote.get(p.id)?.phase === 'approved'))
+        if (
+          peers.some((p) => p.address === address && this.remote.get(p.id)?.phase === 'approved')
+        ) {
+          retries.reset(address);
           continue;
+        }
+        if (!retries.begin(address)) continue;
         try {
           await this.command(this.caller, { action: 'invite', address });
         } catch {
@@ -338,7 +354,7 @@ export class PeerOwner {
             await this.node.stopSharing();
             break;
           case 'invite':
-            await this.node.invite(command.address);
+            await this.node.invite(command.address, command.expectedFingerprint);
             break;
           case 'approve':
             {

@@ -5,6 +5,9 @@ import type { Server as SecureServer } from 'node:https';
 import { constants, randomUUID, X509Certificate } from 'node:crypto';
 import type { Socket } from 'node:net';
 import type { TLSSocket } from 'node:tls';
+import { connect as tlsConnect } from 'node:tls';
+import type { PeerOverlayTransport } from './overlay.js';
+import { overlaySocket, isOverlaySocket } from './overlay-socket.js';
 import { peerFingerprint, validatePeerCertificate } from './windows-identity.js';
 import type { WindowsPeerIdentity } from './windows-identity.js';
 import { connectPeerRpc } from './rpc.js';
@@ -130,18 +133,23 @@ function listen(server: Server | SecureServer, host: string, port: number): Prom
     });
   });
 }
-function exchange(
+async function exchange(
   url: URL,
   data: unknown,
   identity?: WindowsPeerIdentity,
   remote?: Buffer,
   signal?: AbortSignal,
   authority?: Buffer,
+  overlay?: PeerOverlayTransport,
 ): Promise<unknown> {
+  const raw = overlay?.has(url.hostname)
+    ? overlaySocket(await overlay.dial(url.hostname, Number(url.port), signal))
+    : undefined;
   if (Boolean(identity) !== Boolean(remote) || Boolean(identity) !== Boolean(authority))
     return Promise.reject(new Error('INVALID_PEER_CERTIFICATE'));
   return new Promise((resolve, reject) => {
     const payload = Buffer.from(JSON.stringify(data));
+    let received: IncomingMessage | undefined;
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(), 5000);
     const finish = (error: Error | null, value?: unknown) => {
@@ -169,26 +177,43 @@ function exchange(
           }
         : {}),
     };
-    const request = (identity ? secureRequest : httpRequest)(url, options, (response) => {
-      void body(response).then(
-        (value) => {
-          if (response.statusCode !== 200) {
-            const error: unknown =
-              value && typeof value === 'object' ? Reflect.get(value, 'error') : null;
-            finish(
-              new Error(
-                typeof error === 'string' && /^[A-Z_]{1,64}$/u.test(error)
-                  ? error
-                  : 'PEER_UNAVAILABLE',
-              ),
-            );
-          } else finish(null, value);
-        },
-        () => finish(new Error('INVALID_PEER_MESSAGE')),
-      );
-    });
+    const connection = raw
+      ? {
+          agent: undefined,
+          createConnection: () => (identity ? tlsConnect({ ...options, socket: raw }) : raw),
+        }
+      : {};
+    const request = (identity ? secureRequest : httpRequest)(
+      url,
+      { ...options, ...connection },
+      (response) => {
+        received = response;
+        void body(response).then(
+          (value) => {
+            if (response.statusCode !== 200) {
+              const error: unknown =
+                value && typeof value === 'object' ? Reflect.get(value, 'error') : null;
+              finish(
+                new Error(
+                  typeof error === 'string' && /^[A-Z_]{1,64}$/u.test(error)
+                    ? error
+                    : 'PEER_UNAVAILABLE',
+                ),
+              );
+            } else finish(null, value);
+          },
+          () => finish(new Error('INVALID_PEER_MESSAGE')),
+        );
+      },
+    );
     request.on('timeout', () => request.destroy(new Error('PEER_TIMEOUT')));
-    request.on('error', () => finish(new Error('PEER_UNAVAILABLE')));
+    request.on('error', (error: Error & { code?: string }) => {
+      // Owned duplex teardown can follow a complete HTTP reply before the
+      // asynchronous body parser settles. That parser must still validate the
+      // status, JSON and size; a truncated reply or any other error still fails.
+      if (error.code === 'ERR_STREAM_PREMATURE_CLOSE' && received?.complete) return;
+      finish(new Error('PEER_UNAVAILABLE'));
+    });
     request.end(payload);
   });
 }
@@ -197,10 +222,23 @@ function exchange(
  * TLS verifies their chains before either side can confirm the displayed pin.
  * Native RPC is deliberately not exposed by this control listener. */
 export class PeerNode {
+  private overlay: PeerOverlayTransport | undefined;
+  setOverlay(overlay: PeerOverlayTransport): void {
+    this.overlay = overlay;
+  }
+  acceptOverlay(port: number, stream: Duplex): void {
+    const server = port === 49301 ? this.bootstrap : port === 49302 ? this.secure : undefined;
+    if (!this.active || !server || this.sockets.size >= 32) {
+      stream.destroy();
+      return;
+    }
+    server.emit('connection', overlaySocket(stream));
+  }
   private bootstrap: Server | undefined;
   private secure: SecureServer | undefined;
   private sockets = new Set<Socket>();
   private incoming = new Map<string, Incoming>();
+  private introductions = new Map<string, Promise<void>>();
   private outgoing = new Map<string, Outgoing>();
   private shared = new Set<string>();
   private active = false;
@@ -319,7 +357,7 @@ export class PeerNode {
   async measureTelemetry(
     id: string,
     signal: AbortSignal,
-  ): Promise<{ uploadMbps: number; downloadMbps: number }> {
+  ): Promise<{ uploadMbps: number | null; downloadMbps: number | null }> {
     const peer = this.outgoing.get(id);
     if (this.diagnosticsUnsupported.has(id)) throw Error('DIAGNOSTICS_UNSUPPORTED');
     if (!peer?.verified || !this.remoteIdle.get(id)) throw Error('DIAGNOSTICS_BUSY');
@@ -327,10 +365,21 @@ export class PeerNode {
     const probe = this.diagnostics.acquire(`out:${id}`);
     const combined = AbortSignal.any([signal, probe.signal, this.lifetime.signal]);
     try {
-      const downloadMbps = await measureDiagnostic(this.identity, peer, 'download', combined);
-      combined.throwIfAborted();
-      if (this.telemetryBusy()) throw Error('DIAGNOSTICS_BUSY');
-      const uploadMbps = await measureDiagnostic(this.identity, peer, 'upload', combined);
+      let failure: unknown;
+      const measure = async (direction: 'download' | 'upload') => {
+        combined.throwIfAborted();
+        if (this.telemetryBusy()) throw Error('DIAGNOSTICS_BUSY');
+        try {
+          return await measureDiagnostic(this.identity, peer, direction, combined, this.overlay);
+        } catch (error) {
+          combined.throwIfAborted();
+          failure = error;
+          return null;
+        }
+      };
+      const downloadMbps = await measure('download');
+      const uploadMbps = await measure('upload');
+      if (downloadMbps === null && uploadMbps === null) throw failure;
       return { uploadMbps, downloadMbps };
     } finally {
       probe.release();
@@ -604,7 +653,7 @@ export class PeerNode {
     server.keepAliveTimeout = 1000;
     server.on('connection', (socket: Socket) => {
       this.sockets.add(socket);
-      socket.setTimeout(10000, () => socket.destroy());
+      if (!isOverlaySocket(socket)) socket.setTimeout(10000, () => socket.destroy());
       socket.once('close', () => this.sockets.delete(socket));
     });
     server.on('error', () => {
@@ -680,6 +729,15 @@ export class PeerNode {
       },
     );
     this.bootstrap = createServer({ maxHeaderSize: 8192 }, (request, response) => {
+      if (request.method === 'GET' && request.url === '/v1/discover') {
+        reply(response, {
+          protocol: 1,
+          name: this.name,
+          fingerprint: this.identity.fingerprint,
+          sharing: this.active,
+        });
+        return;
+      }
       void this.introduce(request).then(
         (result) => reply(response, result),
         (error: unknown) =>
@@ -704,6 +762,11 @@ export class PeerNode {
         })
         .finally(() => this.rpcPreparations.delete(work));
       this.rpcPreparations.add(work);
+    });
+    this.secure.on('secureConnection', (socket) => {
+      this.sockets.add(socket);
+      socket.setTimeout(10000, () => socket.destroy());
+      socket.once('close', () => this.sockets.delete(socket));
     });
     try {
       try {
@@ -764,6 +827,7 @@ export class PeerNode {
   }
   private async introduce(request: IncomingMessage): Promise<unknown> {
     this.expire();
+    const bootstrap = this.bootstrap;
     if (
       !this.active ||
       request.method !== 'POST' ||
@@ -812,46 +876,73 @@ export class PeerNode {
         securePort: this.securePort,
         pairing: 'code-v1',
       };
-    if (this.incoming.size >= 8) return invalid('PAIRING_LIMIT');
-    const value: Incoming = {
-      id: randomUUID(),
-      name: text(input.name),
-      peerFingerprint: fingerprint,
-      certificate: cert,
-      authority,
-      localVerified: false,
-      remoteVerified: false,
-      phase: 'pending',
-      expires: now + 300000,
-    };
-    const known = remembersReceiver ? this.known('incoming', fingerprint) : undefined;
-    if (known) {
-      value.localVerified = value.remoteVerified = true;
-      value.phase = 'approved';
-      value.name = known.name;
-      value.allowedGpuIds = known.gpuIds;
-    } else
-      value.pairing = await CodePairing.create({
+    // Retries can arrive through different addresses or while OPAQUE setup is
+    // awaiting initialization. Serialize creation by validated device identity,
+    // then reuse its live transcript without extending its verification window.
+    while (this.introductions.has(fingerprint)) await this.introductions.get(fingerprint);
+    let release!: () => void;
+    this.introductions.set(
+      fingerprint,
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    try {
+      this.expire();
+      if (!this.active || this.bootstrap !== bootstrap) return invalid('NOT_SHARING');
+      const name = text(input.name);
+      let value = [...this.incoming.values()].find(
+        (peer) => peer.peerFingerprint === fingerprint && peer.phase === 'pending',
+      );
+      // Names are bound into the code transcript. A changed name must not
+      // silently reuse, replace or reset an in-progress verification attempt.
+      if (value && value.name !== name) return invalid('DUPLICATE_PEER_REQUEST');
+      if (!value) {
+        if (this.incoming.size + this.introductions.size > 8) return invalid('PAIRING_LIMIT');
+        value = {
+          id: randomUUID(),
+          name,
+          peerFingerprint: fingerprint,
+          certificate: cert,
+          authority,
+          localVerified: false,
+          remoteVerified: false,
+          phase: 'pending',
+          expires: performance.now() + 300000,
+        };
+        const known = remembersReceiver ? this.known('incoming', fingerprint) : undefined;
+        if (known) {
+          value.localVerified = value.remoteVerified = true;
+          value.phase = 'approved';
+          value.name = known.name;
+          value.allowedGpuIds = known.gpuIds;
+        } else
+          value.pairing = await CodePairing.create({
+            id: value.id,
+            client: fingerprint,
+            server: this.identity.fingerprint,
+            clientName: value.name,
+            serverName: this.name,
+          });
+        if (!this.active || this.bootstrap !== bootstrap) {
+          value.pairing?.close();
+          return invalid('NOT_SHARING');
+        }
+        this.incoming.set(value.id, value);
+        this.refreshTrust();
+      }
+      return {
         id: value.id,
-        client: fingerprint,
-        server: this.identity.fingerprint,
-        clientName: value.name,
-        serverName: this.name,
-      });
-    if (!this.active) {
-      value.pairing?.close();
-      return invalid('NOT_SHARING');
+        name: this.name,
+        certificate: this.identity.certificate.toString('base64'),
+        authority: this.identity.authority.toString('base64'),
+        securePort: this.securePort,
+        pairing: 'code-v1',
+      };
+    } finally {
+      this.introductions.delete(fingerprint);
+      release();
     }
-    this.incoming.set(value.id, value);
-    this.refreshTrust();
-    return {
-      id: value.id,
-      name: this.name,
-      certificate: this.identity.certificate.toString('base64'),
-      authority: this.identity.authority.toString('base64'),
-      securePort: this.securePort,
-      pairing: 'code-v1',
-    };
   }
   private async control(request: IncomingMessage): Promise<unknown> {
     this.expire();
@@ -985,7 +1076,10 @@ export class PeerNode {
     } else if (request.url !== '/v1/status') return invalid('UNKNOWN_PEER_OPERATION');
     return { phase: value.phase };
   }
-  async invite(input: string): Promise<Readonly<{ id: string; peerFingerprint: string }>> {
+  async invite(
+    input: string,
+    expectedFingerprint?: string,
+  ): Promise<Readonly<{ id: string; peerFingerprint: string }>> {
     if (this.lifetime.signal.aborted) return invalid('PEER_UNAVAILABLE');
     if (this.invitations >= 8) return invalid('PAIRING_LIMIT');
     ++this.invitations;
@@ -1009,6 +1103,8 @@ export class PeerNode {
           undefined,
           undefined,
           this.lifetime.signal,
+          undefined,
+          this.overlay,
         ),
         ['id', 'name', 'certificate', 'authority', 'securePort', 'pairing'],
       );
@@ -1016,6 +1112,8 @@ export class PeerNode {
       const cert = certificate(response.certificate),
         authority = certificate(response.authority),
         fingerprint = validatePeerCertificate(cert, authority);
+      if (expectedFingerprint !== undefined && fingerprint !== expectedFingerprint)
+        return invalid('PEER_IDENTITY_CHANGED');
       const id = text(response.id, 36);
       if (response.pairing !== 'code-v1') return invalid('PAIRING_UPDATE_REQUIRED');
       if (
@@ -1038,6 +1136,16 @@ export class PeerNode {
         (p) => p.direction === 'outgoing' && p.address === address.hostname,
       );
       if (previous && previous.fingerprint !== fingerprint) return invalid('PEER_IDENTITY_CHANGED');
+      const current = this.outgoing.get(id);
+      if (current) {
+        // Retain a code verification already completed for this exact request,
+        // including an in-flight verifier's object identity and original expiry.
+        current.address = address.hostname;
+        current.certificate = cert;
+        current.authority = authority;
+        current.securePort = response.securePort as number;
+        return Object.freeze({ id, peerFingerprint: fingerprint });
+      }
       for (const [key, peer] of this.outgoing)
         if (peer.peerFingerprint === fingerprint) this.outgoing.delete(key);
       this.outgoing.set(id, {
@@ -1137,6 +1245,7 @@ export class PeerNode {
       value.certificate,
       signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal,
       value.authority,
+      this.overlay,
     );
   }
   confirm(id: string, fingerprint: string): Promise<void> {
@@ -1195,6 +1304,7 @@ export class PeerNode {
         value.certificate,
         this.lifetime.signal,
         value.authority,
+        this.overlay,
       );
     } catch {
       /* Local cancellation never waits for an unreachable peer. */
@@ -1371,14 +1481,20 @@ export class PeerNode {
     // Only an authenticated, approved request may wait for the native launch
     // budget. Unapproved connections retain the shorter admission deadline.
     tls.setTimeout(this.timing.startup + 1000);
-    const transport = [...this.sockets].find(
+    // Both the raw TCP socket and its TLS wrapper are tracked. Extending only
+    // TLS leaves the raw admission timer able to destroy an approved startup.
+    const transports = [...this.sockets].filter(
       (candidate) =>
-        candidate.localPort === tls.localPort &&
-        candidate.remotePort === tls.remotePort &&
-        candidate.remoteAddress === tls.remoteAddress,
+        candidate === tls ||
+        (typeof tls.localPort === 'number' &&
+          typeof tls.remotePort === 'number' &&
+          typeof tls.remoteAddress === 'string' &&
+          candidate.localPort === tls.localPort &&
+          candidate.remotePort === tls.remotePort &&
+          candidate.remoteAddress === tls.remoteAddress),
     );
-    if (!transport) throw new Error('RPC_UNAVAILABLE');
-    transport.setTimeout(this.timing.startup + 1000);
+    if (!transports.length) throw new Error('RPC_UNAVAILABLE');
+    for (const transport of transports) transport.setTimeout(this.timing.startup + 1000);
     const revision = this.revision;
     const reservation = this.reservations.reserveRemote(peer.peerFingerprint, [gpu.id]);
     let owned: OwnedPeerRpc;
@@ -1438,7 +1554,7 @@ export class PeerNode {
     this.activeRpc.set(reservation, entry);
     this.rpcLoading.add(reservation);
     tls.setTimeout(0);
-    transport.setTimeout(0);
+    for (const transport of transports) transport.setTimeout(0);
     socket.write(
       'HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: ModelLoom-RPC/1\r\n\r\n',
     );
@@ -1482,7 +1598,13 @@ export class PeerNode {
       const peer = this.outgoing.get(id);
       if (!peer?.verified || (await this.status(id)).phase !== 'approved')
         return invalid('PEER_NOT_APPROVED');
-      const socket = await connectPeerRpc(this.identity, peer, this.lifetime.signal, gpuId);
+      const socket = await connectPeerRpc(
+        this.identity,
+        peer,
+        this.lifetime.signal,
+        gpuId,
+        this.overlay,
+      );
       if (this.lifetime.signal.aborted) {
         socket.destroy();
         return invalid('PEER_UNAVAILABLE');

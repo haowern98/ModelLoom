@@ -6,7 +6,7 @@
     "node": ">=24.21.0 <25"
   },
   "scripts": {
-    "dev": "pnpm --filter @modelloom/desktop start",
+    "electron": "node scripts/electron.mjs",
     "dev:web": "pnpm --filter @modelloom/desktop dev:web",
     "build": "pnpm --filter @modelloom/desktop build",
     "build:demo": "pnpm --filter @modelloom/desktop build:demo",
@@ -16,9 +16,9 @@
     "make": "pnpm --filter @modelloom/desktop make",
     "typecheck": "pnpm --filter @modelloom/desktop typecheck && pnpm --filter @modelloom/core typecheck",
     "lint": "eslint apps/desktop packages/core",
-    "format": "prettier --write .github apps/desktop packages/core package.json pnpm-workspace.yaml eslint.config.mjs .prettierrc.json",
-    "format:check": "prettier --check .github apps/desktop packages/core package.json pnpm-workspace.yaml eslint.config.mjs .prettierrc.json",
-    "test": "pnpm --filter @modelloom/desktop test && pnpm --filter @modelloom/core test",
+    "format": "prettier --write .github apps/desktop packages/core scripts package.json pnpm-workspace.yaml eslint.config.mjs .prettierrc.json",
+    "format:check": "prettier --check .github apps/desktop packages/core scripts package.json pnpm-workspace.yaml eslint.config.mjs .prettierrc.json",
+    "test": "node --test scripts/electron.test.mjs scripts/windows-profile.test.mjs && pnpm --filter @modelloom/desktop test && pnpm --filter @modelloom/core test",
     "test:e2e": "pnpm --filter @modelloom/desktop test:e2e",
     "test:desktop": "pnpm --filter @modelloom/desktop test:desktop"
   },

@@ -7,6 +7,7 @@ import type {
   ClusterReply,
   RawGpuRun,
   SavedClusterConfiguration,
+  ClusterCanvasLayout,
 } from '../../../shared/cluster-configuration';
 type Entry = {
   key: string;
@@ -30,6 +31,7 @@ function baseline(saved: SavedClusterConfiguration): ClusterEdit {
       first: String(run.first),
       last: String(run.last),
     })),
+    ...(saved.canvas ? { canvas: saved.canvas } : {}),
   };
 }
 function success(reply: ClusterReply) {
@@ -40,6 +42,7 @@ function sameEdit(left: ClusterEdit, right: ClusterEdit): boolean {
   // Row order is presentation; raw values and device ownership still compare exactly.
   const normalize = (edit: ClusterEdit) => ({
     modelId: edit.modelId,
+    canvas: edit.canvas,
     runs: [...edit.runs].sort((a, b) => (a.uuid < b.uuid ? -1 : a.uuid > b.uuid ? 1 : 0)),
   });
   return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
@@ -118,7 +121,12 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
       if (!reply.load && !reply.draft && !reply.configuration)
         throw Error('Configuration settings unavailable.');
       const raw = reply.draft
-        ? { modelId: reply.draft.modelId, load: reply.draft.load, runs: reply.draft.runs }
+        ? {
+            modelId: reply.draft.modelId,
+            load: reply.draft.load,
+            runs: reply.draft.runs,
+            ...(reply.draft.canvas ? { canvas: reply.draft.canvas } : {}),
+          }
         : reply.configuration
           ? baseline(reply.configuration)
           : { modelId, load: reply.load!, runs: [] };
@@ -187,6 +195,15 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     const entry = current();
     if (!entry || !bridge || entry.busy || planning.current) return;
     const raw = { ...entry.raw, runs };
+    if (sameEdit(entry.raw, raw)) return;
+    entry.past = [...entry.past, entry.raw];
+    entry.future = [];
+    write(entry, raw);
+  };
+  const editCanvas = (canvas: ClusterCanvasLayout) => {
+    const entry = current();
+    if (!entry || !bridge || entry.busy || planning.current) return;
+    const raw = { ...entry.raw, canvas };
     if (sameEdit(entry.raw, raw)) return;
     entry.past = [...entry.past, entry.raw];
     entry.future = [];
@@ -418,6 +435,7 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
           modelId: reply.draft.modelId,
           load: reply.draft.load,
           runs: reply.draft.runs,
+          ...(reply.draft.canvas ? { canvas: reply.draft.canvas } : {}),
         };
         if (!sameEdit(entry.raw, raw)) {
           entry.past = [...entry.past, entry.raw];
@@ -468,11 +486,7 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
         if (
           !entry.draft ||
           entry.draft.modelId !== entry.raw.modelId ||
-          !sameEdit(entry.raw, {
-            modelId: entry.draft.modelId,
-            load: entry.draft.load,
-            runs: entry.draft.runs,
-          })
+          !sameEdit(entry.raw, entry.draft)
         )
           throw Error('Draft acknowledgement missing.');
         target = { key, revision: entry.draft.revision, modelId: entry.raw.modelId };
@@ -528,6 +542,7 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     discardAndLeave: () => finishLeave(undefined),
     refreshModel,
     edit,
+    editCanvas,
     undo: () => moveHistory('undo'),
     redo: () => moveHistory('redo'),
     save,

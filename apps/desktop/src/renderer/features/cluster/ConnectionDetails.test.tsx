@@ -15,7 +15,7 @@ const telemetry = {
 it('shows last measured bandwidth and current latency for a local peer connection', () => {
   render(<ConnectionDetails from={demoDevices[0]} to={{ ...demoDevices[1]!, telemetry }} />);
   expect(screen.getByText('4.2 ms')).toBeInTheDocument();
-  expect(screen.getByText('120.0 Mbps')).toBeInTheDocument();
+  expect(screen.getByText('14.3 MiB/s')).toBeInTheDocument();
   expect(screen.getByText('Last measured bandwidth')).toBeInTheDocument();
 });
 it('shows actual transfer rates while inference is active', () => {
@@ -27,6 +27,26 @@ it('shows actual transfer rates while inference is active', () => {
   );
   expect(screen.getByText('2.0 KiB/s')).toBeInTheDocument();
   expect(screen.queryByText('120.0 Mbps')).not.toBeInTheDocument();
+});
+it('keeps bandwidth and live transfer in the same byte units at the same actual speed', () => {
+  const { rerender } = render(
+    <ConnectionDetails from={demoDevices[0]} to={{ ...demoDevices[1]!, telemetry }} />,
+  );
+  expect(screen.getByText('14.3 MiB/s')).toBeInTheDocument();
+  rerender(
+    <ConnectionDetails
+      from={demoDevices[0]}
+      to={{
+        ...demoDevices[1]!,
+        telemetry: {
+          ...telemetry,
+          state: 'active',
+          sendingBytesPerSecond: (120 * 1000000) / 8,
+        },
+      }}
+    />,
+  );
+  expect(screen.getByText('14.3 MiB/s')).toBeInTheDocument();
 });
 it('does not imply a direct connection between two remote devices', () => {
   render(

@@ -177,6 +177,7 @@ export class ClusterStore {
         profileId: this.profileId,
         load: draft.load,
         runs: valid.runs,
+        ...(draft.canvas ? { canvas: draft.canvas } : {}),
       });
       this.db
         .prepare(
@@ -209,6 +210,7 @@ export class ClusterStore {
       const next = decodeClusterDraft({
         ...draft,
         modelId: saved.modelId,
+        canvas: saved.canvas,
         load: saved.load,
         runs: saved.runs.map((r) => ({
           uuid: r.uuid,

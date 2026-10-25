@@ -37,7 +37,7 @@ import { incomingExamples } from '../../mocks/clusterJoining';
 import type { JoiningProps } from './ClusterJoiningPanel';
 import type { AssignmentStatus, ClusterSelection } from './ClusterPanel';
 import styles from './ClusterPage.module.css';
-import { canvasPositions, placeBeside } from './canvas-layout';
+import { canvasPositions, placeBeside, restoreCanvas } from './canvas-layout';
 import type { CanvasLink, CanvasPosition } from './canvas-layout';
 import { CanvasPlacementLinks } from './CanvasPlacementLinks';
 
@@ -78,6 +78,8 @@ const configurationErrors: Readonly<Record<string, string>> = {
 };
 
 interface ClusterPageProps extends JoiningProps {
+  connectionsRequest?: number;
+  onConnectionsOpened?: () => void;
   demo: boolean;
   pendingPeerRequests?: number;
   configurations?: ClusterConfigurations;
@@ -113,6 +115,8 @@ export function ClusterPage({
   localRuntime,
   configurations,
   pendingPeerRequests = 0,
+  connectionsRequest = 0,
+  onConnectionsOpened,
 }: ClusterPageProps) {
   const [configurationName, setConfigurationName] = useState('');
   const [validatedDemoInputs, setValidatedDemoInputs] = useState<readonly LayerInput[] | null>(
@@ -168,12 +172,27 @@ export function ClusterPage({
   };
   const [modal, setModal] = useState<Modal | null>(null);
   const devices = demo || localRuntime ? availableDevices : [];
-  const [placedPeers, setPlacedPeers] = useState<readonly string[]>([]);
   const [removedDevices, setRemovedDevices] = useState<readonly string[]>([]);
-  const [arrangement, setArrangement] = useState<{
+  const [sessionArrangement, setSessionArrangement] = useState<{
     positions: Record<string, CanvasPosition>;
     links: readonly CanvasLink[];
   }>({ positions: {}, links: [] });
+  const arrangement = configurations?.raw
+    ? (configurations.raw.canvas ?? { positions: {}, links: [] })
+    : sessionArrangement;
+  const setArrangement = (next: typeof sessionArrangement) => {
+    if (configurations?.raw) configurations.editCanvas(next);
+    else setSessionArrangement(next);
+  };
+  useEffect(() => {
+    if (
+      configurations?.raw &&
+      !configurations.saved &&
+      !configurations.raw.canvas &&
+      Object.keys(sessionArrangement.positions).length > 0
+    )
+      configurations.editCanvas(sessionArrangement);
+  }, [configurations, sessionArrangement]);
   const [edgeDiscovered, setEdgeDiscovered] = useState(() => {
     try {
       return localStorage.getItem(edgeHintKey) === 'true';
@@ -184,8 +203,8 @@ export function ClusterPage({
   const localDeviceId = localRuntime ? 'local' : availableDevices[0]?.id;
   const canvasDevices = devices.filter(
     (device) =>
-      (!removedDevices.includes(device.id) &&
-        (!device.id.startsWith('peer:') || placedPeers.includes(device.id))) ||
+      ((!demo || !removedDevices.includes(device.id)) &&
+        (!device.id.startsWith('peer:') || Boolean(arrangement.positions[device.id]))) ||
       device.hardware.some(
         (hardware) =>
           configurations?.raw?.runs.some(
@@ -193,24 +212,42 @@ export function ClusterPage({
           ) || localRuntime?.activeCluster?.runs.some((run) => run.uuid === hardware.assignmentId),
       ),
   );
-  const navigate = (next: ClusterView) => {
-    setView(next);
-    if (next === 'overview' && deviceDetailsTarget) {
+  const navigate = useCallback(
+    (next: ClusterView) => {
+      setView(next);
+      if (next === 'overview' && deviceDetailsTarget) {
+        setDeviceDetailsTarget(null);
+        setPanelOpen(true);
+        return;
+      }
       setDeviceDetailsTarget(null);
-      setPanelOpen(true);
-      return;
-    }
-    setDeviceDetailsTarget(null);
-    setPanelOpen(false);
-    setSelection({ type: 'overview' });
-  };
-  const positions = canvasPositions(canvasDevices, arrangement.positions);
-  const spatial = Object.keys(arrangement.positions).length > 0;
+      setPanelOpen(false);
+      setSelection({ type: 'overview' });
+    },
+    [deviceDetailsTarget],
+  );
+  useEffect(() => {
+    if (!connectionsRequest) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      navigate('add');
+      onConnectionsOpened?.();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [connectionsRequest, navigate, onConnectionsOpened]);
+  const liveArrangement = demo ? arrangement : restoreCanvas(canvasDevices, arrangement);
+  const positions = demo
+    ? canvasPositions(canvasDevices, arrangement.positions)
+    : liveArrangement.positions;
+  const spatial = !demo || Object.keys(arrangement.positions).length > 0;
   const minColumn = Math.min(0, ...Object.values(positions).map((position) => position.column));
   const minRow = Math.min(0, ...Object.values(positions).map((position) => position.row));
   const columns =
     Math.max(0, ...Object.values(positions).map((position) => position.column)) - minColumn + 1;
-  const placementLinks = arrangement.links.filter(
+  const placementLinks = liveArrangement.links.filter(
     (link) => positions[link.from] && positions[link.to],
   );
   const inspectDevice = (device: DemoDevice) => {
@@ -644,6 +681,12 @@ export function ClusterPage({
           <div className={styles.overview} hidden={view !== 'overview'}>
             {canvasDevices.length ? (
               <ClusterCanvas
+                key={
+                  configurations?.selection?.configurationId ??
+                  configurations?.selection?.modelId ??
+                  'session'
+                }
+                fitOnMount={!demo}
                 singleDevice={canvasDevices.length === 1}
                 panelId={canvasDevices.length === 1 && panelOpen ? panelId : undefined}
                 layoutStyle={
@@ -762,7 +805,16 @@ export function ClusterPage({
                         device.id === localDeviceId
                           ? undefined
                           : () => {
-                              setPlacedPeers((current) => current.filter((id) => id !== device.id));
+                              setArrangement({
+                                positions: Object.fromEntries(
+                                  Object.entries(arrangement.positions).filter(
+                                    ([id]) => id !== device.id,
+                                  ),
+                                ),
+                                links: arrangement.links.filter(
+                                  (link) => link.from !== device.id && link.to !== device.id,
+                                ),
+                              });
                               setRemovedDevices((current) => [...current, device.id]);
                               if (
                                 panelOpen &&
@@ -836,16 +888,12 @@ export function ClusterPage({
                       : undefined;
                 if (anchor) {
                   const next = placeBeside(positions, anchor.deviceId, anchor.edge);
+                  const links = new Map(arrangement.links.map((link) => [link.to, link]));
+                  for (const link of liveArrangement.links) links.set(link.to, link);
+                  links.set(device.id, { from: anchor.deviceId, to: device.id, edge: anchor.edge });
                   setArrangement({
-                    positions: { ...positions, [device.id]: next },
-                    links: [
-                      ...arrangement.links.filter((link) => link.to !== device.id),
-                      {
-                        from: anchor.deviceId,
-                        to: device.id,
-                        edge: anchor.edge,
-                      },
-                    ],
+                    positions: { ...arrangement.positions, ...positions, [device.id]: next },
+                    links: [...links.values()],
                   });
                 }
                 setEdgeDiscovered(true);
@@ -855,9 +903,6 @@ export function ClusterPage({
                   /* Optional presentation preference; session state still dismisses the hint. */
                 }
                 setRemovedDevices((current) => current.filter((id) => id !== device.id));
-                setPlacedPeers((current) =>
-                  current.includes(device.id) ? current : [...current, device.id],
-                );
                 if (currentSelection.type !== 'device') closePanel();
               }}
               activeModel={activeModel}

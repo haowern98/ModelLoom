@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { PeerCommand, PeerView } from '../../../shared/peers';
+import type { PeerCommand, PeerReply, PeerView } from '../../../shared/peers';
 import { LivePeerRequests, LivePeerPanel } from './LivePeers';
 import { ClusterViews } from './ClusterViews';
 import { createDemoJoining } from '../../mocks/clusterJoining';
@@ -19,7 +19,7 @@ function bridge(incoming: PeerView['incoming'] = [], outgoing: PeerView['outgoin
     incoming,
     outgoing,
   };
-  const command = vi.fn((request: PeerCommand) => {
+  const command = vi.fn((request: PeerCommand): Promise<PeerReply> => {
     if (request.action === 'share') {
       view = { ...view, sharing: true, sharedGpuIds: request.gpuIds };
     } else if (request.action === 'stop-sharing') {
@@ -397,6 +397,24 @@ it('reports local GPU sharing startup failure and leaves sharing off for retry',
   ).not.toBeInTheDocument();
   await user.click(toggle);
   await waitFor(() => expect(toggle).toBeChecked());
+});
+
+it('explains insufficient runtime disk space inline and in the toast without enabling sharing', async () => {
+  const command = bridge(),
+    user = userEvent.setup();
+  render(<LivePeerPanel kind="share" />);
+  const toggle = await screen.findByRole('switch', { name: 'Allow connections' });
+  command.mockResolvedValueOnce({ ok: false, error: 'INSUFFICIENT_DISK_SPACE' });
+  await user.click(toggle);
+  const message =
+    'Not enough disk space to install the runtime. Free space on the runtime drive and try again.';
+  expect(await screen.findByRole('alert')).toHaveTextContent(message);
+  expect(screen.getByText(message, { selector: 'p' })).toBeVisible();
+  expect(toggle).not.toBeChecked();
+  expect(toggle).toBeEnabled();
+  await user.click(toggle);
+  await waitFor(() => expect(toggle).toBeChecked());
+  expect(screen.queryByText(message, { selector: 'p' })).not.toBeInTheDocument();
 });
 
 it('shows sharing startup beside the label only until the share command finishes', async () => {
