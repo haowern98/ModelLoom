@@ -131,6 +131,16 @@ repository root for ordinary manual sessions:
 npm run electron dev
 ```
 
+On Windows, run it in a normal PowerShell or Windows Terminal session opened
+outside Codex. Codex's Windows filesystem context can redirect Chromium's
+`Local State` key file while leaving the Tailscale enrollment in the normal
+profile directory. The launcher rejects inherited Codex contexts and checks
+existing profile paths using read-only Windows file handles before Forge starts.
+Redirection or an unavailable check stops startup; it never resets enrollment,
+copies encryption keys or creates another profile. Changing environment variables
+is not a way to move a process out of the redirected Windows context. Other
+platforms retain their existing launch behavior.
+
 This launcher uses the source development app and its existing persistent profile:
 `%APPDATA%\ModelLoom` on Windows, with the existing `.modelloom` core profile. It
 does not migrate enrollment, settings or identities from packaged development

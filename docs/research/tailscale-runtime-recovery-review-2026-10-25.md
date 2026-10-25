@@ -312,3 +312,87 @@ ports 49301 and 49302 were listening. Runtime processes on PTSS used the retaine
 directory rather than a new copy. Screenshots and cleanup evidence are under
 packages/core/out/tailscale-integration/. This check establishes sharing startup
 and installation reuse, not distributed model readiness or generation.
+
+## Saved cluster canvas restoration
+
+Saved configurations persisted GPU assignments but omitted the canvas positions
+and chosen connection edges. When ClusterPage was recreated, its component state
+was lost and live devices fell back to the demo grid. That grid gave the
+coordinator a wider span than workers, while its connection IDs did not match
+live device identities. Reusing a previous pan/zoom also allowed restored cards
+to be clipped. A missing drawn line alone did not establish a network disconnect.
+
+An optional bounded canvas record now travels with the existing draft and saved
+configuration revision. Save, Discard, selection, history, automatic assignment
+and Run acknowledgement preserve it. Canvas IDs and links remain presentation
+data and never authorize a peer or determine inference order. Older records
+without geometry remain readable and receive a deterministic connected layout.
+Live cards share fixed-width columns, and restored scopes fit their visible
+bounds. Existing explicit edge choices survive reopening.
+
+Regression tests first reproduced rejection of canvas metadata, loss on Save,
+the legacy demo-grid fallback, missing Run acknowledgement and automatic
+assignment dropping geometry. Final checks passed: 133 core tests, 151 desktop
+tests and 10 browser tests. Browser checks cover all four edges, equal card
+widths, visible connections, viewport bounds, navigation and reload, plus the
+existing launch and unsaved-edit flows. A long pre-existing UI test was split
+into edit/save and restore/load cases with its assertions and five-second
+deadlines retained. Core/desktop type checking and changed-file ESLint passed.
+These checks use controlled runtime/peer fixtures; they do not establish a new
+distributed inference or throughput result.
+
+The core host build passed. All 15 deployed implementation/host files match by
+SHA256 on both PCs. Normal Quit stopped all eight owned HAOWERNSLAPPY processes
+and all 16 owned PTSS processes before their canonical source relaunches. New
+app PIDs were 28432 and 22424 respectively. Before restart, the laptop's live
+saved Bonsai configuration showed equal-width cards, a visible connection and
+unclipped bounds. After restart, the saved configuration and local ranges
+reopened with Save disabled, but Settings reported that the laptop could not
+read its saved Tailscale sign-in. PTSS was therefore unavailable in that live
+view. No credentials were reset. Full two-peer visual restoration after the
+real restart remains blocked by that separate enrollment-storage failure;
+controlled browser reload coverage passed as recorded above.
+
+## Independent Windows launch and enrollment recovery
+
+A read-only comparison established that the enrollment was intact. Windows
+DPAPI could unwrap the profile keys, but enrollment authentication failed using
+the key visible inside Codex's redirected context. Native file-handle queries
+showed that Local State opened under Codex's LocalCache/Roaming/ModelLoom while
+embedded-tailscale/enrollment.bin opened under the ordinary Roaming/ModelLoom.
+Node realpath reported the ordinary path and did not reveal that difference.
+A one-time read-only check in the interactive Windows user context decrypted the
+same enrollment using the ordinary profile key and validated its domain and all
+five entries. No key or enrollment contents were logged or copied to disk.
+The temporary diagnostic task was removed after observation.
+
+The canonical npm launcher now rejects inherited Codex Windows contexts before
+starting Forge. A read-only Windows handle check also rejects redirected
+existing profile/key/enrollment paths; unavailable checks stop startup. This is
+a development workflow guard, not an authorization boundary. It does not change
+encryption, copy keys, reset enrollment, move profiles or affect non-Windows
+launches. Native tests accept ordinary and absent profiles, reject a junction,
+and verify fixture contents remain unchanged. Four initial launcher regressions
+failed before implementation. All nine launcher tests passed on both PCs, and
+five desktop instance/protection tests passed. Changed-script ESLint, formatting
+and syntax checks passed. A real npm invocation from Codex rejected before Forge.
+
+The idle laptop app completed normal Quit with all six owned processes exited.
+Windows Task Scheduler's interactive user session then ran the exact command
+npm run electron dev from E:/ModelLoom-Project, using the checkout's Node runtime
+under packages/core/out/tooling, with no inherited CODEX environment variables.
+App PID 31184 showed Tailscale Connected using the existing enrollment without
+browser sign-in. A second normal Quit confirmed all eight owned processes
+exited; the same independent launch produced PID 38264, which again showed
+Connected with the same embedded address. No model load or generation was
+started. Both PCs have identical launcher/test files, and PTSS's ordinary
+Windows profile probe passed. Native macOS/Linux sign-in was not retested.
+
+The final Cluster check displayed no saved configurations. A separate read-only
+SQLite inspection after normal Quit established that the existing core profile
+at C:/Users/user/.modelloom contained two imported sources and zero saved cluster
+records. Its database last-write time was 07:45:09 UTC, before the independent
+launch correction began at 08:22 UTC. No cluster records were recreated and no
+profile was migrated. The app was relaunched through the same independent
+canonical command as PID 34404. Temporary verification launch tasks were removed;
+the running app and its checkout-owned toolchain remain independent of Codex.
