@@ -1,6 +1,9 @@
 import type { DemoDevice } from '../../mocks/cluster';
+import { useEffect, useState } from 'react';
+import type { NetworkView } from '../../../shared/network';
 import styles from './ConnectionDetails.module.css';
 import { connectionTelemetry } from './connection-telemetry';
+import { connectionRoute } from './connection-route';
 function rate(value: number) {
   if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MiB/s`;
   if (value >= 1024) return `${(value / 1024).toFixed(1)} KiB/s`;
@@ -15,6 +18,57 @@ export function ConnectionDetails({
 }) {
   const telemetry = connectionTelemetry(from, to);
   const direct = from && to && from.role !== to.role;
+  const [network, setNetwork] = useState<NetworkView>();
+  const bridge = window.modelLoomNetwork;
+  useEffect(() => {
+    let active = true,
+      pending = false,
+      dirty = false;
+    const read = async () => {
+      if (!bridge) return;
+      if (pending) {
+        dirty = true;
+        return;
+      }
+      pending = true;
+      try {
+        const reply = await bridge.command({ action: 'read' });
+        if (active) setNetwork(reply.ok ? reply.view : undefined);
+      } catch {
+        if (active) setNetwork(undefined);
+      } finally {
+        pending = false;
+        if (active && dirty) {
+          dirty = false;
+          void read();
+        }
+      }
+    };
+    const unsubscribe = bridge?.subscribe(() => {
+      void read();
+    });
+    void read();
+    // Expire route evidence without generating network probes.
+    const timer = setInterval(() => {
+      void read();
+    }, 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      unsubscribe?.();
+    };
+  }, [bridge]);
+  const worker = direct ? (from.role === 'Worker' ? from : to) : undefined;
+  const route = connectionRoute(
+    worker?.address,
+    network
+      ? network.state === 'connected'
+        ? (network.paths ?? [])
+        : []
+      : bridge
+        ? undefined
+        : [],
+  );
   return (
     <div className={styles.details}>
       <section>
@@ -25,6 +79,16 @@ export function ConnectionDetails({
       <section>
         <h3>Connection</h3>
         <dl>
+          <div>
+            <dt>Network</dt>
+            <dd>{route.network}</dd>
+          </div>
+          {route.network === 'Tailscale' && (
+            <div>
+              <dt>Path</dt>
+              <dd>{route.path}</dd>
+            </div>
+          )}
           <div>
             <dt>Status</dt>
             <dd>
