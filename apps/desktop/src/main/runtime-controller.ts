@@ -106,6 +106,8 @@ export type RuntimeDependencies =
       device?(): Promise<RuntimeDevice>;
     };
 const messages: Record<string, string> = {
+  INSUFFICIENT_DISK_SPACE:
+    'Not enough disk space to install the runtime. Free space on the runtime drive and try again.',
   GPU_BUSY:
     'A selected GPU is already in use by another ModelLoom workload. Stop it before loading.',
   RPC_PACKAGE_REQUIRED:
@@ -271,9 +273,26 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       });
     return created;
   };
-  async function selectHistoryOwner(source: ModelSource): Promise<void> {
+  let historySelection = Promise.resolve();
+  async function selectHistoryOwner(source: ModelSource, idleOnly = false): Promise<void> {
+    const selection = historySelection.then(() => replaceHistoryOwner(source, idleOnly));
+    historySelection = selection.catch(() => undefined);
+    return selection;
+  }
+  async function replaceHistoryOwner(source: ModelSource, idleOnly: boolean): Promise<void> {
     if (!deps.enabled || !deps.createHistoryHost || (host && hostModelId === source.modelId))
       return;
+    if (quitting) return;
+    if (
+      idleOnly &&
+      (importing ||
+        runningConfiguration ||
+        planning ||
+        clusterLoading ||
+        clusterCleanupFailed ||
+        !['stopped', 'failed'].includes(view.phase))
+    )
+      throw Error('NOT_READY');
     if (host) {
       unsubscribe?.();
       await host.command(JSON.stringify({ id: ++id, action: 'quit' }));
@@ -438,11 +457,28 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       phase === 'failed' &&
       'fault' in snapshot &&
       snapshot.fault &&
-      typeof snapshot.fault === 'object' &&
-      'code' in snapshot.fault &&
-      snapshot.fault.code === 'CLEANUP_FAILED'
-    )
-      view.error = messages.CLEANUP_FAILED!;
+      typeof snapshot.fault === 'object'
+    ) {
+      const fault = snapshot.fault as { code?: unknown; message?: unknown };
+      if (fault.code === 'CLEANUP_FAILED') view.error = messages.CLEANUP_FAILED!;
+      else if (fault.code === 'START_TIMEOUT')
+        view.error = 'Model loading timed out. Stop and retry explicitly.';
+      else if (fault.code === 'ENGINE_EXITED')
+        view.error = 'The model runtime exited unexpectedly. Stop and retry explicitly.';
+      else if (fault.code === 'START_FAILED') {
+        // Only these closed reasons cross into UI text; never display native output.
+        const reasons: Record<string, string> = {
+          'Engine startup failed (RPC_DISCONNECTED)':
+            'The connection to the remote GPU closed during loading.',
+          'Engine startup failed (PLACEMENT_MISMATCH)':
+            'The runtime layer allocation did not match the selected configuration.',
+          'Engine startup failed (CONTEXT_MISMATCH)':
+            'The runtime context did not match the selected configuration.',
+        };
+        if (typeof fault.message === 'string' && Object.hasOwn(reasons, fault.message))
+          view.error = reasons[fault.message]! + ' Stop and retry explicitly.';
+      }
+    }
   };
   const peerListeners = new Set<() => void>();
   const unsubscribePeers = deps.enabled
@@ -538,6 +574,21 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
         if (preparation) await preparation;
         if (restoration) await restoration;
         if (quitting || !host?.cluster) return { ok: false, error: 'NOT_READY' };
+        // Run must acknowledge the draft on the model's eventual owner. Switching
+        // owners afterwards clears session drafts during the old owner's close.
+        if (
+          command.action === 'read' &&
+          !importing &&
+          !runningConfiguration &&
+          !planning &&
+          !clusterLoading &&
+          !clusterCleanupFailed &&
+          ['stopped', 'failed'].includes(view.phase)
+        ) {
+          const source = sources.get(`model-${command.modelId}`);
+          if (source) await selectHistoryOwner(source, true);
+          if (quitting || !host?.cluster) return { ok: false, error: 'NOT_READY' };
+        }
         // Legacy indexes are re-inspected only when opening placement, not on every startup.
         if (
           command.action === 'read' &&

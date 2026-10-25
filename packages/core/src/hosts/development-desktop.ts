@@ -21,6 +21,7 @@ import { createDesktopEngineHost } from './desktop.js';
 import type { UtilityFork } from './desktop.js';
 import { createDesktopPeerHost } from '../peers/desktop.js';
 import type { DesktopPeerHost } from '../peers/desktop.js';
+import type { PeerOverlay } from '../peers/overlay.js';
 import type { PeerReply } from '../peers/wire.js';
 import { decodePeerHardware } from '../peers/hardware.js';
 import type { PeerHardware } from '../peers/hardware.js';
@@ -48,6 +49,7 @@ export function developmentDesktopDependencies(
   applicationData?: string,
   caller?: string,
   stateBase: string = base,
+  overlay?: PeerOverlay,
 ) {
   const report = DEVELOPMENT_MEMORY_REPORTS.find((entry) => entry.configuration.slots === 4);
   if (!DEVELOPMENT_BUILD || !report) throw new Error('DEVELOPMENT_BUILD_REQUIRED');
@@ -70,6 +72,7 @@ export function developmentDesktopDependencies(
       state: path.join(stateBase, 'peers'),
     })
       .then(async (host) => {
+        if (overlay) host.attachOverlay?.(overlay);
         host.subscribe((reply) => {
           for (const listener of peerListeners) listener(reply);
         });
@@ -347,8 +350,10 @@ export function developmentDesktopDependencies(
                   if (closed || !adapter) throw new Error('NOT_READY');
                   let transport = activityTransports.get(engine);
                   if (!transport) {
+                    const peer = getPeerHost();
                     transport = withPeerActivity(adapter.chat(engine), async (busy) => {
-                      await (await getPeerHost()).setRuntimeBusy(busy);
+                      // Quit closes admission, but existing work still owes its idle acknowledgement.
+                      await (await (busy ? getPeerHost() : peer)).setRuntimeBusy(busy);
                     });
                     activityTransports.set(engine, transport);
                   }
