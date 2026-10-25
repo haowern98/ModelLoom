@@ -676,6 +676,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
             edit: {
               modelId: read.draft.modelId,
               load: read.draft.load,
+              ...(read.draft.canvas ? { canvas: read.draft.canvas } : {}),
               runs: runs.map((r) => ({
                 uuid: r.uuid,
                 first: String(r.first),

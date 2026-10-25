@@ -8,6 +8,51 @@ export interface CanvasLink {
   to: string;
   edge: CanvasEdge;
 }
+export interface CanvasArrangement {
+  positions: Readonly<Record<string, CanvasPosition>>;
+  links: readonly CanvasLink[];
+}
+
+/** Older saved placements have no geometry; restore real devices without demo IDs or sizing. */
+export function restoreCanvas(
+  devices: readonly { id: string; role: string }[],
+  arrangement: CanvasArrangement,
+): CanvasArrangement {
+  const positions: Record<string, CanvasPosition> = {};
+  const ordered = [...devices].sort((a, b) =>
+    a.role === b.role ? a.id.localeCompare(b.id) : a.role === 'Coordinator' ? -1 : 1,
+  );
+  for (const device of ordered) {
+    const saved = arrangement.positions[device.id];
+    if (saved) positions[device.id] = { ...saved };
+  }
+  const anchor = ordered.find((device) => device.role === 'Coordinator') ?? ordered[0];
+  if (!anchor) return { positions, links: [] };
+  positions[anchor.id] ??= { column: 0, row: 0 };
+  for (const device of ordered) {
+    if (!positions[device.id]) positions[device.id] = placeBeside(positions, anchor.id, 'right');
+  }
+  const links = arrangement.links.filter((link) => positions[link.from] && positions[link.to]);
+  for (const device of ordered) {
+    if (device.id === anchor.id || links.some((link) => link.to === device.id)) continue;
+    const connected = new Set([anchor.id]);
+    for (let pass = 0; pass < ordered.length; pass++) {
+      for (const link of links) {
+        if (connected.has(link.from)) connected.add(link.to);
+        if (connected.has(link.to)) connected.add(link.from);
+      }
+    }
+    if (connected.has(device.id)) continue;
+    const from = positions[anchor.id]!,
+      to = positions[device.id]!;
+    const dx = to.column - from.column,
+      dy = to.row - from.row;
+    const edge: CanvasEdge =
+      Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : dy < 0 ? 'top' : 'bottom';
+    links.push({ from: anchor.id, to: device.id, edge });
+  }
+  return { positions, links };
+}
 const direction: Record<CanvasEdge, CanvasPosition> = {
   top: { column: 0, row: -1 },
   right: { column: 1, row: 0 },
