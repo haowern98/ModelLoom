@@ -43,6 +43,7 @@ export function App() {
   );
   const [destination, setDestination] = useState<Destination>('Models');
   const [settingsCategory, setSettingsCategory] = useState<SettingsCategory>('Appearance');
+  const [connectionsRequest, setConnectionsRequest] = useState(0);
   const [chat, dispatchChat] = useReducer(transitionDemoChat, demo, createDemoChat);
   const [deviceNames, setDeviceNames] = useState<Record<string, string>>({});
   const [joining, dispatchJoining] = useReducer(
@@ -276,6 +277,8 @@ export function App() {
         />
       ) : destination === 'Cluster' ? (
         <ClusterPage
+          connectionsRequest={connectionsRequest}
+          onConnectionsOpened={() => setConnectionsRequest(0)}
           pendingPeerRequests={
             peers?.incoming.filter((request) => request.phase === 'pending').length ?? 0
           }
@@ -358,6 +361,7 @@ export function App() {
                     void clusterConfigurations.selectModel(model.id);
                   },
                   onRunConfiguration: (configurationId: string, revision: number) => {
+                    setDismissedRuntimeError(null);
                     void runtime.run({ action: 'run-configuration', configurationId, revision });
                   },
                   onRunDraft: (target: { key: string; revision: number; modelId: string }) => {
@@ -409,6 +413,10 @@ export function App() {
           category={settingsCategory}
           onCategory={setSettingsCategory}
           onApi={() => navigate('API')}
+          onConnections={() => {
+            setConnectionsRequest((request) => request + 1);
+            navigate('Cluster');
+          }}
         />
       )}
       {memoryWarning && (
