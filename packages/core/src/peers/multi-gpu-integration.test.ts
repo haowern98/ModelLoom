@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { PassThrough } from 'node:stream';
+import { PassThrough, duplexPair } from 'node:stream';
 import type { Duplex } from 'node:stream';
 import { PeerNode } from './node.js';
 import { openWindowsPeerIdentity } from './windows-identity.js';
@@ -89,6 +89,43 @@ describe('per-GPU workers over real authenticated TLS', () => {
     second.write(Buffer.from('GPU B remains usable'));
     expect((await received).toString()).toBe('GPU B remains usable');
     second.destroy();
+  });
+  it('keeps two overlay GPU streams independent and closes both on revocation', async () => {
+    const { coordinator, worker, start, closes } = fixture();
+    await worker.share('127.0.0.1', 0, 0, [a, b]);
+    coordinator.setOverlay({
+      has: (address) => address === '100.101.102.103',
+      dial: (_address, port) => {
+        const pair = duplexPair();
+        // Match the helper's close frame: duplexPair alone does not propagate a
+        // destroyed endpoint to its peer as a network transport does.
+        pair[0].once('close', () => pair[1].destroy());
+        pair[1].once('close', () => pair[0].destroy());
+        worker.acceptOverlay(port === 49301 ? 49301 : 49302, pair[1]);
+        return Promise.resolve(pair[0]);
+      },
+    });
+    const id = await pair(
+      coordinator,
+      worker,
+      '100.101.102.103:49301',
+      coordinatorIdentity.fingerprint,
+    );
+    const first = await coordinator.openRpc(id, a),
+      second = await coordinator.openRpc(id, b);
+    expect(start.mock.calls.map(([ids]) => ids)).toEqual([[a], [b]]);
+    const received = new Promise<Buffer>((resolve) => second.once('data', resolve));
+    second.write('overlay GPU B');
+    expect((await received).toString()).toBe('overlay GPU B');
+    await worker.decline(id);
+    await vi.waitFor(() => {
+      expect(closes.get(a)).toHaveBeenCalledOnce();
+      expect(closes.get(b)).toHaveBeenCalledOnce();
+    });
+    await vi.waitFor(() => {
+      expect(first.destroyed).toBe(true);
+      expect(second.destroyed).toBe(true);
+    });
   });
   it('rejects missing, malformed and unshared selectors before native startup', async () => {
     const { coordinator, worker, start } = fixture();
