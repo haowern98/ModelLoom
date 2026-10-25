@@ -1,4 +1,20 @@
-import { app, BrowserWindow, session, dialog, ipcMain, utilityProcess, clipboard } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  session,
+  dialog,
+  ipcMain,
+  utilityProcess,
+  clipboard,
+  safeStorage,
+  shell,
+} from 'electron';
+import { createDesktopNetwork } from '../../../../packages/core/src/network/desktop';
+import { decodeNetworkCommand, decodeNetworkReply } from '../shared/network';
+import { validateLoginUrl } from '../../../../packages/core/src/network/wire';
+import { networkProtection } from './network-protection';
+import { developmentInstance } from './development-launch';
+import { cleanupForQuit } from './quit-cleanup';
 import { createApiManagementHandler } from './api-management';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -15,6 +31,7 @@ import type { developmentDesktopDependencies } from '../../../../packages/core/s
 if (MAIN_WINDOW_VITE_DEV_SERVER_URL) app.commandLine.appendSwitch('disable-http-cache');
 
 let controller: ReturnType<typeof createRuntimeController> | undefined;
+let network: ReturnType<typeof createDesktopNetwork> | undefined;
 let quitting = false,
   quitConfirmed = false;
 
@@ -32,20 +49,31 @@ if (locations?.chromium) {
   app.setPath('userData', locations.chromium);
   app.setPath('sessionData', locations.chromium);
 }
-const duplicateDevelopment = !!locations?.chromium && !app.requestSingleInstanceLock();
-if (duplicateDevelopment) {
-  app.exit(0);
-} else if (locations?.chromium) {
-  app.on('second-instance', () => {
-    const window = BrowserWindow.getAllWindows()[0];
-    if (window?.isMinimized()) window.restore();
-    window?.focus();
-  });
-}
+const primaryInstance = developmentInstance(
+  app,
+  process.env,
+  () => BrowserWindow.getAllWindows()[0],
+);
 
 /** Creates the sandboxed renderer and sender-checked device/runtime bridge. */
 async function createWindow(): Promise<void> {
   const chatCaller = randomUUID();
+  const networkTarget = `${process.platform === 'win32' ? 'windows' : process.platform}-${process.arch === 'x64' ? 'amd64' : process.arch}`;
+  const networkAssets = app.isPackaged
+    ? path.join(process.resourcesPath, 'tailscale')
+    : path.resolve(__dirname, '../../../../components/tailscale/out', networkTarget);
+  network ??= createDesktopNetwork({
+    executable: path.join(
+      networkAssets,
+      `modelloom-network${process.platform === 'win32' ? '.exe' : ''}`,
+    ),
+    // Chromium owns a Network directory inside userData on Windows. Enrollment
+    // needs its own namespace so browser files and case aliases cannot collide.
+    directory: path.join(app.getPath('userData'), 'embedded-tailscale'),
+    protection: networkProtection(safeStorage),
+    openLogin: (url) => shell.openExternal(validateLoginUrl(url)),
+  });
+  const windowNetwork = network;
   const window = new BrowserWindow({
     width: 1280,
     height: 720,
@@ -99,6 +127,12 @@ async function createWindow(): Promise<void> {
         locations.profile,
         chatCaller,
         locations.state,
+        {
+          addresses: () => windowNetwork.routes().filter((address) => /^100\./u.test(address)),
+          dial: (address, port, signal) => windowNetwork.dial(address, port, signal),
+          subscribe: (listener) => windowNetwork.subscribe(listener),
+          incoming: (listener) => windowNetwork.setIncoming(listener),
+        },
       );
       dependencies = {
         ...development,
@@ -196,7 +230,46 @@ async function createWindow(): Promise<void> {
   windowController.subscribePeers(() => {
     if (!quitting && !window.webContents.isDestroyed())
       window.webContents.send('modelloom:peers-changed');
+    if (!quitting)
+      void windowController
+        .peers({ action: 'read' })
+        .then((reply) => {
+          if (reply.ok) return windowNetwork.setSharing(reply.view.sharing, reply.view.fingerprint);
+        })
+        .catch(() => undefined);
   });
+  ipcMain.handle('modelloom:network', async (event, input: unknown) => {
+    if (
+      event.sender !== window.webContents ||
+      event.senderFrame !== window.webContents.mainFrame ||
+      quitting
+    )
+      throw Error('INVALID_CONTROL');
+    return decodeNetworkReply(await windowNetwork.command(decodeNetworkCommand(input)));
+  });
+  ipcMain.handle('modelloom:network-invite', async (event, input: unknown) => {
+    if (
+      event.sender !== window.webContents ||
+      event.senderFrame !== window.webContents.mainFrame ||
+      quitting ||
+      typeof input !== 'string' ||
+      !/^[a-f0-9-]{36}$/u.test(input)
+    )
+      throw Error('INVALID_CONTROL');
+    const candidate = windowNetwork.resolveCandidate(input);
+    if (!candidate || !/^100\./u.test(candidate.address))
+      return { ok: false, error: 'NETWORK_ROUTE_UNAVAILABLE' };
+    return windowController.peers({
+      action: 'invite',
+      address: candidate.address,
+      expectedFingerprint: candidate.fingerprint,
+    });
+  });
+  windowNetwork.subscribe(() => {
+    if (!quitting && !window.webContents.isDestroyed())
+      window.webContents.send('modelloom:network-changed');
+  });
+  void windowNetwork.resume();
   window.on('close', (event) => {
     if (!quitConfirmed) {
       event.preventDefault();
@@ -211,7 +284,7 @@ async function createWindow(): Promise<void> {
   }
 }
 
-if (!duplicateDevelopment)
+if (primaryInstance)
   void app
     .whenReady()
     .then(async () => {
@@ -232,17 +305,24 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (quitting) return;
   quitting = true;
-  void (controller?.quit() ?? Promise.resolve()).then(
+  void cleanupForQuit(controller, network).then(
     () => {
       quitConfirmed = true;
       app.quit();
     },
-    () => {
+    (error: unknown) => {
       quitting = false;
-      dialog.showErrorBox(
-        'Runtime cleanup failed',
-        'Owned runtime exit could not be confirmed. The app remains open.',
-      );
+      const messages: Record<string, string> = {
+        RUNTIME_CLEANUP_FAILED: 'Runtime or peer cleanup could not be confirmed.',
+        NETWORK_CLEANUP_FAILED: 'Network cleanup could not be confirmed.',
+        RUNTIME_AND_NETWORK_CLEANUP_FAILED:
+          'Runtime, peer and network cleanup could not be confirmed.',
+      };
+      const reason =
+        error instanceof Error && Object.hasOwn(messages, error.message)
+          ? messages[error.message]
+          : 'Application cleanup could not be confirmed.';
+      dialog.showErrorBox('Application cleanup failed', `${reason} The app remains open.`);
     },
   );
 });
