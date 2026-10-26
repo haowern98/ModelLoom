@@ -51,6 +51,7 @@ function usePeers() {
   const [sharingError, setSharingError] = useState<string | null>(null);
   const [notification, setNotification] = useState<ToastMessage | null>(null);
   const [invited, setInvited] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const fallback = useRef<HTMLButtonElement>(null);
   const mounted = useRef(true),
     working = useRef(false),
@@ -73,6 +74,13 @@ function usePeers() {
       if (mounted.current && operation === epoch.current) {
         setView(reply.view);
         setReadError(false);
+        if (reply.notice === 'ALREADY_CONNECTED')
+          setNotification({
+            id: Date.now(),
+            kind: 'information',
+            message: 'Already connected.',
+            origin: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+          });
         if (command.action === 'invite')
           setInvited(
             reply.view.outgoing.find(
@@ -90,6 +98,10 @@ function usePeers() {
         setReadError(true);
       if (mounted.current && !poll) {
         const code = error instanceof Error ? error.message : 'PEER_UNAVAILABLE';
+        if (code === 'PEER_IN_USE' && command.action === 'disconnect') {
+          setDisconnecting(command.id);
+          return false;
+        }
         if (command.action === 'share')
           setSharingError(errors[code] ?? 'Could not start sharing on this PC. Please try again.');
         setNotification({
@@ -136,6 +148,8 @@ function usePeers() {
     fallback,
     invited,
     setInvited,
+    disconnecting,
+    setDisconnecting,
     retryNotice: readError ? (
       <div role="alert" className={settings.row}>
         <p className={settings.description}>Could not load connection details. Try again.</p>
@@ -328,6 +342,8 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: bool
     fallback,
     invited,
     setInvited,
+    disconnecting,
+    setDisconnecting,
   } = usePeers();
   const startingSharing = pendingAction === 'share';
   const networkRefreshing = useRef(false);
@@ -563,6 +579,38 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: bool
     <>
       {toast}
       {retryNotice}
+      {disconnecting && (
+        <Dialog
+          title="Disconnect this PC?"
+          initialFocus="cancel"
+          onClose={() => {
+            if (!busy) setDisconnecting(null);
+          }}
+        >
+          <p>
+            This PC is being used by the current model. Disconnecting will stop the model and
+            interrupt any response in progress.
+          </p>
+          <p>Pairing and Tailscale sign-in will be kept.</p>
+          <div className={styles.joiningActions}>
+            <Button data-dialog-cancel disabled={busy} onClick={() => setDisconnecting(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() => {
+                void run({ action: 'disconnect', id: disconnecting, stopModel: true }).then(
+                  (ok) => {
+                    if (ok) setDisconnecting(null);
+                  },
+                );
+              }}
+            >
+              Stop model and disconnect
+            </Button>
+          </div>
+        </Dialog>
+      )}
       <section className={settings.section}>
         <div className={layout.sectionHeader}>
           <h2>PCs available to add</h2>
@@ -595,6 +643,11 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: bool
           )}
           {window.modelLoomNetwork ? (
             <TailscaleCandidates
+              outgoing={view?.outgoing ?? []}
+              disabled={busy || readError || !view}
+              onDisconnect={(requestId) => {
+                void run({ action: 'disconnect', id: requestId });
+              }}
               onInvited={(requestId) => {
                 setInvited(requestId);
                 void run({ action: 'read' });

@@ -36,10 +36,12 @@ export type PeerCommand =
   | { readonly action: 'share'; readonly address: string; readonly gpuIds: readonly string[] }
   | { readonly action: 'invite'; readonly address: string; readonly expectedFingerprint?: string }
   | { readonly action: 'approve' | 'cancel'; readonly id: string }
+  | { readonly action: 'disconnect'; readonly id: string; readonly stopModel?: true }
   | { readonly action: 'verify-code'; readonly id: string; readonly code: string }
   | { readonly action: 'decline'; readonly id: string };
 export type PeerReply =
-  { readonly ok: true; readonly view: PeerView } | { readonly ok: false; readonly error: string };
+  | { readonly ok: true; readonly view: PeerView; readonly notice?: 'ALREADY_CONNECTED' }
+  | { readonly ok: false; readonly error: string };
 export interface PeerBridge {
   command(input: PeerCommand): Promise<PeerReply>;
   subscribe?(listener: () => void): () => void;
@@ -162,6 +164,16 @@ export function decodePeerCommand(input: unknown): PeerCommand {
       const value = shape(input, ['action', 'id']);
       return { action, id: string(value.id, 36) };
     }
+    case 'disconnect': {
+      const stopModel = !!input && typeof input === 'object' && Object.hasOwn(input, 'stopModel');
+      const value = shape(input, ['action', 'id', ...(stopModel ? ['stopModel'] : [])]);
+      if (stopModel && value.stopModel !== true) return invalid();
+      return {
+        action,
+        id: string(value.id, 36),
+        ...(stopModel ? { stopModel: true as const } : {}),
+      };
+    }
     default:
       return invalid();
   }
@@ -221,8 +233,10 @@ export function decodePeerReply(input: unknown): PeerReply {
     const error = string(value.error, 64);
     return /^[A-Z_]+$/u.test(error) ? { ok: false, error } : invalid();
   }
-  const envelope = shape(input, ['ok', 'view']);
+  const notice = !!input && typeof input === 'object' && Object.hasOwn(input, 'notice');
+  const envelope = shape(input, ['ok', 'view', ...(notice ? ['notice'] : [])]);
   if (envelope.ok !== true) return invalid();
+  if (notice && envelope.notice !== 'ALREADY_CONNECTED') return invalid();
   const value = shape(envelope.view, [
     'fingerprint',
     'name',
@@ -235,6 +249,7 @@ export function decodePeerReply(input: unknown): PeerReply {
   ]);
   return {
     ok: true,
+    ...(notice ? { notice: 'ALREADY_CONNECTED' as const } : {}),
     view: {
       fingerprint: fingerprint(value.fingerprint),
       name: string(value.name, 80),

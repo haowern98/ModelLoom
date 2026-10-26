@@ -25,6 +25,7 @@ import { createRuntimeController } from './runtime-controller';
 import { watchDeviceChanges } from './device-changes';
 import type { RuntimeDependencies } from './runtime-controller';
 import { localDeviceSnapshot } from './local-device';
+import { createCacheHandler } from './tensor-cache';
 import type { developmentDesktopDependencies } from '../../../../packages/core/src/hosts/development-desktop.js';
 
 // Vite serves changing modules at stable URLs; stale Chromium cache can break startup.
@@ -103,6 +104,7 @@ async function createWindow(): Promise<void> {
     enabled: false,
     device: () => localDeviceSnapshot(),
   };
+  let tensorCache: ReturnType<typeof developmentDesktopDependencies>['tensorCache'] | undefined;
   // Only the explicit compiled development profile can select packaged resources.
   if (locations) {
     const coreRoot = locations.core;
@@ -134,6 +136,7 @@ async function createWindow(): Promise<void> {
           incoming: (listener) => windowNetwork.setIncoming(listener),
         },
       );
+      tensorCache = development.tensorCache;
       dependencies = {
         ...development,
         device: async () => {
@@ -163,6 +166,22 @@ async function createWindow(): Promise<void> {
   }
   const windowController = createRuntimeController(dependencies, chatCaller);
   controller = windowController;
+  ipcMain.handle(
+    'modelloom:tensor-cache',
+    createCacheHandler({
+      sender: window.webContents,
+      frame: () => window.webContents.mainFrame,
+      closing: () => quitting || window.isDestroyed(),
+      owner: () => tensorCache,
+      pick: async () => {
+        const selected = await dialog.showOpenDialog(window, {
+          title: 'Choose tensor cache location',
+          properties: ['openDirectory', 'createDirectory'],
+        });
+        return selected.canceled ? null : (selected.filePaths[0] ?? null);
+      },
+    }),
+  );
   watchDeviceChanges(window, () => {
     void windowController.deviceChanged().catch(() => {
       console.error('Hardware refresh could not be completed.');

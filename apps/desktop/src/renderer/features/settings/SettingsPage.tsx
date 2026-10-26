@@ -9,6 +9,7 @@ import { ChatGptSidebarIcon } from '../../components/ChatGptSidebarIcon';
 import { Dialog } from '../../components/Dialog';
 import { SearchField } from '../../components/SearchField';
 import { NetworkSettings } from './NetworkSettings';
+import { StorageSettings } from './StorageSettings';
 import styles from './SettingsPage.module.css';
 
 export type SettingsCategory =
@@ -292,6 +293,8 @@ export function SettingsPage({
             <Runtime />
           ) : category === 'Network' ? (
             <NetworkSettings onApi={onApi} {...(onConnections ? { onConnections } : {})} />
+          ) : category === 'Storage' ? (
+            <StorageSettings />
           ) : (
             <Section title={category}>
               <div className={styles.pending}>

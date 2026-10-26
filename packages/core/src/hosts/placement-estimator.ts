@@ -163,6 +163,14 @@ export async function runPlacementEstimator(
       if (observation.exitCode !== -1 && observation.activeProcesses === 0) {
         if (observation.exitCode !== 0 || !captured) throw Error('INVALID_ESTIMATE');
         const rows = output.trimEnd().split(/\r?\n/u).slice(1);
+        // A remote-only coordinator can estimate RPC devices without a local CUDA device.
+        if (
+          !local.length &&
+          /^\d+(?:\.\d+){3} E ggml_cuda_init: failed to initialize CUDA: no CUDA-capable device is detected$/u.test(
+            rows[0] ?? '',
+          )
+        )
+          rows.shift();
         if (
           /^.{1,80} I llama_fit_params: printing estimated memory in MiB to stdout \(device, model, context, compute\) \.\.\.$/u.test(
             rows[0] ?? '',

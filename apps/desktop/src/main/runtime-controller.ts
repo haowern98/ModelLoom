@@ -144,6 +144,7 @@ const messages: Record<string, string> = {
     'This model file could not be safely opened. Choose a standalone copy of the GGUF, not a hard link or shortcut, and try again.',
   LIBRARY_UNAVAILABLE:
     'The saved model library could not be opened. Restart the app and try again.',
+  CORE_START_TIMEOUT: 'The library service did not start in time. Restart the app and try again.',
   INVALID_GGUF: 'This file could not be indexed as a supported GGUF model.',
 };
 /** Saved library and session-only loading bridge. Fresh verification precedes each load.
@@ -338,8 +339,15 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
         view = { ...view, model };
         await observeModelUse();
       })
-      .catch(() => {
-        if (!quitting) view = { ...view, error: messages.LIBRARY_UNAVAILABLE! };
+      .catch((error: unknown) => {
+        if (!quitting)
+          view = {
+            ...view,
+            error:
+              error instanceof Error && error.message === 'CORE_START_TIMEOUT'
+                ? messages.CORE_START_TIMEOUT!
+                : messages.LIBRARY_UNAVAILABLE!,
+          };
       })
       .finally(() => {
         view = { ...view, restoring: false };
@@ -549,6 +557,31 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       try {
         if (preparation) await preparation;
         if (quitting) return { ok: false, error: 'NOT_READY' };
+        if (command.action === 'disconnect') {
+          const rawPeers = deps.peers
+            ? await deps.peers({ action: 'read' })
+            : await host?.peers?.(caller, { action: 'read' });
+          const peers = rawPeers ? decodePeerReply(rawPeers) : undefined;
+          if (!peers?.ok) return { ok: false, error: 'PEER_UNAVAILABLE' };
+          const peer = peers.view.outgoing.find((value) => value.id === command.id);
+          if (!peer) return { ok: false, error: 'UNKNOWN_PEER_REQUEST' };
+          const prefix = `peer:${peer.peerFingerprint}:`;
+          const inUse = [
+            ...selectedPeerRuns,
+            ...ownedPeerRuns,
+            ...planningPeerRuns,
+            ...(pendingCluster?.runs ?? []),
+            ...(view.activeCluster?.runs ?? []),
+          ].some((run) => run.uuid.startsWith(prefix));
+          if (inUse && !command.stopModel) return { ok: false, error: 'PEER_IN_USE' };
+          if (inUse) {
+            const stopped = await this.command({ action: 'stop' });
+            await enginePreparation?.catch(() => undefined);
+            await clusterTail;
+            if (stopped.phase !== 'stopped' || clusterCleanupFailed)
+              return { ok: false, error: 'CLEANUP_FAILED' };
+          }
+        }
         if (deps.enabled && deps.peers) return decodePeerReply(await deps.peers(command));
         if (!host?.peers) return { ok: false, error: 'NOT_READY' };
         return decodePeerReply(await host.peers(caller, command));

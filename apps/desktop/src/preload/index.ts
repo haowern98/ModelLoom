@@ -1,4 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { decodeCacheCommand, decodeCacheReply } from '../shared/tensor-cache';
+contextBridge.exposeInMainWorld(
+  'modelLoomCache',
+  Object.freeze({
+    command: (input: unknown) =>
+      ipcRenderer
+        .invoke('modelloom:tensor-cache', decodeCacheCommand(input))
+        .then(decodeCacheReply),
+  }),
+);
 import { decodeNetworkCommand, decodeNetworkReply } from '../shared/network';
 import { decodePeerCommand, decodePeerReply } from '../shared/peers';
 import { decodeApiManagementCommand, decodeApiManagementReply } from '../shared/local-api';

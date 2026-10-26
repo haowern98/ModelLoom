@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { NetworkView } from '../../../shared/network';
+import type { PeerView } from '../../../shared/peers';
 import { Button } from '../../components/Button';
 import settings from '../settings/SettingsPage.module.css';
 
@@ -14,12 +15,25 @@ const inviteErrors: Record<string, string> = {
 };
 
 /** Discovery is informational; only an explicit Connect starts existing pairing. */
-export function TailscaleCandidates({ onInvited }: { onInvited: (id: string) => void }) {
+export function TailscaleCandidates({
+  onInvited,
+  outgoing = [],
+  onDisconnect,
+  disabled = false,
+}: {
+  onInvited: (id: string) => void;
+  outgoing?: PeerView['outgoing'];
+  onDisconnect?: (id: string) => void;
+  disabled?: boolean;
+}) {
   const bridge = window.modelLoomNetwork;
   const [view, setView] = useState<NetworkView>();
   const [error, setError] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [focused, setFocused] = useState<string | null>(null);
   const mounted = useRef(false);
   const pending = useRef(false);
   const dirty = useRef(false);
@@ -67,9 +81,15 @@ export function TailscaleCandidates({ onInvited }: { onInvited: (id: string) => 
     inviting.current = true;
     setBusy(true);
     setInviteError(null);
+    setNotice(null);
     try {
       const reply = await bridge.invite(candidate.id);
       if (!mounted.current) return;
+      if (reply.ok && reply.notice === 'ALREADY_CONNECTED') {
+        setError(false);
+        setNotice('Already connected.');
+        return;
+      }
       const request = reply.ok
         ? reply.view.outgoing.find(
             (peer) =>
@@ -120,26 +140,61 @@ export function TailscaleCandidates({ onInvited }: { onInvited: (id: string) => 
           <p className={settings.description}>{inviteError}</p>
         </div>
       )}
+      {notice && (
+        <div className={settings.row} role="status">
+          <p className={settings.description}>{notice}</p>
+        </div>
+      )}
       {!candidates.length && (
         <div className={settings.row}>
           <p className={settings.description}>{empty}</p>
         </div>
       )}
-      {candidates.map((candidate) => (
-        <div className={settings.row} key={candidate.id}>
-          <div>
-            <p className={settings.label}>{candidate.name}</p>
-            <p className={settings.description}>Tailscale</p>
+      {candidates.map((candidate) => {
+        const peer = outgoing.find((value) => value.peerFingerprint === candidate.fingerprint);
+        const connected = peer?.phase === 'approved' && peer.localVerified && peer.remoteVerified;
+        const pending = peer?.phase === 'pending';
+        return (
+          <div className={settings.row} key={candidate.id}>
+            <div>
+              <p className={settings.label}>{candidate.name}</p>
+              <p className={settings.description}>Tailscale</p>
+            </div>
+            <Button
+              disabled={
+                disabled ||
+                busy ||
+                error ||
+                pending ||
+                (connected ? !onDisconnect : !bridge?.invite)
+              }
+              aria-label={
+                (connected
+                  ? 'Disconnect from '
+                  : pending
+                    ? 'Invitation pending for '
+                    : 'Connect to ') + candidate.name
+              }
+              onMouseEnter={() => setHovered(candidate.id)}
+              onMouseLeave={() => setHovered(null)}
+              onFocus={() => setFocused(candidate.id)}
+              onBlur={() => setFocused(null)}
+              onClick={() => {
+                if (connected) onDisconnect?.(peer.id);
+                else if (!pending) void invite(candidate);
+              }}
+            >
+              {connected
+                ? hovered === candidate.id || focused === candidate.id
+                  ? 'Disconnect'
+                  : 'Connected'
+                : pending
+                  ? 'Pending'
+                  : 'Connect'}
+            </Button>
           </div>
-          <Button
-            disabled={busy || !bridge?.invite || error}
-            aria-label={'Connect to ' + candidate.name}
-            onClick={() => void invite(candidate)}
-          >
-            Connect
-          </Button>
-        </div>
-      ))}
+        );
+      })}
     </>
   );
 }

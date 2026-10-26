@@ -240,6 +240,19 @@
 .pending {
   padding: 16px 0;
 }
+.cachePath {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--neutral-muted);
+}
+.cachePolicy > div {
+  width: 238px;
+}
+.switch:not(:disabled) {
+  cursor: pointer;
+}
 .pending button {
   margin-top: 14px;
 }

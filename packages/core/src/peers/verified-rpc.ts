@@ -11,13 +11,17 @@ import {
 import { privatePeerHost } from './wire.js';
 import type { RpcRelaySession } from './rpc-session.js';
 import { discoverResources } from '../hosts/resource-probe.js';
-import { decodePeerResources, peerRuntimeId } from './resources.js';
+import { decodePeerResources, peerRuntimeId, rpcClientRuntimeId } from './resources.js';
 import type { PeerResources } from './resources.js';
 import { SHARING_APPROVAL_MS } from './deadline.js';
+import { mkdir } from 'node:fs/promises';
+import { cacheMaintenance } from '../tensor-cache/settings.js';
+import type { CacheSettings } from '../tensor-cache/wire.js';
 
 // Keep sealed identities when native teardown could not be established.
 const unsettled = new Set<object>();
 interface SharingPool {
+  cacheSupported: boolean;
   sessions: Map<string, RpcRelaySession>;
   release(): void;
   uncertainLaunch: boolean;
@@ -51,11 +55,24 @@ export class VerifiedRpcBackend implements PeerRpcBackend {
   private retained: SharingPool | undefined;
   private stopping: Promise<void> | undefined;
   private broken = false;
-  constructor(private readonly installation: () => Promise<InstalledPackage>) {}
+  private readonly preparedCaches = new Set<string>();
+  constructor(
+    private readonly installation: () => Promise<InstalledPackage>,
+    private readonly cacheSettings?: () => Promise<CacheSettings>,
+    private readonly cacheAvailability?: (location: string, available: boolean) => Promise<void>,
+  ) {}
+
+  async cacheEnabled(): Promise<boolean> {
+    const installed = await this.installation();
+    if (!requireInstalledLive(installed).version.endsWith('-tensor-cache-v1')) return false;
+    return (await this.cacheSettings?.().catch(() => undefined))?.enabled ?? false;
+  }
 
   async resources(gpuIds: readonly string[]): Promise<PeerResources> {
     const installed = await this.installation();
-    const runtimeId = peerRuntimeId(requireInstalledLive(installed));
+    const inventory = requireInstalledLive(installed);
+    const runtimeId = peerRuntimeId(inventory);
+    const clientRuntimeId = rpcClientRuntimeId(inventory);
     const snapshot = await discoverResources();
     const gpus = gpuIds.map((id) => {
       const matches = snapshot.gpus?.filter((gpu) => gpu.uuid.toLowerCase() === id.toLowerCase());
@@ -63,7 +80,7 @@ export class VerifiedRpcBackend implements PeerRpcBackend {
       const { uuid, bus, driver, total, free, mig, driverModel } = matches[0]!;
       return { uuid, bus, driver, total, free, mig, driverModel };
     });
-    return decodePeerResources({ runtimeId, ram: snapshot.ram, gpus });
+    return decodePeerResources({ runtimeId, clientRuntimeId, ram: snapshot.ram, gpus });
   }
 
   private validate(gpuIds: readonly string[], max = 1): void {
@@ -97,6 +114,7 @@ export class VerifiedRpcBackend implements PeerRpcBackend {
       throw new Error('RPC_PACKAGE_REQUIRED');
     const files = await revalidateInstalled(installed);
     const current: SharingPool = {
+      cacheSupported: inventory.version.endsWith('-tensor-cache-v1'),
       sessions: new Map(),
       release: () => files.release(),
       uncertainLaunch: false,
@@ -141,13 +159,44 @@ export class VerifiedRpcBackend implements PeerRpcBackend {
     }
   }
 
-  async start(gpuIds: readonly string[]): Promise<OwnedPeerRpc> {
+  async start(
+    gpuIds: readonly string[],
+    cacheRequested = false,
+    cacheOwner?: string,
+  ): Promise<OwnedPeerRpc> {
     this.validate(gpuIds);
     if (!this.sharing || this.stopping || this.broken) throw new Error('RPC_SHARING_REQUIRED');
     const current = await this.sharing;
     const session = current.sessions.get(gpuIds[0]!.toLowerCase());
     if (this.stopping || this.broken || !session) throw new Error('INVALID_GPU_RESERVATION');
-    return session.start();
+    let cache: CacheSettings | undefined, selected: CacheSettings | undefined;
+    if (
+      cacheRequested &&
+      current.cacheSupported &&
+      typeof cacheOwner === 'string' &&
+      /^[a-f0-9]{64}$/u.test(cacheOwner)
+    ) {
+      try {
+        selected = await this.cacheSettings?.();
+        if (selected?.enabled) {
+          if (!this.preparedCaches.has(selected.location)) {
+            await mkdir(selected.location, { recursive: true, mode: 0o700 });
+            cacheMaintenance().prepare(selected.location);
+            this.preparedCaches.add(selected.location);
+          }
+          cache = selected;
+        }
+      } catch {
+        // Caching is optional; a corrupt preference or unavailable disk never
+        // changes tensors or prevents an ordinary authenticated load.
+      }
+    }
+    const worker = await (cache ? session.start(cache, cacheOwner) : session.start());
+    if (selected?.enabled)
+      await this.cacheAvailability?.(selected.location, Boolean(cache) && !worker.cacheError).catch(
+        () => undefined,
+      );
+    return worker;
   }
 
   /** Local sharing admission only; remote GPU requests cannot create network helpers. */

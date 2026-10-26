@@ -20,6 +20,7 @@ const gatewayOpenTimeout = RPC_OPEN_MS + 1000;
 
 export interface OwnedPeerRpc {
   readonly stream: Duplex;
+  readonly cacheError?: 'CACHE_LOCATION_UNAVAILABLE';
   close(): Promise<void>;
 }
 export interface PeerRpcBackend {
@@ -30,7 +31,13 @@ export interface PeerRpcBackend {
   openNetwork?(address: string, lost: () => void): Promise<void>;
   /** Called after admission closes; confirm worker/helper cleanup before release. */
   closeSharing?(): Promise<void>;
-  start(gpuIds: readonly string[]): Promise<OwnedPeerRpc>;
+  start(
+    gpuIds: readonly string[],
+    cacheRequested?: boolean,
+    cacheOwner?: string,
+  ): Promise<OwnedPeerRpc>;
+  /** Local preferences only; false also bypasses caches on remote workers. */
+  cacheEnabled?(): Promise<boolean>;
   resources?(gpuIds: readonly string[]): Promise<PeerResources>;
 }
 export interface PeerRpcTarget {
@@ -48,6 +55,7 @@ export async function connectPeerRpc(
   signal?: AbortSignal,
   gpuId?: string,
   overlay?: PeerOverlayTransport,
+  cacheEnabled = false,
 ): Promise<Duplex> {
   if (gpuId !== undefined && !/^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(gpuId))
     return Promise.reject(new Error('INVALID_GPU_RESERVATION'));
@@ -74,6 +82,7 @@ export async function connectPeerRpc(
         Connection: 'Upgrade',
         Upgrade: 'ModelLoom-RPC/1',
         ...(gpuId !== undefined ? { 'X-ModelLoom-GPU': gpuId } : {}),
+        'X-ModelLoom-Tensor-Cache': cacheEnabled ? '1' : '0',
       },
       pfx: identity.pfx,
       ca: new X509Certificate(target.authority).toString(),

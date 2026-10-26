@@ -14,6 +14,8 @@ export interface PeerTrust {
   gpuIds: string[];
   address?: string;
   securePort?: number;
+  /** Local reconnect preference; never changes the peer's approval. */
+  disconnected?: true;
 }
 type Protection = (data: Buffer, protect: boolean) => Promise<Buffer>;
 const MAX_BYTES = 262144;
@@ -31,7 +33,9 @@ function decode(value: unknown): PeerTrust[] {
       'certificate',
       'authority',
       'gpuIds',
-      ...(v.direction === 'outgoing' ? ['address', 'securePort'] : []),
+      ...(v.direction === 'outgoing'
+        ? ['address', 'securePort', ...(Object.hasOwn(v, 'disconnected') ? ['disconnected'] : [])]
+        : []),
     ];
     if (
       Object.keys(v).length !== allowed.length ||
@@ -65,7 +69,8 @@ function decode(value: unknown): PeerTrust[] {
     keys.add(key);
     if (
       v.direction === 'outgoing' &&
-      (typeof v.address !== 'string' ||
+      ((Object.hasOwn(v, 'disconnected') && v.disconnected !== true) ||
+        typeof v.address !== 'string' ||
         !privatePeerHost(v.address) ||
         !Number.isInteger(v.securePort) ||
         (v.securePort as number) < 1024 ||
@@ -80,7 +85,11 @@ function decode(value: unknown): PeerTrust[] {
       authority: v.authority,
       gpuIds: v.gpuIds.map((id: unknown) => String(id)),
       ...(v.direction === 'outgoing'
-        ? { address: v.address as string, securePort: v.securePort as number }
+        ? {
+            address: v.address as string,
+            securePort: v.securePort as number,
+            ...(v.disconnected === true ? { disconnected: true as const } : {}),
+          }
         : {}),
     };
   });
