@@ -1,5 +1,6 @@
 // The private owner envelope never interprets or modifies stock RPC payloads.
-// Control has no executable/path/port/GPU arguments. All storage is bounded.
+// Open carries only a worker-local cache policy from the retained owner.
+// Remote Data cannot select paths, executables, ports or GPUs.
 struct ProbeFrame {
   std::vector<char> bytes;
   size_t expected = 4;

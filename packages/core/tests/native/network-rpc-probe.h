@@ -1,3 +1,6 @@
+#include "../../native/tensor-cache-directory.h"
+#include "../../native/tensor-cache-policy.h"
+#include <memory>
 // Bounded stock protocol check. No weights, allocations, graph execution or
 // WAN.
 bool probe_rpc_listener(UINT16 port, DWORD pid) {
@@ -48,6 +51,25 @@ void probe_rpc_command(SOCKET socket, uint8_t command, void *input,
 }
 int probe_rpc(Pipe &pipe, bool crashOwner = false, bool instance = false,
               bool relay = false, bool cuda = false) {
+  std::unique_ptr<modelloom::tensor_cache::pinned_directory> cacheDirectory;
+  ProbeHandle cacheRoot;
+  bool cacheUnavailable = false;
+  wchar_t cachePath[4096]{};
+  const DWORD cacheLength =
+      GetEnvironmentVariableW(L"MODELLOOM_TENSOR_CACHE", cachePath, 4096);
+  if (cacheLength) {
+    try {
+      if (cacheLength >= 4096)
+        throw std::runtime_error("CACHE_LOCATION_UNAVAILABLE");
+      cacheDirectory =
+          std::make_unique<modelloom::tensor_cache::pinned_directory>(
+              cachePath);
+      cacheRoot.value = cacheDirectory->inherit_root();
+    } catch (...) {
+      cacheUnavailable = true;
+      modelloom::apply_cache_policy(nullptr, 0);
+    }
+  }
   WSADATA data{};
   check(static_cast<DWORD>(WSAStartup(MAKEWORD(2, 2), &data)), "rpc-winsock");
   struct CleanupWinsock {
@@ -129,7 +151,7 @@ int probe_rpc(Pipe &pipe, bool crashOwner = false, bool instance = false,
     FwpmTransactionAbort0(guard.engine.value);
     throw;
   }
-  ProbeContainment containment(guard.safeToRemove);
+  ProbeContainment containment(guard.safeToRemove, cacheDirectory != nullptr);
   if (crashOwner) {
     containment.job.close();
     containment.job.value = recoveryJob.value;
@@ -151,7 +173,7 @@ int probe_rpc(Pipe &pipe, bool crashOwner = false, bool instance = false,
                        : L"--host 127.0.0.1 --device CPU --threads 1 --port ") +
           std::to_wstring(port),
       {unused.value, logs.write.value}, containment.job.value, true, true,
-      desktop.name, true, cuda, logs.write.value);
+      desktop.name, true, cuda, logs.write.value, cacheRoot.value);
   logs.write.close();
   if (!probe_restricted(worker.process.value))
     throw Failure{"rpc-not-restricted", ERROR_ACCESS_DENIED};
@@ -187,8 +209,10 @@ int probe_rpc(Pipe &pipe, bool crashOwner = false, bool instance = false,
     throw Failure{"rpc-live-recovery-not-denied", ERROR_INVALID_STATE};
   if (relay) {
     pipe.report(
-        "{\"phase\":\"relay-ready\",\"workerRestricted\":true,\"port\":" +
-        std::to_string(port) + "}");
+        std::string("{\"phase\":\"relay-ready\",\"workerRestricted\":true,") +
+        (cacheUnavailable ? "\"cacheError\":\"CACHE_LOCATION_UNAVAILABLE\","
+                          : "") +
+        "\"port\":" + std::to_string(port) + "}");
     if (pipe.framed)
       probe_session_relay(pipe, client.value, logs.read.value);
     else

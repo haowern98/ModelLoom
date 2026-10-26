@@ -112,6 +112,95 @@ it('shows approved workers and their shared hardware on Connections', async () =
 });
 afterEach(() => {
   delete window.modelLoomPeers;
+  delete window.modelLoomNetwork;
+});
+
+it('reports Already connected for a manually entered alias without opening another pairing dialog', async () => {
+  const base = bridge(
+    [],
+    [
+      {
+        id: 'paired',
+        name: 'PTSS',
+        peerFingerprint: remote,
+        phase: 'approved',
+        localVerified: true,
+        remoteVerified: true,
+        gpus: [],
+        address: '100.64.1.3',
+      },
+    ],
+  );
+  const command = vi.fn<NonNullable<typeof window.modelLoomPeers>['command']>(async (input) => {
+    const reply = await base(input);
+    return reply.ok && input.action === 'invite'
+      ? { ...reply, notice: 'ALREADY_CONNECTED' }
+      : reply;
+  });
+  window.modelLoomPeers = { command };
+  const user = userEvent.setup();
+  render(<LivePeerPanel kind="add" />);
+  const field = await screen.findByRole('textbox', { name: 'Private address' });
+  await waitFor(() => expect(field).toBeEnabled());
+  await user.type(field, '192.168.1.9');
+  await user.click(screen.getByRole('button', { name: 'Connect' }));
+  expect(await screen.findByText('Already connected.')).toBeVisible();
+  expect(
+    command.mock.calls.some(
+      ([input]) => input.action === 'invite' && input.address === '192.168.1.9',
+    ),
+  ).toBe(true);
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+
+it('warns before stopping a model for Disconnect and leaves Cancel harmless', async () => {
+  const peer = {
+    id: 'worker',
+    name: 'PTSS',
+    peerFingerprint: remote,
+    phase: 'approved' as const,
+    localVerified: true,
+    remoteVerified: true,
+    gpus: [],
+  };
+  const base = bridge([], [peer]);
+  const command = vi.fn<NonNullable<typeof window.modelLoomPeers>['command']>((input) =>
+    input.action === 'disconnect' && !input.stopModel
+      ? Promise.resolve({ ok: false, error: 'PEER_IN_USE' })
+      : base(input),
+  );
+  window.modelLoomPeers = { command };
+  window.modelLoomNetwork = {
+    command: () =>
+      Promise.resolve({
+        ok: true,
+        view: {
+          state: 'connected',
+          addresses: [],
+          candidates: [{ id: 'found', name: 'PTSS', fingerprint: remote, address: '100.64.1.3' }],
+        },
+      }),
+    subscribe: () => () => {},
+    invite: vi.fn(),
+  };
+  const user = userEvent.setup();
+  render(<LivePeerPanel kind="add" />);
+  const button = await screen.findByRole('button', { name: 'Disconnect from PTSS' });
+  await waitFor(() => expect(button).toBeEnabled());
+  await user.click(button);
+  expect(await screen.findByRole('dialog', { name: 'Disconnect this PC?' })).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(
+    command.mock.calls.some(([input]) => input.action === 'disconnect' && input.stopModel),
+  ).toBe(false);
+  await user.click(button);
+  await user.click(await screen.findByRole('button', { name: 'Stop model and disconnect' }));
+  await waitFor(() =>
+    expect(command).toHaveBeenCalledWith({ action: 'disconnect', id: 'worker', stopModel: true }),
+  );
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog', { name: 'Disconnect this PC?' })).not.toBeInTheDocument(),
+  );
 });
 
 it('replaces failed initial loading with a retry and recovers the GPU inventory', async () => {

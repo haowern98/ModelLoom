@@ -7,14 +7,74 @@ import {
   checkCustody,
   publishDevelopmentMetadata,
   renewDevelopmentMetadata,
+  updateDevelopmentMetadata,
 } from './development-custody.js';
 import { inventory } from '../../tests/inventory-fixture.js';
-import { createFixtureVerifier, requireLivePackage } from '../runtime-package/verifier.js';
+import {
+  createFixtureVerifier,
+  requireLivePackage,
+  packageEvidence,
+} from '../runtime-package/verifier.js';
 const directories: string[] = [];
 afterEach(async () => {
   vi.useRealTimers();
   await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
+it('publishes a changed runtime above prior trusted versions without replacing the root or old repository', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'modelloom-update-'));
+  directories.push(directory);
+  const store = path.join(directory, 'keys');
+  const previous = path.join(directory, 'previous');
+  const renewed = path.join(directory, 'renewed');
+  const updated = path.join(directory, 'updated');
+  await initializeCustody(store);
+  await publishDevelopmentMetadata(store, inventory, previous);
+  await renewDevelopmentMetadata(store, previous, renewed);
+  const root = await readFile(path.join(store, 'public-root.json'));
+  const state = path.join(directory, 'state');
+  const verifier = createFixtureVerifier(root);
+  await verifier.verify(renewed, state);
+  const changed = { ...inventory, version: 'fixture-cache-v2' };
+  await updateDevelopmentMetadata(store, renewed, changed, updated);
+  expect(packageEvidence(await verifier.verify(updated, state)).inventory.version).toBe(
+    changed.version,
+  );
+  for (const role of ['targets', 'snapshot', 'timestamp']) {
+    const metadata = JSON.parse(await readFile(path.join(updated, `${role}.json`), 'utf8')) as {
+      signed: { version: number };
+    };
+    expect(metadata.signed.version).toBe(3);
+  }
+  expect(await readFile(path.join(updated, 'root.json'))).toEqual(root);
+  expect(JSON.parse(await readFile(path.join(renewed, 'inventory.json'), 'utf8'))).toEqual(
+    inventory,
+  );
+  await expect(verifier.verify(renewed, state)).rejects.toThrow('PACKAGE_VERIFICATION_FAILED');
+  await expect(
+    updateDevelopmentMetadata(store, updated, changed, path.join(directory, 'same-version')),
+  ).rejects.toThrow('INVENTORY_VERSION_REQUIRED');
+  await expect(
+    updateDevelopmentMetadata(
+      store,
+      updated,
+      { ...changed, version: 'v3', packageId: 'other' },
+      path.join(directory, 'other'),
+    ),
+  ).rejects.toThrow();
+  const timestamp = JSON.parse(await readFile(path.join(updated, 'timestamp.json'), 'utf8')) as {
+    signed: { version: number };
+  };
+  timestamp.signed.version++;
+  await writeFile(path.join(updated, 'timestamp.json'), JSON.stringify(timestamp));
+  await expect(
+    updateDevelopmentMetadata(
+      store,
+      updated,
+      { ...changed, version: 'v3' },
+      path.join(directory, 'tampered'),
+    ),
+  ).rejects.toThrow();
+}, 120000);
 it('renews expired role metadata with increasing versions, unchanged keys and cached verifier state', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'modelloom-renew-'));
   directories.push(directory);

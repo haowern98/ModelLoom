@@ -7,11 +7,191 @@ import { PeerTrustStore } from './trust-store.js';
 import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ownershipBinding } from '../hosts/windows-ownership.js';
-import { duplexPair } from 'node:stream';
+import { duplexPair, PassThrough } from 'node:stream';
+import type { OwnedPeerRpc } from './rpc.js';
 import type { Duplex } from 'node:stream';
 import { probeNetworkPeer } from '../network/http.js';
 import { overlayChannel } from './overlay-channel.js';
 import * as ipc from './ipc-rpc.js';
+import { connect as connectTcp } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
+
+it('recognizes the same approved device through LAN and Tailscale addresses without switching the active route', async () => {
+  const worker = new PeerNode(b, 'Alias worker', [
+    { id: 'gpu-one', name: 'GPU', memoryBytes: 4096 },
+  ]);
+  const client = new PeerNode(a, 'Alias client', []);
+  nodes.push(worker, client);
+  const address = await worker.share('127.0.0.1', 0, 0, ['gpu-one']);
+  const bootstrap = new URL(address).port;
+  client.setOverlay({
+    has: (host) => ['100.64.0.10', '192.168.1.9'].includes(host),
+    dial: (_host, port) =>
+      new Promise((resolve, reject) => {
+        const socket = connectTcp({ host: '127.0.0.1', port });
+        socket.once('connect', () => resolve(socket));
+        socket.once('error', reject);
+      }),
+  });
+  const original = await client.invite(`http://100.64.0.10:${bootstrap}`, b.fingerprint);
+  await client.verifyCode(original.id, worker.snapshot().incoming[0]!.pairingCode!);
+  await worker.approve(original.id, a.fingerprint);
+  await client.status(original.id);
+  const manual = await client.invite(`http://192.168.1.9:${bootstrap}`, undefined, [original.id]);
+  expect(manual).toEqual({ ...original, alreadyConnected: true });
+  expect(client.snapshot().outgoing).toHaveLength(1);
+  expect(client.snapshot().outgoing[0]!.address).toBe('100.64.0.10');
+  expect(worker.snapshot().incoming).toHaveLength(1);
+  await expect(
+    client.invite(`http://100.64.0.10:${bootstrap}`, c.fingerprint, [original.id]),
+  ).rejects.toThrow('PEER_IDENTITY_CHANGED');
+  const wrong = new PeerNode(c, 'Wrong identity', [
+    { id: 'gpu-one', name: 'GPU', memoryBytes: 4096 },
+  ]);
+  nodes.push(wrong);
+  await wrong.share('127.0.0.1', 0, 0, ['gpu-one']);
+  let introductions = 0;
+  const spoof = createHttpServer((request, response) => {
+    if (request.method === 'POST') introductions++;
+    response.setHeader('Content-Type', 'application/json');
+    response.end(
+      JSON.stringify({
+        protocol: 1,
+        name: 'Alias worker',
+        fingerprint: b.fingerprint,
+        sharing: true,
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => spoof.listen(0, '127.0.0.1', resolve));
+  try {
+    const spoofAddress = spoof.address();
+    if (!spoofAddress || typeof spoofAddress === 'string') throw Error('fixture listener missing');
+    client.setOverlay({
+      has: () => true,
+      dial: (host, port) =>
+        new Promise((resolve, reject) => {
+          const target =
+            host === '192.168.1.8'
+              ? port === Number(bootstrap)
+                ? spoofAddress.port
+                : (Reflect.get(wrong, 'securePort') as number)
+              : port;
+          const socket = connectTcp({ host: '127.0.0.1', port: target });
+          socket.once('connect', () => resolve(socket));
+          socket.once('error', reject);
+        }),
+    });
+    await expect(
+      client.invite(`http://192.168.1.8:${bootstrap}`, undefined, [original.id]),
+    ).rejects.toThrow();
+    expect(introductions).toBe(0);
+    expect(client.snapshot().outgoing[0]!.address).toBe('100.64.0.10');
+    expect((await client.status(original.id)).phase).toBe('approved');
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      spoof.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+  await client.disconnect(original.id);
+  const resumed = await client.invite(`http://192.168.1.9:${bootstrap}`);
+  expect(resumed.alreadyConnected).toBeUndefined();
+  expect((await client.status(resumed.id)).phase).toBe('approved');
+  expect(client.snapshot().outgoing[0]!.address).toBe('192.168.1.9');
+  expect(worker.snapshot().incoming).toHaveLength(1);
+});
+
+it('keeps manual disconnection across restart without forgetting approval and reconnects explicitly', async () => {
+  let saved: readonly PeerTrust[] = [];
+  const worker = new PeerNode(b, 'Disconnect worker', [
+    { id: 'gpu-one', name: 'GPU', memoryBytes: 4096 },
+  ]);
+  const client = new PeerNode(a, 'Disconnect client', [], undefined, undefined, {
+    initial: [],
+    save: (records) => {
+      saved = structuredClone(records);
+      return Promise.resolve();
+    },
+  });
+  nodes.push(worker, client);
+  const address = await worker.share('127.0.0.1', 0, 0, ['gpu-one']);
+  const request = await client.invite(address);
+  await client.verifyCode(request.id, worker.snapshot().incoming[0]!.pairingCode!);
+  await worker.approve(request.id, a.fingerprint);
+  expect((await client.status(request.id)).phase).toBe('approved');
+  const revision = (await client.watchInventory(request.id, -1)).revision;
+  const watching = client.watchInventory(request.id, revision).then(
+    () => 'COMPLETED',
+    (error: Error) => error.message,
+  );
+  await client.disconnect(request.id);
+  expect(await watching).toBe('PEER_DISCONNECTED');
+  expect(client.rememberedAddresses()).toEqual([]);
+  await expect(client.status(request.id)).rejects.toThrow('PEER_DISCONNECTED');
+  expect(worker.snapshot().incoming[0]!.phase).toBe('approved');
+  const restored = new PeerNode(a, 'Restored client', [], undefined, undefined, {
+    initial: saved,
+    save: (records) => {
+      saved = structuredClone(records);
+      return Promise.resolve();
+    },
+  });
+  nodes.push(restored);
+  expect(restored.rememberedAddresses()).toEqual([]);
+  await expect(restored.status(restored.snapshot().outgoing[0]!.id)).rejects.toThrow(
+    'PEER_DISCONNECTED',
+  );
+  const resumed = await restored.invite(address, b.fingerprint);
+  expect((await restored.status(resumed.id)).phase).toBe('approved');
+  expect(worker.snapshot().incoming).toHaveLength(1);
+  expect(restored.rememberedAddresses()).toEqual(['127.0.0.1']);
+});
+
+it('does not admit an old RPC opening after Disconnect followed by an immediate reconnect', async () => {
+  const gpu = 'GPU-11111111-1111-1111-1111-111111111111';
+  let finish!: (owned: OwnedPeerRpc) => void;
+  const start = vi.fn(
+    () =>
+      new Promise<OwnedPeerRpc>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const worker = new PeerNode(b, 'Opening worker', [{ id: gpu, name: 'GPU', memoryBytes: 4096 }], {
+    start,
+  });
+  const client = new PeerNode(a, 'Opening client', []);
+  nodes.push(worker, client);
+  const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
+  const request = await client.invite(address);
+  await client.verifyCode(request.id, worker.snapshot().incoming[0]!.pairingCode!);
+  await worker.approve(request.id, a.fingerprint);
+  await client.status(request.id);
+  const opening = client.openRpc(request.id, gpu).then(
+    (socket) => {
+      socket.destroy();
+      return 'OPENED';
+    },
+    (error: Error) => error.message,
+  );
+  const stream = new PassThrough();
+  const owned = {
+    stream,
+    close: () => {
+      stream.destroy();
+      return Promise.resolve();
+    },
+  };
+  try {
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce());
+    await client.disconnect(request.id);
+    const resumed = await client.invite(address, b.fingerprint);
+    await client.status(resumed.id);
+    finish(owned);
+    expect(await opening).toBe('PEER_UNAVAILABLE');
+  } finally {
+    finish?.(owned);
+  }
+});
 
 it('pairs through both parent/core IPC boundaries', async () => {
   const errors: string[] = [];
@@ -354,6 +534,21 @@ it('protects saved trust with CurrentUser DPAPI and rejects corruption', async (
     };
     await store.write([record]);
     expect(await store.read()).toEqual([record]);
+    const paused: PeerTrust = {
+      ...record,
+      direction: 'outgoing',
+      address: '127.0.0.1',
+      securePort: 49302,
+      disconnected: true,
+    };
+    await store.write([record, paused]);
+    expect(await store.read()).toEqual([record, paused]);
+    expect(() => store.write([{ ...paused, disconnected: false } as unknown as PeerTrust])).toThrow(
+      'PEER_TRUST_UNAVAILABLE',
+    );
+    expect(() => store.write([{ ...record, disconnected: true }])).toThrow(
+      'PEER_TRUST_UNAVAILABLE',
+    );
     const ciphertext = await readFile(path.join(root, 'trust.dpapi'));
     expect(ciphertext.includes(Buffer.from(b.fingerprint))).toBe(false);
     ciphertext[20] = ciphertext[20]! ^ 1;
