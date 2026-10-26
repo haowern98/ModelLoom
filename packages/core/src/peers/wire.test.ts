@@ -2,6 +2,25 @@ import { expect, it } from 'vitest';
 import { decodePeerCommand, decodePeerReply } from './wire.js';
 import { emptyTelemetry } from './telemetry-view.js';
 
+it('accepts only the bounded disconnect control and explicit stop confirmation', () => {
+  expect(decodePeerCommand({ action: 'disconnect', id: 'request' })).toEqual({
+    action: 'disconnect',
+    id: 'request',
+  });
+  expect(decodePeerCommand({ action: 'disconnect', id: 'request', stopModel: true })).toEqual({
+    action: 'disconnect',
+    id: 'request',
+    stopModel: true,
+  });
+  for (const stopModel of [false, 'true', 1, null])
+    expect(() => decodePeerCommand({ action: 'disconnect', id: 'request', stopModel })).toThrow(
+      'INVALID_CONTROL',
+    );
+  expect(() =>
+    decodePeerCommand({ action: 'disconnect', id: 'request', address: '100.64.1.3' }),
+  ).toThrow('INVALID_CONTROL');
+});
+
 it('accepts optional telemetry without granting renderer diagnostics controls', () => {
   const peer = {
     id: 'request',
@@ -27,6 +46,12 @@ it('accepts optional telemetry without granting renderer diagnostics controls', 
     },
   };
   expect(decodePeerReply(envelope)).toEqual(envelope);
+  expect(decodePeerReply({ ...envelope, notice: 'ALREADY_CONNECTED' })).toEqual({
+    ...envelope,
+    notice: 'ALREADY_CONNECTED',
+  });
+  for (const notice of [true, 'CONNECTED', {}, null])
+    expect(() => decodePeerReply({ ...envelope, notice })).toThrow('INVALID_CONTROL');
   for (const bad of [NaN, Infinity, -1, '4']) {
     expect(() =>
       decodePeerReply({

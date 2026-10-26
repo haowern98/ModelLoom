@@ -1,4 +1,5 @@
-// Shared restricted-worker primitives. The product entry closes diagnostic modes.
+// Shared restricted-worker primitives. The product entry closes diagnostic
+// modes.
 struct ProbeHandle {
   HANDLE value = nullptr;
   ProbeHandle() = default;
@@ -179,11 +180,21 @@ HANDLE probe_restricted_token() {
   size = sizeof(world);
   if (!CreateWellKnownSid(WinWorldSid, nullptr, world, &size))
     throw Failure{"public-resource-sid", GetLastError()};
-  SID_AND_ATTRIBUTES restrictions[] = {{users, 0}, {world, 0}};
-  if (!CreateRestrictedToken(original.value, DISABLE_MAX_PRIVILEGE | LUA_TOKEN,
-                             0, nullptr, 0, nullptr, 2, restrictions,
-                             &restricted.value))
-    throw Failure{"token-restrict", GetLastError()};
+  PSID cache = nullptr;
+  if (!ConvertStringSidToSidW(L"S-1-5-21-1610612737-1297040460-1413693768-1",
+                              &cache))
+    throw Failure{"cache-restricting-sid", GetLastError()};
+  SID_AND_ATTRIBUTES restrictions[] = {{users, 0}, {world, 0}, {cache, 0}};
+  const BOOL made = CreateRestrictedToken(
+      original.value, DISABLE_MAX_PRIVILEGE | LUA_TOKEN, 0, nullptr, 0, nullptr,
+      GetEnvironmentVariableW(L"MODELLOOM_TENSOR_CACHE_OWNER", nullptr, 0) == 65
+          ? 3
+          : 2,
+      restrictions, &restricted.value);
+  const DWORD tokenError = GetLastError();
+  LocalFree(cache);
+  if (!made)
+    throw Failure{"token-restrict", tokenError};
   BYTE medium[SECURITY_MAX_SID_SIZE]{};
   size = sizeof(medium);
   if (!CreateWellKnownSid(WinMediumLabelSid, nullptr, medium, &size))
@@ -245,7 +256,8 @@ void probe_launch(ProbeChild &child, const std::wstring &arguments,
                   const std::vector<HANDLE> &handles, HANDLE job, bool resume,
                   bool restrictWorker = false,
                   const std::wstring &desktop = L"", bool stockRpc = false,
-                  bool cudaStock = false, HANDLE output = nullptr) {
+                  bool cudaStock = false, HANDLE output = nullptr,
+                  HANDLE cacheRoot = nullptr) {
   const auto self = probe_image();
   // Only this fixed diagnostic asset is permitted, never an arbitrary image.
   const auto image = stockRpc ? self.substr(0, self.find_last_of(L"\\/")) +
@@ -270,6 +282,9 @@ void probe_launch(ProbeChild &child, const std::wstring &arguments,
   if (!desktop.empty())
     startup.StartupInfo.lpDesktop = const_cast<wchar_t *>(desktop.c_str());
   SIZE_T bytes = 0;
+  auto inheritedHandles = handles;
+  if (cacheRoot)
+    inheritedHandles.push_back(cacheRoot);
   InitializeProcThreadAttributeList(nullptr, 2, 0, &bytes);
   std::vector<unsigned char> storage(bytes);
   startup.lpAttributeList =
@@ -279,7 +294,7 @@ void probe_launch(ProbeChild &child, const std::wstring &arguments,
   const bool attributes =
       UpdateProcThreadAttribute(
           startup.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-          const_cast<HANDLE *>(handles.data()), handles.size() * sizeof(HANDLE),
+          inheritedHandles.data(), inheritedHandles.size() * sizeof(HANDLE),
           nullptr, nullptr) &&
       UpdateProcThreadAttribute(startup.lpAttributeList, 0,
                                 PROC_THREAD_ATTRIBUTE_JOB_LIST, &job,
@@ -302,6 +317,20 @@ void probe_launch(ProbeChild &child, const std::wstring &arguments,
         L"TMP=" + std::wstring(windows) + L"\\Temp",
         L"CUDA_CACHE_DISABLE=1",
         L"GGML_RPC_NO_RDMA=1"};
+    for (const auto name :
+         {L"MODELLOOM_TENSOR_CACHE", L"MODELLOOM_TENSOR_CACHE_LIMIT",
+          L"MODELLOOM_TENSOR_CACHE_RESERVE", L"MODELLOOM_TENSOR_CACHE_REPLACE",
+          L"MODELLOOM_TENSOR_CACHE_OWNER"}) {
+      wchar_t value[4096]{};
+      const DWORD length = GetEnvironmentVariableW(name, value, 4096);
+      if (length >= 4096)
+        throw Failure{"worker-cache-policy", ERROR_INVALID_DATA};
+      if (length)
+        values.push_back(std::wstring(name) + L"=" + value);
+    }
+    if (cacheRoot)
+      values.push_back(L"MODELLOOM_TENSOR_CACHE_ROOT_HANDLE=" +
+                       std::to_wstring(reinterpret_cast<uintptr_t>(cacheRoot)));
     if (cudaStock) {
       wchar_t uuid[64]{};
       if (GetEnvironmentVariableW(L"MODELLOOM_PROBE_GPU_UUID", uuid, 64) !=
@@ -576,8 +605,9 @@ bool probe_recover_rules(const ProbeRules &guard, HANDLE owner, HANDLE worker,
 struct ProbeContainment {
   ProbeHandle job;
   bool &safeToRemove;
-  explicit ProbeContainment(bool &safe)
-      : job(probe_job()), safeToRemove(safe) {}
+  bool pinsCacheDirectory;
+  explicit ProbeContainment(bool &safe, bool cachePins = false)
+      : job(probe_job()), safeToRemove(safe), pinsCacheDirectory(cachePins) {}
   ~ProbeContainment() {
     if (!job.value)
       return;
@@ -592,8 +622,12 @@ struct ProbeContainment {
         safeToRemove = true;
         return;
       }
-      Sleep(10);
-    } while (GetTickCount64() < deadline);
+      // A cache-capable worker must not outlive its helper's ancestor pins.
+      // After the ordinary cleanup deadline, quarantine this helper with its
+      // exact job until exit is confirmed. Its owner retains the bounded
+      // abnormal-exit backstop; no new worker can be admitted here.
+      Sleep(GetTickCount64() < deadline ? 10 : 100);
+    } while (pinsCacheDirectory || GetTickCount64() < deadline);
   }
 };
 void probe_connect(UINT16 port) {

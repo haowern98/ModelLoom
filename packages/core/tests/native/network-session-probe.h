@@ -1,3 +1,4 @@
+#include "../../native/tensor-cache-policy.h"
 // Elevation lasts only as long as the authenticated ordinary owner's pipe.
 // Worker exit and guard removal complete before accepting another Open.
 int probe_session(Pipe &pipe, bool cuda) {
@@ -8,8 +9,14 @@ int probe_session(Pipe &pipe, bool cuda) {
     ProbeFrame command;
     if (!probe_session_next(pipe, command))
       return 0;
-    if (command.bytes.size() != 5 || command.bytes[4] != 1)
+    if (command.bytes.size() < 5 || command.bytes[4] != 1)
       throw Failure{"session-open", ERROR_INVALID_DATA};
+    try {
+      modelloom::apply_cache_policy(command.bytes.data() + 5,
+                                    command.bytes.size() - 5);
+    } catch (...) {
+      throw Failure{"session-cache-policy", ERROR_INVALID_DATA};
+    }
     pipe.closeReceived = false;
     probe_runtime_tail.clear();
     probe_rpc(pipe, true, true, true, cuda);

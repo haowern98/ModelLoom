@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { ownershipBinding } from '../hosts/windows-ownership.js';
 import { discoverResources } from '../hosts/resource-probe.js';
 import { ReconnectBackoff } from './reconnect-backoff.js';
+import { isTransientPeerFailure } from './deadline.js';
 import { openWindowsPeerIdentity } from './windows-identity.js';
 import type { WindowsPeerIdentity } from './windows-identity.js';
 import { PeerNode } from './node.js';
@@ -199,7 +200,7 @@ export class PeerOwner {
         }
         if (!retries.begin(address)) continue;
         try {
-          await this.command(this.caller, { action: 'invite', address });
+          await this.command(this.caller, { action: 'invite', address }, true);
         } catch {
           /* Bounded retry retains offline identity without granting access. */
         }
@@ -228,16 +229,18 @@ export class PeerOwner {
     for (const listener of this.listeners) listener(reply);
   }
   private watch(id: string): void {
-    if (this.closed || this.watches.has(id)) return;
+    if (this.closed || this.watches.has(id) || this.node.isDisconnected(id)) return;
     const work = (async () => {
       let revision = -1;
       let basicReporter = false;
+      let transportFailures = 0;
       while (!this.closed) {
         try {
           const current = this.node.snapshot().outgoing.find((peer) => peer.id === id);
           if (!current) return;
           const status = await this.node.status(id);
           if (status.phase !== 'approved' || !current.verified) {
+            transportFailures = 0;
             const previous = this.remote.get(id);
             const view: PeerRequestView = {
               id: current.id,
@@ -271,7 +274,7 @@ export class PeerOwner {
             next = await this.node.basicInventory(id);
             basicReporter = true;
           }
-          if (this.closed) return;
+          if (this.closed || this.node.isDisconnected(id)) return;
           const peer = this.node.snapshot().outgoing.find((peer) => peer.id === id);
           if (!peer?.verified) return;
           const previous = this.remote.get(id);
@@ -287,14 +290,30 @@ export class PeerOwner {
             ...(next.hardware ? { hardware: next.hardware } : {}),
           };
           this.remote.set(id, view);
+          transportFailures = 0;
           if (revision !== next.revision || !isDeepStrictEqual(previous, view)) this.emit();
           revision = next.revision;
           if (basicReporter) await this.retryDelay(1500);
-        } catch {
-          if (this.closed) return;
+        } catch (error) {
+          if (
+            this.closed ||
+            this.node.isDisconnected(id) ||
+            (error instanceof Error && error.message === 'PEER_DISCONNECTED')
+          )
+            return;
           const peer = this.node.snapshot().outgoing.find((peer) => peer.id === id);
           if (!peer) return;
           const previous = this.remote.get(id);
+          if (
+            previous?.phase === 'approved' &&
+            isTransientPeerFailure(error) &&
+            ++transportFailures < 2
+          ) {
+            // Confirm with fresh authenticated status and inventory, never a stale replay.
+            revision = -1;
+            await this.retryDelay(250);
+            continue;
+          }
           this.remote.set(id, {
             id: peer.id,
             name: peer.name,
@@ -327,7 +346,7 @@ export class PeerOwner {
       this.retryWaiters.add(done);
     });
   }
-  command(caller: string, input: unknown): Promise<PeerReply> {
+  command(caller: string, input: unknown, automatic = false): Promise<PeerReply> {
     const command = decodePeerCommand(input);
     if (this.closed || caller !== this.caller)
       return Promise.resolve({ ok: false, error: 'NOT_READY' });
@@ -341,6 +360,7 @@ export class PeerOwner {
     const operation = this.operations.then(async (): Promise<PeerReply> => {
       try {
         if (this.closed) return { ok: false, error: 'NOT_READY' };
+        let alreadyConnected = false;
         switch (command.action) {
           case 'share':
             if (!this.addresses.includes(command.address))
@@ -354,7 +374,37 @@ export class PeerOwner {
             await this.node.stopSharing();
             break;
           case 'invite':
-            await this.node.invite(command.address, command.expectedFingerprint);
+            // A queued background retry must not undo a later manual disconnect.
+            if (
+              automatic &&
+              !this.node.rememberedAddresses().includes(new URL(command.address).hostname)
+            )
+              break;
+            alreadyConnected =
+              (
+                await this.node.invite(
+                  command.address,
+                  command.expectedFingerprint,
+                  automatic
+                    ? []
+                    : [...this.remote.values()]
+                        .filter(
+                          (peer) =>
+                            peer.phase === 'approved' && peer.localVerified && peer.remoteVerified,
+                        )
+                        .map((peer) => peer.id),
+                )
+              ).alreadyConnected === true;
+            break;
+          case 'disconnect':
+            try {
+              await this.node.disconnect(command.id);
+            } finally {
+              this.remote.delete(command.id);
+              this.telemetry.get(command.id)?.close();
+              this.telemetry.delete(command.id);
+              this.emit();
+            }
             break;
           case 'approve':
             {
@@ -376,7 +426,11 @@ export class PeerOwner {
         }
         const view = await this.view();
         this.emit();
-        return decodePeerReply({ ok: true, view });
+        return decodePeerReply({
+          ok: true,
+          view,
+          ...(alreadyConnected ? { notice: 'ALREADY_CONNECTED' } : {}),
+        });
       } catch (error: unknown) {
         const code =
           error instanceof Error && /^[A-Z_]{1,64}$/u.test(error.message)
@@ -399,6 +453,14 @@ export class PeerOwner {
     const snapshot = this.node.snapshot();
     const outgoing = await Promise.all(
       snapshot.outgoing.map(async (value) => {
+        if (this.node.isDisconnected(value.id))
+          return {
+            ...value,
+            phase: 'disconnected' as const,
+            localVerified: value.verified,
+            remoteVerified: false,
+            gpus: [],
+          };
         const cached = this.remote.get(value.id);
         if (cached?.phase === 'approved') return cached;
         try {
@@ -435,11 +497,13 @@ export class PeerOwner {
       outgoing ??
       snapshot.outgoing.map(
         (peer) =>
-          this.remote.get(peer.id) ?? {
+          (!this.node.isDisconnected(peer.id) ? this.remote.get(peer.id) : undefined) ?? {
             id: peer.id,
             name: peer.name,
             peerFingerprint: peer.peerFingerprint,
-            phase: 'pending' as const,
+            phase: this.node.isDisconnected(peer.id)
+              ? ('disconnected' as const)
+              : ('pending' as const),
             localVerified: peer.verified,
             remoteVerified: false,
             gpus: [],

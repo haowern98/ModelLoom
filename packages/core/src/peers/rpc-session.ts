@@ -1,6 +1,8 @@
 import { Duplex } from 'node:stream';
 import type { OwnedPeerRpc } from './rpc.js';
 import { peerDeadline } from './deadline.js';
+import { cacheRelayPayload } from '../tensor-cache/relay.js';
+import type { CacheSettings } from '../tensor-cache/wire.js';
 
 const maximumData = 262144;
 function frame(kind: number, payload: Buffer = Buffer.alloc(0)): Buffer {
@@ -56,7 +58,8 @@ export class RpcRelaySession {
   private send(kind: number, payload?: Buffer, callback?: (error?: Error | null) => void) {
     this.helper.stream.write(frame(kind, payload), callback);
   }
-  async start(): Promise<OwnedPeerRpc> {
+  async start(cache?: CacheSettings, owner?: string): Promise<OwnedPeerRpc> {
+    const cachePolicy = cacheRelayPayload(cache, owner);
     if (this.failed || this.stopping) throw new Error('RPC_UNAVAILABLE');
     if (this.connection) throw new Error('RPC_BUSY');
     let confirm!: () => void, fail!: (error: Error) => void;
@@ -117,7 +120,7 @@ export class RpcRelaySession {
           })()),
       };
       this.connection = current;
-      this.send(1);
+      this.send(1, cachePolicy);
     });
     try {
       return await peerDeadline(opening, 20000, 'RPC_START_TIMEOUT');
@@ -146,8 +149,16 @@ export class RpcRelaySession {
           Reflect.get(report, 'workerRestricted') !== true
         )
           throw new Error('INVALID_RPC_REPORT');
+        const cacheError: unknown = Reflect.get(report, 'cacheError');
+        if (cacheError !== undefined && cacheError !== 'CACHE_LOCATION_UNAVAILABLE')
+          throw new Error('INVALID_RPC_REPORT');
         current.ready = true;
-        if (!current.closing) current.resolve({ stream: current.stream, close: current.close });
+        if (!current.closing)
+          current.resolve({
+            stream: current.stream,
+            close: current.close,
+            ...(cacheError === 'CACHE_LOCATION_UNAVAILABLE' ? { cacheError } : {}),
+          });
       } else if (kind === 2 && current.ready && bytes.length > 1) {
         if (!current.closing && !current.stream.push(bytes.subarray(1))) this.helper.stream.pause();
       } else if (kind === 3 && current.closing && bytes.length === 1) {

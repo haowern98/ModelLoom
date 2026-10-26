@@ -1,6 +1,10 @@
 # Architecture and product decisions
 
-**Updated:** 2026-10-24. This register records decision status; it does not grant implementation permission.
+**Updated:** 2026-10-26. This register records decision status; it does not grant implementation permission.
+
+## Tensor cache development scope, 2026-10-26
+
+[ADR-0009: bounded worker tensor cache](0009-tensor-cache.md) records the approved default-on Storage controls, editable per-PC limits/location, replacement/keep policies and verified immutable weight reuse. This settles the bounded weight-cache contract within D04. Native platform acceptance, independent security review, signed runtime activation and the two-PC cold/warm loading comparison remain open; D04 and D11 are not closed by local cache tests. See [implementation and evidence](../../docs/tensor-cache.md).
 
 ## Embedded Tailscale development scope, 2026-10-24
 

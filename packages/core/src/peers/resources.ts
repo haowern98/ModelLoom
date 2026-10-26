@@ -20,13 +20,27 @@ export const RPC_RUNTIME_FILES = [
 ] as const;
 export interface PeerResources {
   readonly runtimeId: string;
+  readonly clientRuntimeId?: string;
   readonly ram: number;
   readonly gpus: readonly GpuResource[];
 }
 /** Includes the exact stock executable and all worker dependencies, independently
  * of a helper rebuild or metadata renewal. Neither build labels nor HELLO suffice. */
 export function peerRuntimeId(inventory: Inventory): string {
-  const files = RPC_RUNTIME_FILES.map((name) => {
+  return runtimeFilesId(inventory, RPC_RUNTIME_FILES);
+}
+
+/** The coordinator does not contain the worker executable. Compare every shared
+ * dependency separately so a partial RPC update cannot pass worker-only checks. */
+export function rpcClientRuntimeId(inventory: Inventory): string {
+  return runtimeFilesId(
+    inventory,
+    RPC_RUNTIME_FILES.filter((name) => name !== 'ggml-rpc-server.exe'),
+  );
+}
+
+function runtimeFilesId(inventory: Inventory, names: readonly string[]): string {
+  const files = names.map((name) => {
     const matches = inventory.files.filter((file) => file.path === name);
     if (matches.length !== 1) throw Error('RPC_PACKAGE_REQUIRED');
     return matches[0]!;
@@ -44,6 +58,23 @@ export function peerRuntimeId(inventory: Inventory): string {
     .digest('hex');
 }
 
+/** Preserve exact worker identity, and require coordinator evidence for the new
+ * cache protocol. Legacy reports remain usable only with the legacy package. */
+export function requireCompatibleRpcRuntime(
+  coordinator: Inventory,
+  local: PeerResources,
+  remote: PeerResources,
+): void {
+  if (
+    local.runtimeId !== remote.runtimeId ||
+    local.clientRuntimeId !== remote.clientRuntimeId ||
+    (local.clientRuntimeId !== undefined &&
+      local.clientRuntimeId !== rpcClientRuntimeId(coordinator)) ||
+    (coordinator.version.endsWith('-tensor-cache-v1') && local.clientRuntimeId === undefined)
+  )
+    throw Error('INCOMPATIBLE_RUNTIME');
+}
+
 /** Bounded selected-GPU observations across the authenticated management channel. */
 export function decodePeerResources(input: unknown): PeerResources {
   const bad = (): never => {
@@ -54,12 +85,20 @@ export function decodePeerResources(input: unknown): PeerResources {
       ? (value as Record<string, unknown>)
       : bad();
   const value = object(input);
-  exact(value, ['runtimeId', 'ram', 'gpus']);
+  exact(value, [
+    'runtimeId',
+    'ram',
+    'gpus',
+    ...(Object.hasOwn(value, 'clientRuntimeId') ? ['clientRuntimeId'] : []),
+  ]);
   const integer = (n: unknown): number =>
     Number.isSafeInteger(n) && Number(n) >= 0 ? (n as number) : bad();
   if (
     typeof value.runtimeId !== 'string' ||
     !/^[a-f0-9]{64}$/u.test(value.runtimeId) ||
+    (Object.hasOwn(value, 'clientRuntimeId') &&
+      (typeof value.clientRuntimeId !== 'string' ||
+        !/^[a-f0-9]{64}$/u.test(value.clientRuntimeId))) ||
     !Array.isArray(value.gpus) ||
     value.gpus.length > 16
   )
@@ -94,6 +133,9 @@ export function decodePeerResources(input: unknown): PeerResources {
   if (new Set(gpus.map((gpu) => gpu.uuid.toLowerCase())).size !== gpus.length) return bad();
   return Object.freeze({
     runtimeId: value.runtimeId,
+    ...(typeof value.clientRuntimeId === 'string'
+      ? { clientRuntimeId: value.clientRuntimeId }
+      : {}),
     ram: integer(value.ram),
     gpus: Object.freeze(gpus),
   });

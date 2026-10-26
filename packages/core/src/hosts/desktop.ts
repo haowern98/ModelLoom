@@ -375,7 +375,9 @@ export async function createDesktopEngineHost(
   });
   try {
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('CORE_START_TIMEOUT')), 5_000);
+      // Cold utility imports and native storage setup can exceed five seconds.
+      // This bounds service boot separately from the selected model's startup policy.
+      const timer = setTimeout(() => reject(new Error('CORE_START_TIMEOUT')), 30_000);
       utility.on('exit', () => {
         clearTimeout(timer);
         reject(new Error('CORE_EXITED'));

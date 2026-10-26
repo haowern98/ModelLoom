@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 import { PeerOwner } from './owner.js';
 import { PeerNode } from './node.js';
 import { openWindowsPeerIdentity } from './windows-identity.js';
@@ -11,6 +12,80 @@ import type { IncomingMessage } from 'node:http';
 const parent = path.resolve('out/peer-owner-tests');
 const roots: string[] = [],
   owners: PeerOwner[] = [];
+it.each(['recover', 'offline', 'revoked', 'removed'] as const)(
+  'confirms a transient inventory failure while preserving %s behavior',
+  async (outcome) => {
+    const owner = await PeerOwner.open(await directory(), 'owner');
+    owners.push(owner);
+    const identity = await openWindowsPeerIdentity();
+    const worker = new PeerNode(identity, 'PTSS', [
+      { id: 'gpu-test', name: 'Remote GPU', memoryBytes: 4096 },
+    ]);
+    const changed = vi.fn<(reply: PeerReply) => void>();
+    const unsubscribe = owner.subscribe(changed);
+    let watcher: MockInstance<PeerNode['watchInventory']> | undefined;
+    try {
+      const address = await worker.share('127.0.0.1', 0, 0, ['gpu-test']);
+      const invited = await owner.command('owner', { action: 'invite', address });
+      if (!invited.ok) throw Error(invited.error);
+      const peer = invited.view.outgoing[0]!;
+      await owner.command('owner', {
+        action: 'verify-code',
+        id: peer.id,
+        code: worker.snapshot().incoming.find((value) => value.id === peer.id)!.pairingCode!,
+      });
+      await worker.approve(peer.id, invited.view.fingerprint);
+      await vi.waitFor(
+        async () => {
+          const reply = await owner.command('owner', { action: 'read' });
+          expect(reply.ok && reply.view.outgoing[0]?.phase).toBe('approved');
+        },
+        { timeout: 5000 },
+      );
+      changed.mockClear();
+      const failure = new Error('PEER_UNAVAILABLE', {
+        cause: Object.assign(Error('Request deadline exceeded'), { code: 'ETIMEDOUT' }),
+      });
+      watcher = vi.spyOn(PeerNode.prototype, 'watchInventory');
+      if (outcome === 'offline') watcher.mockRejectedValue(failure);
+      else watcher.mockRejectedValueOnce(failure);
+      await vi.waitFor(() => expect(watcher!.mock.calls.length).toBeGreaterThan(0), {
+        timeout: 5000,
+      });
+      if (outcome === 'revoked') await worker.decline(peer.id);
+      if (outcome === 'removed')
+        await worker.updateHardware({ os: 'Remote Windows', sampledAt: 2, gpus: [] });
+      await vi.waitFor(
+        async () => {
+          const reply = await owner.command('owner', { action: 'read' });
+          if (!reply.ok) throw Error(reply.error);
+          const current = reply.view.outgoing[0]!;
+          if (outcome === 'offline') expect(current.phase).toBe('disconnected');
+          else if (outcome === 'revoked') expect(current.phase).toBe('declined');
+          else {
+            expect(watcher!.mock.calls.length).toBeGreaterThan(1);
+            expect(current.phase).toBe('approved');
+            expect(current.gpus).toHaveLength(outcome === 'removed' ? 0 : 1);
+          }
+        },
+        { timeout: 5000 },
+      );
+      if (outcome !== 'offline')
+        expect(
+          changed.mock.calls.some(
+            ([reply]) =>
+              reply.ok && reply.view.outgoing.some((value) => value.phase === 'disconnected'),
+          ),
+        ).toBe(false);
+    } finally {
+      watcher?.mockRestore();
+      unsubscribe();
+      await worker.close();
+      identity.close();
+    }
+  },
+  20000,
+);
 it('opens each approved physical GPU independently without choosing another shared GPU', async () => {
   const owner = await PeerOwner.open(await directory(), 'owner');
   owners.push(owner);
@@ -429,6 +504,25 @@ it('uses fresh approval after revocation and deduplicates remembered connections
         reconnected.view.outgoing.filter((p) => p.peerFingerprint === identity.fingerprint),
     ).toHaveLength(1);
     expect(await owner.resources(device)).toEqual(resources);
+    const incomingBeforeDisconnect = worker.snapshot().incoming.map((peer) => peer.id);
+    const active = await owner.openRpc(device);
+    const disconnected = await owner.command('owner', { action: 'disconnect', id: third });
+    expect(disconnected.ok && disconnected.view.outgoing[0]?.phase).toBe('disconnected');
+    expect(disconnected.ok && disconnected.view.outgoing[0]?.localVerified).toBe(true);
+    await vi.waitFor(() => expect(active.destroyed).toBe(true));
+    // A retry queued before the user's click must not resume the peer afterward.
+    await owner.command('owner', { action: 'invite', address }, true);
+    const paused = await owner.command('owner', { action: 'read' });
+    expect(paused.ok && paused.view.outgoing[0]?.phase).toBe('disconnected');
+    await expect(owner.resources(device)).rejects.toThrow('PEER_NOT_APPROVED');
+    await expect(owner.openRpc(device)).rejects.toThrow('PEER_NOT_APPROVED');
+    const resumed = await owner.command('owner', {
+      action: 'invite',
+      address,
+      expectedFingerprint: identity.fingerprint,
+    });
+    expect(resumed.ok && resumed.view.outgoing[0]?.phase).toBe('approved');
+    expect(worker.snapshot().incoming.map((peer) => peer.id)).toEqual(incomingBeforeDisconnect);
   } finally {
     await worker.close();
     identity.close();

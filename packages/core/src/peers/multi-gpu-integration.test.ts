@@ -70,6 +70,39 @@ describe('per-GPU workers over real authenticated TLS', () => {
     nodes.push(coordinator, worker);
     return { coordinator, worker, start, closes };
   }
+  it('carries only the coordinator enable flag over authenticated RPC admission', async () => {
+    let enabled = true;
+    const coordinator = new PeerNode(coordinatorIdentity, 'Coordinator', [], {
+      start: () => Promise.reject(Error('Not a worker')),
+      cacheEnabled: () => Promise.resolve(enabled),
+    });
+    const seen: boolean[] = [];
+    const owners: (string | undefined)[] = [];
+    const worker = new PeerNode(workerIdentity, 'PTSS', gpus, {
+      start: (_ids, cache = false, owner) => {
+        seen.push(cache);
+        owners.push(owner);
+        const stream = new PassThrough();
+        return Promise.resolve({
+          stream,
+          close: () => {
+            stream.destroy();
+            return Promise.resolve();
+          },
+        });
+      },
+    });
+    nodes.push(coordinator, worker);
+    const address = await worker.share('127.0.0.1', 0, 0, [a, b]);
+    const id = await pair(coordinator, worker, address, coordinatorIdentity.fingerprint);
+    const first = await coordinator.openRpc(id, a);
+    enabled = false;
+    const second = await coordinator.openRpc(id, b);
+    expect(seen).toEqual([true, false]);
+    expect(owners).toEqual([coordinatorIdentity.fingerprint, undefined]);
+    first.destroy();
+    second.destroy();
+  });
   it('opens independent workers for two GPUs and disconnects only the selected stream', async () => {
     const { coordinator, worker, start, closes } = fixture();
     const address = await worker.share('127.0.0.1', 0, 0, [a, b]);

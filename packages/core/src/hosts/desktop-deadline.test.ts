@@ -3,6 +3,58 @@ import { expect, it, vi } from 'vitest';
 import { createDesktopEngineHost } from './desktop.js';
 import type { UtilityChild } from './desktop.js';
 
+it.each([true, false])(
+  'bounds utility startup without rejecting a delayed boot (%s)',
+  async (boots) => {
+    vi.useFakeTimers();
+    const events = new EventEmitter();
+    const kill = vi.fn(() => {
+      events.emit('exit');
+      return true;
+    });
+    const postMessage = vi.fn();
+    const child: UtilityChild = Object.assign(events, { pid: 123, postMessage, kill });
+    const closed = vi.fn(() => Promise.resolve());
+    const admitted = vi.fn();
+    try {
+      const opening = createDesktopEngineHost(() => child, {
+        adapter: { launch: () => Promise.reject(new Error('Unexpected launch')) },
+        children: () => [],
+        admitCore: admitted,
+        close: closed,
+      }).then(
+        (host) => ({ host, error: null }),
+        (error: unknown) => ({
+          host: null,
+          error: error instanceof Error ? error.message : 'Unexpected',
+        }),
+      );
+      events.emit('spawn');
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(admitted).toHaveBeenCalledTimes(1);
+      expect(kill).not.toHaveBeenCalled();
+      if (boots) {
+        events.emit('message', JSON.stringify({ type: 'booted' }));
+        const result = await opening;
+        expect(result.error).toBeNull();
+        expect(postMessage).toHaveBeenCalledWith(expect.stringContaining('"type":"admitted"'));
+        events.emit('exit');
+        await result.host!.close();
+      } else {
+        await vi.advanceTimersByTimeAsync(23_999);
+        expect(kill).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect((await opening).error).toBe('CORE_START_TIMEOUT');
+        expect(kill).toHaveBeenCalledTimes(1);
+      }
+      expect(closed).toHaveBeenCalledTimes(1);
+    } finally {
+      events.emit('exit');
+      vi.useRealTimers();
+    }
+  },
+);
+
 it.each([180_000, 1_800_000])(
   'keeps the desktop watchdog outside the owner startup budget %s',
   async (startupMs) => {

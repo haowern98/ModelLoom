@@ -73,6 +73,89 @@ const saved = {
   load: { defaults: record().load, cacheK: 'q8_0' as const, cacheV: 'q8_0' as const },
   runs: [{ uuid: 'GPU-12345678-1234-1234-1234-123456789abc', first: 0, last: 63 }],
 };
+it.each(['local', 'remote', 'split'] as const)(
+  'accepts strict estimate rows for %s allocations',
+  async (kind) => {
+    const original = f.output;
+    const remote = `peer:${'b'.repeat(64)}:${saved.runs[0]!.uuid}`;
+    const runs =
+      kind === 'split'
+        ? [
+            { ...saved.runs[0]!, last: 30 },
+            { uuid: remote, first: 31, last: 63 },
+          ]
+        : [{ ...saved.runs[0]!, uuid: kind === 'remote' ? remote : saved.runs[0]!.uuid }];
+    f.tick = 0;
+    f.output =
+      'ENGINE 123\n' +
+      (kind === 'remote'
+        ? '0.00.159.351 E ggml_cuda_init: failed to initialize CUDA: no CUDA-capable device is detected\n'
+        : '') +
+      '0.01.122.865 I llama_fit_params: printing estimated memory in MiB to stdout (device, model, context, compute) ...\n' +
+      (kind === 'local'
+        ? 'CUDA0 100 2 3\n'
+        : kind === 'remote'
+          ? 'RPC0 100 2 3\n'
+          : 'CUDA0 50 1 2\nRPC0 50 1 2\n') +
+      'Host 1 0 0\n';
+    try {
+      await expect(
+        runPlacementEstimator(
+          { packageId: 'test', directory: 'E:\\fixture' },
+          'E:\\model.gguf',
+          'E:\\temp',
+          resolveClusterLoad({ ...saved, runs }, 'test'),
+          new AbortController().signal,
+        ),
+      ).resolves.toMatchObject({ orderedUuids: runs.map((run) => run.uuid) });
+    } finally {
+      f.output = original;
+    }
+  },
+);
+it.each(['local CUDA required', 'unknown diagnostic', 'missing row'])(
+  'rejects invalid estimate diagnostics: %s',
+  async (kind) => {
+    const original = f.output;
+    const remote = `peer:${'b'.repeat(64)}:${saved.runs[0]!.uuid}`;
+    f.tick = 0;
+    f.output =
+      'ENGINE 123\n' +
+      (kind === 'unknown diagnostic'
+        ? 'unexpected warning\n'
+        : '0.00.159.351 E ggml_cuda_init: failed to initialize CUDA: no CUDA-capable device is detected\n') +
+      (kind === 'missing row'
+        ? ''
+        : kind === 'local CUDA required'
+          ? 'CUDA0 100 2 3\n'
+          : 'RPC0 100 2 3\n') +
+      'Host 1 0 0\n';
+    try {
+      await expect(
+        runPlacementEstimator(
+          { packageId: 'test', directory: 'E:\\fixture' },
+          'E:\\model.gguf',
+          'E:\\temp',
+          resolveClusterLoad(
+            {
+              ...saved,
+              runs: [
+                {
+                  ...saved.runs[0]!,
+                  uuid: kind === 'local CUDA required' ? saved.runs[0]!.uuid : remote,
+                },
+              ],
+            },
+            'test',
+          ),
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow('INVALID_ESTIMATE');
+    } finally {
+      f.output = original;
+    }
+  },
+);
 it.each([
   ['remote', 35000, true],
   ['remote', 180000, true],

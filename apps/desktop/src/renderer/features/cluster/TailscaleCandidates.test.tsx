@@ -15,7 +15,7 @@ const candidate = {
   address: '100.64.1.2',
 };
 const connected: NetworkView = { state: 'connected', addresses: [], candidates: [candidate] };
-function setup(view = connected) {
+function setup(view = connected, outgoing: PeerView['outgoing'] = []) {
   let listener = () => {};
   const unsubscribe = vi.fn();
   const command = vi.fn<NetworkBridge['command']>(() => Promise.resolve({ ok: true, view }));
@@ -29,11 +29,15 @@ function setup(view = connected) {
     },
   };
   const onInvited = vi.fn();
+  const onDisconnect = vi.fn();
   return {
-    ...render(<TailscaleCandidates onInvited={onInvited} />),
+    ...render(
+      <TailscaleCandidates onInvited={onInvited} outgoing={outgoing} onDisconnect={onDisconnect} />,
+    ),
     command,
     invite,
     onInvited,
+    onDisconnect,
     unsubscribe,
     notify: async () => {
       await act(() => {
@@ -43,6 +47,79 @@ function setup(view = connected) {
     },
   };
 }
+
+it('matches a connected peer by fingerprint across addresses and offers Disconnect on hover or focus', async () => {
+  const { invite, onDisconnect } = setup(connected, [
+    {
+      id: 'paired-request',
+      name: 'ptss',
+      peerFingerprint: candidate.fingerprint,
+      phase: 'approved',
+      localVerified: true,
+      remoteVerified: true,
+      gpus: [],
+      address: '192.168.1.5',
+    },
+  ]);
+  const button = await screen.findByRole('button', { name: 'Disconnect from ptss' });
+  expect(button).toHaveTextContent('Connected');
+  fireEvent.mouseEnter(button);
+  expect(button).toHaveTextContent('Disconnect');
+  fireEvent.mouseLeave(button);
+  expect(button).toHaveTextContent('Connected');
+  fireEvent.focus(button);
+  expect(button).toHaveTextContent('Disconnect');
+  fireEvent.click(button);
+  expect(onDisconnect).toHaveBeenCalledWith('paired-request');
+  expect(invite).not.toHaveBeenCalled();
+});
+
+it('does not call a same-named device connected without matching verified identity', async () => {
+  setup(connected, [
+    {
+      id: 'other',
+      name: 'ptss',
+      peerFingerprint: 'c'.repeat(64),
+      phase: 'approved',
+      localVerified: true,
+      remoteVerified: true,
+      gpus: [],
+      address: candidate.address,
+    },
+  ]);
+  expect(await screen.findByRole('button', { name: 'Connect to ptss' })).toHaveTextContent(
+    'Connect',
+  );
+});
+
+it('updates from Connected to Connect when the live peer disconnects and prevents duplicate pending invitations', async () => {
+  const peer = {
+    id: 'request',
+    name: 'ptss',
+    peerFingerprint: candidate.fingerprint,
+    phase: 'approved' as const,
+    localVerified: true,
+    remoteVerified: true,
+    gpus: [],
+  };
+  const f = setup(connected, [peer]);
+  await screen.findByRole('button', { name: 'Disconnect from ptss' });
+  f.rerender(
+    <TailscaleCandidates
+      onInvited={f.onInvited}
+      outgoing={[{ ...peer, phase: 'disconnected', remoteVerified: false }]}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Connect to ptss' })).toBeEnabled();
+  f.rerender(
+    <TailscaleCandidates
+      onInvited={f.onInvited}
+      outgoing={[{ ...peer, phase: 'pending', remoteVerified: false }]}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Invitation pending for ptss' })).toBeDisabled();
+  expect(f.invite).not.toHaveBeenCalled();
+});
 
 it('discovers without automatically pairing and sends only the candidate ID on Connect', async () => {
   const { invite, onInvited } = setup();

@@ -32,6 +32,24 @@ export async function renewDevelopmentMetadata(
   previous: string,
   repository: string,
 ): Promise<void> {
+  await rewriteDevelopmentMetadata(directory, previous, repository);
+}
+/** Explicit development update of files/version only. Authenticate the complete
+ * predecessor chain, retain package identity and advance every delegated role. */
+export async function updateDevelopmentMetadata(
+  directory: string,
+  previous: string,
+  input: unknown,
+  repository: string,
+): Promise<void> {
+  await rewriteDevelopmentMetadata(directory, previous, repository, parseInventory(input));
+}
+async function rewriteDevelopmentMetadata(
+  directory: string,
+  previous: string,
+  repository: string,
+  replacement?: ReturnType<typeof parseInventory>,
+): Promise<void> {
   await checkCustody(directory);
   const rootBytes = await bounded(path.join(directory, 'public-root.json'));
   if (!(await bounded(path.join(previous, 'root.json'))).equals(rootBytes))
@@ -59,7 +77,7 @@ export async function renewDevelopmentMetadata(
   root.verifyDelegate('snapshot', snapshot);
   root.verifyDelegate('timestamp', timestamp);
   const bytes = await bounded(path.join(previous, 'inventory.json'), METADATA_LIMIT);
-  parseInventory(JSON.parse(bytes.toString('utf8')));
+  const old = parseInventory(JSON.parse(bytes.toString('utf8')));
   const matches = (
     meta: { length?: number; hashes?: Record<string, string> } | undefined,
     data: Buffer,
@@ -77,7 +95,21 @@ export async function renewDevelopmentMetadata(
       throw new Error('INVALID_METADATA_VERSION');
     return version + 1;
   };
-  await writeDevelopmentMetadata(directory, bytes, repository, {
+  let updated = bytes;
+  if (replacement) {
+    if (old.version === replacement.version) throw new Error('INVENTORY_VERSION_REQUIRED');
+    for (const key of Object.keys(old) as (keyof typeof old)[]) {
+      if (
+        key !== 'version' &&
+        key !== 'files' &&
+        JSON.stringify(old[key]) !== JSON.stringify(replacement[key])
+      )
+        throw new Error('PACKAGE_IDENTITY_CHANGED');
+    }
+    updated = Buffer.from(JSON.stringify(replacement));
+    if (updated.length > METADATA_LIMIT) throw new Error('INVALID_INVENTORY');
+  }
+  await writeDevelopmentMetadata(directory, updated, repository, {
     targets: next(targets.signed.version),
     snapshot: next(snapshot.signed.version),
     timestamp: next(timestamp.signed.version),

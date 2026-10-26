@@ -6,7 +6,7 @@ import {
   record,
   capabilities,
 } from '../../../../packages/core/src/model-configuration/test-fixtures';
-import type { PeerReply } from '../shared/peers';
+import type { PeerCommand, PeerReply, PeerView } from '../shared/peers';
 import type { SavedClusterConfiguration } from '../../../../packages/core/src/cluster/contracts';
 
 // The indexed runtime owner is Windows-only; retain its path contract on Linux CI too.
@@ -78,6 +78,28 @@ function setup(enabled = true, overrides: Record<string, unknown> = {}, history 
   const controller = Reflect.get(module, 'createRuntimeController')?.(deps);
   return { controller, host, deps };
 }
+it.each([
+  [
+    'CORE_START_TIMEOUT',
+    'The library service did not start in time. Restart the app and try again.',
+  ],
+  [
+    'LIBRARY_UNAVAILABLE',
+    'The saved model library could not be opened. Restart the app and try again.',
+  ],
+])('distinguishes library startup failure %s from saved-data failure', async (code, expected) => {
+  const { controller } = setup(true, {
+    createHistoryHost: () => Promise.reject(new Error(code)),
+  });
+  await vi.waitFor(async () => {
+    const view = await controller.command({ action: 'snapshot' });
+    expect(view.restoring).toBe(false);
+    expect(view.error).toBe(expected);
+    expect(view.models).toEqual([]);
+  });
+  await controller.quit();
+});
+
 it.each([
   ['START_TIMEOUT', 'Startup deadline exceeded', 'Model loading timed out.'],
   ['ENGINE_EXITED', 'Owned engine exited', 'The model runtime exited unexpectedly.'],
@@ -276,6 +298,54 @@ it('does not stop a local-only model for peer disconnects or malformed notificat
   });
   expect(f.host.command).not.toHaveBeenCalled();
   expect((await f.controller.command({ action: 'snapshot' })).phase).toBe('ready');
+  await f.controller.quit();
+});
+
+it('requires confirmation before disconnecting an active worker and stops the model before dispatch', async () => {
+  const f = remoteLoadSetup();
+  const peerView: PeerView = {
+    fingerprint: 'a'.repeat(64),
+    name: 'Local',
+    sharing: false,
+    addresses: [],
+    gpus: [],
+    sharedGpuIds: [],
+    incoming: [],
+    outgoing: [
+      {
+        id: 'remote',
+        name: 'PTSS',
+        peerFingerprint: 'b'.repeat(64),
+        phase: 'approved',
+        localVerified: true,
+        remoteVerified: true,
+        gpus: [],
+      },
+    ],
+  };
+  const peers = vi.fn((input: PeerCommand): Promise<PeerReply> => {
+    if (input.action === 'disconnect') {
+      expect(
+        f.host.command.mock.calls.some(
+          ([text]) => (JSON.parse(text) as { action: string }).action === 'stop',
+        ),
+      ).toBe(true);
+    }
+    return Promise.resolve({ ok: true, view: peerView });
+  });
+  Object.assign(f.deps, { peers });
+  expect((await f.load()).phase).toBe('ready');
+  f.host.command.mockClear();
+  expect(await f.controller.peers({ action: 'disconnect', id: 'remote' })).toEqual({
+    ok: false,
+    error: 'PEER_IN_USE',
+  });
+  expect(f.host.command).not.toHaveBeenCalled();
+  expect(peers.mock.calls.some(([input]) => input.action === 'disconnect')).toBe(false);
+  expect(
+    (await f.controller.peers({ action: 'disconnect', id: 'remote', stopModel: true })).ok,
+  ).toBe(true);
+  expect((await f.controller.command({ action: 'snapshot' })).phase).toBe('stopped');
   await f.controller.quit();
 });
 

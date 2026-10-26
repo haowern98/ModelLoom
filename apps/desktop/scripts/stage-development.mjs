@@ -70,7 +70,7 @@ export async function stageDevelopment(output, candidate = path.join(bootstrap, 
     path.join(core, 'assets/development-root.json'),
     path.join(output, 'core/assets/development-root.json'),
   );
-  for (const name of ['ownership.node', 'history.node', 'peer-identity.node'])
+  for (const name of ['ownership.node', 'history.node', 'peer-identity.node', 'tensor-cache.node'])
     await copy(path.join(core, 'out/native', name), path.join(output, 'core/out/native', name));
   await copy(
     path.join(core, 'scripts/utility-entry.cjs'),

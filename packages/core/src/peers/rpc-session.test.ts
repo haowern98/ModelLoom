@@ -1,8 +1,10 @@
 import { Duplex } from 'node:stream';
 import { expect, it, vi } from 'vitest';
 import { RpcRelaySession } from './rpc-session.js';
+import { cacheRelayPayload } from '../tensor-cache/relay.js';
+import path from 'node:path';
 
-function frame(kind: number, payload = Buffer.alloc(0)): Buffer {
+function frame(kind: number, payload: Buffer = Buffer.alloc(0)): Buffer {
   const header = Buffer.alloc(5);
   header.writeUInt32LE(payload.length + 1);
   header[4] = kind;
@@ -26,7 +28,7 @@ function fixture() {
       return Promise.resolve();
     },
   });
-  const ready = () =>
+  const ready = (cacheError?: string) =>
     transport.push(
       frame(
         1,
@@ -34,12 +36,47 @@ function fixture() {
           JSON.stringify({
             phase: 'relay-ready',
             workerRestricted: true,
+            ...(cacheError ? { cacheError } : {}),
           }),
         ),
       ),
     );
   return { session, transport, writes, ready, stopped: () => stopped };
 }
+
+it('retains the owned worker when cache preparation fails and reports that failure', async () => {
+  const f = fixture();
+  const opening = f.session.start();
+  f.ready('CACHE_LOCATION_UNAVAILABLE');
+  const worker = await opening;
+  expect(worker.cacheError).toBe('CACHE_LOCATION_UNAVAILABLE');
+  expect(worker.stream.destroyed).toBe(false);
+  const closing = worker.close();
+  f.transport.push(frame(3));
+  await closing;
+  await f.session.close();
+});
+
+it('sends captured worker-owned cache policy only in Open, keeping native Data opaque', async () => {
+  const f = fixture();
+  const cache = {
+    enabled: true,
+    limitGiB: 10,
+    reserveGiB: 5,
+    policy: 'replace' as const,
+    location: path.resolve('out/cache'),
+  };
+  const opening = f.session.start(cache, 'a'.repeat(64));
+  expect(f.writes[0]).toEqual(frame(1, cacheRelayPayload(cache, 'a'.repeat(64))));
+  f.ready();
+  const worker = await opening;
+  worker.stream.write(Buffer.from('MODELLOOM_TENSOR_CACHE=other'));
+  expect(f.writes[1]).toEqual(frame(2, Buffer.from('MODELLOOM_TENSOR_CACHE=other')));
+  const closing = worker.close();
+  f.transport.push(frame(3));
+  await closing;
+  await f.session.close();
+});
 
 it('reuses one helper for two workers and waits for confirmed cleanup before reopening', async () => {
   const f = fixture();

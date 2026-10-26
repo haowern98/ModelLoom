@@ -39,6 +39,8 @@ import {
 } from '../cluster/stock-profile.js';
 import type { StockClusterReport } from '../cluster/stock-profile.js';
 import { runPlacementEstimator, withPlacementModel } from './placement-estimator.js';
+import { createTensorCacheSettings } from '../tensor-cache/settings.js';
+import { requireCompatibleRpcRuntime } from '../peers/resources.js';
 /** Explicit Windows development deployment. Trusted main selects fixed build assets and state;
  * renderer commands cannot choose a repository, verifier, report, executable or arguments.
  * Ordinary builds keep the development verifier closed. Production packaging is separate.
@@ -56,6 +58,10 @@ export function developmentDesktopDependencies(
   const configuration = report.configuration,
     modelSha256 = report.modelSha256;
   const deploymentId = `desktop-development-${randomUUID()}`;
+  const tensorCache = createTensorCacheSettings(
+    path.join(stateBase, 'tensor-cache-settings.json'),
+    path.join(stateBase, 'tensor-cache-data'),
+  );
   let verifiedBackends: readonly string[] | undefined;
   let sharedMemoryConfirmed = false;
   let preflightGeneration = 0;
@@ -98,13 +104,14 @@ export function developmentDesktopDependencies(
     if (!remote.length) return local;
     const owner = await getPeerHost();
     const expected = await owner.resources(null);
+    const coordinator = requireInstalledLive(await installClusterRuntime());
     const observed = await Promise.all(
       remote.map(async (id) => {
         const device = decodeClusterDevice(id);
         if (device.kind !== 'peer') throw Error('INVALID_CLUSTER_DEVICE');
         const report = await owner.resources(id);
         if (signal.aborted) throw Error('PLANNING_CANCELLED');
-        if (report.runtimeId !== expected.runtimeId) throw Error('INCOMPATIBLE_RUNTIME');
+        requireCompatibleRpcRuntime(coordinator, expected, report);
         if (report.ram < 1536 * 1048576) throw Error('INSUFFICIENT_RESOURCES');
         const matches = report.gpus.filter(
           (gpu) => gpu.uuid.toLowerCase() === device.uuid.toLowerCase(),
@@ -693,5 +700,5 @@ export function developmentDesktopDependencies(
       }
     },
   };
-  return dependencies;
+  return { ...dependencies, tensorCache };
 }

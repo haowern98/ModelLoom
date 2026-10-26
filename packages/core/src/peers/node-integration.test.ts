@@ -4,6 +4,7 @@ import type { WindowsPeerIdentity } from './windows-identity.js';
 import { PeerNode } from './node.js';
 import { DiagnosticRpcBackend } from './diagnostic-rpc.js';
 import { createServer } from 'node:http';
+import type { IncomingMessage } from 'node:http';
 import { peerAddress } from './node.js';
 import { PassThrough } from 'node:stream';
 
@@ -20,6 +21,95 @@ describe('real TLS peer pairing', () => {
     my?.close();
   });
 
+  it('allows an authenticated inventory long-poll to finish after five seconds', async () => {
+    const worker = new PeerNode(my, 'MY', [{ id: 'gpu', name: 'GPU', memoryBytes: 4096 }]);
+    const coordinator = new PeerNode(sg, 'SG', []);
+    nodes.push(worker, coordinator);
+    const address = await worker.share('127.0.0.1', 0, 0, ['gpu']);
+    const outgoing = await coordinator.invite(address);
+    await coordinator.verifyCode(
+      outgoing.id,
+      worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
+    );
+    await worker.approve(outgoing.id, sg.fingerprint);
+    const control = worker as unknown as {
+      control(request: IncomingMessage): Promise<unknown>;
+    };
+    const original = control.control.bind(worker);
+    const spy = vi.spyOn(control, 'control').mockImplementation(async (request) => {
+      if (request.url === '/v1/inventory-watch')
+        await new Promise((resolve) => setTimeout(resolve, 6000));
+      return original(request);
+    });
+    try {
+      await expect(coordinator.watchInventory(outgoing.id, -1)).resolves.toMatchObject({
+        gpus: [{ id: 'gpu' }],
+      });
+    } finally {
+      spy.mockRestore();
+    }
+  }, 20000);
+
+  it.each(['recover', 'offline', 'revoked'] as const)(
+    'keeps RPC heartbeat handling bounded for %s',
+    async (outcome) => {
+      const gpu = 'GPU-11111111-1111-1111-1111-111111111111';
+      const coordinator = new PeerNode(sg, 'SG', []);
+      const worker = new PeerNode(my, 'MY', [{ id: gpu, name: 'GPU', memoryBytes: 4096 }], {
+        start: () => {
+          const stream = new PassThrough();
+          return Promise.resolve({
+            stream,
+            close: () => {
+              stream.destroy();
+              return Promise.resolve();
+            },
+          });
+        },
+      });
+      nodes.push(coordinator, worker);
+      const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
+      const outgoing = await coordinator.invite(address);
+      await coordinator.verifyCode(
+        outgoing.id,
+        worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
+      );
+      await worker.approve(outgoing.id, sg.fingerprint);
+      const calls = coordinator as unknown as {
+        call(id: string, operation: string, data?: object): Promise<unknown>;
+      };
+      const original = calls.call.bind(coordinator);
+      let heartbeats = 0;
+      const spy = vi.spyOn(calls, 'call').mockImplementation((id, operation, data) => {
+        if (operation === 'heartbeat') {
+          ++heartbeats;
+          if (outcome === 'revoked') return Promise.reject(Error('PEER_NOT_APPROVED'));
+          if (heartbeats === 1 || outcome === 'offline')
+            return Promise.reject(
+              new Error('PEER_UNAVAILABLE', {
+                cause: Object.assign(Error('Request deadline exceeded'), { code: 'ETIMEDOUT' }),
+              }),
+            );
+        }
+        return original(id, operation, data);
+      });
+      const stream = await coordinator.openRpc(outgoing.id);
+      stream.on('error', () => undefined);
+      try {
+        await vi.waitFor(() => expect(heartbeats).toBeGreaterThan(0), { timeout: 4500 });
+        expect(stream.destroyed).toBe(outcome === 'revoked');
+        if (outcome !== 'revoked') {
+          await vi.waitFor(() => expect(heartbeats).toBeGreaterThan(1), { timeout: 4500 });
+          expect(stream.destroyed).toBe(outcome === 'offline');
+        }
+      } finally {
+        spy.mockRestore();
+        stream.destroy();
+      }
+    },
+    20000,
+  );
+
   it('prepares the helper before sharing and closes it when sharing stops', async () => {
     const gpu = 'GPU-11111111-1111-1111-1111-111111111111';
     const openSharing = vi.fn(async () => {}),
@@ -30,7 +120,11 @@ describe('real TLS peer pairing', () => {
       start: () => Promise.reject(Error('Not requested')),
     });
     nodes.push(worker);
-    await worker.share('127.0.0.1', 0, 0, [gpu]);
+    const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
+    const response = await fetch(new URL('/v1/discover', address));
+    const payload = await response.text();
+    expect(response.headers.get('content-length')).toBe(String(Buffer.byteLength(payload)));
+    expect(JSON.parse(payload)).toMatchObject({ sharing: true });
     expect(openSharing).toHaveBeenCalledExactlyOnceWith([gpu]);
     expect(worker.snapshot().sharing).toBe(true);
     await worker.stopSharing();

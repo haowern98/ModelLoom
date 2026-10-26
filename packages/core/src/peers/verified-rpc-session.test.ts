@@ -1,20 +1,27 @@
 import { Duplex } from 'node:stream';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const fixture = vi.hoisted(() => ({
+  version: 'b11306-dev9-peer',
   release: vi.fn(),
   open: vi.fn(),
   start: vi.fn(),
   stop: vi.fn(),
   network: vi.fn(),
+  prepareCache: vi.fn(),
   ConfirmedNetworkSetupFailure: class extends Error {
     constructor() {
       super('SHARING_PERMISSION_REQUIRED');
     }
   },
 }));
+vi.mock('node:fs/promises', () => ({ mkdir: () => Promise.resolve() }));
+vi.mock('../tensor-cache/settings.js', () => ({
+  cacheMaintenance: () => ({ prepare: fixture.prepareCache }),
+}));
 vi.mock('../runtime-package/install.js', () => ({
   requireInstalledLive: () => ({
     backend: 'cuda',
+    version: fixture.version,
     protocol: 1,
     upstreamCommit: '4f31296a907d73f3409f720429bcf31111615d77',
     files: [
@@ -46,10 +53,82 @@ const gpu = 'GPU-11111111-1111-1111-1111-111111111111';
 const secondGpu = 'GPU-22222222-2222-2222-2222-222222222222';
 afterEach(() => vi.useRealTimers());
 beforeEach(() => {
+  fixture.version = 'b11306-dev9-peer';
   vi.clearAllMocks();
   fixture.open.mockResolvedValue({ start: fixture.start, close: fixture.stop });
   fixture.start.mockResolvedValue({ stream: new Duplex({ read() {} }), close: async () => {} });
   fixture.stop.mockResolvedValue(undefined);
+  fixture.prepareCache.mockReset();
+});
+
+it.each(['ready', 'helper-failed', 'prepare-failed'] as const)(
+  'reports cache availability for %s without preventing ordinary loading',
+  async (outcome) => {
+    fixture.version = 'b11306-dev11-tensor-cache-v1';
+    const selected = {
+      enabled: true,
+      limitGiB: 10,
+      reserveGiB: 5,
+      policy: 'replace' as const,
+      location: 'E:\\cache',
+    };
+    const report = vi.fn(() => Promise.resolve());
+    if (outcome === 'prepare-failed')
+      fixture.prepareCache.mockImplementation(() => {
+        throw Error('CACHE_LOCATION_UNAVAILABLE');
+      });
+    const stream = new Duplex({ read() {} });
+    fixture.start.mockResolvedValueOnce({
+      stream,
+      close: async () => {},
+      ...(outcome === 'helper-failed' ? { cacheError: 'CACHE_LOCATION_UNAVAILABLE' } : {}),
+    });
+    const value = new VerifiedRpcBackend(
+      () => Promise.resolve({ packageId: 'test', directory: 'E:\\test' }),
+      () => Promise.resolve(selected),
+      report,
+    );
+    await value.openSharing([gpu]);
+    expect((await value.start([gpu], true, 'a'.repeat(64))).stream).toBe(stream);
+    expect(report).toHaveBeenCalledWith(selected.location, outcome === 'ready');
+    if (outcome === 'prepare-failed') expect(fixture.start).toHaveBeenCalledWith();
+    await value.closeSharing();
+  },
+);
+
+it('does not send cache control to a legacy verified helper even when requested', async () => {
+  const settings = vi.fn(() =>
+    Promise.resolve({
+      enabled: true,
+      limitGiB: 10,
+      reserveGiB: 5,
+      policy: 'replace' as const,
+      location: 'E:\\cache',
+    }),
+  );
+  const value = new VerifiedRpcBackend(
+    () => Promise.resolve({ packageId: 'test', directory: 'E:\\test' }),
+    settings,
+  );
+  await value.openSharing([gpu]);
+  await value.start([gpu], true);
+  expect(settings).not.toHaveBeenCalled();
+  expect(fixture.start).toHaveBeenCalledWith();
+  await value.closeSharing();
+});
+
+it('bypasses an unreadable cache preference while preserving the ordinary worker load', async () => {
+  fixture.version = 'b11306-dev10-tensor-cache-v1';
+  const settings = vi.fn(() => Promise.reject(Error('CACHE_SETTINGS_UNAVAILABLE')));
+  const value = new VerifiedRpcBackend(
+    () => Promise.resolve({ packageId: 'test', directory: 'E:\\test' }),
+    settings,
+  );
+  await value.openSharing([gpu]);
+  await value.start([gpu], true, 'a'.repeat(64));
+  expect(settings).toHaveBeenCalledOnce();
+  expect(fixture.start).toHaveBeenCalledWith();
+  await value.closeSharing();
 });
 
 it('opens one admitted sharing network with the remaining total approval budget', async () => {
