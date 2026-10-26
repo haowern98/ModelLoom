@@ -5,6 +5,7 @@ import {
   checkCustody,
   publishDevelopmentMetadata,
   renewDevelopmentMetadata,
+  updateDevelopmentMetadata,
 } from '../out/publisher/development-custody.js';
 import { readFile, lstat } from 'node:fs/promises';
 import { ownershipBinding } from '../out/hosts/windows-ownership.js';
@@ -13,10 +14,11 @@ import { ownershipBinding } from '../out/hosts/windows-ownership.js';
 const operation = process.argv[2];
 if (!(
   (process.argv.length === 3 && ['init', 'check'].includes(operation)) ||
-  (process.argv.length === 5 && ['publish', 'renew'].includes(operation))
+  (process.argv.length === 5 && ['publish', 'renew'].includes(operation)) ||
+  (process.argv.length === 6 && operation === 'update')
 ))
   throw new Error(
-    'Use init, check, publish <inventory.json> <new-repository>, or renew <previous-repository> <new-repository>',
+    'Use init, check, publish <inventory.json> <new-repository>, renew <previous-repository> <new-repository>, or update <previous-repository> <inventory.json> <new-repository>',
   );
 const native = ownershipBinding(),
   system = native.systemDirectory();
@@ -63,4 +65,17 @@ if (operation === 'renew') {
     path.resolve(process.argv[4]),
   );
   console.log(JSON.stringify({ renewed: path.resolve(process.argv[4]) }));
+}
+if (operation === 'update') {
+  const file = path.resolve(process.argv[4]);
+  const stat = await lstat(file);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024)
+    throw new Error('INVALID_INVENTORY');
+  await updateDevelopmentMetadata(
+    directory,
+    path.resolve(process.argv[3]),
+    JSON.parse(await readFile(file, 'utf8')),
+    path.resolve(process.argv[5]),
+  );
+  console.log(JSON.stringify({ updated: path.resolve(process.argv[5]) }));
 }

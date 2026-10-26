@@ -3,6 +3,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: [
+      'src/tensor-cache/native.test.ts',
       'src/network/helper.native.test.ts',
       'src/peers/diagnostics-integration.test.ts',
       'src/peers/diagnostics-overlay.test.ts',

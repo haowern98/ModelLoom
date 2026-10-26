@@ -4,6 +4,7 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
     exclude: [
+      'src/tensor-cache/native.test.ts',
       'src/network/helper.native.test.ts',
       'src/peers/diagnostics-integration.test.ts',
       'src/peers/diagnostics-overlay.test.ts',

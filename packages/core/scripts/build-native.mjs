@@ -204,3 +204,8 @@ execFileSync(
 console.log(
   'Built Windows x64 ownership binding and harmless engine fixture with MSVC 14.44.35207 /W4 /WX',
 );
+execFileSync(process.execPath, [path.join(root, 'scripts/build-tensor-cache.mjs')], {
+  env: { ...process.env, TEMP: output, TMP: output },
+  stdio: 'inherit',
+  windowsHide: true,
+});
