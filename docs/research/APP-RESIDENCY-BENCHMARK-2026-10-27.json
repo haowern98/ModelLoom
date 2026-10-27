@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-27",
+  "checkpoint": "462390ff914d16d9d068134baf3d39026f864243",
+  "throughActualDesktop": true,
+  "loadsInSeparateAppSessions": true,
+  "outputTokensPerRequest": 128,
+  "off": [
+    {
+      "repetition": 1,
+      "speeds": {
+        "generation": 4.660984742761904,
+        "prefill": 0.8990004463537216
+      },
+      "traffic": {
+        "nativeWritten": 41552879,
+        "wireWritten": 41552879,
+        "wireRead": 81336088,
+        "references": 0,
+        "reusedBytes": 0
+      },
+      "wallMs": 44742
+    },
+    {
+      "repetition": 2,
+      "speeds": {
+        "generation": 7.351394880870646,
+        "prefill": 0.2943362133395968
+      },
+      "traffic": {
+        "nativeWritten": 118710000,
+        "wireWritten": 118710000,
+        "wireRead": 81130880,
+        "references": 0,
+        "reusedBytes": 0
+      },
+      "wallMs": 32602
+    }
+  ],
+  "on": [
+    {
+      "repetition": 1,
+      "speeds": {
+        "generation": 4.671608713705279,
+        "prefill": 1.0538832435876475
+      },
+      "traffic": {
+        "nativeWritten": 41552879,
+        "wireWritten": 5360025,
+        "wireRead": 81336088,
+        "references": 302,
+        "reusedBytes": 36213356
+      },
+      "wallMs": 42270
+    },
+    {
+      "repetition": 2,
+      "speeds": {
+        "generation": 4.483354469819681,
+        "prefill": 0.16124831349381116
+      },
+      "traffic": {
+        "nativeWritten": 118710000,
+        "wireWritten": 82516777,
+        "wireRead": 81130880,
+        "references": 302,
+        "reusedBytes": 36213356
+      },
+      "wallMs": 54945
+    }
+  ],
+  "offMean": 6.0061898118162755,
+  "onMean": 4.57748159176248,
+  "meanChangePercent": -23.787263886383137,
+  "uploadOff": 160262879,
+  "uploadOn": 87876802,
+  "uploadReductionPercent": 45.167088880264025,
+  "references": 604,
+  "reusedBytes": 72426712,
+  "allTextAndReasoningMatch": true,
+  "allLimitReached": true,
+  "qualityLimit": "Four matching truncated outputs do not prove all-input equivalence to a single-GPU reference.",
+  "limitations": [
+    "Two requests per mode, separate fresh app sessions, off measured before on, variable WAN conditions",
+    "No evidence that the codec alone caused the measured slowdown",
+    "No fused execution or RTT reduction in the shipped feature"
+  ],
+  "utc": "2026-10-27T08:43:56.632Z",
+  "manualObservation": {
+    "disabledGenerationTokPerSecond": 8.2,
+    "enabledGenerationTokPerSecondApprox": 12,
+    "source": "User screenshot and earlier reported enabled result",
+    "controlledComparison": false,
+    "interpretation": "Supports a possible application speed benefit; full conditions were not independently matched."
+  }
+}
