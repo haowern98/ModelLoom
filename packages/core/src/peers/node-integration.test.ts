@@ -7,6 +7,7 @@ import { createServer } from 'node:http';
 import type { IncomingMessage } from 'node:http';
 import { peerAddress } from './node.js';
 import { PassThrough } from 'node:stream';
+import { once } from 'node:events';
 
 describe('real TLS peer pairing', () => {
   let sg: WindowsPeerIdentity, my: WindowsPeerIdentity;
@@ -345,41 +346,88 @@ describe('real TLS peer pairing', () => {
     expect(worker.snapshot().sharing).toBe(false);
   }, 20_000);
 
-  it('requires pairing before carrying a real stock RPC handshake through mTLS', async () => {
-    const gpu = 'GPU-11111111-1111-1111-1111-111111111111';
-    const coordinator = new PeerNode(sg, 'SG', []);
-    const worker = new PeerNode(
-      my,
-      'MY',
-      [{ id: gpu, name: 'CPU protocol fixture', memoryBytes: 4096 }],
-      new DiagnosticRpcBackend('cpu'),
-    );
-    nodes.push(coordinator, worker);
-    const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
-    const outgoing = await coordinator.invite(address);
-    await expect(coordinator.openRpc(outgoing.id)).rejects.toThrow('PEER_NOT_APPROVED');
-    await coordinator.verifyCode(
-      outgoing.id,
-      worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
-    );
-    await worker.approve(outgoing.id, sg.fingerprint);
-    const stream = await coordinator.openRpc(outgoing.id);
-    const response = new Promise<Buffer>((resolve, reject) => {
-      let bytes = Buffer.alloc(0);
-      stream.on('data', (value: Buffer) => {
-        bytes = Buffer.concat([bytes, value]);
-        if (bytes.length >= 36) resolve(bytes);
-      });
-      stream.once('error', reject);
-    });
-    const hello = Buffer.alloc(33);
-    hello[0] = 14;
-    hello.writeBigUInt64LE(24n, 1);
-    stream.write(hello);
-    expect([...(await response).subarray(8, 11)]).toEqual([7, 0, 0]);
-    stream.destroy();
-    await worker.stopSharing();
-  }, 30_000);
+  it.each([false, true])(
+    'requires pairing before real stock RPC with residency=%s',
+    async (residency) => {
+      const gpu = 'GPU-11111111-1111-1111-1111-111111111111';
+      const coordinator = new PeerNode(sg, 'SG', []);
+      const worker = new PeerNode(
+        my,
+        'MY',
+        [{ id: gpu, name: 'CPU protocol fixture', memoryBytes: 4096 }],
+        Object.assign(new DiagnosticRpcBackend('cpu'), { inputResidency: residency }),
+      );
+      nodes.push(coordinator, worker);
+      const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
+      const outgoing = await coordinator.invite(address);
+      await expect(coordinator.openRpc(outgoing.id)).rejects.toThrow('PEER_NOT_APPROVED');
+      await coordinator.verifyCode(
+        outgoing.id,
+        worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
+      );
+      await worker.approve(outgoing.id, sg.fingerprint);
+      const stream = await coordinator.openRpc(outgoing.id);
+      async function read(size: number): Promise<Buffer> {
+        const chunks: Buffer[] = [];
+        let received = 0;
+        while (received < size) {
+          const part: unknown = stream.read(size - received);
+          if (Buffer.isBuffer(part)) {
+            chunks.push(part);
+            received += part.length;
+          } else await once(stream, 'readable');
+        }
+        return Buffer.concat(chunks, size);
+      }
+      async function exchange(cmd: number, payload: Buffer, reply = true): Promise<Buffer> {
+        const header = Buffer.alloc(9);
+        header[0] = cmd;
+        header.writeBigUInt64LE(BigInt(payload.length), 1);
+        await new Promise<void>((resolve, reject) =>
+          stream.write(Buffer.concat([header, payload]), (error) =>
+            error ? reject(error) : resolve(),
+          ),
+        );
+        if (!reply) return Buffer.alloc(0);
+        const length = Number((await read(8)).readBigUInt64LE());
+        expect(length).toBeLessThanOrEqual(65536);
+        return read(length);
+      }
+      expect([...(await exchange(14, Buffer.alloc(24))).subarray(0, 3)]).toEqual([7, 0, 0]);
+      if (residency) {
+        // A real stock CPU buffer fixture, not model inference. The second SET
+        // must restore bytes after MEMSET even though it crosses TLS as a reference.
+        const allocation = Buffer.alloc(12);
+        allocation.writeBigUInt64LE(1024n, 4);
+        const buffer = (await exchange(0, allocation)).subarray(0, 8);
+        const base = await exchange(3, buffer);
+        const tensor = Buffer.alloc(296);
+        tensor.writeBigUInt64LE(1n);
+        buffer.copy(tensor, 12);
+        base.copy(tensor, 220);
+        for (let d = 0; d < 4; d++) {
+          tensor.writeUInt32LE(d === 0 ? 128 : 1, 20 + d * 4);
+          tensor.writeUInt32LE(d === 0 ? 4 : 512, 36 + d * 4);
+        }
+        const data = Buffer.alloc(512, 37);
+        const set = Buffer.concat([tensor, Buffer.alloc(1), Buffer.alloc(8), data]);
+        const range = Buffer.alloc(16);
+        range.writeBigUInt64LE(512n, 8);
+        const get = Buffer.concat([tensor, range]);
+        await exchange(6, set, false);
+        expect((await exchange(8, get)).equals(data)).toBe(true);
+        await exchange(17, Buffer.concat([tensor, range, Buffer.alloc(1)]), false);
+        expect((await exchange(8, get)).equals(Buffer.alloc(512))).toBe(true);
+        await exchange(6, set, false);
+        expect((await exchange(8, get)).equals(data)).toBe(true);
+        expect(stream).toHaveProperty('residencyStats.references', 1);
+        await exchange(4, buffer, false);
+      }
+      stream.destroy();
+      await worker.stopSharing();
+    },
+    30_000,
+  );
 
   it('allows an approved worker to finish within its full startup budget', async () => {
     const gpu = 'GPU-11111111-1111-1111-1111-111111111111';

@@ -12,6 +12,11 @@ import type { WindowsPeerIdentity } from './windows-identity.js';
 import { peerFingerprint, validatePeerCertificate } from './windows-identity.js';
 import { peerDeadline, RPC_OPEN_MS } from './deadline.js';
 import type { PeerResources } from './resources.js';
+import {
+  rpcResidencyStream,
+  RPC_RESIDENCY_HEADER,
+  RPC_RESIDENCY_VERSION,
+} from './rpc-residency.js';
 
 // The worker has a 20-second verified launch budget, including UAC approval.
 // Its callers must allow that budget to finish before abandoning the connection.
@@ -24,6 +29,8 @@ export interface OwnedPeerRpc {
   close(): Promise<void>;
 }
 export interface PeerRpcBackend {
+  /** Supports the app-owned data codec; this grants no native launch authority. */
+  readonly inputResidency?: boolean;
   /** Local sharing admission only. Remote start must never acquire elevation. */
   openSharing?(gpuIds: readonly string[]): Promise<void>;
   /** Trusted local network admission after listeners bind, before sharing becomes
@@ -83,6 +90,7 @@ export async function connectPeerRpc(
         Upgrade: 'ModelLoom-RPC/1',
         ...(gpuId !== undefined ? { 'X-ModelLoom-GPU': gpuId } : {}),
         'X-ModelLoom-Tensor-Cache': cacheEnabled ? '1' : '0',
+        [RPC_RESIDENCY_HEADER]: RPC_RESIDENCY_VERSION,
       },
       pfx: identity.pfx,
       ca: new X509Certificate(target.authority).toString(),
@@ -109,7 +117,13 @@ export async function connectPeerRpc(
       }
       if (head.length) socket.unshift(head);
       socket.setTimeout(0);
-      resolve(socket);
+      const residency = response.headers[RPC_RESIDENCY_HEADER];
+      if (residency !== undefined && residency !== RPC_RESIDENCY_VERSION) {
+        socket.destroy();
+        reject(new Error('RPC_RESIDENCY_UNSUPPORTED'));
+        return;
+      }
+      resolve(residency === RPC_RESIDENCY_VERSION ? rpcResidencyStream(socket, 'client') : socket);
     });
     req.once('response', (response) => {
       response.resume();

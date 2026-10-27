@@ -5,6 +5,12 @@ import { PeerNode } from './node.js';
 import { openWindowsPeerIdentity } from './windows-identity.js';
 import type { WindowsPeerIdentity } from './windows-identity.js';
 import type { GpuReservations } from './reservations.js';
+import { once } from 'node:events';
+import { createServer as createTlsServer, request as httpsRequest } from 'node:https';
+import { connectPeerRpc } from './rpc.js';
+import { RPC_RESIDENCY_HEADER, RPC_RESIDENCY_VERSION } from './rpc-residency.js';
+import { X509Certificate } from 'node:crypto';
+import type { IncomingMessage } from 'node:http';
 
 const a = 'GPU-11111111-1111-1111-1111-111111111111';
 const b = 'GPU-22222222-2222-2222-2222-222222222222';
@@ -70,6 +76,175 @@ describe('per-GPU workers over real authenticated TLS', () => {
     nodes.push(coordinator, worker);
     return { coordinator, worker, start, closes };
   }
+  it('negotiates residency over approved TLS with isolated dictionaries and owned GPU cleanup', async () => {
+    const closes = new Map<string, ReturnType<typeof vi.fn>>();
+    const start = (ids: readonly string[]) => {
+      const [stream, native] = duplexPair();
+      let pending = Buffer.alloc(0),
+        greeted = false;
+      native.on('data', (bytes: Buffer) => {
+        if (greeted) {
+          native.write(bytes);
+          return;
+        }
+        pending = Buffer.concat([pending, bytes]);
+        if (pending.length < 9 || pending.length < Number(pending.readBigUInt64LE(1)) + 9) return;
+        const response = Buffer.alloc(20);
+        response.writeBigUInt64LE(12n);
+        response[8] = 8;
+        greeted = true;
+        native.write(response);
+      });
+      const close = vi.fn(() => {
+        stream.destroy();
+        native.destroy();
+        return Promise.resolve();
+      });
+      closes.set(ids[0]!, close);
+      return Promise.resolve({ stream, close });
+    };
+    const coordinator = new PeerNode(coordinatorIdentity, 'Coordinator', []);
+    const worker = new PeerNode(workerIdentity, 'Worker', gpus, {
+      start,
+      ...{ inputResidency: true },
+    });
+    nodes.push(coordinator, worker);
+    const address = await worker.share('127.0.0.1', 0, 0, [a, b]);
+    const id = await pair(coordinator, worker, address, coordinatorIdentity.fingerprint);
+    const first = await coordinator.openRpc(id, a),
+      second = await coordinator.openRpc(id, b);
+    async function read(stream: Duplex, count: number) {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      while (size < count) {
+        const part: unknown = stream.read(count - size);
+        if (Buffer.isBuffer(part)) {
+          chunks.push(part);
+          size += part.length;
+        } else await once(stream, 'readable');
+      }
+      return Buffer.concat(chunks, count);
+    }
+    const request = (cmd: number, bytes: Buffer) => {
+      const header = Buffer.alloc(9);
+      header[0] = cmd;
+      header.writeBigUInt64LE(BigInt(bytes.length), 1);
+      return Buffer.concat([header, bytes]);
+    };
+    for (const stream of [first, second]) {
+      expect(stream).toHaveProperty('residencyStats');
+      const greeting = read(stream, 20);
+      stream.write(request(14, Buffer.alloc(16)));
+      await greeting;
+    }
+    const input = request(6, Buffer.alloc(1000, 7));
+    for (const stream of [first, first, second]) {
+      const restored = read(stream, input.length);
+      stream.write(input);
+      expect((await restored).equals(input)).toBe(true);
+    }
+    expect(first).toHaveProperty('residencyStats.references', 1);
+    expect(second).toHaveProperty('residencyStats.references', 0);
+    first.destroy();
+    await vi.waitFor(() => expect(closes.get(a)).toHaveBeenCalledOnce());
+    expect(second.destroyed).toBe(false);
+    const revoked = once(second, 'close');
+    await worker.decline(id);
+    await revoked;
+    await vi.waitFor(() => expect(closes.get(b)).toHaveBeenCalledOnce());
+    expect(second.destroyed).toBe(true);
+  });
+  it.each(['legacy', 'invalid'] as const)(
+    'handles %s remote codec acknowledgements before forwarding native bytes',
+    async (mode) => {
+      const server = createTlsServer({
+        pfx: workerIdentity.pfx,
+        ca: new X509Certificate(coordinatorIdentity.authority).toString(),
+        requestCert: true,
+        rejectUnauthorized: true,
+        minVersion: 'TLSv1.3',
+      });
+      server.on('upgrade', (request, socket) => {
+        socket.on('error', () => {});
+        expect(request.headers[RPC_RESIDENCY_HEADER]).toBe(RPC_RESIDENCY_VERSION);
+        socket.write(
+          'HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: ModelLoom-RPC/1\r\n' +
+            (mode === 'invalid' ? `${RPC_RESIDENCY_HEADER}: unsupported/2\r\n` : '') +
+            '\r\n' +
+            (mode === 'legacy' ? 'native reply' : ''),
+        );
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const address = server.address();
+      if (!address || typeof address === 'string') throw Error('Missing fixture port');
+      try {
+        const opening = connectPeerRpc(coordinatorIdentity, {
+          id: '11111111-1111-1111-1111-111111111111',
+          address: '127.0.0.1',
+          securePort: address.port,
+          certificate: workerIdentity.certificate,
+          authority: workerIdentity.authority,
+        });
+        if (mode === 'invalid') await expect(opening).rejects.toThrow('RPC_RESIDENCY_UNSUPPORTED');
+        else {
+          const stream = await opening;
+          expect(stream).not.toHaveProperty('residencyStats');
+          if (!stream.readableLength) await once(stream, 'readable');
+          const reply: unknown = stream.read();
+          expect(Buffer.isBuffer(reply) && reply.toString()).toBe('native reply');
+          stream.destroy();
+        }
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
+  );
+
+  it('keeps old clients on opaque RPC even when the worker supports residency', async () => {
+    const stream = new PassThrough();
+    const close = vi.fn(() => {
+      stream.destroy();
+      return Promise.resolve();
+    });
+    const coordinator = new PeerNode(coordinatorIdentity, 'Coordinator', []);
+    const worker = new PeerNode(workerIdentity, 'Worker', gpus, {
+      start: () => Promise.resolve({ stream, close }),
+      inputResidency: true,
+    });
+    nodes.push(coordinator, worker);
+    const address = await worker.share('127.0.0.1', 0, 0, [a]);
+    const id = await pair(coordinator, worker, address, coordinatorIdentity.fingerprint);
+    const server = (worker as unknown as { secure: { address(): { port: number } } }).secure;
+    const req = httpsRequest({
+      host: '127.0.0.1',
+      port: server.address().port,
+      path: `/v1/rpc/${id}`,
+      method: 'POST',
+      pfx: coordinatorIdentity.pfx,
+      ca: new X509Certificate(workerIdentity.authority).toString(),
+      rejectUnauthorized: true,
+      checkServerIdentity: (_host, cert) =>
+        cert.raw.equals(workerIdentity.certificate)
+          ? undefined
+          : Error('Unexpected fixture certificate'),
+      agent: false,
+      headers: { Connection: 'Upgrade', Upgrade: 'ModelLoom-RPC/1', 'X-ModelLoom-GPU': a },
+    });
+    const upgraded = new Promise<{ response: IncomingMessage; socket: Duplex }>(
+      (resolve, reject) => {
+        req.once('upgrade', (response, socket) => resolve({ response, socket }));
+        req.once('error', reject);
+      },
+    );
+    req.end();
+    const { response, socket } = await upgraded;
+    expect(response.headers[RPC_RESIDENCY_HEADER]).toBeUndefined();
+    const received = new Promise<Buffer>((resolve) => socket.once('data', resolve));
+    socket.write('old native bytes');
+    expect((await received).toString()).toBe('old native bytes');
+    socket.destroy();
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+  });
   it('carries only the coordinator enable flag over authenticated RPC admission', async () => {
     let enabled = true;
     const coordinator = new PeerNode(coordinatorIdentity, 'Coordinator', [], {

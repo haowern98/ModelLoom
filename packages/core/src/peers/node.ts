@@ -11,6 +11,11 @@ import { overlaySocket, isOverlaySocket } from './overlay-socket.js';
 import { peerFingerprint, validatePeerCertificate } from './windows-identity.js';
 import type { WindowsPeerIdentity } from './windows-identity.js';
 import { connectPeerRpc } from './rpc.js';
+import {
+  rpcResidencyStream,
+  RPC_RESIDENCY_HEADER,
+  RPC_RESIDENCY_VERSION,
+} from './rpc-residency.js';
 import type { OwnedPeerRpc, PeerRpcBackend } from './rpc.js';
 import type { Duplex } from 'node:stream';
 import { GpuReservations } from './reservations.js';
@@ -1693,8 +1698,14 @@ export class PeerNode {
     this.rpcLoading.add(reservation);
     tls.setTimeout(0);
     for (const transport of transports) transport.setTimeout(0);
+    const residency =
+      this.rpcBackend.inputResidency === true &&
+      request.headers[RPC_RESIDENCY_HEADER] === RPC_RESIDENCY_VERSION;
+    const channel = residency ? rpcResidencyStream(owned.stream, 'worker') : owned.stream;
     socket.write(
-      'HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: ModelLoom-RPC/1\r\n\r\n',
+      'HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: ModelLoom-RPC/1\r\n' +
+        (residency ? `${RPC_RESIDENCY_HEADER}: ${RPC_RESIDENCY_VERSION}\r\n` : '') +
+        '\r\n',
     );
     if (head.length) socket.unshift(head);
     const stop = () => {
@@ -1704,10 +1715,15 @@ export class PeerNode {
     };
     socket.once('close', stop);
     socket.once('error', stop);
+    if (residency) {
+      socket.once('close', () => channel.destroy());
+      channel.once('close', stop);
+      channel.once('error', stop);
+    }
     owned.stream.once('close', stop);
     owned.stream.once('error', stop);
-    socket.pipe(owned.stream);
-    owned.stream.pipe(socket);
+    socket.pipe(channel);
+    channel.pipe(socket);
   }
   private stopRpc(entry: ActiveRpc): Promise<void> {
     if (entry.closing) return entry.closing;

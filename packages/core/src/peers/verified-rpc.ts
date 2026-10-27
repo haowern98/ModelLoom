@@ -51,6 +51,7 @@ const workerFiles = [
 /** Accepts only a verifier-issued installation. Serialized paths and diagnostic
  * artifacts have no authority, including when their filenames happen to match. */
 export class VerifiedRpcBackend implements PeerRpcBackend {
+  readonly inputResidency = true;
   private sharing: Promise<SharingPool> | undefined;
   private retained: SharingPool | undefined;
   private stopping: Promise<void> | undefined;
