@@ -1,4 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { CaretUp } from '@phosphor-icons/react/dist/csr/CaretUp';
 import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import styles from './ConfigurationControls.module.css';
@@ -20,19 +22,75 @@ export function ConfigurationSelect({
   id: string;
   label: string;
   value: string;
-  options: readonly { value: string; label: string }[];
+  options: readonly { value: string; label: string; disabled?: boolean }[];
   disabled?: boolean;
   onChange?: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<CSSProperties>({ visibility: 'hidden' });
   const menuId = useId();
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const button = trigger.current?.getBoundingClientRect();
+      const popup = menu.current;
+      if (!button || !popup) return;
+      const margin = 8;
+      const availableWidth = Math.max(0, window.innerWidth - margin * 2);
+      const width = Math.min(
+        availableWidth,
+        Math.max(button.width, 180, popup.getBoundingClientRect().width),
+      );
+      const height = Math.min(popup.scrollHeight || popup.getBoundingClientRect().height, 380);
+      const below = Math.max(0, window.innerHeight - button.bottom - margin * 2);
+      const above = Math.max(0, button.top - margin * 2);
+      const upwards = height > below && above > below;
+      const maxHeight = Math.min(380, upwards ? above : below);
+      setPosition({
+        position: 'fixed',
+        left: Math.max(margin, Math.min(button.left, window.innerWidth - margin - width)),
+        top: upwards
+          ? Math.max(margin, button.top - margin - Math.min(height, maxHeight))
+          : button.bottom + margin,
+        minWidth: Math.min(availableWidth, Math.max(button.width, 180)),
+        maxWidth: availableWidth,
+        maxHeight,
+      });
+    };
+    const scrolled = (event: Event) => {
+      if (event.target instanceof Node && menu.current?.contains(event.target)) return;
+      place();
+    };
+    place();
+    window.addEventListener('resize', place);
+    document.addEventListener('scroll', scrolled, true);
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(place);
+    if (trigger.current) observer?.observe(trigger.current);
+    if (menu.current) observer?.observe(menu.current);
+    return () => {
+      window.removeEventListener('resize', place);
+      document.removeEventListener('scroll', scrolled, true);
+      observer?.disconnect();
+    };
+  }, [open, options]);
   useEffect(() => {
     if (!open) return;
-    anchor.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
+    const selected = menu.current?.querySelector<HTMLButtonElement>(
+      '[aria-selected="true"]:not(:disabled)',
+    );
+    (
+      selected ?? menu.current?.querySelector<HTMLButtonElement>('[role="option"]:not(:disabled)')
+    )?.focus({ preventScroll: true });
     const outside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !anchor.current?.contains(event.target)) setOpen(false);
+      if (
+        event.target instanceof Node &&
+        !anchor.current?.contains(event.target) &&
+        !menu.current?.contains(event.target)
+      )
+        setOpen(false);
     };
     document.addEventListener('pointerdown', outside);
     return () => document.removeEventListener('pointerdown', outside);
@@ -46,10 +104,15 @@ export function ConfigurationSelect({
       ref={anchor}
       className={styles.select}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+        if (
+          !event.currentTarget.contains(event.relatedTarget) &&
+          !menu.current?.contains(event.relatedTarget)
+        )
+          setOpen(false);
       }}
       onKeyDown={(event) => {
         if (disabled) return;
+        if (event.key === 'Tab' && open) close();
         if (event.key === 'Escape' && open) {
           event.stopPropagation();
           close();
@@ -61,7 +124,9 @@ export function ConfigurationSelect({
             return;
           }
           const items = [
-            ...(anchor.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? []),
+            ...(menu.current?.querySelectorAll<HTMLButtonElement>(
+              '[role="option"]:not(:disabled)',
+            ) ?? []),
           ];
           const current = items.findIndex((item) => item === document.activeElement);
           const next =
@@ -70,7 +135,7 @@ export function ConfigurationSelect({
               : event.key === 'End'
                 ? items.length - 1
                 : (current + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
-          items[next]?.focus();
+          items[next]?.focus({ preventScroll: true });
         }
       }}
     >
@@ -91,26 +156,36 @@ export function ConfigurationSelect({
         <span>{options.find((option) => option.value === value)?.label}</span>
         <CaretDown size={14} aria-hidden="true" />
       </button>
-      {open && (
-        <div id={menuId} role="listbox" aria-label={label} className={styles.selectMenu}>
-          {options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              role="option"
-              tabIndex={-1}
-              aria-selected={option.value === value}
-              className={styles.selectOption}
-              onClick={() => {
-                onChange?.(option.value);
-                close();
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={menu}
+            id={menuId}
+            role="listbox"
+            aria-label={label}
+            className={styles.selectMenu}
+            style={position}
+          >
+            {options.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                tabIndex={-1}
+                aria-selected={option.value === value}
+                disabled={option.disabled}
+                className={styles.selectOption}
+                onClick={() => {
+                  onChange?.(option.value);
+                  close();
+                }}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -127,6 +202,7 @@ export function ConfigurationNumberInput({
   inactive,
   invalid,
   describedBy,
+  placeholder,
   onChange,
 }: {
   id: string;
@@ -139,6 +215,7 @@ export function ConfigurationNumberInput({
   inactive?: string | undefined;
   invalid?: boolean;
   describedBy?: string | undefined;
+  placeholder?: string | undefined;
   onChange: (value: string) => void;
 }) {
   const current = Number(value);
@@ -182,6 +259,7 @@ export function ConfigurationNumberInput({
         disabled={disabled}
         aria-invalid={Boolean(invalid)}
         aria-describedby={describedBy}
+        placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {

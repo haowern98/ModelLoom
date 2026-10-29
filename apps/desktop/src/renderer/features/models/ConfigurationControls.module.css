@@ -39,10 +39,8 @@
   white-space: nowrap;
 }
 .selectMenu {
-  position: absolute;
-  z-index: 10;
-  top: calc(100% + 10px);
-  right: 0;
+  position: fixed;
+  z-index: 100;
   width: max-content;
   min-width: 180px;
   max-width: calc(100vw - 110px);
@@ -55,7 +53,7 @@
   color: var(--text);
   box-shadow: 0 8px 22px #0005;
 }
-.select .selectOption {
+.selectOption {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -72,8 +70,8 @@
   line-height: var(--line-height-body);
   text-align: left;
 }
-.select .selectOption:hover,
-.select .selectOption[aria-selected='true'] {
+.selectOption:hover,
+.selectOption[aria-selected='true'] {
   background: #2f2f2f;
 }
 .numberField {
@@ -146,10 +144,4 @@
   color: #5f5f5f;
   cursor: default;
   background: transparent;
-}
-@media (max-width: 650px) {
-  .selectMenu {
-    right: auto;
-    left: 0;
-  }
 }
