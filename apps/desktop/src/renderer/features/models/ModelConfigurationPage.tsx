@@ -339,27 +339,7 @@ export function ModelConfigurationPage({
               </div>
             </Section>
             <Section title="Context and Performance">
-              <Row
-                label="Automatic Optimize Based on Hardware"
-                id="config-auto"
-                description={
-                  live
-                    ? 'Automatic optimisation is not available for this model profile.'
-                    : 'No automatic optimisation runs in this demo.'
-                }
-                extra={<span className={styles.recommended}>Recommended</span>}
-              >
-                {toggle(
-                  'config-auto',
-                  draft.automatic,
-                  (automatic) => patch({ automatic }),
-                  Boolean(live),
-                )}
-              </Row>
-              {numeric('contextLength', {
-                disabled: draft.automatic,
-                ...(draft.automatic ? { inactive: 'Auto' } : {}),
-              })}
+              {numeric('contextLength')}
               <Row
                 label="GPU Offload"
                 id="config-offload"

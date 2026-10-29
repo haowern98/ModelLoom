@@ -55,8 +55,7 @@
   white-space: nowrap;
 }
 .chip,
-.badge,
-.recommended {
+.badge {
   border: 1px solid var(--neutral-border);
   border-radius: 999px;
   padding: 1px 7px;
@@ -66,11 +65,6 @@
 }
 .chip {
   background: #303030;
-}
-.recommended {
-  color: #78a7ff;
-  border-color: #35527f;
-  background: #203047;
 }
 .section {
   margin-bottom: 36px;

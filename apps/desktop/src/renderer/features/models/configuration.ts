@@ -74,7 +74,7 @@ export function createDemoDefaults(): DemoModelDefaults {
       seed: false,
     },
     systemPrompt: '',
-    automatic: true,
+    automatic: false,
     flashAttention: true,
     thinking: true,
     reasoningMessage: 'I have to answer now.',
