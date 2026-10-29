@@ -109,9 +109,11 @@ it('streams over the inherited channel with one acknowledged chunk and captured 
   await new Promise<void>((yes) => setImmediate(yes));
   await progress({ type: 'reasoning', text: 'Consider' });
   await progress({ type: 'text', text: 'Hello' });
+  await progress({ type: 'metrics', speeds: { generation: 12, prefill: 100 } });
   expect(chunks).toEqual([
     { type: 'reasoning', text: 'Consider' },
     { type: 'text', text: 'Hello' },
+    { type: 'metrics', speeds: { generation: 12, prefill: 100 } },
   ]);
   const terminal = {
     type: 'terminal' as const,

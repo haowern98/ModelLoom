@@ -17,6 +17,21 @@ const identity = {
 };
 
 describe('generation contracts', () => {
+  it('accepts bounded live metrics without granting extra fields', () => {
+    const event = {
+      ...identity,
+      sequence: 1,
+      type: 'metrics',
+      speeds: { generation: 12, prefill: null },
+    };
+    expect(decodeProgress(JSON.stringify(event))).toEqual(event);
+    expect(() => decodeProgress(JSON.stringify({ ...event, url: 'forged' }))).toThrow(
+      'INVALID_CONTROL',
+    );
+    expect(() =>
+      decodeProgress(JSON.stringify({ ...event, speeds: { generation: -1, prefill: null } })),
+    ).toThrow('INVALID_CONTROL');
+  });
   it('accepts only the two scalar measured rates on a terminal event', () => {
     const event = {
       ...identity,

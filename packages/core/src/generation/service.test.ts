@@ -261,6 +261,30 @@ it('persists an attempt before starting captured transport and commits terminal 
     speeds,
   });
 });
+it.each([
+  { status: 'cancelled', reason: 'USER_CANCELLED' },
+  { status: 'interrupted', reason: 'ENGINE_EXITED' },
+] as const)('checkpoints live speeds and retains them after $status', async (outcome) => {
+  vi.useFakeTimers();
+  const { service, store, executions } = setup();
+  const c = await store.newConversation();
+  await service.send('window1', { conversationId: c.id, text: 'question' });
+  await drain();
+  const speeds = { generation: 12, prefill: 100 };
+  executions[0]!.emit({ type: 'metrics', speeds });
+  await vi.advanceTimersByTimeAsync(250);
+  await drain();
+  expect((await store.readConversation(c.id)).turns[0]?.attempts[0]).toMatchObject({
+    state: 'running',
+    speeds,
+  });
+  executions[0]!.finish(outcome);
+  await drain();
+  expect((await store.readConversation(c.id)).turns[0]?.attempts[0]).toMatchObject({
+    state: outcome.status,
+    speeds,
+  });
+});
 it('does not execute or create a turn when context exceeds the selected configuration', async () => {
   const { service, store, executions } = setup(7169),
     c = await store.newConversation();

@@ -286,6 +286,8 @@ it('uses the captured closed settings for template accounting and native generat
   expect(f.requests[1]!.body).toEqual({
     ...f.requests[0]!.body,
     stream: true,
+    timings_per_token: true,
+    return_progress: true,
     stream_options: { include_usage: true },
     n: 1,
     id_slot: 0,
@@ -401,6 +403,8 @@ it('streams text but fulfills completion only after native release confirmation'
     messages,
     stream: true,
     max_tokens: 512,
+    timings_per_token: true,
+    return_progress: true,
     n: 1,
     id_slot: 0,
   });

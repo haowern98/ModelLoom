@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { parseGenerationStream } from './stream.js';
 import { GENERATION_LIMITS } from './contracts.js';
 import type { GenerationChunk } from './contracts.js';
@@ -29,6 +29,66 @@ async function collect(
 const terminal = { type: 'terminal', outcome: { status: 'completed', reason: 'STOP' } };
 
 describe('pinned text-only chat stream', () => {
+  it('limits live rate updates to four per second while retaining the latest final measurement', async () => {
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
+    const source = async function* () {
+      for (const [time, rate] of [
+        [0, 10],
+        [100, 20],
+        [260, 30],
+      ] as const) {
+        clock.mockReturnValue(time);
+        const envelope = JSON.parse(frame({ content: 'a' }).slice(6)) as Record<string, unknown>;
+        yield Buffer.from(
+          `data: ${JSON.stringify({ ...envelope, timings: { predicted_per_second: rate } })}\n\n`,
+        );
+      }
+      yield await Promise.resolve(Buffer.from(frame({}, 'stop') + done));
+    };
+    try {
+      const events: GenerationChunk[] = [];
+      for await (const event of parseGenerationStream(source(), new AbortController().signal))
+        events.push(event);
+      expect(events.filter((event) => event.type === 'metrics')).toEqual([
+        { type: 'metrics', speeds: { generation: 10, prefill: null } },
+        { type: 'metrics', speeds: { generation: 30, prefill: null } },
+      ]);
+      expect(events.at(-1)).toEqual({ ...terminal, speeds: { generation: 30, prefill: null } });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+  it('streams measured prefill and generation rates before completion, excluding cached input', async () => {
+    const prefill = JSON.parse(frame({ role: 'assistant', content: null }).slice(6)) as Record<
+      string,
+      unknown
+    >;
+    const generating = JSON.parse(frame({ reasoning_content: 'Think' }).slice(6)) as Record<
+      string,
+      unknown
+    >;
+    const input =
+      `data: ${JSON.stringify({ ...prefill, prompt_progress: { total: 200, cache: 100, processed: 110, time_ms: 100 } })}\n\n` +
+      `data: ${JSON.stringify({ ...generating, timings: { predicted_per_second: 12, prompt_per_second: 100 } })}\n\n` +
+      frame({}, 'stop') +
+      done;
+    expect(await collect(input)).toEqual([
+      { type: 'metrics', speeds: { generation: null, prefill: 100 } },
+      { type: 'reasoning', text: 'Think' },
+      { type: 'metrics', speeds: { generation: 12, prefill: 100 } },
+      { ...terminal, speeds: { generation: 12, prefill: 100 } },
+    ]);
+  });
+  it('ignores malformed optional prefill measurements without losing text', async () => {
+    const first = JSON.parse(frame({ content: 'Hello' }).slice(6)) as Record<string, unknown>;
+    expect(
+      await collect(
+        `data: ${JSON.stringify({ ...first, prompt_progress: { total: 200, cache: 100, processed: 90, time_ms: 100 } })}\n\n` +
+          frame({}, 'stop') +
+          done,
+      ),
+    ).toEqual([{ type: 'text', text: 'Hello' }, terminal]);
+  });
   it.each(['finish', 'usage'])(
     'projects measured native speeds from the final %s envelope',
     async (where) => {
@@ -58,6 +118,19 @@ describe('pinned text-only chat stream', () => {
       });
     },
   );
+  it('keeps the last measured rates when optional final timing metadata is absent or malformed', async () => {
+    const generating = JSON.parse(frame({ content: 'Hello' }).slice(6)) as Record<string, unknown>;
+    const finish = JSON.parse(frame({}, 'stop').slice(6)) as Record<string, unknown>;
+    const stream =
+      `data: ${JSON.stringify({ ...generating, timings: { predicted_per_second: 12, prompt_per_second: 100 } })}\n\n` +
+      frame({}, 'stop') +
+      `data: ${JSON.stringify({ ...finish, choices: [], usage: { prompt_tokens: 10, completion_tokens: 1, total_tokens: 11 }, timings: {} })}\n\n` +
+      done;
+    expect((await collect(stream)).at(-1)).toMatchObject({
+      ...terminal,
+      speeds: { generation: 12, prefill: 100 },
+    });
+  });
   it.each([null, [], {}, { predicted_per_second: -1, prompt_per_second: 'secret' }])(
     'keeps valid output when optional native timing data is unusable: %#',
     async (timings) => {
