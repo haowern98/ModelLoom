@@ -14,6 +14,10 @@
 
 ## Global constraints
 
+**Implementation approval and UX update:** the user has now said PROCEED for the agreed app integration. Method, companion and proposal settings live in model configuration. CPU/GPU assignment lives only in Cluster and is retained by named allocations; model configuration shows a read-only summary and a Cluster shortcut. This supersedes the device-preference and target-only allocation statements below. Work happens in the existing isolated `feat/speculative-decoding` worktree. Native GPU execution and changes to installed runtimes remain outside this approval.
+
+**Current admission finding:** the pinned `llama-fit-params` estimates only the target. Speculative activation must not consume that estimate as evidence for a full speculative deployment. Implement and test persistence, editing, immutable capture and an explicit admission error first. Enabling native methods still requires a verified combined estimator, compatibility checks and the separately agreed native correctness contract. Do not claim this intermediate delivery accelerates inference.
+
 - Remaining inference integration is planning only. Library implementation/deployment and this Git checkpoint were separately authorized. This plan does not authorize native-engine execution, GPU experiments, runtime changes or publication.
 - User confirmed all supported native methods on 29 October 2026, replacing the no-draft product restriction for this feature. Preserve no quality loss, target settings and sampler authority.
 - Existing model records migrate to Off. Settings apply on explicit load/reload; Save does not change active or queued inference.
