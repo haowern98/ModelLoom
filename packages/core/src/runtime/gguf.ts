@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 import { lstat, open } from 'node:fs/promises';
+import path from 'node:path';
+import type { SpeculativeHeadKind } from '../model-configuration/model-source.js';
+import { classifySpeculativeGGUF } from './gguf-speculation.js';
 export interface GGUFInfo {
   readonly sha256: string;
   readonly architecture: string;
@@ -11,6 +14,7 @@ export interface GGUFInfo {
   readonly nextnPredictLayers?: number;
   /** Template capability hint only; the template itself is never exposed. */
   readonly thinkingSupported?: boolean;
+  readonly speculativeHead?: SpeculativeHeadKind;
   readonly name?: string;
   readonly quantization?: string;
   readonly parameters?: string;
@@ -54,11 +58,24 @@ const fileTypes: Readonly<Record<number, string>> = {
   40: 'Q1_0',
   41: 'Q2_0',
 };
-/** Inspect GGUF v3 metadata within 16 MiB; this is not tensor validation or a memory planner. */
-export async function inspectGGUF(file: string): Promise<GGUFInfo> {
+/** Inspect headers without hashing payloads; callers must retain ownership and reconcile file identity. */
+export async function inspectGGUFHeader(file: string): Promise<Omit<GGUFInfo, 'sha256'>> {
+  return inspect(file, false);
+}
+/** Bounded metadata and tensor-directory inspection, plus complete file hashing for new imports. */
+export function inspectGGUF(file: string): Promise<GGUFInfo> {
+  return inspect(file, true);
+}
+function inspect(file: string, hashPayload: true): Promise<GGUFInfo>;
+function inspect(file: string, hashPayload: false): Promise<Omit<GGUFInfo, 'sha256'>>;
+async function inspect(
+  file: string,
+  hashPayload: boolean,
+): Promise<Omit<GGUFInfo, 'sha256'> & { sha256?: string }> {
   const invalid = (): never => {
     throw new Error('INVALID_GGUF');
   };
+  if (path.extname(file).toLowerCase() !== '.gguf') return invalid();
   const stat = await lstat(file);
   if (!stat.isFile() || stat.isSymbolicLink()) return invalid();
   const handle = await open(file, 'r');
@@ -89,9 +106,15 @@ export async function inspectGGUF(file: string): Promise<GGUFInfo> {
       if (size > 65536) return invalid();
       return new TextDecoder('utf-8', { fatal: true }).decode(take(size));
     };
-    const value = (type: number): unknown => {
+    const value = (type: number, retainArray = false): unknown => {
       const sizes = [1, 1, 2, 2, 4, 4, 4, 1];
       if (type === 4) return u32();
+      if (type === 5) return take(4).readInt32LE();
+      if (type === 7) {
+        const byte = take(1)[0];
+        if (byte !== 0 && byte !== 1) return invalid();
+        return byte === 1;
+      }
       if (type === 8) return string();
       if (type === 10) return u64();
       if (type === 9) {
@@ -100,8 +123,13 @@ export async function inspectGGUF(file: string): Promise<GGUFInfo> {
         // Modern tokenizers routinely exceed 16K entries. The byte budget still
         // bounds every value; the operation cap also bounds many tiny strings.
         if (item === 9 || count > 1_000_000) return invalid();
-        for (let i = 0; i < count; i++) value(item);
-        return undefined;
+        if (retainArray && count > 4096) return invalid();
+        const items: unknown[] = [];
+        for (let i = 0; i < count; i++) {
+          const entry = value(item);
+          if (retainArray) items.push(entry);
+        }
+        return retainArray ? items : undefined;
       }
       const size = sizes[type] ?? (type === 11 || type === 12 ? 8 : 0);
       if (!size) return invalid();
@@ -116,24 +144,44 @@ export async function inspectGGUF(file: string): Promise<GGUFInfo> {
     for (let i = 0; i < count; i++) {
       const key = string();
       if (metadata.has(key) || key.length > 256) return invalid();
-      metadata.set(key, value(u32()));
+      metadata.set(key, value(u32(), key.endsWith('.target_layers')));
     }
     const architecture = metadata.get('general.architecture');
-    if (typeof architecture !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/u.test(architecture))
+    if (typeof architecture !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/u.test(architecture))
       return invalid();
-    const contextLimit = metadata.get(`${architecture}.context_length`);
+    if (metadata.get('general.type') === 'adapter') return invalid();
+    const directory = new Map<string, readonly number[]>();
+    for (let index = 0; index < tensors; index++) {
+      const name = string();
+      if (!name || name.length > 256 || directory.has(name)) return invalid();
+      const dimensions = u32();
+      if (dimensions < 1 || dimensions > 4) return invalid();
+      const shape: number[] = [];
+      for (let dimension = 0; dimension < dimensions; dimension++) {
+        const extent = u64();
+        if (extent < 1) return invalid();
+        shape.push(extent);
+      }
+      u32();
+      u64();
+      directory.set(name, shape);
+    }
+    const speculativeHead = classifySpeculativeGGUF(architecture, metadata, directory);
+    const contextLimit =
+      metadata.get(`${architecture}.context_length`) ?? (speculativeHead ? 0 : undefined);
     if (
       !Number.isSafeInteger(contextLimit) ||
-      Number(contextLimit) < 1 ||
+      Number(contextLimit) < (speculativeHead ? 0 : 1) ||
       Number(contextLimit) > 2147483647
     )
       return invalid();
     const hash = createHash('sha256');
-    for await (const chunk of handle.createReadStream({ start: 0, autoClose: false })) {
-      const bytes: unknown = chunk;
-      if (!Buffer.isBuffer(bytes)) return invalid();
-      hash.update(bytes);
-    }
+    if (hashPayload)
+      for await (const chunk of handle.createReadStream({ start: 0, autoClose: false })) {
+        const bytes: unknown = chunk;
+        if (!Buffer.isBuffer(bytes)) return invalid();
+        hash.update(bytes);
+      }
     const after = await handle.stat();
     if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ino !== stat.ino)
       return invalid();
@@ -173,6 +221,7 @@ export async function inspectGGUF(file: string): Promise<GGUFInfo> {
       return invalid();
     return Object.freeze({
       architecture,
+      ...(speculativeHead ? { speculativeHead } : {}),
       contextLimit: Number(contextLimit),
       tensors,
       blockCount,
@@ -180,7 +229,7 @@ export async function inspectGGUF(file: string): Promise<GGUFInfo> {
       ...(typeof template === 'string'
         ? { thinkingSupported: /\benable_thinking\b/u.test(template) }
         : {}),
-      sha256: hash.digest('hex'),
+      ...(hashPayload ? { sha256: hash.digest('hex') } : {}),
       ...(name ? { name } : {}),
       ...(parameters ? { parameters } : {}),
       ...(typeof fileType === 'number' ? { quantization: fileTypes[fileType] ?? 'Unknown' } : {}),

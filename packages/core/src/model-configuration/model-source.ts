@@ -1,3 +1,5 @@
+export type SpeculativeHeadKind = 'eagle3' | 'dflash' | 'dspark' | 'mtp';
+
 /** Main/core-only index record. The file location is never part of a renderer reply. */
 export interface ModelSource {
   readonly modelId: string;
@@ -11,6 +13,8 @@ export interface ModelSource {
   /** Absent on the legacy index. Null means reinspection did not establish a usable count. */
   readonly blockCount?: number | null;
   readonly thinkingSupported?: boolean;
+  readonly speculativeHead?: SpeculativeHeadKind;
+  readonly classificationVersion?: 1;
   readonly quantization: string;
   readonly parameters: string;
 }
@@ -35,6 +39,21 @@ export function decodeModelSource(input: unknown): ModelSource {
     'parameters',
   ];
   if (Object.hasOwn(value, 'blockCount')) keys.push('blockCount');
+  if (Object.hasOwn(value, 'classificationVersion')) {
+    keys.push('classificationVersion');
+    if (value.classificationVersion !== 1) return invalid();
+  }
+  if (Object.hasOwn(value, 'speculativeHead')) {
+    keys.push('speculativeHead');
+    if (
+      typeof value.speculativeHead !== 'string' ||
+      !['eagle3', 'dflash', 'dspark', 'mtp'].includes(value.speculativeHead) ||
+      (value.speculativeHead === 'mtp'
+        ? value.architecture === 'eagle3' || value.architecture === 'dflash'
+        : value.architecture !== (value.speculativeHead === 'eagle3' ? 'eagle3' : 'dflash'))
+    )
+      return invalid();
+  }
   if (Object.hasOwn(value, 'thinkingSupported')) {
     keys.push('thinkingSupported');
     if (typeof value.thinkingSupported !== 'boolean') return invalid();
