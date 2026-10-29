@@ -24,6 +24,39 @@ const localDevice = {
   threads: 8,
   role: 'Worker' as const,
 };
+it('rejects unqualified speculation before native preparation or silent target-only loading', async () => {
+  const { controller, host, deps } = setup(true, {}, true);
+  Object.assign(host, {
+    configuration: vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        record: {
+          ...record(),
+          schemaVersion: 2,
+          speculation: {
+            version: 1,
+            enabled: true,
+            proposer: null,
+            retrieval: { method: 'ngram-simple' },
+          },
+        },
+        defaults: { ...record(), revision: 0 },
+        pendingReload: false,
+        maxOutputTokens: 512,
+        thinkingSupported: false,
+      }),
+    ),
+  });
+  await controller.command({ action: 'import' });
+  const snapshot = await controller.command({ action: 'snapshot' });
+  if (!snapshot.model) throw Error('Expected indexed target');
+  const before = host.command.mock.calls.length;
+  const reply = await controller.command({ action: 'load', modelId: snapshot.model.id });
+  expect(reply.error).toContain('verified speculative estimator');
+  expect(host.command).toHaveBeenCalledTimes(before);
+  expect(deps.preflight).not.toHaveBeenCalled();
+  await controller.quit();
+});
 it('keeps an active model ready when an unevidenced saved configuration is rejected', async () => {
   const { controller, host } = setup();
   await controller.command({ action: 'import' });

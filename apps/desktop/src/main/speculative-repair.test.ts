@@ -21,7 +21,9 @@ vi.mock('node:path', async (importOriginal) => {
 
 type ReclassifiedSource = ModelSource & { classificationVersion: 1 };
 
-async function setup(options: { headOnly?: boolean; unavailable?: 'null' | 'throw' } = {}) {
+async function setup(
+  options: { headOnly?: boolean; unavailable?: 'null' | 'throw'; classifiedTarget?: boolean } = {},
+) {
   const database = new DatabaseSync(':memory:');
   const store = new ModelConfigurationStore(
     database,
@@ -43,7 +45,10 @@ async function setup(options: { headOnly?: boolean; unavailable?: 'null' | 'thro
     quantization: 'Q8_0',
     parameters: 'Unknown',
   });
-  const target = source('a', 'Target', 'qwen3');
+  const target = {
+    ...source('a', 'Target', 'qwen3'),
+    ...(options.classifiedTarget ? { classificationVersion: 1 as const } : {}),
+  };
   const extracted = source('b', 'Extracted MTP', 'qwen35');
   if (!options.headOnly) await store.recordImport(target.modelId, 100, target);
   await store.recordImport(extracted.modelId, 200, extracted);
@@ -51,6 +56,7 @@ async function setup(options: { headOnly?: boolean; unavailable?: 'null' | 'thro
     ...extracted,
     speculativeHead: 'mtp',
     classificationVersion: 1,
+    nextnPredictLayers: 1,
   };
   const owners: string[] = [];
   const ownerCommands: unknown[] = [];
@@ -60,7 +66,7 @@ async function setup(options: { headOnly?: boolean; unavailable?: 'null' | 'thro
       if (options.unavailable === 'throw') return Promise.reject(Error('MODEL_FILE_UNAVAILABLE'));
       return Promise.resolve(repaired);
     }
-    return Promise.resolve({ ...entry, classificationVersion: 1 });
+    return Promise.resolve({ ...entry, classificationVersion: 1, nextnPredictLayers: 0 });
   });
   const deps = {
     enabled: true as const,
@@ -191,6 +197,21 @@ it('restores a repaired MTP-only library without selecting a target', async () =
     expect((await f.restart()).model).toBeNull();
     expect(f.deps.reinspect).toHaveBeenCalledTimes(1);
     expect(f.owners).not.toContain(f.extracted.modelId);
+  } finally {
+    await f.close();
+  }
+});
+
+it('refreshes a classified legacy source once when its NextN hint is missing', async () => {
+  const f = await setup({ classifiedTarget: true });
+  try {
+    const view = await f.restored();
+    expect(f.deps.reinspect).toHaveBeenCalledWith(f.target);
+    expect(view.model?.embeddedMtp).toBe(false);
+    expect((await f.store.readImportSource(f.target.modelId))?.nextnPredictLayers).toBe(0);
+    const reads = f.deps.reinspect.mock.calls.length;
+    await f.restart();
+    expect(f.deps.reinspect).toHaveBeenCalledTimes(reads);
   } finally {
     await f.close();
   }

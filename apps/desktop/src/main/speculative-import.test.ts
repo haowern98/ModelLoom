@@ -44,6 +44,7 @@ function setup(head: Head = 'dflash') {
     quantization: 'Q8_0',
     parameters: 'Unknown',
     classificationVersion: 1,
+    nextnPredictLayers: 0,
   });
   const target = source('a', 'Target');
   const companion = {

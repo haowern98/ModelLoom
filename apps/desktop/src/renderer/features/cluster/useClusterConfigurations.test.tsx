@@ -10,6 +10,36 @@ import type {
   SavedClusterConfiguration,
 } from '../../../shared/cluster-configuration';
 const load = { defaults: {}, cacheK: 'f16', cacheV: 'f16' } as CapturedClusterLoad;
+it('treats proposer-only allocation as unsaved and clears it on discard', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectModel('a'.repeat(64)));
+  act(() => result.current.setProposerDevice('cpu'));
+  expect(result.current.hasAssignments).toBe(false);
+  expect(result.current.dirty).toBe(true);
+  await act(() => result.current.discard());
+  expect(result.current.raw?.proposerDevice).toBeUndefined();
+  expect(result.current.dirty).toBe(false);
+  act(() => result.current.setProposerDevice('CUDA0'));
+  expect(result.current.dirty).toBe(false);
+});
+it('tracks proposer-only changes through dirty state, undo, redo and draft capture', async () => {
+  const fixture = historyBridge();
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  act(() => result.current.setProposerDevice('cpu'));
+  expect(result.current.dirty).toBe(true);
+  expect(result.current.raw?.proposerDevice).toBe('cpu');
+  act(() => result.current.undo());
+  expect(result.current.dirty).toBe(false);
+  act(() => result.current.redo());
+  expect(result.current.raw?.proposerDevice).toBe('cpu');
+  await act(() => result.current.prepareRun());
+  const edits = fixture.command.mock.calls
+    .map(([command]) => command)
+    .filter((command) => command.action === 'edit');
+  expect(edits.at(-1)?.edit.proposerDevice).toBe('cpu');
+});
 
 it('acknowledges an assigned draft with canvas metadata before running', async () => {
   const fixture = historyBridge();
