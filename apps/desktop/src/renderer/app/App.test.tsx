@@ -195,7 +195,7 @@ describe('Models milestone', () => {
     expect(screen.getByRole('heading', { name: 'Cluster' })).toBeVisible();
     expect(screen.getByText('Demo data')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Models' }));
-    expect(screen.getByRole('heading', { name: 'Models' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Model library' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'API' }));
     expect(screen.getByRole('heading', { name: 'API' })).toBeVisible();
     expect(screen.getByText('No API server is running.')).toBeVisible();

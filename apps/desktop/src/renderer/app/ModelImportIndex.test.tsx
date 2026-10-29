@@ -23,7 +23,7 @@ async function openModels() {
       name: 'Models',
     }),
   );
-  return { user, models: within(screen.getByRole('region', { name: 'Models' })) };
+  return { user, models: within(screen.getByRole('region', { name: 'Model library' })) };
 }
 
 it('keeps saved models visible while an import indexes, then replaces its pending row with metadata', async () => {

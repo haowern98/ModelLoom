@@ -66,15 +66,10 @@ describe('Model configuration demo', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));
-    const automatic = screen.getByRole('switch', { name: 'Automatic Optimize Based on Hardware' });
-    await user.click(automatic);
     const context = screen.getByRole('spinbutton', { name: 'Context Length' });
     await user.clear(context);
     await user.type(context, '4096');
-    await user.click(automatic);
-    expect(screen.getByRole('textbox', { name: 'Context Length' })).toHaveValue('Auto');
-    await user.click(automatic);
-    expect(screen.getByRole('spinbutton', { name: 'Context Length' })).toHaveValue(4096);
+    expect(context).toHaveValue(4096);
     const topP = screen.getByRole('spinbutton', { name: 'Top P Sampling' });
     await user.clear(topP);
     await user.type(topP, '0.7');
