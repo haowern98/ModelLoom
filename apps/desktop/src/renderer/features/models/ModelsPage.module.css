@@ -8,7 +8,7 @@
   align-items: center;
   gap: 20px;
   padding-top: 10px;
-  margin-bottom: 17px;
+  margin-bottom: 24px;
 }
 .header h1 {
   margin-left: 20px;
@@ -70,11 +70,40 @@
 .importAction {
   transform: translateX(2px);
 }
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 16px 20px;
+}
+.tabs button {
+  min-height: 36px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--neutral-muted);
+  font: inherit;
+  font-size: var(--font-size-control);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-control);
+}
+.tabs button:hover {
+  background: #262626;
+  color: var(--neutral-text);
+}
+.tabs button[aria-selected='true'] {
+  background: #2b2b2b;
+  color: var(--neutral-text);
+}
+.panel {
+  margin-left: 24px;
+}
 .columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--models-last-used-column) 72px;
   column-gap: 20px;
-  padding: 12px 16px;
+  padding: 12px 16px 12px 8px;
   border-bottom: 1px solid #2b2b2b;
   color: #ababab;
   font-size: var(--font-size-description);
@@ -82,9 +111,6 @@
 .library {
   display: flex;
   flex-direction: column;
-}
-.columns > span:first-child {
-  margin-left: 4px;
 }
 .empty {
   grid-column: 1 / -1;

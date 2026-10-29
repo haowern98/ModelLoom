@@ -85,7 +85,7 @@ export function App() {
       }
     : library;
   const configurationModel = displayLibrary.models.find(
-    (model) => model.id === configurationModelId,
+    (model) => model.id === configurationModelId && !model.speculativeHead,
   );
   const configuration = configurationModel ? configurations[configurationModel.id] : undefined;
   const liveConfiguration = configurationModel
@@ -336,7 +336,7 @@ export function App() {
           }
           onRenameDevice={(id, name) => setDeviceNames((current) => ({ ...current, [id]: name }))}
           activeModel={activeModel}
-          models={displayLibrary.models}
+          models={displayLibrary.models.filter((model) => !model.speculativeHead)}
           placement={
             local
               ? {
