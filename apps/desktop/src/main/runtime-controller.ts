@@ -35,6 +35,8 @@ import type {
 } from '../../../../packages/core/src/cluster/contracts';
 import type { StockClusterReport } from '../../../../packages/core/src/cluster/stock-profile';
 import type { ModelConfigurationRecord } from '../../../../packages/core/src/model-configuration/contracts';
+import type { SpeculativeDefaults } from '../../../../packages/core/src/speculative-decoding/contracts';
+import type { SpeculativeCompanion } from '../../../../packages/core/src/speculative-decoding/assets';
 interface Host {
   peers?(caller: string, input: unknown): Promise<PeerReply>;
   command(text: string): Promise<Record<string, unknown>>;
@@ -71,12 +73,14 @@ interface ActivationDependencies {
     blockCount: number,
     signal: AbortSignal,
     devices?: readonly string[],
+    companion?: SpeculativeCompanion,
   ): Promise<readonly GpuRun[]>;
   preflightCluster?(
     file: string,
     saved: SavedClusterConfiguration,
     signal: AbortSignal,
     allowSharedMemory?: boolean,
+    companion?: SpeculativeCompanion,
   ): Promise<StockClusterReport>;
   deploymentId?: string;
   pick(): Promise<string | null>;
@@ -98,6 +102,7 @@ interface ActivationDependencies {
     file: string,
     record: ModelConfigurationRecord,
     signal: AbortSignal,
+    companion?: SpeculativeCompanion,
   ): Promise<SavedClusterConfiguration>;
   device?(): Promise<RuntimeDevice>;
 }
@@ -125,6 +130,16 @@ const messages: Record<string, string> = {
   INCOMPATIBLE_DRIVER: 'The GPU driver is incompatible with this runtime.',
   NEEDS_RESOURCE_EVIDENCE:
     'This configuration could not be verified for the selected runtime and GPUs.',
+  NEEDS_SPECULATIVE_EVIDENCE:
+    'The selected runtime needs the verified speculative estimator before this configuration can load.',
+  INCOMPATIBLE_SPECULATIVE_ASSET:
+    'This companion is not compatible with the selected target model. Choose a matching companion.',
+  UNSUPPORTED_SPECULATIVE_DEVICE:
+    'This speculative head shares target weights and must follow the target output placement. Choose Automatic, or use a standalone draft model for independent placement.',
+  UNSUPPORTED_SPECULATIVE_RETRIEVAL:
+    'This native retrieval method retains unbounded cross-request state. Choose n-gram simple or n-gram mod.',
+  SPECULATIVE_INITIALIZATION_FAILED:
+    'The runtime did not initialize the requested speculative method. The model was stopped instead of falling back.',
   UNSAVED_CONFIGURATION: 'The allocation changed. Run the current allocation again.',
   INVALID_CLUSTER_CONFIGURATION:
     'Assign all model layers exactly once, without gaps or overlaps, before running.',
@@ -168,6 +183,19 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
   let removalPreparation: Promise<void> | undefined;
   let historyFailed = false;
   const sources = new Map<string, ModelSource>();
+  const companionFor = (settings?: SpeculativeDefaults): SpeculativeCompanion | undefined => {
+    const source = settings?.enabled ? settings.proposer?.source : undefined;
+    if (!source || source.kind !== 'asset') return undefined;
+    const companion = sources.get(`model-${source.modelId}`);
+    if (!companion || view.models?.find((m) => m.id === `model-${source.modelId}`)?.unavailable)
+      throw Error('MODEL_FILE_UNAVAILABLE');
+    return Object.freeze({
+      modelId: companion.modelId,
+      file: companion.file,
+      sizeBytes: companion.sizeBytes,
+      modifiedMs: companion.modifiedMs,
+    });
+  };
   function updateModel(model: RuntimeModel): void {
     const models = view.models ?? [];
     view = {
@@ -191,7 +219,12 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       let { source } = reply.entry;
       const { lastUsedAt } = reply.entry;
       let unavailable = deps.enabled && deps.available ? !(await deps.available(source)) : true;
-      if (!unavailable && deps.enabled && deps.reinspect && source.classificationVersion !== 1) {
+      if (
+        !unavailable &&
+        deps.enabled &&
+        deps.reinspect &&
+        (source.classificationVersion !== 1 || source.nextnPredictLayers === undefined)
+      ) {
         const corrected = await deps.reinspect(source).catch(() => null);
         if (!corrected) unavailable = true;
         else {
@@ -382,6 +415,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       architecture: source.architecture,
       contextLimit: source.contextLimit,
       blockCount: source.blockCount ?? null,
+      embeddedMtp: (source.nextnPredictLayers ?? 0) > 0,
       quantization: source.quantization,
       parameters: source.parameters,
       ...(source.speculativeHead ? { speculativeHead: source.speculativeHead } : {}),
@@ -728,8 +762,22 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           const runs = await trackCluster(
             () =>
               eligible
-                ? deps.planCluster!(selectedFile, currentDraft, blocks, operation.signal, eligible)
-                : deps.planCluster!(selectedFile, currentDraft, blocks, operation.signal),
+                ? deps.planCluster!(
+                    selectedFile,
+                    currentDraft,
+                    blocks,
+                    operation.signal,
+                    eligible,
+                    companionFor(currentDraft.load.speculation),
+                  )
+                : deps.planCluster!(
+                    selectedFile,
+                    currentDraft,
+                    blocks,
+                    operation.signal,
+                    undefined,
+                    companionFor(currentDraft.load.speculation),
+                  ),
             operation.signal,
           );
           if (operation.signal.aborted || quitting) throw Error('PLANNING_CANCELLED');
@@ -743,6 +791,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
               modelId: read.draft.modelId,
               load: read.draft.load,
               ...(read.draft.canvas ? { canvas: read.draft.canvas } : {}),
+              ...(read.draft.proposerDevice ? { proposerDevice: read.draft.proposerDevice } : {}),
               runs: runs.map((r) => ({
                 uuid: r.uuid,
                 first: String(r.first),
@@ -914,6 +963,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
                 : { thinkingSupported: info.thinkingSupported }),
               ...(info.speculativeHead ? { speculativeHead: info.speculativeHead } : {}),
               classificationVersion: 1,
+              nextnPredictLayers: info.nextnPredictLayers ?? 0,
             };
             if (source.speculativeHead) {
               if (preparation) await preparation;
@@ -1040,7 +1090,14 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           try {
             const selectedFile = file;
             budget = await trackCluster(
-              () => deps.preflightCluster!(selectedFile, saved, abort.signal),
+              () =>
+                deps.preflightCluster!(
+                  selectedFile,
+                  saved,
+                  abort.signal,
+                  false,
+                  companionFor(saved.load.speculation),
+                ),
               abort.signal,
             );
           } catch (error) {
@@ -1052,7 +1109,14 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
             if (abort.signal.aborted || quitting || epoch !== capturedEpoch) return result();
             const selectedFile = file;
             budget = await trackCluster(
-              () => deps.preflightCluster!(selectedFile, saved, abort.signal, true),
+              () =>
+                deps.preflightCluster!(
+                  selectedFile,
+                  saved,
+                  abort.signal,
+                  true,
+                  companionFor(saved.load.speculation),
+                ),
               abort.signal,
             );
           }
@@ -1164,6 +1228,13 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
               modelId: currentModelId(),
             });
             if (!settings.ok) throw new Error('CONFIGURATION_UNAVAILABLE');
+            if (
+              settings.record.speculation?.enabled &&
+              (!deps.preflightCluster ||
+                !host.prepareCluster ||
+                (!command.draft && !deps.planModel))
+            )
+              throw Error('NEEDS_SPECULATIVE_EVIDENCE');
             if ((deps.planModel || command.draft) && deps.preflightCluster && host.prepareCluster) {
               const abort = new AbortController();
               clusterLoading = abort;
@@ -1200,7 +1271,13 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
                     randomUUID(),
                   )
                 : await trackCluster(
-                    () => deps.planModel!(selectedFile, settings.record, abort.signal),
+                    () =>
+                      deps.planModel!(
+                        selectedFile,
+                        settings.record,
+                        abort.signal,
+                        companionFor(settings.record.speculation),
+                      ),
                     abort.signal,
                   );
               let budget: StockClusterReport;
@@ -1208,7 +1285,14 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
               let confirmed = false;
               try {
                 budget = await trackCluster(
-                  () => deps.preflightCluster!(selectedFile, selected, abort.signal),
+                  () =>
+                    deps.preflightCluster!(
+                      selectedFile,
+                      selected,
+                      abort.signal,
+                      false,
+                      companionFor(selected.load.speculation),
+                    ),
                   abort.signal,
                 );
               } catch (error) {
@@ -1223,7 +1307,14 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
                 }
                 if (operation !== epoch || quitting || abort.signal.aborted) return result();
                 budget = await trackCluster(
-                  () => deps.preflightCluster!(selectedFile, selected, abort.signal, true),
+                  () =>
+                    deps.preflightCluster!(
+                      selectedFile,
+                      selected,
+                      abort.signal,
+                      true,
+                      companionFor(selected.load.speculation),
+                    ),
                   abort.signal,
                 );
               }

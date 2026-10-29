@@ -40,6 +40,12 @@ import { createPeerRelays } from './peer-relays.js';
 import type { OpenPeerRpc } from './peer-relays.js';
 import { decodeClusterDevice } from '../cluster/device-id.js';
 import type { ResourceSnapshot } from '../runtime/gpu-resources.js';
+import {
+  executionDevices,
+  speculativeArguments,
+  verifySpeculativeStartup,
+} from '../speculative-decoding/execution.js';
+import { validateSpeculativeAssets } from '../speculative-decoding/assets.js';
 
 export interface RealEngineAdapter extends EngineAdapter {
   children(): readonly number[];
@@ -113,7 +119,8 @@ export function realEngineAdapter(
     throw new Error('NEEDS_RESOURCE_EVIDENCE');
   fixedArguments(model, cfg, port, 'key-file', 'configuration-check');
   if (
-    cluster?.load.placement.orderedUuids.some((id) => decodeClusterDevice(id).kind === 'peer') &&
+    cluster &&
+    executionDevices(cluster.load).some((id) => decodeClusterDevice(id).kind === 'peer') &&
     !cluster.peers
   )
     throw Error('RPC_PACKAGE_REQUIRED');
@@ -160,10 +167,18 @@ export function realEngineAdapter(
       try {
         requireInstalledLive(installed);
         packageLock = await revalidateInstalled(installed);
-        modelLock = native.sealFiles([path.resolve(model)]);
+        modelLock = native.sealFiles([
+          path.resolve(model),
+          ...(cluster?.report.companion ? [path.resolve(cluster.report.companion.file)] : []),
+        ]);
         const info = await inspectGGUF(model);
         if (info.sha256 !== cfg.modelSha256 || cfg.contextPerSlot > info.contextLimit)
           throw new Error('INVALID_CONFIGURATION');
+        validateSpeculativeAssets(
+          cluster?.load.speculation,
+          info,
+          cluster?.report.companion ? await inspectGGUF(cluster.report.companion.file) : undefined,
+        );
         if (
           cluster &&
           (info.blockCount !== cluster.load.blockCount ||
@@ -235,7 +250,7 @@ export function realEngineAdapter(
         let peerLost = false;
         if (cluster)
           relays = await createPeerRelays(
-            cluster.load.placement.orderedUuids,
+            executionDevices(cluster.load),
             (pid) => ownsCoordinator(pid),
             cluster.peers?.open,
             () => {
@@ -249,14 +264,15 @@ export function realEngineAdapter(
                 // Stock parses devices immediately, so register RPC endpoints first.
                 ...relays!.arguments,
                 ...clusterServerArguments(model, cluster.load, port, keyFile, alias),
+                ...speculativeArguments(cluster.load, cluster.report.companion?.file),
                 '--log-verbosity',
                 '5',
               ]
             : fixedArguments(model, cfg, port, keyFile, alias)),
         ];
-        const localDevices = cluster?.load.placement.orderedUuids.filter(
-          (id) => decodeClusterDevice(id).kind === 'local',
-        );
+        const localDevices =
+          cluster &&
+          executionDevices(cluster.load).filter((id) => decodeClusterDevice(id).kind === 'local');
         const child =
           cluster && localDevices!.length
             ? native.launchCudaPlanConsole(root, helper, args, cacheDirectory, localDevices!)
@@ -378,7 +394,11 @@ export function realEngineAdapter(
           async waitReady(abort) {
             while (!ready) {
               if (startupFault) throw startupFault;
-              if (abort.aborted || ended) throw new Error('START_FAILED');
+              if (abort.aborted || ended) {
+                const failure = new Error(abort.aborted ? 'START_TIMEOUT' : 'START_FAILED');
+                Object.defineProperty(failure, 'startupOutput', { value: startupLog });
+                throw failure;
+              }
               if (captured) {
                 try {
                   const reportedContext = await checkOwnedReadiness(
@@ -397,8 +417,17 @@ export function realEngineAdapter(
                       !/(?:^|\n)[^\r\n]*llama_server: model loaded[^\r\n]*\r?\n/u.test(startupLog)
                     )
                       throw Error('NOT_READY');
+                    verifySpeculativeStartup(cluster.load, startupLog);
+                    // Each model emits the same allocation labels. Verify target section separately.
+                    const targetLog = startupLog.split(
+                      /(?:^|\n)[^\n]*common_speculative_init_result: (?:loading draft model|creating MTP draft context)/u,
+                    )[0]!;
+                    const targetSection =
+                      targetLog === startupLog
+                        ? targetLog
+                        : `${targetLog}\n${startupLog.split('\n').find((line) => line.includes('llama_server: model loaded'))}\n`;
                     verifyStockPlacement(
-                      startupLog,
+                      targetSection,
                       cluster.load,
                       [
                         ...(resources.gpus ?? [])
@@ -414,11 +443,13 @@ export function realEngineAdapter(
                     const owns = () => !ended && !finishing && native.ownedListener(child, port);
                     // Native WAN state transfers can delay status; retain capacity
                     // within the existing generation deadline while waiting.
-                    const observationMs = cluster?.load.placement.orderedUuids.some(
-                      (id) => decodeClusterDevice(id).kind === 'peer',
-                    )
-                      ? GENERATION_POLICY.generationMs
-                      : 5000;
+                    const observationMs =
+                      cluster &&
+                      executionDevices(cluster.load).some(
+                        (id) => decodeClusterDevice(id).kind === 'peer',
+                      )
+                        ? GENERATION_POLICY.generationMs
+                        : 5000;
                     const monitor = new OwnedSlotMonitor(
                       cfg.slots,
                       (signal) =>
@@ -475,9 +506,15 @@ export function realEngineAdapter(
                 } catch (error) {
                   if (
                     error instanceof Error &&
-                    ['PLACEMENT_MISMATCH', 'CONTEXT_MISMATCH'].includes(error.message)
-                  )
+                    [
+                      'PLACEMENT_MISMATCH',
+                      'CONTEXT_MISMATCH',
+                      'SPECULATIVE_INITIALIZATION_FAILED',
+                    ].includes(error.message)
+                  ) {
+                    Object.defineProperty(error, 'startupOutput', { value: startupLog });
                     throw error;
+                  }
                   if (abort.aborted || ended) throw new Error('START_FAILED', { cause: error });
                 }
               }

@@ -41,6 +41,8 @@ import type { StockClusterReport } from '../cluster/stock-profile.js';
 import { runPlacementEstimator, withPlacementModel } from './placement-estimator.js';
 import { createTensorCacheSettings } from '../tensor-cache/settings.js';
 import { requireCompatibleRpcRuntime } from '../peers/resources.js';
+import { executionDevices } from '../speculative-decoding/execution.js';
+import type { SpeculativeCompanion } from '../speculative-decoding/assets.js';
 /** Explicit Windows development deployment. Trusted main selects fixed build assets and state;
  * renderer commands cannot choose a repository, verifier, report, executable or arguments.
  * Ordinary builds keep the development verifier closed. Production packaging is separate.
@@ -169,6 +171,7 @@ export function developmentDesktopDependencies(
     file: string,
     saved: SavedClusterConfiguration,
     signal: AbortSignal,
+    companion?: SpeculativeCompanion,
   ) {
     const load = resolveClusterLoad(saved, report!.artifact);
     requireStockClusterProfile(load);
@@ -191,8 +194,10 @@ export function developmentDesktopDependencies(
           inspection,
           openPeer,
           reservePlanningLocal,
+          companion,
         ),
         info.nextnPredictLayers ?? 0,
+        companion,
       );
     });
   }
@@ -289,14 +294,12 @@ export function developmentDesktopDependencies(
                   load,
                   report: budget,
                   ...(confirmMemory ? { confirmMemory } : {}),
-                  ...(load.placement.orderedUuids.some(
-                    (id) => decodeClusterDevice(id).kind === 'peer',
-                  )
+                  ...(executionDevices(load).some((id) => decodeClusterDevice(id).kind === 'peer')
                     ? {
                         peers: {
                           open: openPeer,
                           resources: (signal: AbortSignal) =>
-                            clusterResources(load.placement.orderedUuids, signal),
+                            clusterResources(executionDevices(load), signal),
                         },
                       }
                     : {}),
@@ -304,17 +307,16 @@ export function developmentDesktopDependencies(
               : undefined,
           );
           localGpuIds = load
-            ? load.placement.orderedUuids.filter((id) => decodeClusterDevice(id).kind === 'local')
+            ? executionDevices(load).filter((id) => decodeClusterDevice(id).kind === 'local')
             : selectedConfiguration.gpuDevice
               ? [selectedConfiguration.gpuDevice]
               : [];
           preparedFile = file;
           preparedFingerprint = load?.fingerprint;
-          startupMs = load?.placement.orderedUuids.some(
-            (id) => decodeClusterDevice(id).kind === 'peer',
-          )
-            ? REMOTE_STARTUP_MS
-            : LIFECYCLE_POLICY.startupMs;
+          startupMs =
+            load && executionDevices(load).some((id) => decodeClusterDevice(id).kind === 'peer')
+              ? REMOTE_STARTUP_MS
+              : LIFECYCLE_POLICY.startupMs;
         });
       return preparation;
     };
@@ -442,6 +444,7 @@ export function developmentDesktopDependencies(
       blockCount: number,
       signal: AbortSignal,
       devices?: readonly string[],
+      companion?: SpeculativeCompanion,
     ) {
       return withPlacementModel(file, async (info, inspection) => {
         if (info.sha256 !== draft.modelId || info.blockCount !== blockCount)
@@ -506,6 +509,7 @@ export function developmentDesktopDependencies(
               profileId: 'b11306-four-slot',
               load: draft.load,
               runs,
+              ...(draft.proposerDevice ? { proposerDevice: draft.proposerDevice } : {}),
             };
             const load = resolveClusterLoad(saved, report.artifact);
             requireStockClusterProfile(load);
@@ -520,10 +524,12 @@ export function developmentDesktopDependencies(
                 inspection,
                 openPeer,
                 reservePlanningLocal,
+                companion,
               ),
               info.nextnPredictLayers ?? 0,
+              companion,
             );
-            const fresh = await clusterResources(load.placement.orderedUuids, signal);
+            const fresh = await clusterResources(executionDevices(load), signal);
             const admission = checkStockClusterResources(load, budget, fresh);
             if (
               admission.code === 'NEEDS_RESOURCE_EVIDENCE' ||
@@ -571,12 +577,14 @@ export function developmentDesktopDependencies(
       file: string,
       record: ModelConfigurationRecord,
       signal: AbortSignal,
+      companion?: SpeculativeCompanion,
     ): Promise<SavedClusterConfiguration> {
       const info = await inspectGGUF(file);
       if (info.sha256 !== record.modelId || !info.blockCount) throw Error('MODEL_FILE_UNAVAILABLE');
       const load = {
         defaults: record.load,
         preferences: record.preferences,
+        ...(record.speculation ? { speculation: record.speculation } : {}),
         cacheK: 'q8_0' as const,
         cacheV: record.load.flashAttention ? ('q8_0' as const) : ('f16' as const),
       };
@@ -593,6 +601,8 @@ export function developmentDesktopDependencies(
         },
         info.blockCount,
         signal,
+        undefined,
+        companion,
       );
       return {
         id: randomUUID(),
@@ -610,13 +620,14 @@ export function developmentDesktopDependencies(
       saved: SavedClusterConfiguration,
       signal: AbortSignal,
       allowSharedMemory = false,
+      companion?: SpeculativeCompanion,
     ) {
-      const budget = await estimateCluster(file, saved, signal);
+      const budget = await estimateCluster(file, saved, signal, companion);
       const admission = checkStockClusterResources(
         resolveClusterLoad(saved, report.artifact),
         budget,
         await clusterResources(
-          saved.runs.map((run) => run.uuid),
+          executionDevices(resolveClusterLoad(saved, report.artifact)),
           signal,
         ),
         allowSharedMemory,
@@ -657,6 +668,7 @@ export function developmentDesktopDependencies(
           contextLimit: info.contextLimit,
           blockCount: info.blockCount,
           classificationVersion: 1 as const,
+          nextnPredictLayers: info.nextnPredictLayers ?? 0,
         };
         if (info.speculativeHead) corrected.speculativeHead = info.speculativeHead;
         else delete corrected.speculativeHead;
