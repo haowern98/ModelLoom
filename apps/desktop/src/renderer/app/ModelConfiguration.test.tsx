@@ -82,7 +82,7 @@ describe('Model configuration demo', () => {
     await user.click(screen.getByRole('switch', { name: 'Enable Thinking' }));
     expect(screen.getByRole('spinbutton', { name: 'Reasoning Budget' })).toBeDisabled();
     expect(screen.getByRole('textbox', { name: 'Reasoning Budget Message' })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: 'Method' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Method' })).toBeEnabled();
     expect(screen.queryByRole('combobox', { name: /draft model/i })).not.toBeInTheDocument();
   });
 

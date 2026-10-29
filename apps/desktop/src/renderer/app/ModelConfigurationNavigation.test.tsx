@@ -68,3 +68,77 @@ it('opens placement for the configured model without loading it or discarding it
   await user.click(screen.getByRole('button', { name: 'Configure Llama 3.1 8B' }));
   expect(screen.getByRole('textbox', { name: 'System Prompt' })).toHaveValue('Pending instruction');
 });
+
+it('returns from speculative placement with the physical GPU label rather than its display ID', async () => {
+  const saved = record();
+  const uuid = 'GPU-11111111-1111-1111-1111-111111111111';
+  const load = {
+    defaults: saved.load,
+    preferences: saved.preferences,
+    cacheK: 'f16',
+    cacheV: 'f16',
+  };
+  const allocation = {
+    id: '12345678-1234-4234-8234-123456789abc',
+    name: 'My allocation',
+    revision: 1,
+    modelId: saved.modelId,
+    blockCount: 64,
+    profileId: 'b11306-four-slot',
+    load,
+    proposerDevice: uuid,
+    runs: [{ uuid, first: 0, last: 63 }],
+  };
+  const runtime = vi.fn<RuntimeBridge['command']>().mockResolvedValue({
+    enabled: true,
+    model: { id: `model-${saved.modelId}`, name: 'Target', size: '4 GB', blockCount: 64 },
+    phase: 'stopped',
+    error: null,
+    device: {
+      name: 'My PC',
+      cpuName: 'CPU',
+      threads: 8,
+      os: 'Windows',
+      role: 'Coordinator',
+      inventory: {
+        sampledAt: 1,
+        gpus: [
+          {
+            id: 'gpu-0',
+            name: 'My GPU',
+            pciVendorId: '10de',
+            executionIdentity: { vendor: 'nvidia', uuid, pciBus: '00000000:01:00.0' },
+          },
+        ],
+      },
+    },
+  });
+  window.modelLoomRuntime = { command: runtime };
+  window.modelLoomConfiguration = {
+    command: vi.fn().mockResolvedValue({
+      ok: true,
+      record: saved,
+      defaults: saved,
+      pendingReload: false,
+      thinkingSupported: false,
+      maxOutputTokens: 512,
+    }),
+  };
+  window.modelLoomCluster = {
+    command: vi.fn().mockResolvedValue({
+      ok: true,
+      configurations: [],
+      configuration: allocation,
+      draft: null,
+      load,
+      issues: [],
+    }),
+  };
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(await screen.findByRole('button', { name: 'Configure Target' }));
+  await user.click(screen.getByRole('button', { name: 'Set speculative execution in Cluster' }));
+  await user.click(await screen.findByRole('button', { name: 'Model configuration' }));
+  expect(await screen.findByText('My PC · My GPU')).toBeVisible();
+  expect(runtime.mock.calls.every(([command]) => command.action !== 'load')).toBe(true);
+});

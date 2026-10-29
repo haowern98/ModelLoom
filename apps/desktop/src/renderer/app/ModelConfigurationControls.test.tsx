@@ -1,8 +1,104 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { numericSettings } from '../features/models/configuration';
 import { App } from './App';
+import { ConfigurationSelect } from '../features/models/ConfigurationControls';
+
+it('escapes clipping panels, opens above a low trigger and stays within the viewport', async () => {
+  const bounds = vi
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute('role') === 'combobox'
+        ? new DOMRect(4, window.innerHeight - 50, 150, 32)
+        : new DOMRect(0, 0, 260, 200);
+    });
+  try {
+    const user = userEvent.setup();
+    const { container } = render(
+      <div style={{ overflow: 'hidden' }}>
+        <ConfigurationSelect
+          id="placement"
+          label="Placement"
+          value="auto"
+          options={[
+            { value: 'auto', label: 'Automatic' },
+            { value: 'gpu', label: 'Another PC · GPU 0' },
+          ]}
+        />
+      </div>,
+    );
+    const trigger = screen.getByRole('combobox', { name: 'Placement' });
+    await user.click(trigger);
+    const menu = screen.getByRole('listbox', { name: 'Placement' });
+    expect(container).not.toContainElement(menu);
+    expect(menu).toHaveStyle({
+      position: 'fixed',
+      left: '8px',
+      top: `${window.innerHeight - 258}px`,
+    });
+    expect(screen.getByRole('option', { name: 'Automatic' })).toHaveFocus();
+    await user.keyboard('{ArrowDown}{Enter}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  } finally {
+    bounds.mockRestore();
+  }
+});
+
+it('keeps the floating menu anchored when its scrolling parent moves', async () => {
+  let left = 80;
+  const bounds = vi
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute('role') === 'combobox'
+        ? new DOMRect(left, 40, 150, 32)
+        : new DOMRect(0, 0, 260, 120);
+    });
+  try {
+    const user = userEvent.setup();
+    const { container } = render(
+      <ConfigurationSelect
+        id="placement"
+        label="Placement"
+        value="auto"
+        options={[{ value: 'auto', label: 'Automatic' }]}
+      />,
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Placement' }));
+    expect(screen.getByRole('listbox')).toHaveStyle({ left: '80px', top: '80px' });
+    left = window.innerWidth - 30;
+    fireEvent.scroll(container);
+    expect(screen.getByRole('listbox')).toHaveStyle({ left: `${window.innerWidth - 268}px` });
+    await user.keyboard('{Tab}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  } finally {
+    bounds.mockRestore();
+  }
+});
+
+it('skips unavailable options when opening and navigating the shared menu', async () => {
+  const user = userEvent.setup();
+  render(
+    <ConfigurationSelect
+      id="device"
+      label="Device"
+      value="missing"
+      options={[
+        { value: 'cpu', label: 'CPU' },
+        { value: 'missing', label: 'Unavailable', disabled: true },
+        { value: 'gpu', label: 'GPU' },
+      ]}
+    />,
+  );
+  await user.click(screen.getByRole('combobox', { name: 'Device' }));
+  expect(screen.getByRole('option', { name: 'Unavailable' })).toBeDisabled();
+  expect(screen.getByRole('option', { name: 'CPU' })).toHaveFocus();
+  await user.keyboard('{ArrowDown}');
+  expect(screen.getByRole('option', { name: 'GPU' })).toHaveFocus();
+  await user.keyboard('{ArrowUp}');
+  expect(screen.getByRole('option', { name: 'CPU' })).toHaveFocus();
+});
 
 async function openConfiguration() {
   const user = userEvent.setup();
@@ -30,7 +126,7 @@ describe('Model configuration consistent controls', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
-    expect(screen.getByRole('combobox', { name: 'Method' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Method' })).toBeEnabled();
   });
 
   it('supports menu keyboard navigation, Escape and outside dismissal', async () => {
