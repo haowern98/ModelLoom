@@ -15,10 +15,11 @@ import type { JoiningProps } from './ClusterJoiningPanel';
 import { connectionLabels } from '../../mocks/clusterJoining';
 import { CanvasDevicePicker } from './CanvasDevicePicker';
 import { Button } from '../../components/Button';
+import { ConfigurationSelect } from '../models/ConfigurationControls';
 import type { CanvasEdge } from './canvas-layout';
 
 export type ClusterSelection =
-  | { type: 'overview' | 'share' }
+  | { type: 'overview' | 'share' | 'speculation' }
   | { type: 'add'; anchor?: { deviceId: string; edge: CanvasEdge } }
   | { type: 'device'; device: DemoDevice; hardwareId?: string; renaming?: boolean }
   | { type: 'connection'; from: string; to: string }
@@ -28,6 +29,17 @@ export type AssignmentStatus = 'No assignment' | 'Draft' | 'Saved' | 'In use';
 
 interface ClusterPanelProps extends JoiningProps {
   id: string;
+  speculation?: {
+    enabled: boolean;
+    summary: string;
+    proposer: boolean;
+    device: string;
+    devices: readonly { value: string; label: string }[];
+    placementNote?: string;
+    onDevice: (value: string) => void;
+  };
+  onSpeculation?: () => void;
+  onModelConfiguration?: (() => void) | undefined;
   selection: ClusterSelection;
   devices: readonly DemoDevice[];
   activeModel: DemoModel | undefined;
@@ -157,6 +169,9 @@ export function ClusterPanel({
   onCancelRename,
   onRename,
   saveIssues = [],
+  speculation,
+  onSpeculation,
+  onModelConfiguration,
 }: ClusterPanelProps) {
   const renameTrigger = useRef<HTMLButtonElement>(null);
   const finishRename = () => {
@@ -170,11 +185,13 @@ export function ClusterPanel({
         ? 'Connection details'
         : selection.type === 'link'
           ? 'Connection'
-          : selection.type === 'overview'
-            ? 'Cluster overview'
-            : selection.type === 'add'
-              ? 'Add to canvas'
-              : connectionLabels[selection.type];
+          : selection.type === 'speculation'
+            ? 'Speculative workload'
+            : selection.type === 'overview'
+              ? 'Cluster overview'
+              : selection.type === 'add'
+                ? 'Add to canvas'
+                : connectionLabels[selection.type];
   const hardware = devices.flatMap((device) => device.hardware);
   const gpus = hardware.filter((item) => item.kind === 'gpu');
   const unified = hardware.filter((item) => item.kind === 'unified');
@@ -265,6 +282,56 @@ export function ClusterPanel({
             to={devices.find((device) => device.id === selection.to)}
           />
         )}
+        {selection.type === 'speculation' && (
+          <section className={`${styles.panelSection} ${styles.speculationSummary}`}>
+            <h3>{speculation?.summary ?? 'Off'}</h3>
+            <p className={styles.panelDescription}>
+              Choose where the speculative companion runs. Save this allocation, then load or reload
+              to apply it.
+            </p>
+            {speculation?.proposer ? (
+              <div className={styles.workloadControl}>
+                <label htmlFor="speculative-execution-device">Execution device</label>
+                <ConfigurationSelect
+                  id="speculative-execution-device"
+                  label="Execution device"
+                  value={speculation.device}
+                  disabled={editingDisabled}
+                  onChange={speculation.onDevice}
+                  options={[
+                    { value: 'auto', label: 'Automatic' },
+                    ...speculation.devices,
+                    ...(speculation.device !== 'auto' &&
+                    !speculation.devices.some((device) => device.value === speculation.device)
+                      ? [
+                          {
+                            value: speculation.device,
+                            label: 'Selected device unavailable',
+                            disabled: true,
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
+                {speculation.placementNote && (
+                  <p className={styles.panelDescription}>{speculation.placementNote}</p>
+                )}
+              </div>
+            ) : (
+              <p className={styles.panelDescription}>
+                {speculation?.enabled
+                  ? 'CPU retrieval'
+                  : 'Enable speculative decoding in model configuration.'}
+              </p>
+            )}
+            {onModelConfiguration && (
+              <button type="button" className={styles.allocationRow} onClick={onModelConfiguration}>
+                <span>Model configuration</span>
+                <CaretRight size={14} aria-hidden="true" />
+              </button>
+            )}
+          </section>
+        )}
         {selection.type === 'overview' && (
           <div className={styles.overviewSummary}>
             <div className={styles.overviewModel}>
@@ -314,6 +381,13 @@ export function ClusterPanel({
                 )}
               </dl>
             </section>
+            {onSpeculation && (
+              <button type="button" className={styles.allocationRow} onClick={onSpeculation}>
+                <span>Speculative workload</span>
+                <small>{speculation?.summary ?? 'Off'}</small>
+                <CaretRight size={14} aria-hidden="true" />
+              </button>
+            )}
             <section className={styles.panelSection}>
               <h3>Layer assignment</h3>
               {devices.map((device) => (

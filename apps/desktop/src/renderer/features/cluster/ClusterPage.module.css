@@ -385,6 +385,7 @@
   overscroll-behavior: contain;
 }
 .panelContent:has(.overviewSummary),
+.panelContent:has(.speculationSummary),
 .panelContent:has(.deviceDetailsLink) {
   margin-left: -12px;
   padding-left: 12px;
@@ -1375,4 +1376,17 @@
   .sharingSpinner {
     animation: none;
   }
+}
+
+.workloadControl {
+  display: grid;
+  gap: 12px;
+  color: var(--text);
+}
+.workloadControl > div {
+  /* Match the visible pill height so the row gap starts at its bottom edge. */
+  height: var(--control-height-search);
+}
+.workloadControl + .allocationRow {
+  margin-top: 4px;
 }

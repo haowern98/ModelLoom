@@ -26,6 +26,7 @@ function baseline(saved: SavedClusterConfiguration): ClusterEdit {
   return {
     modelId: saved.modelId,
     load: saved.load,
+    ...(saved.proposerDevice === undefined ? {} : { proposerDevice: saved.proposerDevice }),
     runs: saved.runs.map((run) => ({
       uuid: run.uuid,
       first: String(run.first),
@@ -43,6 +44,7 @@ function sameEdit(left: ClusterEdit, right: ClusterEdit): boolean {
   const normalize = (edit: ClusterEdit) => ({
     modelId: edit.modelId,
     canvas: edit.canvas,
+    proposerDevice: edit.proposerDevice,
     runs: [...edit.runs].sort((a, b) => (a.uuid < b.uuid ? -1 : a.uuid > b.uuid ? 1 : 0)),
   });
   return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
@@ -125,6 +127,9 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
             modelId: reply.draft.modelId,
             load: reply.draft.load,
             runs: reply.draft.runs,
+            ...(reply.draft.proposerDevice === undefined
+              ? {}
+              : { proposerDevice: reply.draft.proposerDevice }),
             ...(reply.draft.canvas ? { canvas: reply.draft.canvas } : {}),
           }
         : reply.configuration
@@ -195,6 +200,23 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     const entry = current();
     if (!entry || !bridge || entry.busy || planning.current) return;
     const raw = { ...entry.raw, runs };
+    if (sameEdit(entry.raw, raw)) return;
+    entry.past = [...entry.past, entry.raw];
+    entry.future = [];
+    write(entry, raw);
+  };
+  const setProposerDevice = (proposerDevice: string) => {
+    if (
+      proposerDevice !== 'auto' &&
+      proposerDevice !== 'cpu' &&
+      !/^(?:peer:[a-f0-9]{64}:)?GPU-[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$/u.test(
+        proposerDevice,
+      )
+    )
+      return;
+    const entry = current();
+    if (!entry || !bridge || entry.busy || planning.current) return;
+    const raw = { ...entry.raw, proposerDevice };
     if (sameEdit(entry.raw, raw)) return;
     entry.past = [...entry.past, entry.raw];
     entry.future = [];
@@ -318,7 +340,9 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
         entry.draft = reply.draft;
       }
       if (sequence === entry.sequence) {
-        entry.raw = entry.saved ? baseline(entry.saved) : { ...entry.raw, runs: [] };
+        const { proposerDevice: discardedDevice, ...remaining } = entry.raw;
+        void discardedDevice;
+        entry.raw = entry.saved ? baseline(entry.saved) : { ...remaining, runs: [] };
         entry.past = [];
         entry.future = [];
         entry.issues = [];
@@ -331,7 +355,9 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
   };
   const dirty = (entry: Entry | undefined) =>
     !!entry &&
-    (entry.saved ? !sameEdit(entry.raw, baseline(entry.saved)) : hasAssignments(entry.raw));
+    (entry.saved
+      ? !sameEdit(entry.raw, baseline(entry.saved))
+      : entry.raw.proposerDevice !== undefined || hasAssignments(entry.raw));
   const requestLeave = async (action: () => void | Promise<void>) => {
     if (departure.current || resolvingDeparture.current || planning.current || current()?.busy)
       return;
@@ -435,6 +461,9 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
           modelId: reply.draft.modelId,
           load: reply.draft.load,
           runs: reply.draft.runs,
+          ...(reply.draft.proposerDevice === undefined
+            ? {}
+            : { proposerDevice: reply.draft.proposerDevice }),
           ...(reply.draft.canvas ? { canvas: reply.draft.canvas } : {}),
         };
         if (!sameEdit(entry.raw, raw)) {
@@ -543,6 +572,7 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     refreshModel,
     edit,
     editCanvas,
+    setProposerDevice,
     undo: () => moveHistory('undo'),
     redo: () => moveHistory('redo'),
     save,
