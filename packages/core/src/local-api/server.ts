@@ -378,6 +378,7 @@ export class ApiServer {
       handle = this.deps.generate(caller, completion.input, async (value) => {
         if (!completion.stream) return;
         if (value.type === 'terminal') throw new Error('INVALID_STREAM');
+        if (value.type === 'metrics') return;
         await role();
         // Even fully escaped UTF-16 stays below the 64 KiB event limit at this size.
         // Keep a surrogate pair together so each independently parsed delta is well formed.

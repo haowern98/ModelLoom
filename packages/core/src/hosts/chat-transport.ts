@@ -98,6 +98,8 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
         ? {}
         : {
             stream: true,
+            timings_per_token: true,
+            return_progress: true,
             ...(settings ? { stream_options: { include_usage: true } } : { max_tokens: 512 }),
             n: 1,
             id_slot: slot,

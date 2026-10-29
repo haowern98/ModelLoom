@@ -207,6 +207,7 @@ export class ApiGeneration {
             return;
           }
           if (entry.abort.signal.aborted) return;
+          if (chunk.type === 'metrics') return;
           if (
             Buffer.byteLength(entry.text) +
               Buffer.byteLength(entry.reasoning) +
