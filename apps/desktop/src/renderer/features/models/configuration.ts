@@ -1,3 +1,8 @@
+import type {
+  NeuralMethod,
+  RetrievalMethod,
+} from '../../../../../../packages/core/src/speculative-decoding/contracts';
+
 /** Sample editor limits only; these do not establish runtime or hardware capabilities. */
 export const numericSettings = {
   contextLength: { label: 'Context Length', initial: '8192', min: 1, step: 1 },
@@ -35,6 +40,12 @@ export type OptionalSetting =
 
 /** Draft text stays intact until Save validates it; no field is passed to an engine. */
 export interface DemoModelDefaults {
+  speculation: {
+    method: 'off' | NeuralMethod;
+    source: string;
+    maxDraftTokens: string;
+    retrieval: 'off' | RetrievalMethod;
+  };
   numbers: Record<NumericSetting, string>;
   enabled: Record<OptionalSetting, boolean>;
   systemPrompt: string;
@@ -61,6 +72,7 @@ export function createDemoDefaults(): DemoModelDefaults {
   for (const key of Object.keys(numericSettings) as NumericSetting[])
     numbers[key] = numericSettings[key].initial;
   return {
+    speculation: { method: 'off', source: '', maxDraftTokens: '', retrieval: 'off' },
     numbers,
     enabled: {
       responseLength: false,

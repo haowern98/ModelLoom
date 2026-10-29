@@ -1,5 +1,9 @@
 import type { ModelConfigurationRecord } from '../../../shared/model-configuration';
 import {
+  decodeSpeculativeDefaults,
+  speculationOff,
+} from '../../../../../../packages/core/src/speculative-decoding/contracts';
+import {
   numericSettings,
   type DemoModelDefaults,
   type NumericSetting,
@@ -9,7 +13,20 @@ import {
 /** Populate the existing editor from committed runtime data, never sample defaults. */
 export function toModelEditor(record: ModelConfigurationRecord): DemoModelDefaults {
   const { load, generation, preferences } = record;
+  const speculation = record.speculation ?? speculationOff();
   return {
+    speculation: {
+      method: speculation.enabled ? (speculation.proposer?.method ?? 'off') : 'off',
+      source:
+        speculation.proposer?.source.kind === 'embedded'
+          ? 'embedded'
+          : (speculation.proposer?.source.modelId ?? ''),
+      maxDraftTokens:
+        speculation.proposer?.maxDraftTokens == null
+          ? ''
+          : String(speculation.proposer.maxDraftTokens),
+      retrieval: speculation.enabled ? (speculation.retrieval?.method ?? 'off') : 'off',
+    },
     numbers: {
       contextLength: String(load.contextLength),
       threads: load.threads === null ? '' : String(load.threads),
@@ -94,8 +111,38 @@ export function fromModelEditor(
       !draft.enabled[field] || (field === 'reasoningBudget' && !draft.thinking),
     ),
   });
+  const spec = draft.speculation;
+  const speculation = decodeSpeculativeDefaults({
+    version: 1,
+    enabled: spec.method !== 'off' || spec.retrieval !== 'off',
+    proposer:
+      spec.method === 'off'
+        ? spec.retrieval === 'off'
+          ? (source.speculation?.proposer ?? null)
+          : null
+        : {
+            method: spec.method,
+            source:
+              spec.source === 'embedded'
+                ? { kind: 'embedded' }
+                : { kind: 'asset', modelId: spec.source },
+            maxDraftTokens:
+              spec.maxDraftTokens === ''
+                ? null
+                : /^\d+$/u.test(spec.maxDraftTokens)
+                  ? Number(spec.maxDraftTokens)
+                  : NaN,
+          },
+    retrieval:
+      spec.retrieval === 'off'
+        ? spec.method === 'off'
+          ? (source.speculation?.retrieval ?? null)
+          : null
+        : { method: spec.retrieval },
+  });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    speculation,
     modelId: source.modelId,
     revision: source.revision,
     load: {

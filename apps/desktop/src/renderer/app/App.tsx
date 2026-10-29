@@ -44,6 +44,7 @@ export function App() {
   const [destination, setDestination] = useState<Destination>('Models');
   const [settingsCategory, setSettingsCategory] = useState<SettingsCategory>('Appearance');
   const [connectionsRequest, setConnectionsRequest] = useState(0);
+  const [speculativeRequest, setSpeculativeRequest] = useState(0);
   const [chat, dispatchChat] = useReducer(transitionDemoChat, demo, createDemoChat);
   const [deviceNames, setDeviceNames] = useState<Record<string, string>>({});
   const [joining, dispatchJoining] = useReducer(
@@ -132,6 +133,50 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [placement.launch, library.models, live]);
 
+  const openConfiguration = (model: DemoModel) => {
+    if (live) {
+      const operation = ++configurationOpen.current;
+      const bridge = window.modelLoomConfiguration;
+      void (async () => {
+        try {
+          if (!bridge) throw Error('CONFIGURATION_UNAVAILABLE');
+          const reply = await bridge.command({
+            action: 'read',
+            modelId: model.id.replace(/^model-/u, ''),
+          });
+          if (operation !== configurationOpen.current) return;
+          if (!reply.ok) throw Error(reply.error);
+          const saved = toModelEditor(reply.record);
+          const preserve =
+            configurationReplies[model.id]?.record.revision === reply.record.revision;
+          setConfigurationReplies((current) => ({ ...current, [model.id]: reply }));
+          setConfigurations((current) => ({
+            ...current,
+            [model.id]: {
+              saved,
+              draft: preserve ? (current[model.id]?.draft ?? saved) : saved,
+            },
+          }));
+          setConfigurationModelId(model.id);
+        } catch {
+          if (operation === configurationOpen.current)
+            setModal({
+              type: 'info',
+              title: 'Model configuration',
+              text: 'Saved settings are unavailable. Try opening model configuration again.',
+            });
+        }
+      })();
+      return;
+    }
+    setConfigurations((current) => {
+      if (current[model.id]) return current;
+      const draft = createDemoDefaults();
+      return { ...current, [model.id]: { saved: draft, draft } };
+    });
+    setConfigurationModelId(model.id);
+  };
+
   const [dismissedRuntimeError, setDismissedRuntimeError] = useState<string | null>(null);
   const memoryWarning = runtime.view?.memoryWarning;
   const displayedModal =
@@ -151,6 +196,25 @@ export function App() {
           key={configurationModel.id}
           model={configurationModel}
           configuration={configuration}
+          speculativeAssets={displayLibrary.models}
+          embeddedMtp={Boolean(configurationModel.embeddedMtp)}
+          executionDevice={(() => {
+            const allocation = clusterConfigurations.raw;
+            if (!allocation || allocation.modelId !== configurationModel.id.replace(/^model-/u, ''))
+              return 'Choose an allocation in Cluster';
+            const device = allocation.proposerDevice ?? 'auto';
+            if (device === 'auto') return 'Automatic';
+            if (device === 'cpu') return `${localDevice?.name ?? 'This PC'} · CPU`;
+            const localGpu = localDevice?.inventory?.gpus?.find(
+              (gpu) => gpu.executionIdentity?.uuid === device,
+            );
+            if (localGpu) return `${localDevice?.name ?? 'This PC'} · ${localGpu.name}`;
+            for (const peer of peerDevices(peers)) {
+              const gpu = peer.hardware.find((entry) => entry.id === device);
+              if (gpu) return `${peer.name} · ${gpu.name}`;
+            }
+            return 'Assigned device unavailable';
+          })()}
           onChange={(draft) =>
             setConfigurations((current) => {
               const existing = current[configurationModel.id];
@@ -205,7 +269,8 @@ export function App() {
             restoreConfigurationFocus.current = `Configure ${configurationModel.name}`;
             setConfigurationModelId(null);
           }}
-          onCluster={() => {
+          onCluster={(section) => {
+            if (section === 'speculation') setSpeculativeRequest((value) => value + 1);
             if (local) {
               setLocalSelection(configurationModel.id);
               void clusterConfigurations.selectModel(configurationModel.id);
@@ -230,53 +295,23 @@ export function App() {
             : {})}
           onRemove={(model) => setModal({ type: 'remove', model })}
           onDetails={(model) => setModal({ type: 'details', model })}
-          onConfigure={(model) => {
-            if (live) {
-              const operation = ++configurationOpen.current;
-              const bridge = window.modelLoomConfiguration;
-              void (async () => {
-                try {
-                  if (!bridge) throw Error('CONFIGURATION_UNAVAILABLE');
-                  const reply = await bridge.command({
-                    action: 'read',
-                    modelId: model.id.replace(/^model-/u, ''),
-                  });
-                  if (operation !== configurationOpen.current) return;
-                  if (!reply.ok) throw Error(reply.error);
-                  const saved = toModelEditor(reply.record);
-                  const preserve =
-                    configurationReplies[model.id]?.record.revision === reply.record.revision;
-                  setConfigurationReplies((current) => ({ ...current, [model.id]: reply }));
-                  setConfigurations((current) => ({
-                    ...current,
-                    [model.id]: {
-                      saved,
-                      draft: preserve ? (current[model.id]?.draft ?? saved) : saved,
-                    },
-                  }));
-                  setConfigurationModelId(model.id);
-                } catch {
-                  if (operation === configurationOpen.current)
-                    setModal({
-                      type: 'info',
-                      title: 'Model configuration',
-                      text: 'Saved settings are unavailable. Try opening model configuration again.',
-                    });
-                }
-              })();
-              return;
-            }
-            setConfigurations((current) => {
-              if (current[model.id]) return current;
-              const draft = createDemoDefaults();
-              return { ...current, [model.id]: { saved: draft, draft } };
-            });
-            setConfigurationModelId(model.id);
-          }}
+          onConfigure={openConfiguration}
           onInfo={(title, text) => setModal({ type: 'info', title, text })}
         />
       ) : destination === 'Cluster' ? (
         <ClusterPage
+          speculativeRequest={speculativeRequest}
+          onSpeculationOpened={() => setSpeculativeRequest(0)}
+          onModelConfiguration={(modelId) => {
+            const model = displayLibrary.models.find(
+              (entry) => entry.id.replace(/^model-/u, '') === modelId,
+            );
+            if (!model || model.speculativeHead) return;
+            void clusterConfigurations.requestLeave(() => {
+              commitNavigation('Models');
+              openConfiguration(model);
+            });
+          }}
           connectionsRequest={connectionsRequest}
           onConnectionsOpened={() => setConnectionsRequest(0)}
           pendingPeerRequests={
