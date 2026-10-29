@@ -59,6 +59,22 @@ it('reads bounded model context and exact file identity without estimating memor
     sha256: createHash('sha256').update(bytes).digest('hex'),
   });
 });
+it('compares vocabulary contents while native initialization validates effective special tokens', async () => {
+  const tokens = (last: string) =>
+    Buffer.concat([str('tokenizer.ggml.tokens'), u32(9), u32(8), u64(2n), str('first'), str(last)]);
+  const first = await inspectGGUF(await file(fixture(4096, [tokens('second')])));
+  const optional = await inspectGGUF(
+    await file(
+      fixture(4096, [
+        tokens('second'),
+        Buffer.concat([str('tokenizer.ggml.add_bos_token'), u32(7), Buffer.from([0])]),
+      ]),
+    ),
+  );
+  const changed = await inspectGGUF(await file(fixture(4096, [tokens('different')])));
+  expect(first.tokenizerHash).toBe(optional.tokenizerHash);
+  expect(first.tokenizerHash).not.toBe(changed.tokenizerHash);
+});
 it('reads repeating blocks from architecture metadata, never the tensor count', async () => {
   const bytes = fixture(4096, [Buffer.concat([str('llama.block_count'), u32(4), u32(64)])]);
   expect(await inspectGGUF(await file(bytes))).toMatchObject({ tensors: 1, blockCount: 64 });

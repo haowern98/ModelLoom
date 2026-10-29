@@ -45,6 +45,15 @@ it('validates companion classification explicitly and preserves legacy source re
   expect(() => decodeModelSource({ ...head(), speculativeHead: ['dflash'] })).toThrow();
   expect(() => decodeModelSource({ ...head(), architecture: 'llama' })).toThrow();
 });
+it('round-trips bounded NextN hints and rejects counts without a remaining trunk', () => {
+  const entry = { ...source('a'), blockCount: 4, nextnPredictLayers: 1 };
+  expect(decodeModelSource(entry)).toEqual(entry);
+  expect(decodeModelSource({ ...entry, nextnPredictLayers: 0 }).nextnPredictLayers).toBe(0);
+  for (const nextnPredictLayers of [-1, 1.5, 4, 5, NaN])
+    expect(() => decodeModelSource({ ...entry, nextnPredictLayers })).toThrow(
+      'INVALID_CONFIGURATION',
+    );
+});
 it('keeps companion registration main-only and rejects ordinary models on that command', () => {
   const command = {
     action: 'registerCompanion',
