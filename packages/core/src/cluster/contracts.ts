@@ -1,3 +1,5 @@
+import { decodeSpeculativeDefaults } from '../speculative-decoding/contracts.js';
+import type { SpeculativeDefaults } from '../speculative-decoding/contracts.js';
 import { decodeAdvancedPreferences } from '../model-configuration/contracts.js';
 import type { LoadDefaults, AdvancedPreferences } from '../model-configuration/contracts.js';
 import { decodeClusterCanvasLayout } from './canvas-layout.js';
@@ -15,6 +17,7 @@ export interface GpuRun {
 }
 export interface CapturedClusterLoad {
   readonly defaults: LoadDefaults;
+  readonly speculation?: SpeculativeDefaults;
   readonly preferences?: AdvancedPreferences;
   readonly cacheK: 'f16' | 'q8_0';
   readonly cacheV: 'f16' | 'q8_0';
@@ -22,6 +25,7 @@ export interface CapturedClusterLoad {
 /** Trusted controller identities, separate from editable caller data. */
 export interface ClusterDraft {
   readonly canvas?: ClusterCanvasLayout;
+  readonly proposerDevice?: string;
   readonly key: string;
   readonly configurationId: string | null;
   readonly modelId: string;
@@ -30,9 +34,13 @@ export interface ClusterDraft {
   readonly load: CapturedClusterLoad;
   readonly runs: readonly RawGpuRun[];
 }
-export type ClusterEdit = Pick<ClusterDraft, 'modelId' | 'load' | 'runs' | 'canvas'>;
+export type ClusterEdit = Pick<
+  ClusterDraft,
+  'modelId' | 'load' | 'runs' | 'canvas' | 'proposerDevice'
+>;
 export interface SavedClusterConfiguration {
   readonly canvas?: ClusterCanvasLayout;
+  readonly proposerDevice?: string;
   readonly id: string;
   readonly name: string;
   readonly revision: number;
@@ -104,6 +112,9 @@ export function decodeCapturedClusterLoad(input: unknown): CapturedClusterLoad {
     'defaults',
     'cacheK',
     'cacheV',
+    ...(input && typeof input === 'object' && Object.hasOwn(input, 'speculation')
+      ? ['speculation']
+      : []),
     ...(input && typeof input === 'object' && Object.hasOwn(input, 'preferences')
       ? ['preferences']
       : []),
@@ -129,6 +140,9 @@ export function decodeCapturedClusterLoad(input: unknown): CapturedClusterLoad {
   if (defaults.physicalBatch > defaults.evaluationBatch) return invalid();
   return Object.freeze({
     defaults,
+    ...(Object.hasOwn(v, 'speculation')
+      ? { speculation: decodeSpeculativeDefaults(v.speculation) }
+      : {}),
     ...(v.preferences === undefined
       ? {}
       : { preferences: decodeAdvancedPreferences(v.preferences) }),
@@ -151,9 +165,16 @@ function rawRuns(input: unknown): readonly RawGpuRun[] {
 }
 /** Caller edits cannot choose identities, revisions, profiles, paths or arguments. */
 export function decodeClusterEdit(input: unknown): ClusterEdit {
-  const v = object(input, ['modelId', 'load', 'runs', ...canvasKeys(input)]);
+  const v = object(input, [
+    'modelId',
+    'load',
+    'runs',
+    ...canvasKeys(input),
+    ...proposerKeys(input),
+  ]);
   return Object.freeze({
     ...canvasValue(v),
+    ...proposerValue(v),
     modelId: match(v.modelId, model),
     load: decodeCapturedClusterLoad(v.load),
     runs: rawRuns(v.runs),
@@ -169,12 +190,14 @@ export function decodeClusterDraft(input: unknown): ClusterDraft {
     'load',
     'runs',
     ...canvasKeys(input),
+    ...proposerKeys(input),
   ]);
   const key = text(v.key, 160);
   if (!key || Array.from(key).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127))
     return invalid();
   return Object.freeze({
     ...canvasValue(v),
+    ...proposerValue(v),
     key,
     configurationId: v.configurationId === null ? null : match(v.configurationId, id),
     modelId: match(v.modelId, model),
@@ -205,6 +228,7 @@ export function decodeSavedClusterConfiguration(input: unknown): SavedClusterCon
     'load',
     'runs',
     ...canvasKeys(input),
+    ...proposerKeys(input),
   ]);
   if (!Array.isArray(v.runs) || v.runs.length < 1 || v.runs.length > 2) return invalid();
   const blockCount = integer(v.blockCount, 1, 2147483647);
@@ -226,6 +250,7 @@ export function decodeSavedClusterConfiguration(input: unknown): SavedClusterCon
     return invalid();
   return Object.freeze({
     ...canvasValue(v),
+    ...proposerValue(v),
     id: match(v.id, id),
     name: decodeConfigurationName(v.name),
     revision: integer(v.revision),
@@ -242,4 +267,15 @@ function canvasKeys(input: unknown): string[] {
 }
 function canvasValue(value: Record<string, unknown>): { canvas?: ClusterCanvasLayout } {
   return value.canvas === undefined ? {} : { canvas: decodeClusterCanvasLayout(value.canvas) };
+}
+
+function proposerKeys(input: unknown): string[] {
+  return input && typeof input === 'object' && Object.hasOwn(input, 'proposerDevice')
+    ? ['proposerDevice']
+    : [];
+}
+function proposerValue(value: Record<string, unknown>): { proposerDevice?: string } {
+  if (!Object.hasOwn(value, 'proposerDevice')) return {};
+  const device = value.proposerDevice;
+  return { proposerDevice: device === 'auto' || device === 'cpu' ? device : match(device, gpu) };
 }

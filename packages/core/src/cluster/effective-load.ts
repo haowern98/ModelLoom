@@ -6,6 +6,8 @@ import { compilePlacement } from './placement.js';
 import { SERVER_CACHE_POLICY } from '../runtime/preflight.js';
 import type { AdvancedPreferences } from '../model-configuration/contracts.js';
 import { clusterDeviceNames } from './device-id.js';
+import type { SpeculativeDefaults } from '../speculative-decoding/contracts.js';
+import { speculationOff } from '../speculative-decoding/contracts.js';
 /** Complete load tuple; request sampling remains in the existing generation owner. */
 export interface ClusterEffectiveLoad {
   readonly version: 1;
@@ -18,6 +20,8 @@ export interface ClusterEffectiveLoad {
   readonly microbatch: number;
   readonly flashAttention: boolean;
   readonly preferences?: AdvancedPreferences;
+  readonly speculation?: SpeculativeDefaults;
+  readonly proposerDevice?: string;
   readonly cacheK: 'f16' | 'q8_0';
   readonly cacheV: 'f16' | 'q8_0';
   readonly blockCount: number;
@@ -59,6 +63,12 @@ export function resolveClusterLoad(
     microbatch: d.physicalBatch,
     flashAttention: d.flashAttention,
     ...(preferences ? { preferences } : {}),
+    ...(saved.load.speculation?.enabled || saved.proposerDevice !== undefined
+      ? {
+          speculation: saved.load.speculation ?? speculationOff(),
+          proposerDevice: saved.proposerDevice ?? 'auto',
+        }
+      : {}),
     cacheK: saved.load.cacheK,
     cacheV: saved.load.cacheV,
     blockCount: saved.blockCount,

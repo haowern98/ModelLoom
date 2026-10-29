@@ -41,6 +41,7 @@ export class ClusterController {
           configuration?.load ?? {
             defaults: defaults.load,
             preferences: defaults.preferences,
+            ...(defaults.speculation ? { speculation: defaults.speculation } : {}),
             ...this.caches,
             cacheV: defaults.load.flashAttention ? this.caches.cacheV : ('f16' as const),
           };
