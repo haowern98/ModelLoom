@@ -33,6 +33,30 @@ function setup() {
     },
   };
 }
+it('saving speculation requires reload and cannot change the active or queued request', async () => {
+  const { controller, activate } = setup();
+  await activate();
+  const active = await controller.captureLoad(record().modelId);
+  const queued = await controller.resolve(active);
+  const initial = await controller.command('window', { action: 'read', modelId: record().modelId });
+  if (!initial.ok) throw Error('Expected configuration');
+  const speculation = {
+    version: 1 as const,
+    enabled: true,
+    proposer: { method: 'mtp' as const, source: { kind: 'embedded' as const }, maxDraftTokens: 3 },
+    retrieval: null,
+  };
+  const saved = await controller.command('window', {
+    action: 'save',
+    modelId: record().modelId,
+    expectedRevision: 0,
+    record: { ...initial.record, speculation },
+  });
+  expect(saved).toMatchObject({ ok: true, pendingReload: true, record: { speculation } });
+  expect((await controller.captureLoad(record().modelId)).speculation).toEqual(speculation);
+  expect((await controller.resolve(active)).speculation?.enabled).toBe(false);
+  expect(queued.speculation?.enabled).toBe(false);
+});
 it('uses native context for requests while preserving saved defaults and reload comparisons', async () => {
   const { controller, activate } = setup();
   const initial = await controller.command('window', { action: 'read', modelId: record().modelId });

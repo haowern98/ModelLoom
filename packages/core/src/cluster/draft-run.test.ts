@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { captureClusterDraft } from './run-plan.js';
+import { captureClusterDraft, captureClusterRun } from './run-plan.js';
 import { record, capabilities } from '../model-configuration/test-fixtures.js';
 const draft = {
   key: `model:${record().modelId}`,
@@ -11,6 +11,24 @@ const draft = {
   runs: [{ uuid: 'GPU-12345678-1234-1234-1234-123456789abc', first: '0', last: '63' }],
 };
 const id = '12345678-1234-4234-8234-123456789abc';
+it('captures proposer allocation and rejects a changed saved allocation', () => {
+  const input = { ...draft, proposerDevice: 'cpu' };
+  const captured = captureClusterDraft(input, 2, 64, capabilities.profileId, id);
+  expect(captured.proposerDevice).toBe('cpu');
+  expect(() =>
+    captureClusterRun(
+      captured,
+      2,
+      {
+        ...input,
+        configurationId: id,
+        baseSavedRevision: 2,
+        proposerDevice: 'auto',
+      },
+      'test',
+    ),
+  ).toThrow('UNSAVED_CONFIGURATION');
+});
 it('captures a valid draft without naming or saving it', () => {
   const captured = captureClusterDraft(draft, 2, 64, capabilities.profileId, id);
   expect(captured).toMatchObject({

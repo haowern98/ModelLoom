@@ -35,6 +35,28 @@ const source = {
   quantization: 'Q4_K_M',
   parameters: '4B',
 };
+it('retains proposer allocation across reopen and restores it on discard', async () => {
+  const { db, store } = setup();
+  await store.recordImport(edit.modelId, 123, source);
+  const input = { ...edit, runs: [{ uuid, first: '0', last: '63' }], proposerDevice: 'cpu' };
+  const draft = store.cluster.writeDraft(`model:${edit.modelId}`, null, input);
+  const saved = store.cluster.saveDraft(draft.key, draft.revision, 'Speculation');
+  if (!saved.ok) throw Error('fixture save failed');
+  const reopened = new ModelConfigurationStore(
+    db,
+    () => {},
+    () => true,
+    capabilities,
+    record().load,
+  );
+  reopened.cluster.clearSessionDrafts();
+  expect(reopened.cluster.read(saved.configuration.id)?.proposerDevice).toBe('cpu');
+  const changed = reopened.cluster.writeDraft(saved.draft.key, null, {
+    ...input,
+    proposerDevice: 'auto',
+  });
+  expect(reopened.cluster.discardDraft(changed.key, changed.revision)?.proposerDevice).toBe('cpu');
+});
 it('restores named canvas geometry after reopening and discards only unsaved geometry', async () => {
   const { db, store } = setup();
   await store.recordImport(edit.modelId, 123, source);

@@ -20,6 +20,28 @@ const load = {
   cacheK: 'f16',
   cacheV: 'f16',
 };
+test('accepts bounded proposer identities and rejects paths, ordinals and explicit undefined', () => {
+  const input = { modelId: 'a'.repeat(64), load, runs: [] };
+  const uuid = 'GPU-12345678-1234-1234-1234-123456789abc';
+  for (const proposerDevice of ['auto', 'cpu', uuid, `peer:${'b'.repeat(64)}:${uuid}`])
+    expect(decodeClusterEdit({ ...input, proposerDevice }).proposerDevice).toBe(proposerDevice);
+  for (const proposerDevice of [undefined, null, '', 'CUDA0', '0', 'E:\\draft.gguf'])
+    expect(() => decodeClusterEdit({ ...input, proposerDevice })).toThrow();
+  expect(decodeClusterEdit(input).proposerDevice).toBeUndefined();
+});
+test('captures detached speculative settings and rejects malformed companion intent', () => {
+  const speculation = {
+    version: 1,
+    enabled: true,
+    proposer: { method: 'mtp', source: { kind: 'embedded' }, maxDraftTokens: 3 },
+    retrieval: null,
+  };
+  const captured = decodeCapturedClusterLoad({ ...load, speculation });
+  expect(captured.speculation).toEqual(speculation);
+  speculation.proposer.maxDraftTokens = 4;
+  expect(captured.speculation?.proposer?.maxDraftTokens).toBe(3);
+  expect(() => decodeCapturedClusterLoad({ ...load, speculation: undefined })).toThrow();
+});
 test('accepts empty drafts and freezes detached load', () => {
   const result = decodeClusterDraft({
     key: 'draft',

@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import { decodeConfigurationCommand, decodeConfigurationReply } from './wire.js';
 import { record } from './test-fixtures.js';
+import { decodeModelConfiguration } from './contracts.js';
 
 it('accepts only read/save data and rejects privileged or oversized management payloads', () => {
   expect(decodeConfigurationCommand({ action: 'read', modelId: record().modelId })).toEqual({
@@ -39,7 +40,11 @@ it('copies bounded non-secret replies and rejects forged status/exception fields
     thinkingSupported: false,
   };
   const output = decodeConfigurationReply(input);
-  expect(output).toEqual(input);
+  expect(output).toEqual({
+    ...input,
+    record: decodeModelConfiguration(input.record, { contextLimit: 2147483647 }),
+    defaults: decodeModelConfiguration(input.defaults, { contextLimit: 2147483647 }),
+  });
   expect(output).not.toBe(input);
   expect(() => decodeConfigurationReply({ ...input, secret: 'private' })).toThrow(
     'INVALID_CONTROL',
