@@ -18,6 +18,7 @@ export interface RuntimeModel {
   unavailable?: boolean;
   /** Last trusted request dispatch, in milliseconds since the Unix epoch. */
   lastUsedAt?: number;
+  speculativeHead?: 'eagle3' | 'dflash' | 'dspark' | 'mtp';
 }
 export interface RuntimeDevice {
   name: string;

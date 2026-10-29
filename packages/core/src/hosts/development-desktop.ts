@@ -9,7 +9,7 @@ import {
 import { createDevelopmentRuntimeVerifier } from '../runtime-package/verifier.js';
 import { installExpanded, requireInstalledLive } from '../runtime-package/install.js';
 import type { InstalledPackage } from '../runtime-package/install.js';
-import { inspectGGUF } from '../runtime/gguf.js';
+import { inspectGGUF, inspectGGUFHeader } from '../runtime/gguf.js';
 import { LIFECYCLE_POLICY, REMOTE_STARTUP_MS } from '../runtime/contracts.js';
 import { GENERATION_POLICY } from '../generation/contracts.js';
 import { withPeerActivity } from '../generation/peer-activity-transport.js';
@@ -639,6 +639,32 @@ export function developmentDesktopDependencies(
         };
       } finally {
         native.releaseFiles(lock);
+      }
+    },
+    /** Reclassify legacy discovery metadata under the existing file seal, without reading payloads. */
+    async reinspect(source: ModelSource): Promise<ModelSource | null> {
+      const native = ownershipBinding();
+      let lock: ReturnType<typeof native.sealFiles> | undefined;
+      try {
+        lock = native.sealFiles([source.file]);
+        const stat = await lstat(source.file);
+        if (!stat.isFile() || stat.size !== source.sizeBytes || stat.mtimeMs !== source.modifiedMs)
+          return null;
+        const info = await inspectGGUFHeader(source.file);
+        const corrected = {
+          ...source,
+          architecture: info.architecture,
+          contextLimit: info.contextLimit,
+          blockCount: info.blockCount,
+          classificationVersion: 1 as const,
+        };
+        if (info.speculativeHead) corrected.speculativeHead = info.speculativeHead;
+        else delete corrected.speculativeHead;
+        return corrected;
+      } catch {
+        return null;
+      } finally {
+        if (lock) native.releaseFiles(lock);
       }
     },
     /** Reconcile a saved source without hashing/loading a large model during startup. */

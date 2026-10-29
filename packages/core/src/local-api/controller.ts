@@ -62,6 +62,13 @@ export class ApiController {
   private async handle(input: unknown): Promise<ApiOwnerReply> {
     try {
       const command = decodeApiOwnerCommand(input);
+      if (command.action === 'reinspectImport') {
+        if (this.ready()) return { ok: false, error: 'NOT_READY' };
+        await this.store.reinspectImport(command.source);
+        if (command.modelId === this.modelId && command.source.speculativeHead)
+          this.imported = null;
+        return { ok: true, registered: true };
+      }
       if (command.action === 'removeImport') {
         if (command.modelId === this.modelId && this.ready())
           return { ok: false, error: 'NOT_READY' };
@@ -83,6 +90,12 @@ export class ApiController {
           command.source,
         );
         // Import registration remains available even when Windows key protection cannot open.
+        return { ok: true, registered: true };
+      }
+      if (command.action === 'registerCompanion') {
+        if (!command.source?.speculativeHead || command.modelId === this.modelId)
+          throw new Error('INVALID_CONTROL');
+        await this.store.recordImport(command.modelId, command.created, command.source);
         return { ok: true, registered: true };
       }
       await this.preparing;

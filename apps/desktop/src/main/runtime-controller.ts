@@ -86,6 +86,8 @@ interface ActivationDependencies {
     { sha256: string; size: string } & Partial<Omit<ModelSource, 'modelId' | 'file' | 'size'>>
   >;
   available?(source: ModelSource): Promise<boolean>;
+  /** Trusted sealed header reconciliation; no model payload hashing or loading at startup. */
+  reinspect?(source: ModelSource): Promise<ModelSource | null>;
   preflight(allowSharedMemory?: boolean): Promise<void>;
   /** Trusted main UI only; no renderer-supplied consent flag or launch argument. */
   confirmSharedMemory?(): Promise<boolean>;
@@ -186,8 +188,26 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       const reply = decodeApiOwnerReply(await host.api(caller, command), command);
       if (!reply.ok || !('entry' in reply)) throw Error('LIBRARY_UNAVAILABLE');
       if (!reply.entry) break;
-      const { source, lastUsedAt } = reply.entry;
-      const unavailable = deps.enabled && deps.available ? !(await deps.available(source)) : true;
+      let { source } = reply.entry;
+      const { lastUsedAt } = reply.entry;
+      let unavailable = deps.enabled && deps.available ? !(await deps.available(source)) : true;
+      if (!unavailable && deps.enabled && deps.reinspect && source.classificationVersion !== 1) {
+        const corrected = await deps.reinspect(source).catch(() => null);
+        if (!corrected) unavailable = true;
+        else {
+          const updated = decodeModelSource(corrected);
+          if (updated.modelId !== source.modelId || updated.classificationVersion !== 1)
+            throw Error('LIBRARY_UNAVAILABLE');
+          const command = {
+            action: 'reinspectImport' as const,
+            modelId: updated.modelId,
+            source: updated,
+          };
+          const repaired = decodeApiOwnerReply(await host.api(caller, command), command);
+          if (!repaired.ok || !('registered' in repaired)) throw Error('LIBRARY_UNAVAILABLE');
+          source = updated;
+        }
+      }
       const model = modelView(source, unavailable);
       if (lastUsedAt !== null) model.lastUsedAt = lastUsedAt;
       models.push(model);
@@ -326,11 +346,11 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     restoration = preparation
       .then(async () => {
         if (quitting || !host?.api) return;
+        await restoreLibrary();
         const reply = await host.api(caller, { action: 'readImportSource' });
         if (!reply.ok || !('source' in reply)) throw new Error('LIBRARY_UNAVAILABLE');
         if (reply.source === null) return;
         const source = decodeModelSource(reply.source);
-        await restoreLibrary();
         await selectHistoryOwner(source);
         if (quitting) return;
         file = source.file;
@@ -364,6 +384,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       blockCount: source.blockCount ?? null,
       quantization: source.quantization,
       parameters: source.parameters,
+      ...(source.speculativeHead ? { speculativeHead: source.speculativeHead } : {}),
       unavailable,
     };
   }
@@ -607,6 +628,16 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
         if (preparation) await preparation;
         if (restoration) await restoration;
         if (quitting || !host?.cluster) return { ok: false, error: 'NOT_READY' };
+        const requestedModelId =
+          'modelId' in command
+            ? command.modelId
+            : command.action === 'edit'
+              ? command.edit.modelId
+              : 'key' in command && command.key.startsWith('model:')
+                ? command.key.slice(6)
+                : undefined;
+        if (requestedModelId && sources.get(`model-${requestedModelId}`)?.speculativeHead)
+          return { ok: false, error: 'UNKNOWN_MODEL' };
         // Run must acknowledge the draft on the model's eventual owner. Switching
         // owners afterwards clears session drafts during the old owner's close.
         if (
@@ -669,7 +700,8 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
             if (!configuration) throw Error('UNKNOWN_CONFIGURATION');
             modelId = configuration.modelId;
           }
-          if (!sources.has(`model-${modelId}`)) throw Error('UNKNOWN_MODEL');
+          if (!sources.has(`model-${modelId}`) || sources.get(`model-${modelId}`)?.speculativeHead)
+            throw Error('UNKNOWN_MODEL');
           const read = decodeClusterReply(
             await host.cluster(caller, {
               action: 'read',
@@ -679,6 +711,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           );
           if (!read.ok) return read;
           const source = read.draft ? sources.get(`model-${read.draft.modelId}`) : undefined;
+          if (source?.speculativeHead) throw Error('UNKNOWN_MODEL');
           if (!source?.blockCount) throw Error('NEEDS_MODEL_METADATA');
           if (
             !read.draft ||
@@ -760,7 +793,8 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       const command = decodeConfigurationCommand(input);
       if (quitting || !deps.enabled || !file || !view.model)
         return { ok: false, error: 'NOT_READY' };
-      if (!sources.has(`model-${command.modelId}`)) return { ok: false, error: 'UNKNOWN_MODEL' };
+      const source = sources.get(`model-${command.modelId}`);
+      if (!source || source.speculativeHead) return { ok: false, error: 'UNKNOWN_MODEL' };
       try {
         if (preparation) await preparation;
         if (quitting || !host?.configuration)
@@ -878,7 +912,29 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
               ...(info.thinkingSupported === undefined
                 ? {}
                 : { thinkingSupported: info.thinkingSupported }),
+              ...(info.speculativeHead ? { speculativeHead: info.speculativeHead } : {}),
+              classificationVersion: 1,
             };
+            if (source.speculativeHead) {
+              if (preparation) await preparation;
+              if (quitting) return;
+              if (!host?.api) throw new Error('LIBRARY_UNAVAILABLE');
+              const command = {
+                action: 'registerCompanion' as const,
+                modelId: source.modelId,
+                created: importedAt,
+                source,
+              };
+              const registered = decodeApiOwnerReply(await host.api(caller, command), command);
+              if (!registered.ok || !('registered' in registered))
+                throw new Error('LIBRARY_UNAVAILABLE');
+              if (quitting) return;
+              const model = modelView(source);
+              sources.set(model.id, source);
+              updateModel(model);
+              view = { ...view, error: null };
+              return;
+            }
             if (deps.createHistoryHost && preparation) await preparation;
             await observeDevice();
             if (host && deps.createHistoryHost) {
@@ -935,7 +991,11 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           const listed = decodeClusterReply(await host.cluster(caller, { action: 'list' }));
           if (!listed.ok) throw Error(listed.error);
           const selected = listed.configurations.find((c) => c.id === command.configurationId);
-          if (!selected || !sources.has(`model-${selected.modelId}`))
+          if (
+            !selected ||
+            !sources.has(`model-${selected.modelId}`) ||
+            sources.get(`model-${selected.modelId}`)?.speculativeHead
+          )
             throw Error('UNKNOWN_CONFIGURATION');
           if (selected.modelId !== currentModelId()) {
             if (importing || !['stopped', 'failed'].includes(view.phase)) throw Error('BUSY');
@@ -1067,7 +1127,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           if (clusterCleanupFailed) throw Error('CLEANUP_FAILED');
           if (importing || view.restoring || runningConfiguration) throw new Error('BUSY');
           const source = sources.get(command.modelId);
-          if (!source) throw new Error('INVALID_MODEL_ID');
+          if (!source || source.speculativeHead) throw new Error('INVALID_MODEL_ID');
           if (!['stopped', 'failed'].includes(view.phase)) throw new Error('BUSY');
           const model = view.models?.find((entry) => entry.id === command.modelId);
           if (!model || model.unavailable) throw new Error('MODEL_FILE_UNAVAILABLE');
