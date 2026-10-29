@@ -79,6 +79,7 @@ interface Entry {
   native?: GenerationExecution;
   terminal?: TerminalOutcome;
   speeds?: GenerationSpeeds;
+  checkpointSpeeds?: GenerationSpeeds | undefined;
   thinkingStarted?: number;
   thinkingMs?: number;
   failure?: TerminalOutcome;
@@ -421,6 +422,12 @@ export class GenerationService {
   private progress(entry: Entry, chunk: GenerationChunk): void {
     if (this.entries.get(entry.identity.requestId) !== entry || entry.failure) return;
     try {
+      if (chunk.type === 'metrics') {
+        if (entry.terminal || Object.keys(chunk).sort().join(',') !== 'speeds,type')
+          throw Error('INVALID_STREAM');
+        entry.speeds = decodeSpeeds(chunk.speeds);
+        return;
+      }
       if (chunk.type === 'terminal') {
         if (
           entry.terminal ||
@@ -491,13 +498,16 @@ export class GenerationService {
     if (
       entry.checkpointBytes ===
         Buffer.byteLength(entry.text) + Buffer.byteLength(entry.reasoning) &&
-      entry.state === 'running'
+      entry.state === 'running' &&
+      entry.checkpointSpeeds === entry.speeds
     )
       return;
     const content = entry.text,
       reasoning = entry.reasoning,
       thinkingMs = entry.thinkingMs,
+      speeds = entry.speeds,
       state = entry.state;
+    entry.checkpointSpeeds = speeds;
     entry.checkpointBytes = Buffer.byteLength(content) + Buffer.byteLength(reasoning);
     entry.writes = entry.writes
       .then(() =>
@@ -507,6 +517,7 @@ export class GenerationService {
           state,
           reasoning,
           thinkingMs,
+          speeds,
         ),
       )
       .catch(() => {
@@ -525,10 +536,7 @@ export class GenerationService {
         result.status === 'failed' && result.reason === 'CANCEL_UNCONFIRMED'
           ? result
           : (entry.failure ?? result);
-      const speeds =
-        terminal.status === 'completed' || terminal.status === 'limit-reached'
-          ? entry.speeds
-          : undefined;
+      const speeds = entry.speeds;
       await this.deps.history.finish(
         entry.identity.attemptId,
         entry.text,

@@ -21,6 +21,8 @@ interface StreamState {
   usageSeen: boolean;
   speeds?: GenerationSpeeds | undefined;
   usage?: GenerationUsage;
+  lastMetricsAt?: number;
+  publishedSpeeds?: GenerationSpeeds;
 }
 
 /** Parses the pinned single-choice internal chat SSE response.
@@ -106,6 +108,7 @@ function parseFrame(data: string, state: StreamState): readonly GenerationChunk[
     'choices',
     'usage',
     'timings',
+    'prompt_progress',
   ];
   if (
     Object.keys(envelope).some((key) => !allowed.includes(key)) ||
@@ -129,7 +132,8 @@ function parseFrame(data: string, state: StreamState): readonly GenerationChunk[
     if (!state.terminal || state.usageSeen || !envelope.usage) fault('INVALID_STREAM');
     state.usage = nativeUsage(envelope.usage);
     state.usageSeen = true;
-    if (Object.hasOwn(envelope, 'timings')) state.speeds = nativeSpeeds(envelope.timings);
+    if (Object.hasOwn(envelope, 'timings'))
+      state.speeds = nativeSpeeds(envelope.timings) ?? state.speeds;
     return [];
   }
   if (choices.length !== 1 || state.terminal) fault('INVALID_STREAM');
@@ -165,9 +169,47 @@ function parseFrame(data: string, state: StreamState): readonly GenerationChunk[
   else if (choice.finish_reason === 'length')
     state.terminal = Object.freeze({ status: 'limit-reached', reason: 'OUTPUT_LIMIT' });
   else if (choice.finish_reason !== null) fault('INVALID_STREAM');
-  if (state.terminal && Object.hasOwn(envelope, 'timings'))
-    state.speeds = nativeSpeeds(envelope.timings);
+  const measured = nativeSpeeds(envelope.timings);
+  const prefill = promptSpeed(envelope.prompt_progress);
+  if (measured || prefill !== null) {
+    state.speeds = Object.freeze({
+      generation: measured?.generation ?? state.speeds?.generation ?? null,
+      prefill: prefill ?? measured?.prefill ?? state.speeds?.prefill ?? null,
+    });
+    const now = performance.now();
+    const phaseChanged =
+      (state.publishedSpeeds?.generation == null && state.speeds.generation !== null) ||
+      (state.publishedSpeeds?.prefill == null && state.speeds.prefill !== null);
+    if (!state.terminal && (phaseChanged || now - (state.lastMetricsAt ?? -Infinity) >= 250)) {
+      state.lastMetricsAt = now;
+      state.publishedSpeeds = state.speeds;
+      result.push(Object.freeze({ type: 'metrics', speeds: state.speeds }));
+    }
+  }
   return result;
+}
+
+function promptSpeed(input: unknown): number | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const { total, cache, processed, time_ms: elapsed } = input as Record<string, unknown>;
+  if (
+    ![total, cache, processed, elapsed].every(
+      (value) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0,
+    )
+  )
+    return null;
+  if (
+    typeof total !== 'number' ||
+    typeof cache !== 'number' ||
+    typeof processed !== 'number' ||
+    typeof elapsed !== 'number' ||
+    processed > total ||
+    cache > processed ||
+    elapsed === 0 ||
+    processed === cache
+  )
+    return null;
+  return Math.min(Number.MAX_SAFE_INTEGER, ((processed - cache) * 1000) / elapsed);
 }
 
 function nativeUsage(input: unknown): GenerationUsage {

@@ -130,7 +130,7 @@ class LiveChatClient {
     const poll = () => {
       if (!this.closed) {
         void this.refresh();
-        this.timer = setTimeout(poll, 500);
+        this.timer = setTimeout(poll, this.busy() ? 250 : 500);
       }
     };
     this.timer = setTimeout(poll, 500);

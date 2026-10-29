@@ -56,6 +56,10 @@ export function decodeExecutionIdentity(input: unknown): ExecutionIdentity {
 export function decodeGenerationChunk(input: unknown): GenerationChunk {
   return safely(() => {
     const value = object(input);
+    if (value.type === 'metrics') {
+      exact(value, ['type', 'speeds']);
+      return Object.freeze({ type: 'metrics', speeds: decodeSpeeds(value.speeds) });
+    }
     if (value.type === 'text' || value.type === 'reasoning') {
       exact(value, ['type', 'text']);
       return Object.freeze({ type: value.type, text: unicode(value.text) });
@@ -109,6 +113,7 @@ export interface GenerationUsage {
 }
 export type GenerationChunk =
   | { readonly type: 'text' | 'reasoning'; readonly text: string }
+  | { readonly type: 'metrics'; readonly speeds: GenerationSpeeds }
   | {
       readonly type: 'terminal';
       readonly outcome: TerminalOutcome;
@@ -166,6 +171,15 @@ export function decodeProgress(input: string): ProgressEvent {
     )
       invalid();
     const sequence = value.sequence;
+    if (value.type === 'metrics') {
+      exact(value, [...identityFields, 'type', 'sequence', 'speeds']);
+      return Object.freeze({
+        ...identity(value),
+        sequence,
+        type: 'metrics',
+        speeds: decodeSpeeds(value.speeds),
+      });
+    }
     if (value.type === 'text' || value.type === 'reasoning') {
       exact(value, [...identityFields, 'type', 'sequence', 'text']);
       return Object.freeze({
