@@ -21,18 +21,25 @@ function u64(value: bigint) {
 function str(value: string) {
   return Buffer.concat([u64(BigInt(Buffer.byteLength(value))), Buffer.from(value)]);
 }
-function fixture(context = 4096) {
+function fixture(context = 4096, extra: Buffer[] = []) {
   return Buffer.concat([
     Buffer.from('GGUF'),
     u32(3),
     u64(1n),
-    u64(2n),
+    u64(BigInt(2 + extra.length)),
     str('general.architecture'),
     u32(8),
     str('llama'),
     str('llama.context_length'),
     u32(4),
     u32(context),
+    ...extra,
+    str('token_embd.weight'),
+    u32(2),
+    u64(8n),
+    u64(8n),
+    u32(0),
+    u64(0n),
   ]);
 }
 async function file(bytes: Buffer) {
@@ -53,15 +60,11 @@ it('reads bounded model context and exact file identity without estimating memor
   });
 });
 it('reads repeating blocks from architecture metadata, never the tensor count', async () => {
-  const header = fixture();
-  header.writeBigUInt64LE(3n, 16);
-  const bytes = Buffer.concat([header, str('llama.block_count'), u32(4), u32(64)]);
+  const bytes = fixture(4096, [Buffer.concat([str('llama.block_count'), u32(4), u32(64)])]);
   expect(await inspectGGUF(await file(bytes))).toMatchObject({ tensors: 1, blockCount: 64 });
 });
 it.each([0, 4294967295])('keeps invalid block metadata unavailable (%s)', async (count) => {
-  const header = fixture();
-  header.writeBigUInt64LE(3n, 16);
-  const bytes = Buffer.concat([header, str('llama.block_count'), u32(4), u32(count)]);
+  const bytes = fixture(4096, [Buffer.concat([str('llama.block_count'), u32(4), u32(count)])]);
   expect((await inspectGGUF(await file(bytes))).blockCount).toBeNull();
 });
 function topologyFixture(nextn?: number, template?: string) {
@@ -75,15 +78,21 @@ function topologyFixture(nextn?: number, template?: string) {
     str('qwen35.block_count'),
     u32(4),
     u32(65),
+    str('qwen35.embedding_length'),
+    u32(4),
+    u32(8),
   ];
   if (nextn !== undefined) fields.push(str('qwen35.nextn_predict_layers'), u32(4), u32(nextn));
   if (template !== undefined) fields.push(str('tokenizer.chat_template'), u32(8), str(template));
   return Buffer.concat([
     Buffer.from('GGUF'),
     u32(3),
-    u64(866n),
-    u64(BigInt(3 + Number(nextn !== undefined) + Number(template !== undefined))),
+    u64(65n),
+    u64(BigInt(4 + Number(nextn !== undefined) + Number(template !== undefined))),
     ...fields,
+    ...Array.from({ length: 65 }, (_, block) =>
+      Buffer.concat([str(`blk.${block}.attn_norm.weight`), u32(1), u64(8n), u32(0), u64(0n)]),
+    ),
   ]);
 }
 it('preserves allocation blocks while exposing an optional NextN count', async () => {
@@ -118,19 +127,10 @@ it('returns a bounded thinking hint without exposing tokenizer templates', async
   ).toMatchObject({ thinkingSupported: false });
 });
 it('indexes optional display metadata from GGUF rather than a fixed model profile', async () => {
-  const header = fixture();
-  header.writeBigUInt64LE(5n, 16);
-  const bytes = Buffer.concat([
-    header,
-    str('general.name'),
-    u32(8),
-    str('Observed model'),
-    str('general.file_type'),
-    u32(4),
-    u32(15),
-    str('general.size_label'),
-    u32(8),
-    str('8B'),
+  const bytes = fixture(4096, [
+    Buffer.concat([str('general.name'), u32(8), str('Observed model')]),
+    Buffer.concat([str('general.file_type'), u32(4), u32(15)]),
+    Buffer.concat([str('general.size_label'), u32(8), str('8B')]),
   ]);
   expect(await inspectGGUF(await file(bytes))).toMatchObject({
     name: 'Observed model',
@@ -139,15 +139,14 @@ it('indexes optional display metadata from GGUF rather than a fixed model profil
   });
 });
 it('accepts a normal large tokenizer array within the metadata byte budget', async () => {
-  const header = fixture();
-  header.writeBigUInt64LE(3n, 16);
-  const bytes = Buffer.concat([
-    header,
-    str('tokenizer.ggml.tokens'),
-    u32(9),
-    u32(8),
-    u64(32768n),
-    ...Array.from({ length: 32768 }, () => str('token')),
+  const bytes = fixture(4096, [
+    Buffer.concat([
+      str('tokenizer.ggml.tokens'),
+      u32(9),
+      u32(8),
+      u64(32768n),
+      ...Array.from({ length: 32768 }, () => str('token')),
+    ]),
   ]);
   expect(await inspectGGUF(await file(bytes))).toMatchObject({
     architecture: 'llama',
@@ -156,12 +155,12 @@ it('accepts a normal large tokenizer array within the metadata byte budget', asy
   });
 });
 it('still rejects a tokenizer array whose declared count exceeds the bounded header', async () => {
-  const header = fixture();
-  header.writeBigUInt64LE(3n, 16);
   await expect(
     inspectGGUF(
       await file(
-        Buffer.concat([header, str('tokenizer.ggml.tokens'), u32(9), u32(8), u64(1000001n)]),
+        fixture(4096, [
+          Buffer.concat([str('tokenizer.ggml.tokens'), u32(9), u32(8), u64(1000001n)]),
+        ]),
       ),
     ),
   ).rejects.toThrow('INVALID_GGUF');
