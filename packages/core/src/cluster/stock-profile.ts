@@ -3,6 +3,8 @@ import type { CandidateEstimate, EstimateParts } from './estimate.js';
 import type { ResourceSnapshot } from '../runtime/gpu-resources.js';
 import { SERVER_CACHE_POLICY } from '../runtime/preflight.js';
 import { decodeClusterDevice } from './device-id.js';
+import { executionDevices } from '../speculative-decoding/execution.js';
+import type { SpeculativeCompanion } from '../speculative-decoding/assets.js';
 
 export interface StockClusterReport {
   readonly fingerprint: string;
@@ -12,6 +14,7 @@ export interface StockClusterReport {
   readonly devices: readonly { readonly uuid: string; readonly bytes: number }[];
   readonly profileId: 'b11306-four-slot';
   readonly cacheLayers: readonly ('kv' | 'recurrent' | 'auto' | 'none')[];
+  readonly companion?: SpeculativeCompanion;
 }
 const reports = new WeakMap<StockClusterReport, string>();
 const mib = 1048576;
@@ -78,9 +81,18 @@ export function createStockClusterReport(
   load: ClusterEffectiveLoad,
   estimate: CandidateEstimate,
   nextnPredictLayers = 0,
+  companion?: SpeculativeCompanion,
 ): StockClusterReport {
   const profile = requireStockClusterProfile(load),
-    uuids = load.placement.orderedUuids;
+    uuids = executionDevices(load);
+  if (
+    load.speculation?.enabled &&
+    (!estimate.speculation?.initialized ||
+      !estimate.speculation.hostBounded ||
+      (load.speculation.proposer?.source.kind === 'asset' &&
+        companion?.modelId !== load.speculation.proposer.source.modelId))
+  )
+    throw Error('NEEDS_SPECULATIVE_EVIDENCE');
   if (
     !Number.isSafeInteger(nextnPredictLayers) ||
     nextnPredictLayers < 0 ||
@@ -102,13 +114,16 @@ export function createStockClusterReport(
     fingerprint: load.fingerprint,
     artifact: load.artifact,
     modelSha256: load.modelSha256,
-    hostBytes: budget(estimate.host, 512 * mib),
+    hostBytes:
+      budget(estimate.host, 512 * mib) +
+      (load.speculation?.enabled ? load.serverCaches.promptCacheMiB * mib : 0),
     devices: Object.freeze(
       estimate.devices.map((device) =>
         Object.freeze({ uuid: device.uuid, bytes: budget(device, 256 * mib) }),
       ),
     ),
     ...profile,
+    ...(companion ? { companion: Object.freeze({ ...companion }) } : {}),
     cacheLayers: Object.freeze(
       profile.cacheLayers.map((kind, i) =>
         i >= load.blockCount - nextnPredictLayers ? ('none' as const) : kind,
@@ -149,8 +164,8 @@ export function checkStockClusterResources(
     report.fingerprint !== load.fingerprint ||
     report.artifact !== load.artifact ||
     report.modelSha256 !== load.modelSha256 ||
-    report.devices.length !== load.placement.orderedUuids.length ||
-    report.devices.some((device, i) => device.uuid !== load.placement.orderedUuids[i]) ||
+    report.devices.length !== executionDevices(load).length ||
+    report.devices.some((device, i) => device.uuid !== executionDevices(load)[i]) ||
     snapshot.gpus === null ||
     snapshot.ram === null ||
     !Number.isSafeInteger(snapshot.ram) ||
