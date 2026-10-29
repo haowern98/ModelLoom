@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { speculationOff } from '../speculative-decoding/contracts.js';
 import { createModelConfiguration } from './contracts.js';
 import type {
   ActiveLoadSnapshot,
@@ -66,7 +67,11 @@ export class ConfigurationController {
         pendingReload:
           active !== null &&
           active.modelId === record.modelId &&
-          (!isDeepStrictEqual(record.load, active.requestedLoad ?? active.load) ||
+          (!isDeepStrictEqual(
+            record.speculation ?? speculationOff(),
+            active.speculation ?? speculationOff(),
+          ) ||
+            !isDeepStrictEqual(record.load, active.requestedLoad ?? active.load) ||
             !isDeepStrictEqual(
               record.preferences,
               active.preferences ??
@@ -103,6 +108,7 @@ export class ConfigurationController {
       profileId: this.capabilities.profileId,
       load: Object.freeze({ ...record.load }),
       preferences: record.preferences,
+      speculation: record.speculation ?? speculationOff(),
     });
   }
   /** New requests capture defaults once; pending load changes do not alter active context. */

@@ -13,6 +13,7 @@ export interface RuntimeModel {
   architecture?: string;
   contextLimit?: number;
   blockCount?: number | null;
+  embeddedMtp?: boolean;
   quantization?: string;
   parameters?: string;
   unavailable?: boolean;

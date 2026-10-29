@@ -15,6 +15,11 @@ export interface GGUFInfo {
   /** Template capability hint only; the template itself is never exposed. */
   readonly thinkingSupported?: boolean;
   readonly speculativeHead?: SpeculativeHeadKind;
+  readonly embeddingLength?: number;
+  readonly targetHiddenSize?: number;
+  readonly tokenizerHash?: string;
+  readonly targetLayers?: readonly number[];
+  readonly draftBlockSize?: number;
   readonly name?: string;
   readonly quantization?: string;
   readonly parameters?: string;
@@ -141,10 +146,14 @@ async function inspect(
       count = u64();
     if (tensors < 1 || tensors > 1000000 || count < 1 || count > 4096) return invalid();
     const metadata = new Map<string, unknown>();
+    const tokenizerParts = new Map<string, Buffer>();
     for (let i = 0; i < count; i++) {
       const key = string();
       if (metadata.has(key) || key.length > 256) return invalid();
+      const start = offset;
       metadata.set(key, value(u32(), key.endsWith('.target_layers')));
+      if (/^tokenizer\.ggml\.(?:model|pre|tokens|merges)$/u.test(key))
+        tokenizerParts.set(key, buffer.subarray(start, offset));
     }
     const architecture = metadata.get('general.architecture');
     if (typeof architecture !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/u.test(architecture))
@@ -225,6 +234,31 @@ async function inspect(
       contextLimit: Number(contextLimit),
       tensors,
       blockCount,
+      ...(typeof metadata.get(`${architecture}.embedding_length`) === 'number'
+        ? { embeddingLength: Number(metadata.get(`${architecture}.embedding_length`)) }
+        : {}),
+      ...(typeof metadata.get(`${architecture}.target_hidden_size`) === 'number'
+        ? { targetHiddenSize: Number(metadata.get(`${architecture}.target_hidden_size`)) }
+        : {}),
+      ...(tokenizerParts.has('tokenizer.ggml.tokens')
+        ? {
+            tokenizerHash: createHash('sha256')
+              .update(
+                Buffer.concat(
+                  [...tokenizerParts]
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .flatMap(([key, bytes]) => [Buffer.from(key + '\0'), bytes]),
+                ),
+              )
+              .digest('hex'),
+          }
+        : {}),
+      ...(Array.isArray(metadata.get(`${architecture}.target_layers`))
+        ? { targetLayers: Object.freeze(metadata.get(`${architecture}.target_layers`) as number[]) }
+        : {}),
+      ...(typeof metadata.get(`${architecture}.block_size`) === 'number'
+        ? { draftBlockSize: Number(metadata.get(`${architecture}.block_size`)) }
+        : {}),
       ...(typeof nextn === 'number' ? { nextnPredictLayers: nextn } : {}),
       ...(typeof template === 'string'
         ? { thinkingSupported: /\benable_thinking\b/u.test(template) }

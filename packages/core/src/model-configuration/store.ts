@@ -202,6 +202,7 @@ export class ModelConfigurationStore {
         return {
           defaults: record.load,
           preferences: record.preferences,
+          ...(record.speculation ? { speculation: record.speculation } : {}),
           cacheK: clusterCaches.cacheK,
           cacheV: record.load.flashAttention ? clusterCaches.cacheV : 'f16',
         };

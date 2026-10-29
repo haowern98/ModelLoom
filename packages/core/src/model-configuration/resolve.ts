@@ -4,6 +4,7 @@ import {
   decodeResolvedRequestSettings,
 } from './contracts.js';
 import { nativeContextSize } from '../runtime/context.js';
+import { speculationOff } from '../speculative-decoding/contracts.js';
 import type {
   ActiveLoadSnapshot,
   GenerationOverrides,
@@ -75,6 +76,7 @@ export function resolveRequestSettings(
       systemPrompt: generation.systemPrompt,
       thinking: generation.thinking,
       overflow: active.preferences?.overflow ?? 'stop',
+      speculation: active.speculation ?? speculationOff(),
     },
     capabilities,
   );

@@ -12,6 +12,7 @@ export interface ModelSource {
   readonly contextLimit: number;
   /** Absent on the legacy index. Null means reinspection did not establish a usable count. */
   readonly blockCount?: number | null;
+  readonly nextnPredictLayers?: number;
   readonly thinkingSupported?: boolean;
   readonly speculativeHead?: SpeculativeHeadKind;
   readonly classificationVersion?: 1;
@@ -39,6 +40,17 @@ export function decodeModelSource(input: unknown): ModelSource {
     'parameters',
   ];
   if (Object.hasOwn(value, 'blockCount')) keys.push('blockCount');
+  if (Object.hasOwn(value, 'nextnPredictLayers')) {
+    keys.push('nextnPredictLayers');
+    if (
+      typeof value.nextnPredictLayers !== 'number' ||
+      !Number.isSafeInteger(value.nextnPredictLayers) ||
+      value.nextnPredictLayers < 0 ||
+      value.nextnPredictLayers >= 2147483647 ||
+      (typeof value.blockCount === 'number' && value.nextnPredictLayers >= value.blockCount)
+    )
+      return invalid();
+  }
   if (Object.hasOwn(value, 'classificationVersion')) {
     keys.push('classificationVersion');
     if (value.classificationVersion !== 1) return invalid();
