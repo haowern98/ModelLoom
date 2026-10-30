@@ -7,6 +7,7 @@ import { ownershipBinding } from '../hosts/windows-ownership.js';
 import { discoverResources } from '../hosts/resource-probe.js';
 import { ReconnectBackoff } from './reconnect-backoff.js';
 import { isTransientPeerFailure } from './deadline.js';
+import { PeerFailureJournal } from './failure-journal.js';
 import { openWindowsPeerIdentity } from './windows-identity.js';
 import type { WindowsPeerIdentity } from './windows-identity.js';
 import { PeerNode } from './node.js';
@@ -47,6 +48,7 @@ export class PeerOwner {
     private readonly identity: WindowsPeerIdentity,
     private readonly caller: string,
     private readonly addresses: readonly string[],
+    private readonly failures: PeerFailureJournal,
   ) {
     this.telemetryTimer = setTimeout(() => {
       void this.pollTelemetry();
@@ -171,11 +173,20 @@ export class PeerOwner {
       ];
       const store = new PeerTrustStore(directory, identity.fingerprint, undefined, native);
       const initial = await store.read();
-      const node = new PeerNode(identity, hostname().slice(0, 80), gpus, backend, undefined, {
-        initial,
-        save: (records) => store.write(records),
-      });
-      const owner = new PeerOwner(node, identity, caller, addresses);
+      const failures = new PeerFailureJournal(directory);
+      const node = new PeerNode(
+        identity,
+        hostname().slice(0, 80),
+        gpus,
+        backend,
+        undefined,
+        {
+          initial,
+          save: (records) => store.write(records),
+        },
+        (event) => failures.record(event),
+      );
+      const owner = new PeerOwner(node, identity, caller, addresses, failures);
       owner.reconnect();
       return owner;
     } catch (error) {
@@ -304,12 +315,17 @@ export class PeerOwner {
           const peer = this.node.snapshot().outgoing.find((peer) => peer.id === id);
           if (!peer) return;
           const previous = this.remote.get(id);
-          if (
+          const retry =
             previous?.phase === 'approved' &&
             isTransientPeerFailure(error) &&
-            ++transportFailures < 2
-          ) {
-            // Confirm with fresh authenticated status and inventory, never a stale replay.
+            (this.node.hasActiveRpc(id) || ++transportFailures < 2);
+          this.failures.record({
+            stage: 'inventory',
+            decision: retry ? 'retry' : 'disconnect',
+            error,
+          });
+          if (retry) {
+            // Inventory loss alone cannot kill a leased stream. New admission still checks fresh status.
             revision = -1;
             await this.retryDelay(250);
             continue;
@@ -595,6 +611,7 @@ export class PeerOwner {
       await Promise.all(this.watches.values());
       await this.operations;
       await this.node.flushTrust();
+      await this.failures.flush();
     } finally {
       this.identity.close();
     }
