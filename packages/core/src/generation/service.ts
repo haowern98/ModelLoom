@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { emitRuntimeDiagnostic } from '../hosts/runtime-diagnostics.js';
 import { ApiGeneration } from './api-execution.js';
 import { fitContext } from './context-overflow.js';
 import type { ApiGenerationInput, ApiGenerationHandle } from './api-execution.js';
@@ -381,6 +382,7 @@ export class GenerationService {
     const entry = this.entries.get(identity.requestId);
     if (!entry) throw new Error('INVALID_CONTROL');
     entry.state = 'running';
+    emitRuntimeDiagnostic('chat', `request.started id=${identity.requestId}`);
     const settled = (async (): Promise<TerminalOutcome> => {
       try {
         await this.deps.history.checkpoint(identity.attemptId, entry.text, 'running');
@@ -537,6 +539,10 @@ export class GenerationService {
           ? result
           : (entry.failure ?? result);
       const speeds = entry.speeds;
+      emitRuntimeDiagnostic(
+        'chat',
+        `request.${terminal.status} id=${entry.identity.requestId} reason=${terminal.reason}`,
+      );
       await this.deps.history.finish(
         entry.identity.attemptId,
         entry.text,

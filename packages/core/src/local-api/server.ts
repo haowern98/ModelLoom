@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { emitRuntimeDiagnostic } from '../hosts/runtime-diagnostics.js';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { Socket } from 'node:net';
 import { randomUUID } from 'node:crypto';
@@ -94,6 +95,7 @@ export class ApiServer {
     id?: string,
   ): void {
     this.logs.push(`${new Date().toISOString()} ${category}${id ? ` ${id}` : ''}`);
+    emitRuntimeDiagnostic('api', `${category}${id ? ` ${id}` : ''}`);
     while (this.logs.length > 500 || Buffer.byteLength(this.logs.join('\n')) > 262144)
       this.logs.shift();
   }
