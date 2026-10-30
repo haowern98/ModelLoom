@@ -165,6 +165,7 @@ export class RpcRelaySession {
         this.connection = undefined;
         current.confirm();
       } else if (kind === 4 && current.ready && bytes.length === 1) {
+        console.error('[ModelLoom][worker] stream.closed-by-worker');
         void current.close().catch(() => undefined);
       } else throw new Error('INVALID_RPC_FRAME');
     }

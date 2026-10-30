@@ -43,6 +43,7 @@ import { createTensorCacheSettings } from '../tensor-cache/settings.js';
 import { requireCompatibleRpcRuntime } from '../peers/resources.js';
 import { executionDevices } from '../speculative-decoding/execution.js';
 import type { SpeculativeCompanion } from '../speculative-decoding/assets.js';
+import type { RuntimeDiagnostic } from './runtime-diagnostics.js';
 /** Explicit Windows development deployment. Trusted main selects fixed build assets and state;
  * renderer commands cannot choose a repository, verifier, report, executable or arguments.
  * Ordinary builds keep the development verifier closed. Production packaging is separate.
@@ -54,6 +55,7 @@ export function developmentDesktopDependencies(
   caller?: string,
   stateBase: string = base,
   overlay?: PeerOverlay,
+  diagnostic?: RuntimeDiagnostic,
 ) {
   const report = DEVELOPMENT_MEMORY_REPORTS.find((entry) => entry.configuration.slots === 4);
   if (!DEVELOPMENT_BUILD || !report) throw new Error('DEVELOPMENT_BUILD_REQUIRED');
@@ -305,6 +307,7 @@ export function developmentDesktopDependencies(
                     : {}),
                 }
               : undefined,
+            diagnostic,
           );
           localGpuIds = load
             ? executionDevices(load).filter((id) => decodeClusterDevice(id).kind === 'local')

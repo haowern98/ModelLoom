@@ -83,6 +83,7 @@ async function launchRelay(
       reject(new Error('RPC_UNAVAILABLE'));
     });
     child.once('exit', (code) => {
+      console.error(`[ModelLoom][worker] helper.exit code=${code} device=${options.device}`);
       exitCode = code;
       failure = code !== 0;
       if (failure) reject(new Error('RPC_CLEANUP_FAILED'));
