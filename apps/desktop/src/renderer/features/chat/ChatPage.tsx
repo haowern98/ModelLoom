@@ -314,6 +314,14 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
                             tok/s
                           </span>
                         )}
+                        {message.speeds.acceptance !== undefined && (
+                          <span title="Percentage of proposed tokens accepted by the target model.">
+                            Acceptance rate:{' '}
+                            {message.speeds.acceptance === null
+                              ? '—'
+                              : `${(message.speeds.acceptance * 100).toLocaleString('en-US', { maximumFractionDigits: 1 })}%`}
+                          </span>
+                        )}
                       </span>
                     )}
                   </div>

@@ -41,7 +41,20 @@ function dateGroup(input: unknown): 'Today' | 'Yesterday' | 'Older' {
 }
 function speeds(input: unknown): NonNullable<ChatMessage['speeds']> {
   const value = object(input);
-  if (Object.keys(value).sort().join(',') !== 'generation,prefill')
+  const hasAcceptance = Object.hasOwn(value, 'acceptance');
+  if (
+    Object.keys(value).sort().join(',') !==
+    (hasAcceptance ? 'acceptance,generation,prefill' : 'generation,prefill')
+  )
+    throw new Error('INVALID_CONTROL');
+  if (
+    hasAcceptance &&
+    value.acceptance !== null &&
+    (typeof value.acceptance !== 'number' ||
+      !Number.isFinite(value.acceptance) ||
+      value.acceptance < 0 ||
+      value.acceptance > 1)
+  )
     throw new Error('INVALID_CONTROL');
   const rate = (input: unknown): number | null => {
     if (input === null) return null;
@@ -54,7 +67,11 @@ function speeds(input: unknown): NonNullable<ChatMessage['speeds']> {
       throw new Error('INVALID_CONTROL');
     return input;
   };
-  return { generation: rate(value.generation), prefill: rate(value.prefill) };
+  return {
+    generation: rate(value.generation),
+    prefill: rate(value.prefill),
+    ...(hasAcceptance ? { acceptance: value.acceptance as number | null } : {}),
+  };
 }
 function messages(input: unknown): ChatMessage[] {
   if (!Array.isArray(input)) throw new Error('INVALID_CONTROL');

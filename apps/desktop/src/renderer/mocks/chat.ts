@@ -4,7 +4,11 @@ export interface ChatMessage {
   readonly text: string;
   readonly reasoning?: string;
   readonly thinkingMs?: number;
-  readonly speeds?: { readonly generation: number | null; readonly prefill: number | null };
+  readonly speeds?: {
+    readonly generation: number | null;
+    readonly prefill: number | null;
+    readonly acceptance?: number | null;
+  };
   readonly state?: string;
   readonly attemptId?: string;
   readonly requestId?: string;
