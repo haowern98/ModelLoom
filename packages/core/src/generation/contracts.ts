@@ -103,6 +103,8 @@ export type TerminalOutcome =
 export interface GenerationSpeeds {
   readonly generation: number | null;
   readonly prefill: number | null;
+  /** Present only for an active speculative proposer; null means no native counts yet. */
+  readonly acceptance?: number | null;
 }
 /** Actual native accounting. Reasoning is included in completion tokens. */
 export interface GenerationUsage {
@@ -254,7 +256,17 @@ export function decodeUsage(input: unknown): GenerationUsage {
 export function decodeSpeeds(input: unknown): GenerationSpeeds {
   return safely(() => {
     const value = object(input);
-    exact(value, ['generation', 'prefill']);
+    const hasAcceptance = Object.hasOwn(value, 'acceptance');
+    exact(value, ['generation', 'prefill', ...(hasAcceptance ? ['acceptance'] : [])]);
+    if (
+      hasAcceptance &&
+      value.acceptance !== null &&
+      (typeof value.acceptance !== 'number' ||
+        !Number.isFinite(value.acceptance) ||
+        value.acceptance < 0 ||
+        value.acceptance > 1)
+    )
+      return invalid();
     const rate = (input: unknown): number | null => {
       if (input === null) return null;
       if (
@@ -266,7 +278,11 @@ export function decodeSpeeds(input: unknown): GenerationSpeeds {
         return invalid();
       return input;
     };
-    return Object.freeze({ generation: rate(value.generation), prefill: rate(value.prefill) });
+    return Object.freeze({
+      generation: rate(value.generation),
+      prefill: rate(value.prefill),
+      ...(hasAcceptance ? { acceptance: value.acceptance as number | null } : {}),
+    });
   });
 }
 

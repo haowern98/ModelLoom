@@ -13,6 +13,7 @@ class StreamError extends Error {
   }
 }
 interface StreamState {
+  speculativeProposer?: boolean;
   terminal?: TerminalOutcome;
   done: boolean;
   responseId?: string;
@@ -34,8 +35,14 @@ interface StreamState {
 export async function* parseGenerationStream(
   source: AsyncIterable<Uint8Array>,
   signal: AbortSignal,
+  speculativeProposer = false,
 ): AsyncIterable<GenerationChunk> {
-  const state: StreamState = { done: false, responseBytes: 0, usageSeen: false };
+  const state: StreamState = {
+    done: false,
+    responseBytes: 0,
+    usageSeen: false,
+    speculativeProposer,
+  };
   const decoder = new TextDecoder('utf-8', { fatal: true });
   let buffered = '';
   let frameBytes = 0;
@@ -133,7 +140,7 @@ function parseFrame(data: string, state: StreamState): readonly GenerationChunk[
     state.usage = nativeUsage(envelope.usage);
     state.usageSeen = true;
     if (Object.hasOwn(envelope, 'timings'))
-      state.speeds = nativeSpeeds(envelope.timings) ?? state.speeds;
+      state.speeds = nativeSpeeds(envelope.timings, state) ?? state.speeds;
     return [];
   }
   if (choices.length !== 1 || state.terminal) fault('INVALID_STREAM');
@@ -169,12 +176,15 @@ function parseFrame(data: string, state: StreamState): readonly GenerationChunk[
   else if (choice.finish_reason === 'length')
     state.terminal = Object.freeze({ status: 'limit-reached', reason: 'OUTPUT_LIMIT' });
   else if (choice.finish_reason !== null) fault('INVALID_STREAM');
-  const measured = nativeSpeeds(envelope.timings);
+  const measured = nativeSpeeds(envelope.timings, state);
   const prefill = promptSpeed(envelope.prompt_progress);
   if (measured || prefill !== null) {
     state.speeds = Object.freeze({
       generation: measured?.generation ?? state.speeds?.generation ?? null,
       prefill: prefill ?? measured?.prefill ?? state.speeds?.prefill ?? null,
+      ...(state.speculativeProposer
+        ? { acceptance: measured?.acceptance ?? state.speeds?.acceptance ?? null }
+        : {}),
     });
     const now = performance.now();
     const phaseChanged =
@@ -229,9 +239,11 @@ function nativeUsage(input: unknown): GenerationUsage {
 }
 
 // Optional diagnostics must not turn an otherwise valid answer into a stream failure.
-function nativeSpeeds(input: unknown): GenerationSpeeds | undefined {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
-  const value = input as Record<string, unknown>;
+function nativeSpeeds(input: unknown, state: StreamState): GenerationSpeeds | undefined {
+  const value =
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {};
   const rate = (value: unknown) =>
     typeof value === 'number' &&
     Number.isFinite(value) &&
@@ -241,9 +253,25 @@ function nativeSpeeds(input: unknown): GenerationSpeeds | undefined {
       : null;
   const generation = rate(value.predicted_per_second),
     prefill = rate(value.prompt_per_second);
-  return generation === null && prefill === null
+  const proposed = value.draft_n,
+    accepted = value.draft_n_accepted;
+  const acceptance =
+    typeof proposed === 'number' &&
+    Number.isSafeInteger(proposed) &&
+    proposed > 0 &&
+    typeof accepted === 'number' &&
+    Number.isSafeInteger(accepted) &&
+    accepted >= 0 &&
+    accepted <= proposed
+      ? accepted / proposed
+      : (state.speeds?.acceptance ?? null);
+  return generation === null && prefill === null && !state.speculativeProposer
     ? undefined
-    : Object.freeze({ generation, prefill });
+    : Object.freeze({
+        generation: generation ?? state.speeds?.generation ?? null,
+        prefill: prefill ?? state.speeds?.prefill ?? null,
+        ...(state.speculativeProposer ? { acceptance } : {}),
+      });
 }
 
 /** Racing abort removes its listener even if a source read never settles.
