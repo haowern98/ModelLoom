@@ -8,6 +8,9 @@ import type { IncomingMessage } from 'node:http';
 import { peerAddress } from './node.js';
 import { PassThrough } from 'node:stream';
 import { once } from 'node:events';
+import { isTransientPeerFailure } from './deadline.js';
+import { overlayChannel } from './overlay-channel.js';
+import type { PeerFailure } from './failure-journal.js';
 
 describe('real TLS peer pairing', () => {
   let sg: WindowsPeerIdentity, my: WindowsPeerIdentity;
@@ -109,6 +112,104 @@ describe('real TLS peer pairing', () => {
       }
     },
     20000,
+  );
+
+  it('renews an active RPC lease after a stalled overlay heartbeat dial', async () => {
+    const gpu = 'GPU-11111111-1111-1111-1111-111111111111';
+    const failures: PeerFailure[] = [];
+    const coordinator = new PeerNode(sg, 'SG', [], undefined, undefined, undefined, (event) =>
+      failures.push(event),
+    );
+    const worker = new PeerNode(my, 'MY', [{ id: gpu, name: 'Fixture', memoryBytes: 4096 }], {
+      start: () => {
+        const stream = new PassThrough();
+        return Promise.resolve({
+          stream,
+          close: () => {
+            stream.destroy();
+            return Promise.resolve();
+          },
+        });
+      },
+    });
+    nodes.push(coordinator, worker);
+    const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
+    const outgoing = await coordinator.invite(address);
+    await coordinator.verifyCode(
+      outgoing.id,
+      worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
+    );
+    await worker.approve(outgoing.id, sg.fingerprint);
+    const stream = await coordinator.openRpc(outgoing.id, gpu);
+    stream.on('error', () => undefined);
+    let received = 0;
+    stream.on('data', (bytes: Buffer) => {
+      received += bytes.length;
+    });
+    // Withhold one dial acknowledgement; the real overlay timer allows ten seconds.
+    const stalled = overlayChannel(() => {});
+    stalled.receive({ type: 'overlay-routes', addresses: ['100.64.0.2'] });
+    let first = true,
+      cancelled = false;
+    coordinator.setOverlay({
+      has: () => first,
+      dial: (_address, _port, signal) => {
+        first = false;
+        signal?.addEventListener('abort', () => (cancelled = true), { once: true });
+        return stalled.transport.dial('100.64.0.2', 49302, signal);
+      },
+    });
+    const traffic = setInterval(() => {
+      if (!stream.destroyed) stream.write(Buffer.alloc(32768, 19));
+    }, 100);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 17500));
+      expect(stream.destroyed).toBe(false);
+      expect(received).toBeGreaterThan(1024 * 1024);
+      expect(cancelled).toBe(true);
+      const heartbeatFailures = failures.filter((event) => event.stage === 'heartbeat');
+      expect(heartbeatFailures).toHaveLength(1);
+      expect(heartbeatFailures[0]).toMatchObject({
+        decision: 'retry',
+        error: { message: 'PEER_UNAVAILABLE', cause: { code: 'ETIMEDOUT' } },
+      });
+    } finally {
+      clearInterval(traffic);
+      stalled.close();
+      stream.destroy();
+    }
+  }, 25000);
+
+  it.each([
+    'OVERLAY_DISCONNECTED',
+    'OVERLAY_UNAVAILABLE',
+    'NETWORK_TIMEOUT',
+    'INVALID_PEER_CERTIFICATE',
+    'FINGERPRINT_MISMATCH',
+    'INVALID_CONTROL',
+  ])(
+    'confirms a local %s dial failure without granting grace to remote responses',
+    async (message) => {
+      const worker = new PeerNode(my, 'MY', [{ id: 'gpu', name: 'GPU', memoryBytes: 4096 }]);
+      const coordinator = new PeerNode(sg, 'SG', []);
+      nodes.push(worker, coordinator);
+      const address = await worker.share('127.0.0.1', 0, 0, ['gpu']);
+      const outgoing = await coordinator.invite(address);
+      await coordinator.verifyCode(
+        outgoing.id,
+        worker.snapshot().incoming.find((p) => p.id === outgoing.id)!.pairingCode!,
+      );
+      await worker.approve(outgoing.id, sg.fingerprint);
+      coordinator.setOverlay({
+        has: () => true,
+        dial: () => Promise.reject(Error(message)),
+      });
+      const failure = await coordinator.status(outgoing.id).catch((error: unknown) => error);
+      expect(isTransientPeerFailure(failure)).toBe(
+        ['OVERLAY_DISCONNECTED', 'OVERLAY_UNAVAILABLE', 'NETWORK_TIMEOUT'].includes(message),
+      );
+      expect(isTransientPeerFailure(Error(message))).toBe(false);
+    },
   );
 
   it('prepares the helper before sharing and closes it when sharing stops', async () => {

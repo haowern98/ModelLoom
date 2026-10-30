@@ -6,6 +6,7 @@ import { PeerOwner } from './owner.js';
 import { PeerNode } from './node.js';
 import { openWindowsPeerIdentity } from './windows-identity.js';
 import { PassThrough } from 'node:stream';
+import type { Duplex } from 'node:stream';
 import type { PeerReply } from './wire.js';
 import type { IncomingMessage } from 'node:http';
 
@@ -140,6 +141,97 @@ it('opens each approved physical GPU independently without choosing another shar
     identity.close();
   }
 }, 30000);
+it.each(['closed', 'revoked', 'recovered'] as const)(
+  'keeps a leased RPC session through inventory failures and handles %s',
+  async (outcome) => {
+    const owner = await PeerOwner.open(await directory(), 'owner');
+    owners.push(owner);
+    const identity = await openWindowsPeerIdentity();
+    const gpu = 'GPU-11111111-1111-1111-1111-111111111111';
+    const worker = new PeerNode(identity, 'PTSS', [{ id: gpu, name: 'GPU', memoryBytes: 4096 }], {
+      start: () => {
+        const stream = new PassThrough();
+        return Promise.resolve({
+          stream,
+          close: () => {
+            stream.destroy();
+            return Promise.resolve();
+          },
+        });
+      },
+    });
+    const changed = vi.fn<(reply: PeerReply) => void>();
+    const unsubscribe = owner.subscribe(changed);
+    let watcher: MockInstance<PeerNode['watchInventory']> | undefined;
+    let stream: Duplex | undefined;
+    try {
+      const address = await worker.share('127.0.0.1', 0, 0, [gpu]);
+      const invited = await owner.command('owner', { action: 'invite', address });
+      if (!invited.ok) throw Error(invited.error);
+      const peer = invited.view.outgoing[0]!;
+      await owner.command('owner', {
+        action: 'verify-code',
+        id: peer.id,
+        code: worker.snapshot().incoming.find((value) => value.id === peer.id)!.pairingCode!,
+      });
+      await worker.approve(peer.id, invited.view.fingerprint);
+      stream = await owner.openRpc(`peer:${identity.fingerprint}:${gpu}`);
+      stream.on('error', () => undefined);
+      changed.mockClear();
+      watcher = vi.spyOn(PeerNode.prototype, 'watchInventory').mockRejectedValue(
+        new Error('PEER_UNAVAILABLE', {
+          cause: Object.assign(Error('deadline'), { code: 'ETIMEDOUT' }),
+        }),
+      );
+      await vi.waitFor(() => expect(watcher!.mock.calls.length).toBeGreaterThanOrEqual(4), {
+        timeout: 8000,
+      });
+      expect(stream.destroyed).toBe(false);
+      expect(
+        changed.mock.calls.some(
+          ([reply]) => reply.ok && reply.view.outgoing[0]?.phase === 'disconnected',
+        ),
+      ).toBe(false);
+      const read = await owner.command('owner', { action: 'read' });
+      expect(read.ok && read.view.outgoing[0]?.gpus).toHaveLength(1);
+      if (outcome === 'recovered') {
+        watcher.mockRestore();
+        await worker.updateHardware({
+          os: 'Recovered',
+          sampledAt: 1,
+          gpus: [{ id: gpu, name: 'GPU', memoryBytes: 4096 }],
+        });
+        await vi.waitFor(
+          async () => {
+            const reply = await owner.command('owner', { action: 'read' });
+            expect(reply.ok && reply.view.outgoing[0]?.hardware?.os).toBe('Recovered');
+          },
+          { timeout: 5000 },
+        );
+        expect(stream.destroyed).toBe(false);
+        return;
+      }
+      if (outcome === 'revoked') await worker.decline(peer.id);
+      else stream.destroy();
+      await vi.waitFor(
+        async () => {
+          const reply = await owner.command('owner', { action: 'read' });
+          expect(reply.ok && reply.view.outgoing[0]?.phase).toBe(
+            outcome === 'revoked' ? 'declined' : 'disconnected',
+          );
+        },
+        { timeout: 5000 },
+      );
+    } finally {
+      watcher?.mockRestore();
+      stream?.destroy();
+      unsubscribe();
+      await worker.close();
+      identity.close();
+    }
+  },
+  30000,
+);
 async function directory() {
   await mkdir(parent, { recursive: true });
   const root = await mkdtemp(path.join(parent, 'test-'));
