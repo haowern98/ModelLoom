@@ -83,44 +83,70 @@ it.each([
     expect(screen.getByText('Think')).toBeVisible();
   },
 );
-it('shows measured speeds inline after Copy/Retry, without feedback icons or a separator', () => {
-  const base = createDemoChat(false);
-  const chat = {
-    ...base,
-    conversations: base.conversations.map((conversation) => ({
-      ...conversation,
-      messages: [
-        {
-          id: 'answer',
-          role: 'assistant' as const,
-          text: 'Hello',
-          state: 'completed',
-          attemptId: 'attempt',
-          speeds: { generation: 24.8, prefill: 1420 },
-        },
-      ],
-    })),
-  };
-  render(
-    <ChatPage
-      demo={false}
-      chat={chat}
-      dispatch={vi.fn()}
-      activeModel={undefined}
-      onCluster={vi.fn()}
-      live={{ ready: true, busy: false, notice: '', send: vi.fn(), stop: vi.fn(), retry: vi.fn() }}
-    />,
-  );
-  const copy = screen.getByRole('button', { name: 'Copy response 1' });
-  const retry = screen.getByRole('button', { name: 'Retry response 1' });
-  const generation = screen.getByText('Generation: 24.8 tok/s');
-  const prefill = screen.getByText('Prompt processing: 1,420 tok/s');
-  expect(generation.parentElement?.parentElement).toBe(copy.parentElement);
-  expect(retry.compareDocumentPosition(generation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(copy.parentElement).not.toHaveTextContent('·');
-  expect(prefill).toBeVisible();
-  expect(screen.queryByRole('button', { name: /Good response|Bad response/ })).toBeNull();
-});
+it.each([undefined, null, 0, 0.75])(
+  'shows measured speeds and conditional acceptance inline after Copy/Retry: %s',
+  (acceptance) => {
+    const base = createDemoChat(false);
+    const chat = {
+      ...base,
+      conversations: base.conversations.map((conversation) => ({
+        ...conversation,
+        messages: [
+          {
+            id: 'answer',
+            role: 'assistant' as const,
+            text: 'Hello',
+            state: 'completed',
+            attemptId: 'attempt',
+            speeds: {
+              generation: 24.8,
+              prefill: 1420,
+              ...(acceptance === undefined ? {} : { acceptance }),
+            },
+          },
+        ],
+      })),
+    };
+    render(
+      <ChatPage
+        demo={false}
+        chat={chat}
+        dispatch={vi.fn()}
+        activeModel={undefined}
+        onCluster={vi.fn()}
+        live={{
+          ready: true,
+          busy: false,
+          notice: '',
+          send: vi.fn(),
+          stop: vi.fn(),
+          retry: vi.fn(),
+        }}
+      />,
+    );
+    const copy = screen.getByRole('button', { name: 'Copy response 1' });
+    const retry = screen.getByRole('button', { name: 'Retry response 1' });
+    const generation = screen.getByText('Generation: 24.8 tok/s');
+    const prefill = screen.getByText('Prompt processing: 1,420 tok/s');
+    expect(generation.parentElement?.parentElement).toBe(copy.parentElement);
+    expect(
+      retry.compareDocumentPosition(generation) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(copy.parentElement).not.toHaveTextContent('·');
+    expect(prefill).toBeVisible();
+    if (acceptance === undefined) expect(screen.queryByText(/Acceptance rate:/)).toBeNull();
+    else {
+      const metric = screen.getByText(
+        `Acceptance rate: ${acceptance === null ? '—' : `${acceptance * 100}%`}`,
+      );
+      expect(metric).toBeVisible();
+      expect(
+        prefill.compareDocumentPosition(metric) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    expect(screen.queryByRole('button', { name: /Good response|Bad response/ })).toBeNull();
+  },
+);
 it('enables ready Send and targets Stop without changing the chat presentation', async () => {
   const user = userEvent.setup();
   const send = vi.fn(),
