@@ -16,6 +16,7 @@ import { networkProtection } from './network-protection';
 import { developmentInstance } from './development-launch';
 import { cleanupForQuit } from './quit-cleanup';
 import { createApiManagementHandler } from './api-management';
+import { createRuntimeLogsHandler } from './runtime-logs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -27,6 +28,10 @@ import type { RuntimeDependencies } from './runtime-controller';
 import { localDeviceSnapshot } from './local-device';
 import { createCacheHandler } from './tensor-cache';
 import type { developmentDesktopDependencies } from '../../../../packages/core/src/hosts/development-desktop.js';
+import {
+  createRuntimeLog,
+  forwardUtilityDiagnostics,
+} from '../../../../packages/core/src/hosts/runtime-diagnostics';
 
 // Vite serves changing modules at stable URLs; stale Chromium cache can break startup.
 if (MAIN_WINDOW_VITE_DEV_SERVER_URL) app.commandLine.appendSwitch('disable-http-cache');
@@ -105,6 +110,7 @@ async function createWindow(): Promise<void> {
     device: () => localDeviceSnapshot(),
   };
   let tensorCache: ReturnType<typeof developmentDesktopDependencies>['tensorCache'] | undefined;
+  let runtimeLog: ReturnType<typeof createRuntimeLog> | undefined;
   // Only the explicit compiled development profile can select packaged resources.
   if (locations) {
     const coreRoot = locations.core;
@@ -121,9 +127,21 @@ async function createWindow(): Promise<void> {
         throw new Error('MISSING_RUNTIME');
       const createDependencies =
         module.developmentDesktopDependencies as typeof developmentDesktopDependencies;
+      const logDirectory = path.join(locations.profile, 'logs');
+      mkdirSync(logDirectory, { recursive: true });
+      const diagnostics = createRuntimeLog(logDirectory);
+      runtimeLog = diagnostics;
+      diagnostics.write('app', `logging.started file=${path.join(logDirectory, 'runtime.log')}`);
       const development = createDependencies(
-        (entry) =>
-          utilityProcess.fork(entry, [], { serviceName: 'ModelLoom Core', stdio: 'ignore' }),
+        (entry) => {
+          const child = utilityProcess.fork(entry, [], {
+            serviceName: 'ModelLoom Core',
+            stdio: 'pipe',
+          });
+          forwardUtilityDiagnostics(child, diagnostics.write);
+          child.on('exit', (code) => diagnostics.write('core', `utility.exit code=${code}`));
+          return child;
+        },
         locations.bootstrap,
         // Follow LM Studio's profile-root storage, separate from Chromium's AppData cache.
         locations.profile,
@@ -135,6 +153,7 @@ async function createWindow(): Promise<void> {
           subscribe: (listener) => windowNetwork.subscribe(listener),
           incoming: (listener) => windowNetwork.setIncoming(listener),
         },
+        diagnostics.write,
       );
       tensorCache = development.tensorCache;
       dependencies = {
@@ -187,6 +206,15 @@ async function createWindow(): Promise<void> {
       console.error('Hardware refresh could not be completed.');
     });
   });
+  ipcMain.handle(
+    'modelloom:runtime-logs',
+    createRuntimeLogsHandler({
+      sender: window.webContents,
+      frame: () => window.webContents.mainFrame,
+      closing: () => quitting || window.isDestroyed(),
+      log: () => runtimeLog,
+    }),
+  );
   ipcMain.handle(
     'modelloom:api',
     createApiManagementHandler({
