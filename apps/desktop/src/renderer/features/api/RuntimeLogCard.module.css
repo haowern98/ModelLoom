@@ -1,0 +1,109 @@
+.section {
+  position: relative;
+  margin-bottom: 36px;
+}
+.section h2 {
+  margin-bottom: 14px;
+  font-size: var(--font-size-section-heading);
+  font-weight: var(--font-weight-medium);
+}
+.card {
+  padding: 12px 16px 16px;
+  border: 1px solid var(--neutral-border);
+  border-radius: var(--radius-panel);
+  background: var(--settings-group);
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  margin-bottom: 8px;
+}
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.filters button {
+  min-height: 32px;
+  padding: 4px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--neutral-muted);
+  font: inherit;
+  font-size: var(--font-size-control);
+  cursor: pointer;
+}
+.filters button[aria-pressed='true'] {
+  color: var(--neutral-text);
+  background: #303030;
+}
+.filters button:hover {
+  background: #303030;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.action {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--neutral-muted);
+  box-shadow: none;
+}
+.action:hover:not(:disabled) {
+  color: var(--neutral-text);
+  background: #303030;
+}
+.viewer {
+  height: 360px;
+  min-height: 200px;
+  max-height: min(720px, 70vh);
+  box-sizing: border-box;
+  resize: vertical;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  border: 1px solid var(--neutral-border);
+  border-radius: 8px;
+  background: #1a1a1a;
+  color: var(--neutral-text);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  line-height: 22px;
+  tab-size: 4;
+}
+.canvas {
+  position: relative;
+  min-width: 100%;
+}
+.logRow {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  height: 22px;
+  white-space: pre;
+}
+.time {
+  color: var(--neutral-muted);
+  flex-shrink: 0;
+}
+.source {
+  color: var(--neutral-text);
+  flex-shrink: 0;
+  width: 9ch;
+}
+.empty {
+  color: var(--neutral-muted);
+}

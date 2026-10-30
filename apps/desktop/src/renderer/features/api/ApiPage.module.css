@@ -214,10 +214,6 @@
   gap: 12px;
   margin-bottom: 10px;
 }
-.logToolbar {
-  justify-content: flex-end;
-  gap: 8px;
-}
 .code {
   height: 160px;
   margin: 0;
@@ -230,10 +226,6 @@
   overflow: auto;
   overscroll-behavior: contain;
   tab-size: 4;
-}
-.logs {
-  height: 100px;
-  color: var(--neutral-muted);
 }
 .notice {
   min-height: var(--line-height-control);

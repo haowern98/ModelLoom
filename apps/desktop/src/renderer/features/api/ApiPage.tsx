@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Copy, Eye, Trash2 } from 'lucide-react';
+import { Copy, Eye } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { useApi } from './useApi';
+import { RuntimeLogCard } from './RuntimeLogCard';
 import { copyText } from '../../components/copyText';
 import type { DemoModel } from '../../mocks/modelLibrary';
 import { apiExample, exampleLanguages } from './examples';
@@ -28,7 +29,6 @@ export function ApiPage({ activeModel, demo, onCluster }: ApiPageProps) {
   const busy = pending !== null || status?.phase === 'starting' || status?.phase === 'stopping';
   const endpoint = status?.address ?? `http://127.0.0.1:${status?.configuredPort ?? 8000}/v1`;
   const example = apiExample(language, endpoint, status?.model?.id);
-  const logs = status?.logs.join('\n') ?? '';
   const statistics = [
     ['Uptime', status?.uptimeMs == null ? '—' : `${Math.floor(status.uptimeMs / 1000)} s`],
     ['Requests', status ? String(status.requests) : '—'],
@@ -329,45 +329,7 @@ export function ApiPage({ activeModel, demo, onCluster }: ApiPageProps) {
         </div>
       </section>
 
-      <section className={styles.section} aria-labelledby="api-logs-heading">
-        <h2 id="api-logs-heading">Server logs</h2>
-        <div className={`${styles.group} ${styles.viewerGroup}`}>
-          <div className={`${styles.viewerToolbar} ${styles.logToolbar}`}>
-            <Button
-              className={styles.utility}
-              disabled={!logs}
-              aria-label="Copy server logs"
-              title={logs ? 'Copy service events' : 'There are no server logs to copy.'}
-              onClick={() => void copy(logs, 'Server logs copied')}
-            >
-              <Copy size={16} aria-hidden="true" />
-              Copy
-            </Button>
-            <Button
-              className={styles.utility}
-              disabled={!logs || busy}
-              aria-label="Clear server logs"
-              title={logs ? 'Clear this viewer' : 'There are no server logs to clear.'}
-              onClick={() => void command('clearLogs')}
-            >
-              <Trash2 size={16} aria-hidden="true" />
-              Clear
-            </Button>
-          </div>
-          <pre
-            className={`${styles.code} ${styles.logs}`}
-            tabIndex={0}
-            aria-label="Server log viewer"
-          >
-            {logs || 'No server logs yet.'}
-          </pre>
-          <p className={styles.description}>
-            {status
-              ? 'Only service events are recorded here. Messages and API keys are excluded.'
-              : 'Logs appear here when server integration is available.'}
-          </p>
-        </div>
-      </section>
+      <RuntimeLogCard />
       {replaceKey && (
         <Dialog title="Generate replacement key?" onClose={() => setReplaceKey(false)}>
           <p>Existing clients will need the new key. Active API requests will be cancelled.</p>
