@@ -20,15 +20,60 @@ async function* bytes(chunks: readonly Uint8Array[]) {
 async function collect(
   input: string | readonly Uint8Array[],
   signal = new AbortController().signal,
+  speculativeProposer = false,
 ) {
   const result: GenerationChunk[] = [];
   const source = bytes(typeof input === 'string' ? [Buffer.from(input)] : input);
-  for await (const event of parseGenerationStream(source, signal)) result.push(event);
+  for await (const event of parseGenerationStream(source, signal, speculativeProposer))
+    result.push(event);
   return result;
 }
 const terminal = { type: 'terminal', outcome: { status: 'completed', reason: 'STOP' } };
 
 describe('pinned text-only chat stream', () => {
+  it('reports cumulative native acceptance only for an active proposer and retains it at completion', async () => {
+    const generating = JSON.parse(frame({ content: 'Hello' }).slice(6)) as Record<string, unknown>;
+    const stream =
+      `data: ${JSON.stringify({ ...generating, timings: { predicted_per_second: 12, draft_n: 8, draft_n_accepted: 6 } })}\n\n` +
+      frame({}, 'stop') +
+      done;
+    const events = await collect(stream, undefined, true);
+    expect(events).toContainEqual({
+      type: 'metrics',
+      speeds: { generation: 12, prefill: null, acceptance: 0.75 },
+    });
+    expect(events.at(-1)).toMatchObject({ speeds: { acceptance: 0.75 } });
+    expect((await collect(stream)).at(-1)).toMatchObject({
+      speeds: { generation: 12, prefill: null },
+    });
+    expect(JSON.stringify(await collect(stream))).not.toContain('acceptance');
+  });
+  it.each([
+    { draft_n: 0, draft_n_accepted: 0 },
+    { draft_n: 2, draft_n_accepted: 3 },
+    { draft_n: -1, draft_n_accepted: 0 },
+    {},
+  ])('keeps unknown acceptance distinct from zero: %j', async (timings) => {
+    const finish = JSON.parse(frame({}, 'stop').slice(6)) as Record<string, unknown>;
+    expect(
+      (
+        await collect(`data: ${JSON.stringify({ ...finish, timings })}\n\n` + done, undefined, true)
+      ).at(-1),
+    ).toMatchObject({ speeds: { acceptance: null } });
+  });
+  it('reports zero acceptance when all proposals were rejected', async () => {
+    const finish = JSON.parse(frame({}, 'stop').slice(6)) as Record<string, unknown>;
+    expect(
+      (
+        await collect(
+          `data: ${JSON.stringify({ ...finish, timings: { draft_n: 4, draft_n_accepted: 0 } })}\n\n` +
+            done,
+          undefined,
+          true,
+        )
+      ).at(-1),
+    ).toMatchObject({ speeds: { acceptance: 0 } });
+  });
   it('limits live rate updates to four per second while retaining the latest final measurement', async () => {
     const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
     const source = async function* () {

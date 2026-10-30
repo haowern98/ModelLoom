@@ -77,6 +77,26 @@ function setup(tokens = 10, unconfirmed = false, count?: ChatTransport['tokenCou
 async function drain() {
   for (let i = 0; i < 25; i++) await Promise.resolve();
 }
+it('emits Chat lifecycle diagnostics without messages or generated content', async () => {
+  const output = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    const { service, store } = setup();
+    const conversation = await store.newConversation();
+    const identity = await service.send('window1', {
+      conversationId: conversation.id,
+      text: 'private message never log this',
+    });
+    await drain();
+    await service.cancel('window1', identity.requestId);
+    await drain();
+    const text = output.mock.calls.map((args) => args.join(' ')).join('\n');
+    expect(text).toContain('[ModelLoom][chat] request.started');
+    expect(text).toContain('request.cancelled');
+    expect(text).not.toContain('private message');
+  } finally {
+    output.mockRestore();
+  }
+});
 it('keeps slow native token preparation alive beyond two minutes', async () => {
   vi.useFakeTimers();
   let complete!: (tokens: number) => void;

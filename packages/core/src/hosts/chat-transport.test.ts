@@ -44,6 +44,7 @@ const terminal =
   '\n\ndata: [DONE]\n\n';
 async function fixture(
   options: {
+    speculativeProposer?: boolean;
     malformed?: boolean;
     oversized?: boolean;
     status?: number;
@@ -121,6 +122,7 @@ async function fixture(
   await monitor.initialize();
   const start = vi.spyOn(monitor, 'start');
   const transport = createOwnedChatTransport({
+    speculativeProposer: options.speculativeProposer ?? false,
     port: address.port,
     key: 'test-key',
     alias: 'private-model',
@@ -149,6 +151,20 @@ async function fixture(
     },
   };
 }
+it.each([false, true])(
+  'binds acceptance visibility to the loaded proposer (%s)',
+  async (speculativeProposer) => {
+    const f = await fixture({ speculativeProposer });
+    const chunks: unknown[] = [];
+    const run = f.transport.start(identity, messages, (chunk) => {
+      chunks.push(chunk);
+    });
+    await new Promise<void>((yes) => setTimeout(yes, 150));
+    f.release();
+    await run.settled;
+    expect(JSON.stringify(chunks).includes('"acceptance":null')).toBe(speculativeProposer);
+  },
+);
 it.each(['rolling', 'truncate-middle'] as const)(
   'dispatches %s with a native-counted protected prefix and validates the loaded policy',
   async (overflow) => {
