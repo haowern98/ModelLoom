@@ -12,6 +12,16 @@ contextBridge.exposeInMainWorld(
 import { decodeNetworkCommand, decodeNetworkReply } from '../shared/network';
 import { decodePeerCommand, decodePeerReply } from '../shared/peers';
 import { decodeApiManagementCommand, decodeApiManagementReply } from '../shared/local-api';
+import { decodeRuntimeLogCommand, decodeRuntimeLogReply } from '../shared/runtime-logs';
+contextBridge.exposeInMainWorld(
+  'modelLoomLogs',
+  Object.freeze({
+    command: (input: unknown) =>
+      ipcRenderer
+        .invoke('modelloom:runtime-logs', decodeRuntimeLogCommand(input))
+        .then(decodeRuntimeLogReply),
+  }),
+);
 import { decodeRuntimeCommand } from '../shared/runtime';
 import { decodeChatCommand, decodeChatReply } from '../shared/chat';
 import { decodeClusterCommand, decodeClusterReply } from '../shared/cluster-configuration';

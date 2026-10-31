@@ -202,6 +202,7 @@ export class ModelConfigurationStore {
         return {
           defaults: record.load,
           preferences: record.preferences,
+          ...(record.speculation ? { speculation: record.speculation } : {}),
           cacheK: clusterCaches.cacheK,
           cacheV: record.load.flashAttention ? clusterCaches.cacheV : 'f16',
         };
@@ -296,6 +297,39 @@ export class ModelConfigurationStore {
     );
   }
 
+  /** Main-only header reconciliation updates metadata without changing registration order or identity. */
+  reinspectImport(input: ModelSource): Promise<void> {
+    return Promise.resolve().then(() =>
+      this.safe(() => {
+        const source = decodeModelSource(input);
+        if (source.classificationVersion !== 1) throw Error('INVALID_CONFIGURATION');
+        const row = this.database
+          .prepare('SELECT record FROM model_sources WHERE model_id=?')
+          .get(source.modelId);
+        if (
+          !row ||
+          typeof row.record !== 'string' ||
+          Buffer.byteLength(row.record) > 131072 ||
+          this.readImportNow(source.modelId) === null
+        )
+          throw Error('INVALID_CONFIGURATION');
+        const previous = decodeModelSource(JSON.parse(row.record));
+        if (
+          previous.modelId !== source.modelId ||
+          previous.file !== source.file ||
+          previous.sizeBytes !== source.sizeBytes ||
+          previous.modifiedMs !== source.modifiedMs
+        )
+          throw Error('INVALID_CONFIGURATION');
+        this.transaction(() => {
+          this.database
+            .prepare('UPDATE model_sources SET record=? WHERE model_id=?')
+            .run(JSON.stringify(source), source.modelId);
+        });
+      }),
+    );
+  }
+
   /** Forget the library index only; retain model defaults, history and the user's GGUF. */
   removeImport(modelId: string): Promise<void> {
     return Promise.resolve().then(() =>
@@ -338,19 +372,22 @@ export class ModelConfigurationStore {
     );
   }
 
-  /** Restore the most recently indexed source without opening the model file. */
+  /** Restore the latest full target; companion imports never select a target. */
   readLatestImportSource(): Promise<ModelSource | null> {
     return Promise.resolve().then(() =>
       this.safe(() => {
-        const row = this.database
+        const rows = this.database
           .prepare(
-            'SELECT s.record FROM model_sources s JOIN model_imports i ON i.model_id=s.model_id ORDER BY s.rowid DESC LIMIT 1',
+            'SELECT s.record FROM model_sources s JOIN model_imports i ON i.model_id=s.model_id ORDER BY s.rowid DESC',
           )
-          .get();
-        if (!row) return null;
-        if (typeof row.record !== 'string' || Buffer.byteLength(row.record) > 131072)
-          throw Error('UNSUPPORTED_CONFIGURATION');
-        return decodeModelSource(JSON.parse(row.record));
+          .iterate();
+        for (const row of rows) {
+          if (typeof row.record !== 'string' || Buffer.byteLength(row.record) > 131072)
+            throw Error('UNSUPPORTED_CONFIGURATION');
+          const source = decodeModelSource(JSON.parse(row.record));
+          if (!source.speculativeHead) return source;
+        }
+        return null;
       }),
     );
   }

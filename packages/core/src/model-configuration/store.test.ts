@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, expect, it } from 'vitest';
 import { ModelConfigurationStore } from './store.js';
 import { capabilities, record } from './test-fixtures.js';
+import { decodeModelConfiguration } from './contracts.js';
 
 const databases: DatabaseSync[] = [];
 afterEach(() => databases.splice(0).forEach((database) => database.close()));
@@ -170,7 +171,7 @@ it('upgrades only the exact old configuration schema and preserves saved default
     capabilities,
     record().load,
   );
-  expect(await store.read(saved.modelId)).toEqual(saved);
+  expect(await store.read(saved.modelId)).toEqual(decodeModelConfiguration(saved, capabilities));
   expect(await store.readImport(saved.modelId)).toBe(123);
   expect(await store.readImportSource(saved.modelId)).toBeNull();
   expect(database.prepare('SELECT version FROM configuration_schema').get()?.version).toBe(4);

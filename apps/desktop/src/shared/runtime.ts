@@ -13,11 +13,13 @@ export interface RuntimeModel {
   architecture?: string;
   contextLimit?: number;
   blockCount?: number | null;
+  embeddedMtp?: boolean;
   quantization?: string;
   parameters?: string;
   unavailable?: boolean;
   /** Last trusted request dispatch, in milliseconds since the Unix epoch. */
   lastUsedAt?: number;
+  speculativeHead?: 'eagle3' | 'dflash' | 'dspark' | 'mtp';
 }
 export interface RuntimeDevice {
   name: string;

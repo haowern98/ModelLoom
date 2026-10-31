@@ -1,3 +1,5 @@
+import { decodeSpeculativeDefaults, speculationOff } from '../speculative-decoding/contracts.js';
+import type { SpeculativeDefaults } from '../speculative-decoding/contracts.js';
 /** Disabled manual values are retained for the editor; each setting defines its disabled behavior. */
 export interface OptionalNumber {
   readonly enabled: boolean;
@@ -43,12 +45,14 @@ export interface AdvancedPreferences {
 }
 /** Identity is the verified GGUF digest, not a renderer-selected path or preview ID. */
 export interface ModelConfigurationRecord {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 1 | 2;
   readonly modelId: string;
   readonly revision: number;
   readonly load: LoadDefaults;
   readonly generation: GenerationDefaults;
   readonly preferences: AdvancedPreferences;
+  /** Absent only in legacy v1 input; decoded records always contain this field. */
+  readonly speculation?: SpeculativeDefaults;
 }
 /** Closed native fields for a single request. They never alter engine-global defaults. */
 export interface NativeGenerationParameters {
@@ -82,6 +86,7 @@ export interface ActiveLoadSnapshot {
   /** Original next-load preferences retained for pending-reload comparison after readback. */
   readonly requestedLoad?: LoadDefaults;
   readonly preferences?: AdvancedPreferences;
+  readonly speculation?: SpeculativeDefaults;
 }
 /** Capture before queue admission; saving defaults cannot change this value. */
 export interface ResolvedRequestSettings {
@@ -95,6 +100,7 @@ export interface ResolvedRequestSettings {
   readonly thinking: boolean | null;
   /** Absent on older history snapshots, which always stopped at the context limit. */
   readonly overflow?: AdvancedPreferences['overflow'];
+  readonly speculation?: SpeculativeDefaults;
 }
 
 function invalid(): never {
@@ -169,6 +175,9 @@ export function decodeResolvedRequestSettings(
     'systemPrompt',
     'thinking',
     ...(input && typeof input === 'object' && Object.hasOwn(input, 'overflow') ? ['overflow'] : []),
+    ...(input && typeof input === 'object' && Object.hasOwn(input, 'speculation')
+      ? ['speculation']
+      : []),
   ]);
   if (
     Object.hasOwn(value, 'overflow') &&
@@ -212,6 +221,9 @@ export function decodeResolvedRequestSettings(
     parameters: Object.freeze({ ...decoded, stop: strings(parameters.stop) }),
     systemPrompt: text(value.systemPrompt, 16000),
     thinking: value.thinking === null ? null : boolean(value.thinking),
+    ...(Object.hasOwn(value, 'speculation')
+      ? { speculation: decodeSpeculativeDefaults(value.speculation) }
+      : {}),
     ...(Object.hasOwn(value, 'overflow')
       ? { overflow: value.overflow as AdvancedPreferences['overflow'] }
       : {}),
@@ -303,9 +315,12 @@ export function decodeModelConfiguration(
     'load',
     'generation',
     'preferences',
+    ...(input && typeof input === 'object' && (input as Record<string, unknown>).schemaVersion === 2
+      ? ['speculation']
+      : []),
   ]);
   if (
-    value.schemaVersion !== 1 ||
+    (value.schemaVersion !== 1 && value.schemaVersion !== 2) ||
     typeof value.modelId !== 'string' ||
     !/^[a-f0-9]{64}$/u.test(value.modelId)
   )
@@ -334,7 +349,9 @@ export function decodeModelConfiguration(
   ]);
   const preferences = decodeAdvancedPreferences(value.preferences);
   const decoded: ModelConfigurationRecord = Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
+    speculation:
+      value.schemaVersion === 1 ? speculationOff() : decodeSpeculativeDefaults(value.speculation),
     modelId: value.modelId,
     revision: number(value.revision, 0, Number.MAX_SAFE_INTEGER, true),
     load: Object.freeze({

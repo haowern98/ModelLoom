@@ -252,7 +252,7 @@ it('shows saved native speeds after completion and renderer reload', async () =>
   await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Question');
   await user.click(screen.getByRole('button', { name: 'Send message' }));
   await waitFor(() => expect(f.work).toHaveLength(1));
-  const speeds = { generation: 24.8, prefill: 1420 },
+  const speeds = { generation: 24.8, prefill: 1420, acceptance: 0.75 },
     outcome = { status: 'completed', reason: 'STOP' } as const;
   await f.work[0]!.progress({ type: 'reasoning', text: 'Consider' });
   await f.work[0]!.progress({ type: 'text', text: 'Answer' });
@@ -261,11 +261,36 @@ it('shows saved native speeds after completion and renderer reload', async () =>
   await screen.findByText('Generation: 24.8 tok/s');
   const thoughtLabel = screen.getByText(/^Thought for /).textContent;
   expect(screen.getByText('Prompt processing: 1,420 tok/s')).toBeVisible();
+  expect(screen.getByText('Acceptance rate: 75%')).toBeVisible();
   view.unmount();
   render(<Harness />);
   await screen.findByText('Generation: 24.8 tok/s');
   expect(screen.getByText(thoughtLabel, { exact: true })).toBeVisible();
   expect(screen.getByText('Prompt processing: 1,420 tok/s')).toBeVisible();
+  expect(screen.getByText('Acceptance rate: 75%')).toBeVisible();
+  await f.core.close();
+});
+it('shows live rates while generating and retains them after Stop and renderer reload', async () => {
+  const f = await fixture(),
+    user = userEvent.setup();
+  const view = render(<Harness />);
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved on this device'));
+  await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Question');
+  await user.click(screen.getByRole('button', { name: 'Send message' }));
+  await waitFor(() => expect(f.work).toHaveLength(1));
+  await f.work[0]!.progress({ type: 'metrics', speeds: { generation: null, prefill: 100 } });
+  await screen.findByText('Prompt processing: 100 tok/s');
+  await f.work[0]!.progress({ type: 'reasoning', text: 'Thinking' });
+  await f.work[0]!.progress({ type: 'metrics', speeds: { generation: 12, prefill: 100 } });
+  await screen.findByText('Generation: 12 tok/s');
+  expect(screen.getByRole('button', { name: 'Stop response' })).toBeEnabled();
+  await user.click(screen.getByRole('button', { name: 'Stop response' }));
+  await screen.findByText('Stopped');
+  expect(screen.getByText('Generation: 12 tok/s')).toBeVisible();
+  view.unmount();
+  render(<Harness />);
+  await screen.findByText('Generation: 12 tok/s');
+  expect(screen.getByText('Prompt processing: 100 tok/s')).toBeVisible();
   await f.core.close();
 });
 it('shows streamed thinking in a collapsed row, expands safely and retains it after Stop', async () => {

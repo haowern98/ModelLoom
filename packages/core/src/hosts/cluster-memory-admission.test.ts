@@ -304,7 +304,7 @@ it.each(['mismatch', 'cancel'] as const)('does not admit %s allocation evidence'
   if (mode === 'cancel') setTimeout(() => abort.abort(), 30);
   try {
     await expect(engine.waitReady(abort.signal)).rejects.toThrow(
-      mode === 'mismatch' ? 'PLACEMENT_MISMATCH' : 'START_FAILED',
+      mode === 'mismatch' ? 'PLACEMENT_MISMATCH' : 'START_TIMEOUT',
     );
   } finally {
     await engine.forceStop();

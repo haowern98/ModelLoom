@@ -9,6 +9,29 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 
 const owners: FixtureDeployment[] = [];
+it('admits bounded speculative launch arguments and rejects oversized framing', async () => {
+  const native = ownershipBinding();
+  const root = native.createDeployment();
+  const executable = path.resolve(import.meta.dirname, '../../out/native/engine-fixture.exe');
+  let child: object | undefined;
+  try {
+    expect(() => native.launch(root, executable, Array<string>(129).fill('ready'))).toThrow(
+      'INVALID_CONTROL',
+    );
+    child = native.launch(root, executable, Array<string>(65).fill('ready'));
+  } finally {
+    native.closeDeployment(root);
+    if (child) {
+      for (let i = 0; i < 100; i++) {
+        const observed = native.observe(child);
+        if (!observed.activeProcesses && observed.exitCode !== -1) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(native.observe(child).activeProcesses).toBe(0);
+      native.release(child);
+    }
+  }
+});
 it('resolves the Windows system directory independently of caller environment', () => {
   const previous = process.env.SystemRoot;
   process.env.SystemRoot = 'Z:\\untrusted';

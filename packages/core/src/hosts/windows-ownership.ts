@@ -44,7 +44,7 @@ interface Binding {
     temporaryDirectory: string,
     gpuUuid: string,
   ): object;
-  /** Ordered physical visibility for a bounded one/two-device plan. */
+  /** Ordered target/proposer visibility for a bounded three-device process. */
   launchCudaPlanConsole(
     root: object,
     executable: string,

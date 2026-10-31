@@ -177,6 +177,7 @@ export class ClusterStore {
         profileId: this.profileId,
         load: draft.load,
         runs: valid.runs,
+        ...(draft.proposerDevice === undefined ? {} : { proposerDevice: draft.proposerDevice }),
         ...(draft.canvas ? { canvas: draft.canvas } : {}),
       });
       this.db
@@ -207,9 +208,12 @@ export class ClusterStore {
       }
       const saved = this.read(draft.configurationId);
       if (!saved) throw Error('UNKNOWN_CONFIGURATION');
+      const { proposerDevice: discardedProposerDevice, ...remainingDraft } = draft;
+      void discardedProposerDevice;
       const next = decodeClusterDraft({
-        ...draft,
+        ...remainingDraft,
         modelId: saved.modelId,
+        ...(saved.proposerDevice === undefined ? {} : { proposerDevice: saved.proposerDevice }),
         canvas: saved.canvas,
         load: saved.load,
         runs: saved.runs.map((r) => ({

@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { request as httpRequest } from 'node:http';
 import { connect } from 'node:net';
 import { ApiServer } from './server.js';
@@ -86,6 +86,20 @@ async function fixture(port = 0) {
     },
   };
 }
+it('emits API service events without exposing its key to the shared viewer', async () => {
+  const output = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    const f = await fixture();
+    const { key } = await f.start();
+    await f.server.stop();
+    const text = output.mock.calls.map((args) => args.join(' ')).join('\n');
+    expect(text).toContain('[ModelLoom][api] SERVER_STARTED');
+    expect(text).toContain('SERVER_STOPPED');
+    expect(text).not.toContain(key);
+  } finally {
+    output.mockRestore();
+  }
+});
 it('starts only explicitly with a key, authenticates listing and denies browser/rebinding requests', async () => {
   const f = await fixture();
   expect(f.server.status().phase).toBe('stopped');

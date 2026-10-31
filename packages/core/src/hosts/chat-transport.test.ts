@@ -44,6 +44,7 @@ const terminal =
   '\n\ndata: [DONE]\n\n';
 async function fixture(
   options: {
+    speculativeProposer?: boolean;
     malformed?: boolean;
     oversized?: boolean;
     status?: number;
@@ -121,6 +122,7 @@ async function fixture(
   await monitor.initialize();
   const start = vi.spyOn(monitor, 'start');
   const transport = createOwnedChatTransport({
+    speculativeProposer: options.speculativeProposer ?? false,
     port: address.port,
     key: 'test-key',
     alias: 'private-model',
@@ -149,6 +151,20 @@ async function fixture(
     },
   };
 }
+it.each([false, true])(
+  'binds acceptance visibility to the loaded proposer (%s)',
+  async (speculativeProposer) => {
+    const f = await fixture({ speculativeProposer });
+    const chunks: unknown[] = [];
+    const run = f.transport.start(identity, messages, (chunk) => {
+      chunks.push(chunk);
+    });
+    await new Promise<void>((yes) => setTimeout(yes, 150));
+    f.release();
+    await run.settled;
+    expect(JSON.stringify(chunks).includes('"acceptance":null')).toBe(speculativeProposer);
+  },
+);
 it.each(['rolling', 'truncate-middle'] as const)(
   'dispatches %s with a native-counted protected prefix and validates the loaded policy',
   async (overflow) => {
@@ -286,6 +302,8 @@ it('uses the captured closed settings for template accounting and native generat
   expect(f.requests[1]!.body).toEqual({
     ...f.requests[0]!.body,
     stream: true,
+    timings_per_token: true,
+    return_progress: true,
     stream_options: { include_usage: true },
     n: 1,
     id_slot: 0,
@@ -401,6 +419,8 @@ it('streams text but fulfills completion only after native release confirmation'
     messages,
     stream: true,
     max_tokens: 512,
+    timings_per_token: true,
+    return_progress: true,
     n: 1,
     id_slot: 0,
   });

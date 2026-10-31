@@ -359,6 +359,7 @@ it('binds the admitted engine after verification and closes it with the history 
     18478,
     expect.any(Function),
     undefined,
+    undefined,
   );
   const takeConfirmation = startup.adapter.mock.calls.at(-1)![4] as () => boolean;
   expect(takeConfirmation()).toBe(false);

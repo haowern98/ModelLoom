@@ -17,6 +17,7 @@ import { ClusterController } from '../cluster/controller.js';
 import { createConfigurationProfile } from '../model-configuration/development-profile.js';
 import type { ActiveLoadSnapshot } from '../model-configuration/contracts.js';
 import { actualizeContext } from '../model-configuration/resolve.js';
+import { speculationOff } from '../speculative-decoding/contracts.js';
 import type { ConfigurationReply } from '../model-configuration/wire.js';
 import { ApiController } from '../local-api/controller.js';
 import { windowsApiKeyProtection } from '../model-configuration/windows-protection.js';
@@ -601,6 +602,10 @@ export function runUtility(
                   defaults.revision !== saved.revision ||
                   source?.blockCount !== saved.blockCount ||
                   !isDeepStrictEqual(defaults.load, saved.load.defaults) ||
+                  !isDeepStrictEqual(
+                    defaults.speculation ?? speculationOff(),
+                    saved.load.speculation ?? speculationOff(),
+                  ) ||
                   !isDeepStrictEqual(defaults.preferences, saved.load.preferences)
                 )
                   throw Error('STALE_CONFIGURATION');
@@ -614,6 +619,14 @@ export function runUtility(
                 'b11306-cuda12.4-msvc14.44-dev1',
               );
               requireStockClusterProfile(effective);
+              const companion = saved.load.speculation?.enabled
+                ? saved.load.speculation.proposer?.source
+                : undefined;
+              if (
+                companion?.kind === 'asset' &&
+                !(await configurationOwner.store.readImportSource(companion.modelId))
+              )
+                throw Error('MODEL_FILE_UNAVAILABLE');
               remoteLoad = effective.placement.orderedUuids.some(
                 (uuid) => decodeClusterDevice(uuid).kind === 'peer',
               );
@@ -623,6 +636,7 @@ export function runUtility(
                 profileId: saved.profileId,
                 load: saved.load.defaults,
                 ...(saved.load.preferences ? { preferences: saved.load.preferences } : {}),
+                ...(saved.load.speculation ? { speculation: saved.load.speculation } : {}),
               });
               loadProvenances.set(
                 selectionKey(selection),
@@ -642,6 +656,12 @@ export function runUtility(
                 }),
               );
             } else snapshot = await configuration.captureLoad(scope.modelId);
+            if (
+              snapshot.speculation?.enabled &&
+              !Object.hasOwn(command, 'clusterConfiguration') &&
+              !Object.hasOwn(command, 'modelConfiguration')
+            )
+              throw Error('NEEDS_SPECULATIVE_EVIDENCE');
             if (quitting) throw new Error('NOT_READY');
             loadConfigurations.set(selectionKey(selection), snapshot);
           } catch {

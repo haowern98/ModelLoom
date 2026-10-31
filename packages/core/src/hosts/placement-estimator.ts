@@ -13,6 +13,9 @@ import { decodeClusterDevice } from '../cluster/device-id.js';
 import { createPeerRelays } from './peer-relays.js';
 import type { OpenPeerRpc } from './peer-relays.js';
 import { GENERATION_POLICY } from '../generation/contracts.js';
+import { executionDevices, speculativeArguments } from '../speculative-decoding/execution.js';
+import { validateSpeculativeAssets } from '../speculative-decoding/assets.js';
+import type { SpeculativeCompanion } from '../speculative-decoding/assets.js';
 // Failed cleanup must retain file identities instead of reopening replaceable binaries.
 const unsettledLocks = new Set<object>();
 const inspections = new WeakMap<object, { readonly file: string; readonly info: GGUFInfo }>();
@@ -73,14 +76,27 @@ export async function runPlacementEstimator(
   inspection?: object,
   openPeer?: OpenPeerRpc,
   reserveLocal?: (devices: readonly string[]) => Promise<{ release(): Promise<void> }>,
+  companion?: SpeculativeCompanion,
 ): Promise<CandidateEstimate> {
   if (signal.aborted) throw Error('PLANNING_CANCELLED');
+  const speculative = speculativeArguments(load, companion?.file);
   const inventory = requireInstalledLive(installed);
+  if (
+    load.speculation?.enabled &&
+    !inventory.files.some((f) => f.path === 'modelloom-speculative-estimator.exe')
+  )
+    throw Error('NEEDS_SPECULATIVE_EVIDENCE');
   if (
     inventory.artifact !== load.artifact ||
     inventory.backend !== 'cuda' ||
     inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77' ||
-    !inventory.files.some((f) => f.path === 'llama-fit-params.exe')
+    !inventory.files.some(
+      (f) =>
+        f.path ===
+        (load.speculation?.enabled
+          ? 'modelloom-speculative-estimator.exe'
+          : 'llama-fit-params.exe'),
+    )
   )
     throw Error('NEEDS_RESOURCE_EVIDENCE');
   const files = await revalidateInstalled(installed),
@@ -90,7 +106,10 @@ export async function runPlacementEstimator(
   let reservation: { release(): Promise<void> } | undefined;
   let output = '';
   try {
-    modelLock = native.sealFiles([path.resolve(model)]);
+    modelLock = native.sealFiles([
+      path.resolve(model),
+      ...(companion ? [path.resolve(companion.file)] : []),
+    ]);
     const retained = inspection === undefined ? undefined : inspections.get(inspection);
     if (inspection !== undefined && (!retained || retained.file !== path.resolve(model)))
       throw Error('INVALID_ESTIMATE');
@@ -98,16 +117,23 @@ export async function runPlacementEstimator(
     if (info.sha256 !== load.modelSha256) throw Error('MODEL_FILE_UNAVAILABLE');
     if (info.contextLimit < load.contextPerSlot || info.blockCount !== load.blockCount)
       throw Error('INVALID_CONFIGURATION');
+    validateSpeculativeAssets(
+      load.speculation,
+      info,
+      companion ? await inspectGGUF(companion.file) : undefined,
+    );
     if (signal.aborted) throw Error('PLANNING_CANCELLED');
     requireInstalledLive(installed);
-    const local = load.placement.orderedUuids.filter(
-      (id) => decodeClusterDevice(id).kind === 'local',
-    );
+    const devices = executionDevices(load);
+    const local = devices.filter((id) => decodeClusterDevice(id).kind === 'local');
     if (local.length) reservation = await reserveLocal?.(local);
     if (signal.aborted) throw Error('PLANNING_CANCELLED');
     root = native.createDeployment();
     native.privateDirectory(temporaryDirectory);
-    const executable = path.join(installed.directory, 'llama-fit-params.exe');
+    const executable = path.join(
+      installed.directory,
+      load.speculation?.enabled ? 'modelloom-speculative-estimator.exe' : 'llama-fit-params.exe',
+    );
     let captured = false,
       serverPid: number | undefined;
     const observe = () => {
@@ -126,7 +152,7 @@ export async function runPlacementEstimator(
       return observation;
     };
     relays = await createPeerRelays(
-      load.placement.orderedUuids,
+      devices,
       (pid) => observe().exitCode === -1 && serverPid === pid,
       openPeer,
     );
@@ -134,10 +160,10 @@ export async function runPlacementEstimator(
       executable,
       '--model',
       model,
-      '--fit-print',
-      'on',
+      ...(load.speculation?.enabled ? ['--fit', 'off'] : ['--fit-print', 'on']),
       ...relays.arguments,
       ...clusterLoadArguments(load),
+      ...speculative,
     ];
     child = local.length
       ? native.launchCudaPlanConsole(
@@ -154,7 +180,7 @@ export async function runPlacementEstimator(
           temporaryDirectory,
         );
     // Remote enumeration launches verified workers for several stock RPC queries.
-    const remote = local.length !== load.placement.orderedUuids.length;
+    const remote = local.length !== devices.length;
     const deadline = Date.now() + (remote ? GENERATION_POLICY.generationMs : 30000);
     for (;;) {
       if (signal.aborted) throw Error('PLANNING_CANCELLED');
@@ -163,6 +189,11 @@ export async function runPlacementEstimator(
       if (observation.exitCode !== -1 && observation.activeProcesses === 0) {
         if (observation.exitCode !== 0 || !captured) throw Error('INVALID_ESTIMATE');
         const rows = output.trimEnd().split(/\r?\n/u).slice(1);
+        if (load.speculation?.enabled) {
+          const marker = rows.findIndex((row) => row.startsWith('MODELLOOM_SPEC_ESTIMATE '));
+          if (marker < 0) throw Error('INVALID_ESTIMATE');
+          return parseClusterEstimate(Buffer.from(rows.slice(marker).join('\n')), load);
+        }
         // A remote-only coordinator can estimate RPC devices without a local CUDA device.
         if (
           !local.length &&

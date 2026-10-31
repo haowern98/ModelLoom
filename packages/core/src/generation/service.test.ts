@@ -77,6 +77,26 @@ function setup(tokens = 10, unconfirmed = false, count?: ChatTransport['tokenCou
 async function drain() {
   for (let i = 0; i < 25; i++) await Promise.resolve();
 }
+it('emits Chat lifecycle diagnostics without messages or generated content', async () => {
+  const output = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    const { service, store } = setup();
+    const conversation = await store.newConversation();
+    const identity = await service.send('window1', {
+      conversationId: conversation.id,
+      text: 'private message never log this',
+    });
+    await drain();
+    await service.cancel('window1', identity.requestId);
+    await drain();
+    const text = output.mock.calls.map((args) => args.join(' ')).join('\n');
+    expect(text).toContain('[ModelLoom][chat] request.started');
+    expect(text).toContain('request.cancelled');
+    expect(text).not.toContain('private message');
+  } finally {
+    output.mockRestore();
+  }
+});
 it('keeps slow native token preparation alive beyond two minutes', async () => {
   vi.useFakeTimers();
   let complete!: (tokens: number) => void;
@@ -258,6 +278,30 @@ it('persists an attempt before starting captured transport and commits terminal 
   expect(events.at(-1)).toMatchObject({
     type: 'terminal',
     outcome: { status: 'completed', reason: 'STOP' },
+    speeds,
+  });
+});
+it.each([
+  { status: 'cancelled', reason: 'USER_CANCELLED' },
+  { status: 'interrupted', reason: 'ENGINE_EXITED' },
+] as const)('checkpoints live speeds and retains them after $status', async (outcome) => {
+  vi.useFakeTimers();
+  const { service, store, executions } = setup();
+  const c = await store.newConversation();
+  await service.send('window1', { conversationId: c.id, text: 'question' });
+  await drain();
+  const speeds = { generation: 12, prefill: 100 };
+  executions[0]!.emit({ type: 'metrics', speeds });
+  await vi.advanceTimersByTimeAsync(250);
+  await drain();
+  expect((await store.readConversation(c.id)).turns[0]?.attempts[0]).toMatchObject({
+    state: 'running',
+    speeds,
+  });
+  executions[0]!.finish(outcome);
+  await drain();
+  expect((await store.readConversation(c.id)).turns[0]?.attempts[0]).toMatchObject({
+    state: outcome.status,
     speeds,
   });
 });

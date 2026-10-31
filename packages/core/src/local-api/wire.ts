@@ -15,8 +15,9 @@ export type ApiOwnerCommand =
   | ApiManagementCommand
   | { readonly action: 'removeImport'; readonly modelId: string }
   | { readonly action: 'readLibraryEntry'; readonly after: string | null }
+  | { readonly action: 'reinspectImport'; readonly modelId: string; readonly source: ModelSource }
   | {
-      readonly action: 'registerImport';
+      readonly action: 'registerImport' | 'registerCompanion';
       readonly modelId: string;
       readonly created: number;
       readonly source?: ModelSource;
@@ -96,7 +97,11 @@ export function decodeApiOwnerReply(input: unknown, command: ApiOwnerCommand): A
       source: value.source === null ? null : decodeModelSource(value.source),
     });
   }
-  if (command.action === 'registerImport') {
+  if (
+    command.action === 'registerImport' ||
+    command.action === 'registerCompanion' ||
+    command.action === 'reinspectImport'
+  ) {
     const value = object(input, ['ok', 'registered']);
     if (value.ok !== true || value.registered !== true) return invalid();
     return Object.freeze({ ok: true, registered: true });
@@ -136,6 +141,12 @@ export function decodeApiManagementCommand(input: unknown): ApiManagementCommand
 }
 /** Main-only import data is not admitted by the renderer bridge decoder. */
 export function decodeApiOwnerCommand(input: unknown): ApiOwnerCommand {
+  if (input && typeof input === 'object' && Reflect.get(input, 'action') === 'reinspectImport') {
+    const value = object(input, ['action', 'modelId', 'source']);
+    const source = decodeModelSource(value.source);
+    if (source.modelId !== value.modelId || source.classificationVersion !== 1) return invalid();
+    return Object.freeze({ action: 'reinspectImport', modelId: source.modelId, source });
+  }
   if (input && typeof input === 'object' && Reflect.get(input, 'action') === 'removeImport') {
     const value = object(input, ['action', 'modelId']);
     if (typeof value.modelId !== 'string' || !/^[a-f0-9]{64}$/u.test(value.modelId))
@@ -159,7 +170,12 @@ export function decodeApiOwnerCommand(input: unknown): ApiOwnerCommand {
     object(input, ['action']);
     return Object.freeze({ action: 'readImportSource' });
   }
-  if (input && typeof input === 'object' && Reflect.get(input, 'action') === 'registerImport') {
+  if (
+    input &&
+    typeof input === 'object' &&
+    (Reflect.get(input, 'action') === 'registerImport' ||
+      Reflect.get(input, 'action') === 'registerCompanion')
+  ) {
     const withSource = Object.hasOwn(input, 'source');
     const value = object(input, [
       'action',
@@ -175,8 +191,10 @@ export function decodeApiOwnerCommand(input: unknown): ApiOwnerCommand {
       return invalid();
     const source = withSource ? decodeModelSource(value.source) : undefined;
     if (source && source.modelId !== value.modelId) return invalid();
+    if (value.action === 'registerCompanion' ? !source?.speculativeHead : source?.speculativeHead)
+      return invalid();
     return Object.freeze({
-      action: 'registerImport',
+      action: value.action as 'registerImport' | 'registerCompanion',
       modelId: value.modelId,
       created: integer(value.created),
       ...(source ? { source } : {}),

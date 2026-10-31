@@ -62,6 +62,13 @@ const configurationErrors: Readonly<Record<string, string>> = {
     'Runtime shutdown could not be confirmed. Restart the app before trying another allocation.',
   NEEDS_RESOURCE_EVIDENCE:
     'These load settings are not supported by the validated runtime yet. Choose supported settings and try again.',
+  NEEDS_SPECULATIVE_EVIDENCE:
+    'The selected runtime needs the verified speculative estimator before this configuration can load.',
+  INCOMPATIBLE_SPECULATIVE_ASSET: 'Choose a companion compatible with the selected target model.',
+  UNSUPPORTED_SPECULATIVE_DEVICE:
+    'This head shares target weights. Choose Automatic so it follows the target output device.',
+  UNSUPPORTED_SPECULATIVE_RETRIEVAL:
+    'Choose n-gram simple or n-gram mod. This retrieval variant has no proven memory bound.',
   PLANNING_CANCELLED: 'Automatic assignment was cancelled. Your previous edits are still here.',
   PLANNING_INCOMPLETE:
     'Automatic assignment could not finish. Try again or assign layers manually.',
@@ -78,6 +85,9 @@ const configurationErrors: Readonly<Record<string, string>> = {
 };
 
 interface ClusterPageProps extends JoiningProps {
+  speculativeRequest?: number;
+  onSpeculationOpened?: () => void;
+  onModelConfiguration?: (modelId: string) => void;
   connectionsRequest?: number;
   onConnectionsOpened?: () => void;
   demo: boolean;
@@ -117,6 +127,9 @@ export function ClusterPage({
   pendingPeerRequests = 0,
   connectionsRequest = 0,
   onConnectionsOpened,
+  speculativeRequest = 0,
+  onSpeculationOpened,
+  onModelConfiguration,
 }: ClusterPageProps) {
   const [configurationName, setConfigurationName] = useState('');
   const [validatedDemoInputs, setValidatedDemoInputs] = useState<readonly LayerInput[] | null>(
@@ -140,6 +153,12 @@ export function ClusterPage({
     });
   }, []);
   const configurationError = configurations?.error;
+  const speculativeProposer = configurations?.raw?.load.speculation?.proposer;
+  const sharesPlacement = Boolean(
+    speculativeProposer &&
+    (speculativeProposer.source.kind === 'embedded' ||
+      ['dflash', 'dspark', 'eagle3'].includes(speculativeProposer.method)),
+  );
   useEffect(() => {
     if (configurationError)
       notify('error', configurationErrors[configurationError] ?? configurationError);
@@ -238,6 +257,20 @@ export function ClusterPage({
       cancelled = true;
     };
   }, [connectionsRequest, navigate, onConnectionsOpened]);
+  useEffect(() => {
+    if (!speculativeRequest) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setView('overview');
+      setSelection({ type: 'speculation' });
+      setPanelOpen(true);
+      onSpeculationOpened?.();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [speculativeRequest, onSpeculationOpened]);
   const liveArrangement = demo ? arrangement : restoreCanvas(canvasDevices, arrangement);
   const positions = demo
     ? canvasPositions(canvasDevices, arrangement.positions)
@@ -862,6 +895,61 @@ export function ClusterPage({
               local={Boolean(localRuntime)}
               joining={joining}
               onJoining={onJoining}
+              onSpeculation={() => showPanel({ type: 'speculation' })}
+              onModelConfiguration={
+                selectedModel && onModelConfiguration
+                  ? () => onModelConfiguration(selectedModel.id.replace(/^model-/u, ''))
+                  : undefined
+              }
+              speculation={{
+                enabled: configurations?.raw?.load.speculation?.enabled ?? false,
+                summary: configurations?.raw?.load.speculation?.enabled
+                  ? [
+                      configurations.raw.load.speculation.proposer?.method.toUpperCase(),
+                      configurations.raw.load.speculation.retrieval ? 'CPU retrieval' : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' + ')
+                  : 'Off',
+                proposer: Boolean(
+                  configurations?.raw?.load.speculation?.enabled &&
+                  configurations.raw.load.speculation.proposer,
+                ),
+                device: configurations?.raw?.proposerDevice ?? 'auto',
+                devices: sharesPlacement
+                  ? []
+                  : [
+                      { value: 'cpu', label: 'This PC CPU' },
+                      ...executableGpus
+                        .filter(
+                          (gpu, index, all) =>
+                            all.findIndex((item) => item.uuid === gpu.uuid) === index,
+                        )
+                        .map((gpu) => {
+                          const device = canvasDevices.find(
+                            (item) =>
+                              item.hardware.some((hardware) => hardware.id === gpu.hardwareId) ||
+                              item.inventory?.gpus?.some(
+                                (hardware) => `local-${hardware.id}` === gpu.hardwareId,
+                              ),
+                          );
+                          const hardware = device?.hardware.find(
+                            (item) => item.id === gpu.hardwareId,
+                          );
+                          return {
+                            value: gpu.uuid,
+                            label: `${device?.name ?? 'This PC'} · ${hardware?.label ?? 'GPU'}`,
+                          };
+                        }),
+                    ],
+                ...(sharesPlacement
+                  ? {
+                      placementNote:
+                        'This head follows the target output placement in this runtime.',
+                    }
+                  : {}),
+                onDevice: (value) => configurations?.setProposerDevice(value),
+              }}
               selection={currentSelection}
               devices={canvasDevices}
               canvasCandidates={devices.filter(

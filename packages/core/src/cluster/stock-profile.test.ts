@@ -37,6 +37,20 @@ const snapshot = (free = 1024 ** 3) => ({
     },
   ],
 });
+it('never uses a target-only estimate to admit a speculative deployment', () => {
+  const speculative = {
+    ...load,
+    speculation: {
+      version: 1,
+      enabled: true,
+      proposer: null,
+      retrieval: { method: 'ngram-simple' },
+    },
+  };
+  expect(() => createStockClusterReport(speculative as ClusterEffectiveLoad, estimate())).toThrow(
+    'NEEDS_SPECULATIVE_EVIDENCE',
+  );
+});
 it('accepts compatible model identities and supported load settings', () => {
   expect(requireStockClusterProfile(load).cacheLayers).toEqual(Array(64).fill('auto'));
   const other = {

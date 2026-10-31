@@ -3,6 +3,30 @@ import { PassThrough } from 'node:stream';
 import { expect, it, vi } from 'vitest';
 import { localRpcGateway } from './rpc.js';
 
+it('records the original gateway setup error without leaking arbitrary error text', async () => {
+  const output = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  const lost = vi.fn();
+  const gateway = await localRpcGateway(
+    (pid) => pid === process.pid,
+    () => Promise.reject(Object.assign(Error('private credential'), { code: 'ECONNREFUSED' })),
+    lost,
+  );
+  const socket = connect(gateway.port, '127.0.0.1');
+  socket.on('error', () => undefined);
+  try {
+    await vi.waitFor(() => expect(lost).toHaveBeenCalledTimes(1));
+    const log = output.mock.calls.flat().join('\n');
+    expect(log).toContain('gateway-open');
+    expect(log).toContain('ECONNREFUSED');
+    expect(log).toContain('rpc.failure-context');
+    expect(log).not.toContain('private credential');
+  } finally {
+    socket.destroy();
+    await gateway.close();
+    output.mockRestore();
+  }
+});
+
 it('rejects an unrelated process identity before opening the RPC stream', async () => {
   let opened = false;
   const gateway = await localRpcGateway(

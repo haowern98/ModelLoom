@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { emitRuntimeDiagnostic } from '../hosts/runtime-diagnostics.js';
 import { fitContext } from './context-overflow.js';
 import { requireApiCaller } from './api-authority.js';
 import type { ApiCaller } from './api-authority.js';
@@ -173,6 +174,10 @@ export class ApiGeneration {
     const result = await receipt.done;
     if (this.admission.requiresCleanup) await this.unsafe();
     const outcome = result.reason === 'CANCEL_UNCONFIRMED' ? result : (entry.failure ?? result);
+    emitRuntimeDiagnostic(
+      'api',
+      `request.${outcome.status} id=${entry.identity.requestId} reason=${outcome.reason}`,
+    );
     return Object.freeze({
       outcome,
       text: entry.text,
@@ -186,6 +191,7 @@ export class ApiGeneration {
     if (!entry || !entry.settings || !entry.messages || entry.abort.signal.aborted || this.closed)
       throw new Error('NOT_READY');
     requireApiCaller(entry.caller); // Revocation is rechecked immediately before native dispatch.
+    emitRuntimeDiagnostic('api', `request.started id=${identity.requestId}`);
     const native = this.deps.transport.start(
       identity,
       entry.messages,
@@ -207,6 +213,7 @@ export class ApiGeneration {
             return;
           }
           if (entry.abort.signal.aborted) return;
+          if (chunk.type === 'metrics') return;
           if (
             Buffer.byteLength(entry.text) +
               Buffer.byteLength(entry.reasoning) +

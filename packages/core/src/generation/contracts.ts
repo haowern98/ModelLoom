@@ -56,6 +56,10 @@ export function decodeExecutionIdentity(input: unknown): ExecutionIdentity {
 export function decodeGenerationChunk(input: unknown): GenerationChunk {
   return safely(() => {
     const value = object(input);
+    if (value.type === 'metrics') {
+      exact(value, ['type', 'speeds']);
+      return Object.freeze({ type: 'metrics', speeds: decodeSpeeds(value.speeds) });
+    }
     if (value.type === 'text' || value.type === 'reasoning') {
       exact(value, ['type', 'text']);
       return Object.freeze({ type: value.type, text: unicode(value.text) });
@@ -99,6 +103,8 @@ export type TerminalOutcome =
 export interface GenerationSpeeds {
   readonly generation: number | null;
   readonly prefill: number | null;
+  /** Present only for an active speculative proposer; null means no native counts yet. */
+  readonly acceptance?: number | null;
 }
 /** Actual native accounting. Reasoning is included in completion tokens. */
 export interface GenerationUsage {
@@ -109,6 +115,7 @@ export interface GenerationUsage {
 }
 export type GenerationChunk =
   | { readonly type: 'text' | 'reasoning'; readonly text: string }
+  | { readonly type: 'metrics'; readonly speeds: GenerationSpeeds }
   | {
       readonly type: 'terminal';
       readonly outcome: TerminalOutcome;
@@ -166,6 +173,15 @@ export function decodeProgress(input: string): ProgressEvent {
     )
       invalid();
     const sequence = value.sequence;
+    if (value.type === 'metrics') {
+      exact(value, [...identityFields, 'type', 'sequence', 'speeds']);
+      return Object.freeze({
+        ...identity(value),
+        sequence,
+        type: 'metrics',
+        speeds: decodeSpeeds(value.speeds),
+      });
+    }
     if (value.type === 'text' || value.type === 'reasoning') {
       exact(value, [...identityFields, 'type', 'sequence', 'text']);
       return Object.freeze({
@@ -240,7 +256,17 @@ export function decodeUsage(input: unknown): GenerationUsage {
 export function decodeSpeeds(input: unknown): GenerationSpeeds {
   return safely(() => {
     const value = object(input);
-    exact(value, ['generation', 'prefill']);
+    const hasAcceptance = Object.hasOwn(value, 'acceptance');
+    exact(value, ['generation', 'prefill', ...(hasAcceptance ? ['acceptance'] : [])]);
+    if (
+      hasAcceptance &&
+      value.acceptance !== null &&
+      (typeof value.acceptance !== 'number' ||
+        !Number.isFinite(value.acceptance) ||
+        value.acceptance < 0 ||
+        value.acceptance > 1)
+    )
+      return invalid();
     const rate = (input: unknown): number | null => {
       if (input === null) return null;
       if (
@@ -252,7 +278,11 @@ export function decodeSpeeds(input: unknown): GenerationSpeeds {
         return invalid();
       return input;
     };
-    return Object.freeze({ generation: rate(value.generation), prefill: rate(value.prefill) });
+    return Object.freeze({
+      generation: rate(value.generation),
+      prefill: rate(value.prefill),
+      ...(hasAcceptance ? { acceptance: value.acceptance as number | null } : {}),
+    });
   });
 }
 

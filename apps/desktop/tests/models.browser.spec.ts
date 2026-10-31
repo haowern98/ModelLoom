@@ -30,10 +30,16 @@ test('Models toolbar has two neutral icon actions and no view toggle', async ({ 
   await expect(search.locator('..')).toHaveCSS('border-color', 'rgb(56, 56, 56)');
   for (const width of [1280, 1000]) {
     await page.setViewportSize({ width, height: width === 1000 ? 620 : 720 });
-    const heading = await page.getByRole('heading', { name: 'Models', exact: true }).boundingBox();
+    const heading = await page
+      .getByRole('heading', { name: 'Model library', exact: true })
+      .boundingBox();
     const nameColumn = await page.getByText('Name', { exact: true }).boundingBox();
     if (!heading || !nameColumn) throw new Error('Models heading or Name column missing');
-    expect(nameColumn.x).toBeCloseTo(heading.x, 1);
+    expect(nameColumn.x).toBeCloseTo(heading.x + 12, 1);
+    const firstModel = await page
+      .getByRole('heading', { name: 'Qwen3.8-27B', exact: true })
+      .boundingBox();
+    expect(firstModel?.x).toBeCloseTo(nameColumn.x, 1);
     const bounds = [];
     for (const control of [search.locator('..'), importButton, explore]) {
       await expect(control).toBeInViewport();
@@ -74,7 +80,13 @@ test('reference layout has readable cards and no horizontal clipping', async ({ 
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Models', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Model library', exact: true })).toBeVisible();
+  const filters = page.getByRole('tablist', { name: 'Model library', exact: true });
+  await expect(filters.getByRole('tab')).toHaveText(['All', 'Models', 'Speculative heads']);
+  await expect(filters.getByRole('tab', { name: 'All', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   await expect(page.getByText('Demo data')).toBeVisible();
   await expect(page.getByRole('article')).toHaveCount(5);
   await expect(page.getByRole('article', { name: 'Gemma 2 9B' })).toBeInViewport();

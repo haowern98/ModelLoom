@@ -3,6 +3,7 @@ import {
   decodeSend,
   decodeRequestIdentity,
   decodeProgress,
+  decodeSpeeds,
   GENERATION_LIMITS,
 } from './contracts.js';
 
@@ -17,6 +18,29 @@ const identity = {
 };
 
 describe('generation contracts', () => {
+  it('validates optional acceptance while preserving legacy speed records', () => {
+    const rates = { generation: 12, prefill: null };
+    expect(decodeSpeeds(rates)).toEqual(rates);
+    for (const acceptance of [null, 0, 0.75, 1])
+      expect(decodeSpeeds({ ...rates, acceptance })).toEqual({ ...rates, acceptance });
+    for (const acceptance of [-1, 1.01, NaN, '75%', {}])
+      expect(() => decodeSpeeds({ ...rates, acceptance })).toThrow('INVALID_CONTROL');
+  });
+  it('accepts bounded live metrics without granting extra fields', () => {
+    const event = {
+      ...identity,
+      sequence: 1,
+      type: 'metrics',
+      speeds: { generation: 12, prefill: null },
+    };
+    expect(decodeProgress(JSON.stringify(event))).toEqual(event);
+    expect(() => decodeProgress(JSON.stringify({ ...event, url: 'forged' }))).toThrow(
+      'INVALID_CONTROL',
+    );
+    expect(() =>
+      decodeProgress(JSON.stringify({ ...event, speeds: { generation: -1, prefill: null } })),
+    ).toThrow('INVALID_CONTROL');
+  });
   it('accepts only the two scalar measured rates on a terminal event', () => {
     const event = {
       ...identity,

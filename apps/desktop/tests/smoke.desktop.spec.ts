@@ -11,7 +11,7 @@ test('packaged demo opens safely, navigates, and exits its owned app', async () 
     const window = await electronApp.firstWindow();
     const errors: string[] = [];
     window.on('pageerror', (error) => errors.push(error.message));
-    await expect(window.getByRole('heading', { name: 'Models', exact: true })).toBeVisible();
+    await expect(window.getByRole('heading', { name: 'Model library', exact: true })).toBeVisible();
     await expect(window.getByText('Demo data')).toBeVisible();
     await expect(window.getByRole('button', { name: /Show grid view|Show list view/ })).toHaveCount(
       0,
@@ -191,7 +191,7 @@ test('packaged demo opens safely, navigates, and exits its owned app', async () 
     );
     await expect(window.getByRole('heading', { name: 'API', exact: true })).toBeVisible();
     await expect(window.getByRole('button', { name: 'Start server', exact: true })).toBeDisabled();
-    await expect(window.getByRole('region', { name: 'Server logs', exact: true })).toBeAttached();
+    await expect(window.getByRole('region', { name: 'Runtime logs', exact: true })).toBeAttached();
     await expect(window.getByText('No API server is running.')).toBeVisible();
     await window.getByRole('button', { name: 'Models', exact: true }).click();
     await window.screenshot({ path: 'test-results/models-packaged-windows.png' });

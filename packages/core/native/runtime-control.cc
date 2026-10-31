@@ -38,7 +38,7 @@ std::wstring quote(const std::wstring &text) {
  * and allowlisted argv. */
 int wmain(int argc, wchar_t **argv) {
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
-  if (argc < 2 || argc > 65 || !GetConsoleWindow() ||
+  if (argc < 2 || argc > 129 || !GetConsoleWindow() ||
       IsWindowVisible(GetConsoleWindow()) ||
       !SetConsoleCtrlHandler(survive, TRUE))
     return 2;

@@ -58,6 +58,15 @@ export function ModelRow({
                 <span title="File size">{model.size}</span>
                 <span title="File format">GGUF</span>
                 <span title="Quantization">{model.quantization}</span>
+                {model.speculativeHead && (
+                  <span title="Speculative head">
+                    {
+                      { eagle3: 'EAGLE-3', dflash: 'DFlash', dspark: 'DSpark', mtp: 'MTP' }[
+                        model.speculativeHead
+                      ]
+                    }
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -127,16 +136,18 @@ export function ModelRow({
               </div>
             )}
           </div>
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label={`Configure ${model.name}`}
-            title={`Configure ${model.name}`}
-            onClick={onConfigure}
-            disabled={unavailable}
-          >
-            <Settings size={18} aria-hidden="true" />
-          </button>
+          {!model.speculativeHead && (
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label={`Configure ${model.name}`}
+              title={`Configure ${model.name}`}
+              onClick={onConfigure}
+              disabled={unavailable}
+            >
+              <Settings size={18} aria-hidden="true" />
+            </button>
+          )}
         </div>
       )}
     </article>

@@ -9,6 +9,7 @@
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 #include <windows.h>
 #include <winsock2.h>
@@ -28,6 +29,7 @@ void check(DWORD result, const char *stage) {
   if (result != ERROR_SUCCESS)
     throw Failure{stage, result};
 }
+#include "network-pipe-io.h"
 struct Socket {
   SOCKET value = INVALID_SOCKET;
   ~Socket() { close(); }
@@ -49,9 +51,27 @@ struct Pipe {
   bool framed = false;
   bool closeReceived = false;
   bool ownerGone = false;
+  bool overlapped = false;
+  bool relaying = false;
+  HANDLE ownerProcess = nullptr;
   ~Pipe() {
     if (value != INVALID_HANDLE_VALUE)
       CloseHandle(value);
+    if (ownerProcess)
+      CloseHandle(ownerProcess);
+  }
+  bool transfer(void *bytes, DWORD length, DWORD &count, bool writing,
+                DWORD timeout = INFINITE) {
+    if (!overlapped)
+      return (writing ? WriteFile(value, bytes, length, &count, nullptr)
+                      : ReadFile(value, bytes, length, &count, nullptr)) != 0;
+    ProbePipeIo io;
+    io.start(value, bytes, length, writing);
+    const bool ok = io.wait(timeout);
+    count = io.count;
+    if (!ok)
+      SetLastError(io.error);
+    return ok;
   }
   void report(const std::string &text) {
     if (text.size() > 4095)
@@ -65,8 +85,7 @@ struct Pipe {
     } else
       line = text + "\n";
     DWORD written = 0;
-    if (!WriteFile(value, line.data(), static_cast<DWORD>(line.size()),
-                   &written, nullptr) ||
+    if (!transfer(line.data(), static_cast<DWORD>(line.size()), written, true) ||
         written != line.size())
       throw Failure{"report-write", GetLastError()};
   }
@@ -312,6 +331,7 @@ int run(Pipe &pipe) {
 #include "../../native/sharing-network.h"
 #ifndef MODELLOOM_PEER_HOST
 #include "network-session-fixture.h"
+#include "network-readiness-fixture.h"
 #include "sharing-network-fixture.h"
 #endif
 
@@ -335,6 +355,15 @@ int wmain(int argc, wchar_t **argv) {
       return sharing_policy_fixture();
     if (argc == 2 && std::wstring(argv[1]) == L"--session-frame-fixture")
       return probe_session_frame_fixture();
+    if (argc == 2 && std::wstring(argv[1]) == L"--readiness-fixture")
+      return probe_readiness_fixture();
+    if (argc == 2 && std::wstring(argv[1]) == L"--readiness-lifecycle-fixture") {
+      for (unsigned scenario = 1; scenario <= 6; ++scenario) {
+        const int result = probe_readiness_fixture(scenario);
+        if (result) return result;
+      }
+      return 0;
+    }
 #endif
     if (argc == 3 && std::wstring(argv[1]) == L"--clone-client") {
       const DWORD port = parent_pid(argv[2]);
@@ -424,13 +453,20 @@ int wmain(int argc, wchar_t **argv) {
     const DWORD parent = parent_pid(argv[2]);
     const std::wstring name =
         std::wstring(L"\\\\.\\pipe\\ModelLoom-guard-probe-") + argv[1];
+    pipe.overlapped = session;
     pipe.value = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
-                             nullptr, OPEN_EXISTING, 0, nullptr);
+                             nullptr, OPEN_EXISTING,
+                             session ? FILE_FLAG_OVERLAPPED : 0, nullptr);
     if (pipe.value == INVALID_HANDLE_VALUE)
       throw Failure{"control-pipe", GetLastError()};
     ULONG server = 0;
     if (!GetNamedPipeServerProcessId(pipe.value, &server) || server != parent)
       throw Failure{"control-owner", ERROR_ACCESS_DENIED};
+    if (session) {
+      pipe.ownerProcess = OpenProcess(SYNCHRONIZE, FALSE, parent);
+      if (!pipe.ownerProcess)
+        throw Failure{"control-owner-handle", GetLastError()};
+    }
     if (sharingRequest)
       return sharing_network(pipe, parent, argv[4], argv[1]);
     if (separate)
@@ -484,7 +520,7 @@ int wmain(int argc, wchar_t **argv) {
       // starts it may contain only stock protocol bytes, so close it on
       // failure.
       DWORD mode = 0;
-      if (pipe.value != INVALID_HANDLE_VALUE &&
+      if (!pipe.relaying && pipe.value != INVALID_HANDLE_VALUE &&
           GetNamedPipeHandleStateW(pipe.value, &mode, nullptr, nullptr, nullptr,
                                    nullptr, 0) &&
           !(mode & PIPE_NOWAIT)) {

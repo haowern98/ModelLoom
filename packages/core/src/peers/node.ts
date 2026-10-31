@@ -11,6 +11,8 @@ import { overlaySocket, isOverlaySocket } from './overlay-socket.js';
 import { peerFingerprint, validatePeerCertificate } from './windows-identity.js';
 import type { WindowsPeerIdentity } from './windows-identity.js';
 import { connectPeerRpc } from './rpc.js';
+import { rpcDiagnostics } from './rpc-diagnostics.js';
+import type { RpcDiagnostic } from './rpc-diagnostics.js';
 import {
   rpcResidencyStream,
   RPC_RESIDENCY_HEADER,
@@ -22,6 +24,7 @@ import { GpuReservations } from './reservations.js';
 import type { GpuReservation } from './reservations.js';
 import { decodePeerAddress, privatePeerHost as privateAddress } from './wire.js';
 import { isTransientPeerFailure, peerDeadline } from './deadline.js';
+import type { PeerFailure } from './failure-journal.js';
 import { decodePeerResources } from './resources.js';
 import type { PeerResources } from './resources.js';
 import { decodePeerHardware } from './hardware.js';
@@ -62,6 +65,7 @@ interface Outgoing {
   expires?: number;
 }
 interface ActiveRpc {
+  trace: RpcDiagnostic;
   id: string;
   socket: Duplex;
   owned: OwnedPeerRpc;
@@ -141,86 +145,121 @@ async function exchange(
   deadlineMs = 5000,
   method: 'GET' | 'POST' = 'POST',
 ): Promise<unknown> {
-  const raw = overlay?.has(url.hostname)
-    ? overlaySocket(await overlay.dial(url.hostname, Number(url.port), signal))
-    : undefined;
-  if (Boolean(identity) !== Boolean(remote) || Boolean(identity) !== Boolean(authority))
-    return Promise.reject(new Error('INVALID_PEER_CERTIFICATE'));
-  return new Promise((resolve, reject) => {
-    const payload = method === 'GET' ? Buffer.alloc(0) : Buffer.from(JSON.stringify(data));
-    let received: IncomingMessage | undefined;
-    const timeout = new AbortController();
-    const timer = setTimeout(() => timeout.abort(), deadlineMs);
-    const finish = (error: Error | null, value?: unknown) => {
-      clearTimeout(timer);
-      if (error) reject(error);
-      else resolve(value);
-    };
-    const options = {
-      method,
-      agent: false as const,
-      timeout: deadlineMs,
-      signal: signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal,
-      headers: { 'Content-Type': 'application/json', 'Content-Length': payload.length },
-      ...(identity && remote && authority
+  // Connection setup must share the request budget so heartbeat retries precede lease expiry.
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), deadlineMs);
+  const requestSignal = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal;
+  try {
+    const raw = overlay?.has(url.hostname)
+      ? overlaySocket(
+          await overlay
+            .dial(url.hostname, Number(url.port), requestSignal)
+            .catch((error: unknown) => {
+              if (timeout.signal.aborted && !signal?.aborted)
+                throw new Error('PEER_UNAVAILABLE', {
+                  cause: Object.assign(new Error('Peer request deadline exceeded'), {
+                    code: 'ETIMEDOUT',
+                  }),
+                });
+              // Normalize only local overlay transport errors, never an authenticated peer response.
+              if (
+                !signal?.aborted &&
+                error instanceof Error &&
+                ['OVERLAY_DISCONNECTED', 'OVERLAY_UNAVAILABLE', 'NETWORK_TIMEOUT'].includes(
+                  error.message,
+                )
+              )
+                throw new Error('PEER_UNAVAILABLE', {
+                  cause: Object.assign(error, {
+                    code: error.message === 'NETWORK_TIMEOUT' ? 'ETIMEDOUT' : 'ECONNRESET',
+                  }),
+                });
+              throw error;
+            }),
+        )
+      : undefined;
+    if (requestSignal.aborted) {
+      raw?.destroy();
+      requestSignal.throwIfAborted();
+    }
+    if (Boolean(identity) !== Boolean(remote) || Boolean(identity) !== Boolean(authority))
+      return Promise.reject(new Error('INVALID_PEER_CERTIFICATE'));
+    return await new Promise((resolve, reject) => {
+      const payload = method === 'GET' ? Buffer.alloc(0) : Buffer.from(JSON.stringify(data));
+      let received: IncomingMessage | undefined;
+      const finish = (error: Error | null, value?: unknown) => {
+        clearTimeout(timer);
+        if (error) reject(error);
+        else resolve(value);
+      };
+      const options = {
+        method,
+        agent: false as const,
+        timeout: deadlineMs,
+        signal: requestSignal,
+        headers: { 'Content-Type': 'application/json', 'Content-Length': payload.length },
+        ...(identity && remote && authority
+          ? {
+              pfx: identity.pfx,
+              ca: new X509Certificate(authority).toString(),
+              minVersion: 'TLSv1.3' as const,
+              maxVersion: 'TLSv1.3' as const,
+              rejectUnauthorized: true,
+              checkServerIdentity: (_host: string, cert: { raw: Buffer }) =>
+                peerFingerprint(cert.raw) === peerFingerprint(remote)
+                  ? undefined
+                  : new Error('FINGERPRINT_MISMATCH'),
+            }
+          : {}),
+      };
+      const connection = raw
         ? {
-            pfx: identity.pfx,
-            ca: new X509Certificate(authority).toString(),
-            minVersion: 'TLSv1.3' as const,
-            maxVersion: 'TLSv1.3' as const,
-            rejectUnauthorized: true,
-            checkServerIdentity: (_host: string, cert: { raw: Buffer }) =>
-              peerFingerprint(cert.raw) === peerFingerprint(remote)
-                ? undefined
-                : new Error('FINGERPRINT_MISMATCH'),
+            agent: undefined,
+            createConnection: () => (identity ? tlsConnect({ ...options, socket: raw }) : raw),
           }
-        : {}),
-    };
-    const connection = raw
-      ? {
-          agent: undefined,
-          createConnection: () => (identity ? tlsConnect({ ...options, socket: raw }) : raw),
-        }
-      : {};
-    const request = (identity ? secureRequest : httpRequest)(
-      url,
-      { ...options, ...connection },
-      (response) => {
-        received = response;
-        void body(response).then(
-          (value) => {
-            if (response.statusCode !== 200) {
-              const error: unknown =
-                value && typeof value === 'object' ? Reflect.get(value, 'error') : null;
-              finish(
-                new Error(
-                  typeof error === 'string' && /^[A-Z_]{1,64}$/u.test(error)
-                    ? error
-                    : 'PEER_UNAVAILABLE',
-                ),
-              );
-            } else finish(null, value);
-          },
-          () => finish(new Error('INVALID_PEER_MESSAGE')),
-        );
-      },
-    );
-    request.on('timeout', () =>
-      request.destroy(Object.assign(new Error('PEER_TIMEOUT'), { code: 'ETIMEDOUT' })),
-    );
-    request.on('error', (error: Error & { code?: string }) => {
-      // Owned duplex teardown can follow a complete HTTP reply before the
-      // asynchronous body parser settles. That parser must still validate the
-      // status, JSON and size; a truncated reply or any other error still fails.
-      if (error.code === 'ERR_STREAM_PREMATURE_CLOSE' && received?.complete) return;
-      const cause =
-        timeout.signal.aborted && !signal?.aborted
-          ? Object.assign(new Error('Peer request deadline exceeded'), { code: 'ETIMEDOUT' })
-          : error;
-      finish(new Error('PEER_UNAVAILABLE', { cause }));
+        : {};
+      const request = (identity ? secureRequest : httpRequest)(
+        url,
+        { ...options, ...connection },
+        (response) => {
+          received = response;
+          void body(response).then(
+            (value) => {
+              if (response.statusCode !== 200) {
+                const error: unknown =
+                  value && typeof value === 'object' ? Reflect.get(value, 'error') : null;
+                finish(
+                  new Error(
+                    typeof error === 'string' && /^[A-Z_]{1,64}$/u.test(error)
+                      ? error
+                      : 'PEER_UNAVAILABLE',
+                  ),
+                );
+              } else finish(null, value);
+            },
+            () => finish(new Error('INVALID_PEER_MESSAGE')),
+          );
+        },
+      );
+      request.on('timeout', () =>
+        request.destroy(Object.assign(new Error('PEER_TIMEOUT'), { code: 'ETIMEDOUT' })),
+      );
+      request.on('error', (error: Error & { code?: string }) => {
+        // Owned duplex teardown can follow a complete HTTP reply before the
+        // asynchronous body parser settles. That parser must still validate the
+        // status, JSON and size; a truncated reply or any other error still fails.
+        if (error.code === 'ERR_STREAM_PREMATURE_CLOSE' && received?.complete) return;
+        const cause =
+          timeout.signal.aborted && !signal?.aborted
+            ? Object.assign(new Error('Peer request deadline exceeded'), { code: 'ETIMEDOUT' })
+            : error;
+        finish(new Error('PEER_UNAVAILABLE', { cause }));
+      });
+      request.end(payload);
     });
-    request.end(payload);
-  });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Core-owned pairing control. Bootstrap exchanges public certificates only;
@@ -295,6 +334,10 @@ export class PeerNode {
       [...this.remoteRuntimeBusy.values()].some(Boolean) ||
       (id !== undefined && this.remoteIdle.get(id) === false)
     );
+  }
+  /** Existing streams have their own authenticated heartbeat and worker-side lease. */
+  hasActiveRpc(id: string): boolean {
+    return [...this.outgoingRpc].some(([stream, peer]) => peer === id && !stream.destroyed);
   }
   /** Notify only the workers whose streams belong to this loaded runtime. */
   async notifyRuntimeActivity(busy: boolean): Promise<void> {
@@ -434,6 +477,7 @@ export class PeerNode {
       initial: readonly PeerTrust[];
       save(records: readonly PeerTrust[]): Promise<void>;
     },
+    private readonly recordFailure?: (event: PeerFailure) => void,
   ) {
     for (const record of trust?.initial ?? []) {
       const key = `${record.direction}:${record.fingerprint}`;
@@ -813,10 +857,12 @@ export class PeerNode {
         this.rpcTimer = setInterval(() => {
           const pending = this.reservations!.pendingRelease();
           for (const entry of this.activeRpc.values())
-            if (pending.includes(entry.reservation))
+            if (pending.includes(entry.reservation)) {
+              if (!entry.closing) entry.trace.event('lease', 'owner-close', { side: 'owner' });
               void this.stopRpc(entry).catch(() => {
                 this.rpcFailed = true;
               });
+            }
         }, 1000);
       return `http://${host}:${port}/`;
     } catch (error) {
@@ -1082,8 +1128,11 @@ export class PeerNode {
         (gpuId === undefined && this.allowed(value).length !== 1) ||
         entries.length !== 1 ||
         !this.reservations?.renew(entries[0]!.reservation)
-      )
+      ) {
+        for (const entry of entries)
+          entry.trace.event('lease', 'error', { error: Error('RPC_LEASE_EXPIRED'), side: 'owner' });
         return invalid('RPC_LEASE_EXPIRED');
+      }
     } else if (request.url !== '/v1/status') return invalid('UNKNOWN_PEER_OPERATION');
     return { phase: value.phase };
   }
@@ -1634,7 +1683,20 @@ export class PeerNode {
     if (!transports.length) throw new Error('RPC_UNAVAILABLE');
     for (const transport of transports) transport.setTimeout(this.timing.startup + 1000);
     const revision = this.revision;
-    const reservation = this.reservations.reserveRemote(peer.peerFingerprint, [gpu.id]);
+    const traceHeader = request.headers['x-modelloom-rpc-trace'];
+    const trace = rpcDiagnostics(
+      'worker',
+      undefined,
+      typeof traceHeader === 'string' ? traceHeader : undefined,
+    );
+    trace.event('worker-start', 'begin');
+    let reservation: GpuReservation;
+    try {
+      reservation = this.reservations.reserveRemote(peer.peerFingerprint, [gpu.id]);
+    } catch (error) {
+      trace.event('worker-start', 'error', { error });
+      throw error;
+    }
     let owned: OwnedPeerRpc;
     let starting = true;
     // Admission has its own bounded startup budget. Keep this exact reservation
@@ -1666,6 +1728,7 @@ export class PeerNode {
     try {
       owned = await peerDeadline(opening, this.timing.startup, 'RPC_START_TIMEOUT');
     } catch (error) {
+      trace.event('worker-start', 'error', { error });
       starting = false;
       this.reservations.beginRelease(reservation);
       // A failed backend startup must itself prove teardown before rejecting.
@@ -1693,7 +1756,8 @@ export class PeerNode {
       socket.destroy();
       return;
     }
-    const entry: ActiveRpc = { id: peer.id, socket, owned, reservation };
+    const entry: ActiveRpc = { id: peer.id, socket, owned, reservation, trace };
+    trace.event('worker-start', 'ready');
     this.activeRpc.set(reservation, entry);
     this.rpcLoading.add(reservation);
     tls.setTimeout(0);
@@ -1713,20 +1777,38 @@ export class PeerNode {
         this.rpcFailed = true;
       });
     };
-    socket.once('close', stop);
-    socket.once('error', stop);
+    let firstSide: 'local' | 'remote' | 'owner' | undefined;
+    const closed = (side: 'local' | 'remote', error?: unknown) => {
+      firstSide ??= entry.closing ? 'owner' : side;
+      trace.event('forwarding', error ? 'error' : 'close', {
+        side: firstSide,
+        ...(error ? { error } : {}),
+      });
+      stop();
+    };
+    socket.once('end', () => {
+      firstSide ??= 'remote';
+      trace.event('forwarding', 'end', { side: firstSide });
+    });
+    socket.once('close', () => closed('remote'));
+    socket.once('error', (error) => closed('remote', error));
     if (residency) {
       socket.once('close', () => channel.destroy());
-      channel.once('close', stop);
-      channel.once('error', stop);
+      channel.once('close', () => closed('local'));
+      channel.once('error', (error) => closed('local', error));
     }
-    owned.stream.once('close', stop);
-    owned.stream.once('error', stop);
+    owned.stream.once('end', () => {
+      firstSide ??= 'local';
+      trace.event('forwarding', 'end', { side: firstSide });
+    });
+    owned.stream.once('close', () => closed('local'));
+    owned.stream.once('error', (error) => closed('local', error));
     socket.pipe(channel);
     channel.pipe(socket);
   }
   private stopRpc(entry: ActiveRpc): Promise<void> {
     if (entry.closing) return entry.closing;
+    entry.trace.event('forwarding', 'owner-close', { side: 'owner' });
     this.reservations!.beginRelease(entry.reservation);
     // Publish the guard before destroy/close can synchronously notify the owner again.
     entry.closing = Promise.resolve().then(async () => {
@@ -1746,12 +1828,17 @@ export class PeerNode {
   /** Bind a stream and its lease to one physical shared GPU. Omitting gpuId is
    * retained for older callers only when the remote scope contains one GPU. */
   async openRpc(id: string, gpuId?: string): Promise<Duplex> {
+    const trace = rpcDiagnostics('client');
+    let phase: 'status' | 'upgrade' = 'status';
+    trace.event(phase, 'begin');
     this.diagnostics.cancel();
     ++this.openingRpc;
     try {
       const peer = this.outgoing.get(id);
       if (!peer?.verified || (await this.status(id)).phase !== 'approved')
         return invalid('PEER_NOT_APPROVED');
+      trace.event('status', 'ready');
+      phase = 'upgrade';
       const admission = this.outgoingRequests.get(peer);
       const socket = await connectPeerRpc(
         this.identity,
@@ -1762,6 +1849,7 @@ export class PeerNode {
         gpuId,
         this.overlay,
         (await this.rpcBackend?.cacheEnabled?.()) ?? false,
+        trace,
       ).catch((error: unknown) => {
         if (admission?.signal.aborted) return invalid('PEER_UNAVAILABLE');
         throw error;
@@ -1795,7 +1883,17 @@ export class PeerNode {
             },
             (error: unknown) => {
               // The worker's independent 15-second lease remains authoritative.
-              if (!isTransientPeerFailure(error) || ++missedHeartbeats >= 2) socket.destroy();
+              const close = !isTransientPeerFailure(error) || ++missedHeartbeats >= 2;
+              trace.event('lease', 'error', {
+                error,
+                ...(close ? { side: 'owner' as const } : {}),
+              });
+              this.recordFailure?.({
+                stage: 'heartbeat',
+                decision: close ? 'close' : 'retry',
+                error,
+              });
+              if (close) socket.destroy();
             },
           )
           .finally(() => {
@@ -1803,17 +1901,30 @@ export class PeerNode {
           });
       }, 3000);
       socket.once('close', () => {
+        this.recordFailure?.({
+          stage: 'rpc-close',
+          decision: 'close',
+          error: Error('RPC_STREAM_CLOSED'),
+        });
         traffic.sent += Math.max(0, (socket as Socket).bytesWritten - base.written);
         traffic.received += Math.max(0, (socket as Socket).bytesRead - base.read);
         traffic.streams.delete(socket);
         clearInterval(heartbeat);
         this.outgoingRpc.delete(socket);
       });
-      socket.once('error', () => {
+      socket.once('error', (error: Error) => {
+        this.recordFailure?.({
+          stage: 'rpc-close',
+          decision: 'close',
+          error: new Error('PEER_UNAVAILABLE', { cause: error }),
+        });
         clearInterval(heartbeat);
         socket.destroy();
       });
       return socket;
+    } catch (error) {
+      trace.event(phase, 'error', { error });
+      throw error;
     } finally {
       --this.openingRpc;
     }

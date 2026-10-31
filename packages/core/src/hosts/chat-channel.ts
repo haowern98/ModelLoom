@@ -164,7 +164,7 @@ export class OwnerChatChannel {
           identity,
           messages,
           async (chunk) => {
-            if (chunk.type === 'terminal') {
+            if (chunk.type === 'terminal' || chunk.type === 'metrics') {
               await publish(chunk);
               return;
             }
@@ -319,7 +319,9 @@ export class UtilityChatTransport implements ChatTransport {
                 ...(Object.hasOwn(projected, 'speeds') ? ['speeds'] : []),
                 ...(Object.hasOwn(projected, 'usage') ? ['usage'] : []),
               ]
-            : ['type', 'text'],
+            : projected.type === 'metrics'
+              ? ['type', 'speeds']
+              : ['type', 'text'],
         );
         const chunk = decodeGenerationChunk(projected);
         entry.sequence++;

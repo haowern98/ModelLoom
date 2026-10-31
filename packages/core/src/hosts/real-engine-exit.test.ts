@@ -103,11 +103,15 @@ it('confirms failed startup exit after rejecting a capture instead of retrying t
   const directory = await mkdtemp(path.resolve('out/failed-capture-'));
   if (!directory.startsWith(path.resolve('out') + path.sep)) throw new Error('Unsafe test cleanup');
   const report = DEVELOPMENT_MEMORY_REPORTS.find((entry) => entry.configuration.slots === 4)!;
+  const diagnostic = vi.fn();
   const adapter = realEngineAdapter(
     { packageId: 'llama-cuda-development', directory: path.join(directory, 'installed') },
     'approved.gguf',
     report.configuration,
     18478,
+    undefined,
+    undefined,
+    diagnostic,
   );
   const engine = await adapter.launch(
     {
@@ -128,6 +132,11 @@ it('confirms failed startup exit after rejecting a capture instead of retrying t
     expect(native.capture).toHaveBeenCalledTimes(1);
     expect(native.force).toHaveBeenCalledTimes(1);
     expect(native.release).toHaveBeenCalledTimes(1);
+    expect(diagnostic).toHaveBeenCalledWith('runtime', expect.stringContaining('OWNERSHIP_FAILED'));
+    expect(diagnostic).toHaveBeenCalledWith(
+      'runtime',
+      expect.stringContaining('native.exit code=1'),
+    );
   } finally {
     vi.clearAllTimers();
     await adapter.close().catch(() => undefined);

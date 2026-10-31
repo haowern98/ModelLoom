@@ -12,6 +12,8 @@ import type { WindowsPeerIdentity } from './windows-identity.js';
 import { peerFingerprint, validatePeerCertificate } from './windows-identity.js';
 import { peerDeadline, RPC_OPEN_MS } from './deadline.js';
 import type { PeerResources } from './resources.js';
+import { rpcDiagnostics } from './rpc-diagnostics.js';
+import type { RpcDiagnostic } from './rpc-diagnostics.js';
 import {
   rpcResidencyStream,
   RPC_RESIDENCY_HEADER,
@@ -63,18 +65,30 @@ export async function connectPeerRpc(
   gpuId?: string,
   overlay?: PeerOverlayTransport,
   cacheEnabled = false,
+  trace: RpcDiagnostic = rpcDiagnostics('client'),
 ): Promise<Duplex> {
   if (gpuId !== undefined && !/^GPU-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(gpuId))
     return Promise.reject(new Error('INVALID_GPU_RESERVATION'));
   validatePeerCertificate(target.certificate, target.authority);
-  const raw = overlay?.has(target.address)
-    ? overlaySocket(await overlay.dial(target.address, target.securePort, signal))
-    : undefined;
+  let raw: ReturnType<typeof overlaySocket> | undefined;
+  if (overlay?.has(target.address)) {
+    trace.event('overlay', 'begin');
+    try {
+      raw = overlaySocket(await overlay.dial(target.address, target.securePort, signal));
+      trace.event('overlay', 'ready');
+    } catch (error) {
+      trace.event('overlay', 'error', { error });
+      throw error;
+    }
+  }
   return new Promise((resolve, reject) => {
+    let phase: 'tls' | 'upgrade' = 'tls';
+    trace.event(phase, 'begin');
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), rpcUpgradeTimeout);
     const failed = (error: Error) => {
       clearTimeout(timer);
+      trace.event(phase, 'error', { error });
       reject(error);
     };
     const options = {
@@ -91,6 +105,7 @@ export async function connectPeerRpc(
         ...(gpuId !== undefined ? { 'X-ModelLoom-GPU': gpuId } : {}),
         'X-ModelLoom-Tensor-Cache': cacheEnabled ? '1' : '0',
         [RPC_RESIDENCY_HEADER]: RPC_RESIDENCY_VERSION,
+        'X-ModelLoom-RPC-Trace': trace.id,
       },
       pfx: identity.pfx,
       ca: new X509Certificate(target.authority).toString(),
@@ -108,11 +123,18 @@ export async function connectPeerRpc(
         ? { agent: undefined, createConnection: () => tlsConnect({ ...options, socket: raw }) }
         : {}),
     });
+    req.once('socket', (socket) => {
+      socket.once('secureConnect', () => {
+        trace.event('tls', 'ready');
+        phase = 'upgrade';
+        trace.event('upgrade', 'begin');
+      });
+    });
     req.once('upgrade', (response, socket, head) => {
       clearTimeout(timer);
       if (response.statusCode !== 101 || response.headers.upgrade !== 'ModelLoom-RPC/1') {
         socket.destroy();
-        reject(new Error('RPC_NOT_APPROVED'));
+        failed(new Error('RPC_NOT_APPROVED'));
         return;
       }
       if (head.length) socket.unshift(head);
@@ -120,9 +142,20 @@ export async function connectPeerRpc(
       const residency = response.headers[RPC_RESIDENCY_HEADER];
       if (residency !== undefined && residency !== RPC_RESIDENCY_VERSION) {
         socket.destroy();
-        reject(new Error('RPC_RESIDENCY_UNSUPPORTED'));
+        failed(new Error('RPC_RESIDENCY_UNSUPPORTED'));
         return;
       }
+      trace.event('upgrade', 'ready');
+      socket.once('end', () => trace.event('forwarding', 'end', { side: 'remote' }));
+      socket.once('error', (error) =>
+        trace.event('forwarding', 'error', { side: 'remote', error }),
+      );
+      socket.once('close', () =>
+        trace.event('forwarding', 'close', {
+          uploaded: socket.bytesWritten,
+          downloaded: socket.bytesRead,
+        }),
+      );
       resolve(residency === RPC_RESIDENCY_VERSION ? rpcResidencyStream(socket, 'client') : socket);
     });
     req.once('response', (response) => {
@@ -130,7 +163,7 @@ export async function connectPeerRpc(
       failed(new Error('RPC_NOT_APPROVED'));
     });
     req.once('timeout', () => req.destroy(new Error('RPC_TIMEOUT')));
-    req.once('error', () => failed(new Error('RPC_UNAVAILABLE')));
+    req.once('error', (error) => failed(new Error('RPC_UNAVAILABLE', { cause: error })));
     req.end();
   });
 }
@@ -169,6 +202,23 @@ export async function localRpcGateway(
   const server: Server = createServer({ pauseOnConnect: true }, (socket: Socket) => {
     void (async () => {
       let admitted = false;
+      const trace = rpcDiagnostics('gateway');
+      let firstSide: 'local' | 'remote' | 'owner' | undefined;
+      let sent = 0,
+        received = 0;
+      const closing = (
+        side: 'local' | 'remote' | 'owner',
+        event: 'end' | 'close' | 'error',
+        error?: unknown,
+      ) => {
+        firstSide ??= closed ? 'owner' : side;
+        trace.event('forwarding', event, {
+          side: firstSide,
+          ...(error ? { error } : {}),
+          uploaded: sent,
+          downloaded: received,
+        });
+      };
       try {
         const local = socket.address();
         if (
@@ -184,12 +234,20 @@ export async function localRpcGateway(
         }
         sockets.add(socket);
         admitted = true;
+        trace.event('gateway-open', 'begin');
         let localEnded = false;
         socket.once('end', () => {
           localEnded = true;
+          closing('local', 'end');
         });
-        socket.once('close', () => sockets.delete(socket));
-        socket.on('error', () => socket.destroy());
+        socket.once('close', () => {
+          closing('local', 'close');
+          sockets.delete(socket);
+        });
+        socket.on('error', (error) => {
+          closing('local', 'error', error);
+          socket.destroy();
+        });
         const opening = connect();
         // A late connection after shutdown is never admitted or left live.
         void opening.then(
@@ -205,12 +263,26 @@ export async function localRpcGateway(
           return;
         }
         sockets.add(remote);
+        trace.event('gateway-open', 'ready');
         socket.once('error', () => remote.destroy());
         const remoteLost = () => {
-          if (!localEnded && !socket.destroyed) reportLoss();
+          if (!localEnded && !socket.destroyed) {
+            if (!lossReported)
+              trace.event('forwarding', 'error', {
+                side: 'remote',
+                error: Error('RPC_DISCONNECTED'),
+                uploaded: sent,
+                downloaded: received,
+              });
+            reportLoss();
+          }
         };
-        remote.once('end', remoteLost);
-        remote.once('error', () => {
+        remote.once('end', () => {
+          closing('remote', 'end');
+          remoteLost();
+        });
+        remote.once('error', (error) => {
+          closing('remote', 'error', error);
           remoteLost();
           socket.destroy();
         });
@@ -219,22 +291,26 @@ export async function localRpcGateway(
           remote.destroy();
         });
         remote.once('close', () => {
+          closing('remote', 'close');
           sockets.delete(remote);
           // Stock also opens short-lived enumeration connections. Their local
           // owner may close normally without invalidating the loaded instance.
-          if (!localEnded && !socket.destroyed) reportLoss();
+          remoteLost();
           socket.destroy();
         });
         socket.on('data', (bytes: Buffer) => {
           uploaded += bytes.length;
+          sent += bytes.length;
         });
         remote.on('data', (bytes: Buffer) => {
           downloaded += bytes.length;
+          received += bytes.length;
         });
         socket.pipe(remote);
         remote.pipe(socket);
         socket.resume();
-      } catch {
+      } catch (error) {
+        if (admitted) trace.event('gateway-open', 'error', { error });
         if (admitted) reportLoss();
         socket.destroy();
       }

@@ -40,6 +40,14 @@ import { createPeerRelays } from './peer-relays.js';
 import type { OpenPeerRpc } from './peer-relays.js';
 import { decodeClusterDevice } from '../cluster/device-id.js';
 import type { ResourceSnapshot } from '../runtime/gpu-resources.js';
+import {
+  executionDevices,
+  speculativeArguments,
+  verifySpeculativeStartup,
+} from '../speculative-decoding/execution.js';
+import { validateSpeculativeAssets } from '../speculative-decoding/assets.js';
+import { nativeRuntimeDiagnostics } from './runtime-diagnostics.js';
+import type { RuntimeDiagnostic } from './runtime-diagnostics.js';
 
 export interface RealEngineAdapter extends EngineAdapter {
   children(): readonly number[];
@@ -70,7 +78,15 @@ export function realEngineAdapter(
       resources(signal: AbortSignal): Promise<ResourceSnapshot>;
     };
   },
+  diagnostic?: RuntimeDiagnostic,
 ): RealEngineAdapter {
+  const log: RuntimeDiagnostic = (source, message) => {
+    try {
+      diagnostic?.(source, message);
+    } catch {
+      /* Logging cannot change engine ownership. */
+    }
+  };
   const inventory = requireInstalledLive(installed);
   // Fixed argument/readiness behavior has only been inspected for this exact upstream source.
   if (inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77')
@@ -113,7 +129,8 @@ export function realEngineAdapter(
     throw new Error('NEEDS_RESOURCE_EVIDENCE');
   fixedArguments(model, cfg, port, 'key-file', 'configuration-check');
   if (
-    cluster?.load.placement.orderedUuids.some((id) => decodeClusterDevice(id).kind === 'peer') &&
+    cluster &&
+    executionDevices(cluster.load).some((id) => decodeClusterDevice(id).kind === 'peer') &&
     !cluster.peers
   )
     throw Error('RPC_PACKAGE_REQUIRED');
@@ -154,16 +171,28 @@ export function realEngineAdapter(
       )
         throw new Error('START_FAILED');
       launching = true;
+      log(
+        'runtime',
+        `load.preflight model=${path.basename(model)} context=${cfg.contextPerSlot} slots=${cfg.slots}`,
+      );
       let packageLock: Awaited<ReturnType<typeof revalidateInstalled>> | undefined;
       let modelLock: object | undefined, credential: object | undefined;
       let relays: Awaited<ReturnType<typeof createPeerRelays>> | undefined;
       try {
         requireInstalledLive(installed);
         packageLock = await revalidateInstalled(installed);
-        modelLock = native.sealFiles([path.resolve(model)]);
+        modelLock = native.sealFiles([
+          path.resolve(model),
+          ...(cluster?.report.companion ? [path.resolve(cluster.report.companion.file)] : []),
+        ]);
         const info = await inspectGGUF(model);
         if (info.sha256 !== cfg.modelSha256 || cfg.contextPerSlot > info.contextLimit)
           throw new Error('INVALID_CONFIGURATION');
+        validateSpeculativeAssets(
+          cluster?.load.speculation,
+          info,
+          cluster?.report.companion ? await inspectGGUF(cluster.report.companion.file) : undefined,
+        );
         if (
           cluster &&
           (info.blockCount !== cluster.load.blockCount ||
@@ -176,6 +205,11 @@ export function realEngineAdapter(
         if (signal.aborted || closed) throw new Error('START_FAILED');
         const secret = randomBytes(32).toString('base64url'),
           alias = `model-${randomUUID()}`;
+        log(
+          'runtime',
+          `load.begin model=${path.basename(model)} context=${cfg.contextPerSlot} slots=${cfg.slots} speculation=${cluster?.load.speculation?.enabled ? (cluster.load.speculation.proposer?.method ?? cluster.load.speculation.retrieval?.method ?? 'off') : 'off'}`,
+        );
+        const nativeLog = nativeRuntimeDiagnostics(log, [secret]);
         credential = native.createCredential(root, randomUUID(), secret);
         const keyFile = native.credentialPath(credential);
         // This durable bounded cache contains no credential. Reusing it avoids
@@ -227,6 +261,7 @@ export function realEngineAdapter(
           );
         }
         if (admission.code !== 'ADMITTED') throw new Error(admission.code);
+        log('runtime', 'load.memory-admitted');
         if (signal.aborted || closed) throw new Error('START_FAILED');
         requireInstalledLive(installed);
         const server = path.join(installed.directory, inventory.entrypoint);
@@ -235,10 +270,11 @@ export function realEngineAdapter(
         let peerLost = false;
         if (cluster)
           relays = await createPeerRelays(
-            cluster.load.placement.orderedUuids,
+            executionDevices(cluster.load),
             (pid) => ownsCoordinator(pid),
             cluster.peers?.open,
             () => {
+              log('runtime', 'peer.stream-lost; stopping owned runtime');
               peerLost = true;
             },
           );
@@ -249,13 +285,18 @@ export function realEngineAdapter(
                 // Stock parses devices immediately, so register RPC endpoints first.
                 ...relays!.arguments,
                 ...clusterServerArguments(model, cluster.load, port, keyFile, alias),
+                ...speculativeArguments(cluster.load, cluster.report.companion?.file),
                 '--log-verbosity',
                 '5',
               ]
             : fixedArguments(model, cfg, port, keyFile, alias)),
         ];
-        const localDevices = cluster?.load.placement.orderedUuids.filter(
-          (id) => decodeClusterDevice(id).kind === 'local',
+        const localDevices =
+          cluster &&
+          executionDevices(cluster.load).filter((id) => decodeClusterDevice(id).kind === 'local');
+        log(
+          'runtime',
+          `native.launch backend=${inventory.backend} devices=${cluster ? executionDevices(cluster.load).join(',') : (cfg.gpuDevice ?? 'cpu')}`,
         );
         const child =
           cluster && localDevices!.length
@@ -301,14 +342,17 @@ export function realEngineAdapter(
             if (peerLost && !stopping && !ended) {
               stopping = true;
               startupFault = Error('RPC_DISCONNECTED');
+              log('runtime', 'native.force-stop reason=RPC_DISCONNECTED');
               // Continue observing this retained job until every owned process exits.
               native.forceStop(child);
             }
             if (statusStopDeadline !== undefined && Date.now() >= statusStopDeadline) {
+              log('runtime', 'native.force-stop reason=STATUS_DEADLINE');
               native.forceStop(child);
               statusStopDeadline = undefined;
             }
             const observation = native.observe(child);
+            nativeLog.push(observation.output, ready);
             const wasCaptured = captured;
             if (observation.pid && !ownedPids.includes(observation.pid))
               ownedPids.push(observation.pid);
@@ -323,6 +367,7 @@ export function realEngineAdapter(
                 if (!receipt) throw new Error('INVALID_CONTROL');
                 native.captureServer(child, Number(receipt[1]), server);
                 serverPid = Number(receipt[1]);
+                log('runtime', `native.captured pid=${serverPid}`);
                 if (!ownedPids.includes(Number(receipt[1]))) ownedPids.push(Number(receipt[1]));
                 captured = true;
                 startupLog = line.slice(newline + 1);
@@ -338,6 +383,11 @@ export function realEngineAdapter(
               requireContextShiftSupport(cluster.load, startupLog);
             }
             if (observation.exitCode !== -1 && observation.activeProcesses === 0) {
+              nativeLog.flush();
+              log(
+                'runtime',
+                `native.exit code=${observation.exitCode} hex=0x${(observation.exitCode >>> 0).toString(16)} ready=${ready} stopping=${stopping} reason=${startupFault && /^[A-Z_]{1,64}$/u.test(startupFault.message) ? startupFault.message : 'native-exit'}`,
+              );
               ended = true;
               finishing = true;
               clearInterval(timer);
@@ -356,6 +406,10 @@ export function realEngineAdapter(
             }
           } catch (error) {
             startupFault = error instanceof Error ? error : Error('START_FAILED');
+            log(
+              'runtime',
+              `native.force-stop reason=${/^[A-Z_]{1,64}$/u.test(startupFault.message) ? startupFault.message : 'START_FAILED'}`,
+            );
             try {
               native.forceStop(child);
             } catch {
@@ -378,7 +432,11 @@ export function realEngineAdapter(
           async waitReady(abort) {
             while (!ready) {
               if (startupFault) throw startupFault;
-              if (abort.aborted || ended) throw new Error('START_FAILED');
+              if (abort.aborted || ended) {
+                const failure = new Error(abort.aborted ? 'START_TIMEOUT' : 'START_FAILED');
+                Object.defineProperty(failure, 'startupOutput', { value: startupLog });
+                throw failure;
+              }
               if (captured) {
                 try {
                   const reportedContext = await checkOwnedReadiness(
@@ -397,8 +455,17 @@ export function realEngineAdapter(
                       !/(?:^|\n)[^\r\n]*llama_server: model loaded[^\r\n]*\r?\n/u.test(startupLog)
                     )
                       throw Error('NOT_READY');
+                    verifySpeculativeStartup(cluster.load, startupLog);
+                    // Each model emits the same allocation labels. Verify target section separately.
+                    const targetLog = startupLog.split(
+                      /(?:^|\n)[^\n]*common_speculative_init_result: (?:loading draft model|creating MTP draft context)/u,
+                    )[0]!;
+                    const targetSection =
+                      targetLog === startupLog
+                        ? targetLog
+                        : `${targetLog}\n${startupLog.split('\n').find((line) => line.includes('llama_server: model loaded'))}\n`;
                     verifyStockPlacement(
-                      startupLog,
+                      targetSection,
                       cluster.load,
                       [
                         ...(resources.gpus ?? [])
@@ -411,18 +478,30 @@ export function realEngineAdapter(
                   }
                   // Concurrent readiness callers share one status preparation/monitor.
                   slotPreparation ??= (async () => {
+                    const monitorId = randomUUID();
                     const owns = () => !ended && !finishing && native.ownedListener(child, port);
                     // Native WAN state transfers can delay status; retain capacity
                     // within the existing generation deadline while waiting.
-                    const observationMs = cluster?.load.placement.orderedUuids.some(
-                      (id) => decodeClusterDevice(id).kind === 'peer',
-                    )
-                      ? GENERATION_POLICY.generationMs
-                      : 5000;
+                    const observationMs =
+                      cluster &&
+                      executionDevices(cluster.load).some(
+                        (id) => decodeClusterDevice(id).kind === 'peer',
+                      )
+                        ? GENERATION_POLICY.generationMs
+                        : 5000;
                     const monitor = new OwnedSlotMonitor(
                       cfg.slots,
                       (signal) =>
-                        readOwnedSlots(port, secret, cfg.slots, owns, signal, observationMs),
+                        readOwnedSlots(
+                          port,
+                          secret,
+                          cfg.slots,
+                          owns,
+                          signal,
+                          observationMs,
+                          log,
+                          monitorId,
+                        ),
                       owns,
                       exited.then(() => undefined),
                       () => {
@@ -431,6 +510,8 @@ export function realEngineAdapter(
                         native.requestStop(child);
                       },
                       observationMs,
+                      log,
+                      monitorId,
                     );
                     await monitor.initialize();
                     return monitor;
@@ -441,6 +522,9 @@ export function realEngineAdapter(
                   chatTransports.set(
                     owned,
                     createOwnedChatTransport({
+                      speculativeProposer: !!(
+                        cluster?.load.speculation?.enabled && cluster.load.speculation.proposer
+                      ),
                       port,
                       key: secret,
                       alias,
@@ -470,14 +554,21 @@ export function realEngineAdapter(
                   native.releaseCredential(credentials);
                   contextLength = reportedContext;
                   ready = true;
+                  log('runtime', `native.ready context=${reportedContext}`);
                   startupLog = '';
                   return;
                 } catch (error) {
                   if (
                     error instanceof Error &&
-                    ['PLACEMENT_MISMATCH', 'CONTEXT_MISMATCH'].includes(error.message)
-                  )
+                    [
+                      'PLACEMENT_MISMATCH',
+                      'CONTEXT_MISMATCH',
+                      'SPECULATIVE_INITIALIZATION_FAILED',
+                    ].includes(error.message)
+                  ) {
+                    Object.defineProperty(error, 'startupOutput', { value: startupLog });
                     throw error;
+                  }
                   if (abort.aborted || ended) throw new Error('START_FAILED', { cause: error });
                 }
               }
@@ -485,6 +576,7 @@ export function realEngineAdapter(
             }
           },
           requestStop() {
+            log('runtime', 'stop.requested');
             stopping = true;
             if (!ended) {
               if (ready) native.requestStop(child);
@@ -493,6 +585,7 @@ export function realEngineAdapter(
             return Promise.resolve();
           },
           forceStop() {
+            log('runtime', 'stop.forced-by-owner');
             stopping = true;
             if (!ended) native.forceStop(child);
             return Promise.resolve();
@@ -503,6 +596,12 @@ export function realEngineAdapter(
           () => slotMonitors.delete(owned),
         );
         return owned;
+      } catch (error) {
+        log(
+          'runtime',
+          `load.failed code=${error instanceof Error && /^[A-Z_]{1,64}$/u.test(error.message) ? error.message : 'START_FAILED'}`,
+        );
+        throw error;
       } finally {
         launching = false;
         await relays?.close();

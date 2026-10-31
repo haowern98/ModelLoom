@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { emitRuntimeDiagnostic } from '../hosts/runtime-diagnostics.js';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { Socket } from 'node:net';
 import { randomUUID } from 'node:crypto';
@@ -94,6 +95,7 @@ export class ApiServer {
     id?: string,
   ): void {
     this.logs.push(`${new Date().toISOString()} ${category}${id ? ` ${id}` : ''}`);
+    emitRuntimeDiagnostic('api', `${category}${id ? ` ${id}` : ''}`);
     while (this.logs.length > 500 || Buffer.byteLength(this.logs.join('\n')) > 262144)
       this.logs.shift();
   }
@@ -378,6 +380,7 @@ export class ApiServer {
       handle = this.deps.generate(caller, completion.input, async (value) => {
         if (!completion.stream) return;
         if (value.type === 'terminal') throw new Error('INVALID_STREAM');
+        if (value.type === 'metrics') return;
         await role();
         // Even fully escaped UTF-16 stays below the 64 KiB event limit at this size.
         // Keep a surrogate pair together so each independently parsed delta is well formed.

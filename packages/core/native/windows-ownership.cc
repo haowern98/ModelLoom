@@ -8,6 +8,7 @@
 #include <node_api.h>
 #include <psapi.h>
 #include <sddl.h>
+#include <set>
 #include <shlobj.h>
 #include <string>
 #include <vector>
@@ -311,18 +312,19 @@ napi_value launch_mode(napi_env env, napi_callback_info info, bool console,
   if (!root || !root->job.value || !wide(env, values[1], executable) ||
       napi_is_array(env, values[2], &array) != napi_ok || !array ||
       napi_get_array_length(env, values[2], &length) != napi_ok ||
-      length > 64 ||
+      length > 128 ||
       (console && (length == 0 || !wide(env, values[3], temporary))))
     return fail(env, "INVALID_CONTROL");
-  // One/two full physical UUIDs only. Visibility belongs to this owned child;
-  // no caller environment maps or display ordinals cross the boundary.
+  // Target devices plus one proposer, all full physical UUIDs. Visibility
+  // belongs to this owned child; no caller environment maps or display ordinals
+  // cross the boundary.
   if (cuda) {
     uint32_t count = 1;
     if (plan && (napi_is_array(env, values[4], &array) != napi_ok || !array ||
                  napi_get_array_length(env, values[4], &count) != napi_ok ||
-                 count < 1 || count > 2))
+                 count < 1 || count > 3))
       return fail(env, "INVALID_CONTROL");
-    std::wstring previous;
+    std::set<std::wstring> selected_devices;
     for (uint32_t n = 0; n < count; ++n) {
       napi_value value = values[4];
       if (plan && napi_get_element(env, values[4], n, &value) != napi_ok)
@@ -341,12 +343,11 @@ napi_value launch_mode(napi_env env, napi_callback_info info, bool console,
         if (c >= L'A' && c <= L'F')
           selected[i] = c + (L'a' - L'A');
       }
-      if (selected == previous)
+      if (!selected_devices.insert(selected).second)
         return fail(env, "INVALID_CONTROL");
       if (n)
         gpu += L",";
       gpu += selected;
-      previous = selected;
     }
   }
   command = quote(executable);

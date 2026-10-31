@@ -569,8 +569,9 @@ export class HistoryStore {
     state: 'queued' | 'running' | 'cancelling',
     reasoning = '',
     thinkingMs?: number,
+    measured?: GenerationSpeeds,
   ): Promise<void> {
-    return this.update(value, content, state, null, reasoning, thinkingMs);
+    return this.update(value, content, state, null, reasoning, thinkingMs, measured);
   }
   finish(
     value: string,
@@ -592,10 +593,11 @@ export class HistoryStore {
     result: TerminalOutcome | null,
     reasoning: string,
     thinkingMs?: number,
+    measured?: GenerationSpeeds,
   ): Promise<void> {
     return this.run(() => {
       if (!active.includes(state)) throw new Error('INVALID_HISTORY');
-      return this.write(value, content, state, result, reasoning, undefined, thinkingMs);
+      return this.write(value, content, state, result, reasoning, measured, thinkingMs);
     });
   }
   private write(
@@ -610,8 +612,7 @@ export class HistoryStore {
     id(value);
     text(content, GENERATION_LIMITS.maxResponseBytes);
     text(reasoning, GENERATION_LIMITS.maxResponseBytes);
-    if (measured !== undefined && state !== 'completed' && state !== 'limit-reached')
-      throw new Error('INVALID_HISTORY');
+    if (measured !== undefined && state === 'queued') throw new Error('INVALID_HISTORY');
     const encodedSpeeds = measured === undefined ? null : JSON.stringify(speeds(measured));
     const elapsed = thinkingMs === undefined ? null : duration(thinkingMs);
     if (elapsed !== null && !reasoning) throw new Error('INVALID_HISTORY');

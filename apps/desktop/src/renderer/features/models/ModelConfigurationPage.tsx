@@ -14,8 +14,15 @@ import type {
   OptionalSetting,
 } from './configuration';
 import styles from './ModelConfigurationPage.module.css';
+import {
+  neuralMethods,
+  retrievalMethods,
+} from '../../../../../../packages/core/src/speculative-decoding/contracts';
 
 interface ModelConfigurationPageProps {
+  speculativeAssets?: readonly DemoModel[];
+  embeddedMtp?: boolean;
+  executionDevice?: string;
   model: DemoModel;
   configuration: DemoConfiguration;
   onChange: (draft: DemoModelDefaults) => void;
@@ -27,7 +34,7 @@ interface ModelConfigurationPageProps {
     resetDefaults: DemoModelDefaults;
   };
   onBack: () => void;
-  onCluster: () => void;
+  onCluster: (section?: 'speculation') => void;
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -76,6 +83,9 @@ export function ModelConfigurationPage({
   live,
   onBack,
   onCluster,
+  speculativeAssets = [],
+  embeddedMtp = false,
+  executionDevice = 'Set in Cluster',
 }: ModelConfigurationPageProps) {
   const { draft, saved } = configuration;
   const formId = useId();
@@ -87,6 +97,27 @@ export function ModelConfigurationPage({
   const [saving, setSaving] = useState(false);
   const [templateExpanded, setTemplateExpanded] = useState(draft.customTemplate);
   const [errors, setErrors] = useState<Partial<Record<NumericSetting, string>>>({});
+  const [specErrors, setSpecErrors] = useState<{ source?: string; maxDraftTokens?: string }>({});
+  const spec = draft.speculation;
+  const patchSpec = (values: Partial<DemoModelDefaults['speculation']>) =>
+    patch({ speculation: { ...spec, ...values } });
+  const companions = speculativeAssets.filter(
+    (asset) =>
+      asset.ready &&
+      asset.id !== model.id &&
+      (spec.method === 'draft' ? !asset.speculativeHead : asset.speculativeHead === spec.method),
+  );
+  const sources = [
+    { value: '', label: 'Select companion' },
+    ...(spec.method === 'mtp' && embeddedMtp ? [{ value: 'embedded', label: 'Embedded MTP' }] : []),
+    ...companions.map((asset) => ({ value: asset.id.replace(/^model-/u, ''), label: asset.name })),
+  ];
+  if (spec.source && !sources.some((source) => source.value === spec.source))
+    sources.push({
+      value: spec.source,
+      label:
+        spec.source === 'embedded' ? 'Embedded MTP (unavailable)' : 'Saved companion (unavailable)',
+    });
   const changed = JSON.stringify(draft) !== JSON.stringify(saved);
   useEffect(() => {
     heading.current?.closest('main')?.scrollTo?.({ top: 0 });
@@ -97,6 +128,7 @@ export function ModelConfigurationPage({
     onChange({ ...draft, ...values });
     dismissNotification();
     setErrors({});
+    setSpecErrors({});
   };
   const number = (key: NumericSetting, value: string) =>
     patch({ numbers: { ...draft.numbers, [key]: value } });
@@ -223,6 +255,30 @@ export function ModelConfigurationPage({
         }
       : draft;
     const invalid = validateDemoDefaults(next);
+    const specInvalid: typeof specErrors = {};
+    if (spec.method !== 'off') {
+      if (
+        !spec.source ||
+        (spec.source !== 'embedded' && !/^[a-f0-9]{64}$/u.test(spec.source)) ||
+        (spec.source === 'embedded' && spec.method !== 'mtp')
+      )
+        specInvalid.source = 'Select a companion before saving.';
+      if (
+        spec.maxDraftTokens !== '' &&
+        (!/^\d+$/u.test(spec.maxDraftTokens) ||
+          Number(spec.maxDraftTokens) < 1 ||
+          Number(spec.maxDraftTokens) > 256)
+      )
+        specInvalid.maxDraftTokens =
+          'Max Draft Tokens: enter a whole number from 1 to 256, or leave empty for native default.';
+    }
+    setSpecErrors(specInvalid);
+    if (Object.keys(specInvalid).length) {
+      document
+        .getElementById(specInvalid.source ? 'config-companion' : 'config-maxDraftTokens')
+        ?.focus();
+      return;
+    }
     if (live && next.numbers.threads === '') delete invalid.threads;
     if (
       live &&
@@ -339,27 +395,7 @@ export function ModelConfigurationPage({
               </div>
             </Section>
             <Section title="Context and Performance">
-              <Row
-                label="Automatic Optimize Based on Hardware"
-                id="config-auto"
-                description={
-                  live
-                    ? 'Automatic optimisation is not available for this model profile.'
-                    : 'No automatic optimisation runs in this demo.'
-                }
-                extra={<span className={styles.recommended}>Recommended</span>}
-              >
-                {toggle(
-                  'config-auto',
-                  draft.automatic,
-                  (automatic) => patch({ automatic }),
-                  Boolean(live),
-                )}
-              </Row>
-              {numeric('contextLength', {
-                disabled: draft.automatic,
-                ...(draft.automatic ? { inactive: 'Auto' } : {}),
-              })}
+              {numeric('contextLength')}
               <Row
                 label="GPU Offload"
                 id="config-offload"
@@ -369,7 +405,7 @@ export function ModelConfigurationPage({
                   id="config-offload"
                   aria-label="Set in Cluster"
                   className={styles.utility}
-                  onClick={onCluster}
+                  onClick={() => onCluster()}
                 >
                   Set in Cluster
                 </Button>
@@ -534,19 +570,127 @@ export function ModelConfigurationPage({
               <Row
                 label="Method"
                 id="config-speculative"
-                description={
-                  live
-                    ? 'Speculative decoding is not available for this model profile.'
-                    : 'Speculative decoding is not connected in this demo.'
-                }
+                description="Applies on reload after companion compatibility and combined memory checks."
               >
                 <ConfigurationSelect
                   id="config-speculative"
                   label="Method"
-                  disabled
-                  value="off"
-                  options={[{ value: 'off', label: 'Off' }]}
+                  value={spec.method}
+                  options={[
+                    { value: 'off', label: 'Off' },
+                    ...neuralMethods.map((method) => ({
+                      value: method,
+                      label: {
+                        mtp: 'MTP',
+                        draft: 'Draft model',
+                        dflash: 'DFlash',
+                        dspark: 'DSpark',
+                        eagle3: 'EAGLE-3',
+                      }[method],
+                    })),
+                  ]}
+                  onChange={(method) => {
+                    if (
+                      method === 'off' ||
+                      neuralMethods.includes(method as (typeof neuralMethods)[number])
+                    )
+                      patchSpec({
+                        method: method as DemoModelDefaults['speculation']['method'],
+                        ...(method !== spec.method && method !== 'off' ? { source: '' } : {}),
+                      });
+                  }}
                 />
+              </Row>
+              {spec.method !== 'off' && (
+                <>
+                  <Row
+                    label="Companion"
+                    id="config-companion"
+                    description={
+                      spec.method === 'mtp' && !embeddedMtp
+                        ? 'Embedded MTP is not qualified for this runtime profile. Select an imported MTP head.'
+                        : 'Compatibility must be verified before loading.'
+                    }
+                  >
+                    <ConfigurationSelect
+                      id="config-companion"
+                      label="Companion"
+                      value={spec.source}
+                      options={sources}
+                      onChange={(source) => patchSpec({ source })}
+                    />
+                    {specErrors.source && (
+                      <p role="alert" className={styles.error}>
+                        {specErrors.source}
+                      </p>
+                    )}
+                  </Row>
+                  <Row label="Max Draft Tokens" id="config-maxDraftTokens">
+                    <ConfigurationNumberInput
+                      id="config-maxDraftTokens"
+                      label="Max Draft Tokens"
+                      min={1}
+                      max={256}
+                      step={1}
+                      value={spec.maxDraftTokens}
+                      placeholder="Native default"
+                      invalid={Boolean(specErrors.maxDraftTokens)}
+                      describedBy={
+                        specErrors.maxDraftTokens ? 'config-maxDraftTokens-error' : undefined
+                      }
+                      onChange={(maxDraftTokens) => patchSpec({ maxDraftTokens })}
+                    />
+                    {specErrors.maxDraftTokens && (
+                      <p role="alert" id="config-maxDraftTokens-error" className={styles.error}>
+                        {specErrors.maxDraftTokens}
+                      </p>
+                    )}
+                  </Row>
+                </>
+              )}
+              <Row
+                label="CPU suffix retrieval"
+                id="config-retrieval"
+                description="Optional native n-gram proposals."
+              >
+                <ConfigurationSelect
+                  id="config-retrieval"
+                  label="CPU suffix retrieval"
+                  value={spec.retrieval}
+                  options={[
+                    { value: 'off', label: 'Off' },
+                    ...retrievalMethods.map((method) => ({
+                      value: method,
+                      label: ['ngram-cache', 'ngram-map-k', 'ngram-map-k4v'].includes(method)
+                        ? `${method} (memory bound unavailable)`
+                        : method,
+                      disabled: ['ngram-cache', 'ngram-map-k', 'ngram-map-k4v'].includes(method),
+                    })),
+                  ]}
+                  onChange={(retrieval) => {
+                    if (
+                      retrieval === 'off' ||
+                      retrievalMethods.includes(retrieval as (typeof retrievalMethods)[number])
+                    )
+                      patchSpec({
+                        retrieval: retrieval as DemoModelDefaults['speculation']['retrieval'],
+                      });
+                  }}
+                />
+              </Row>
+              <Row
+                label="Execution device"
+                id="config-spec-device"
+                description="Execution placement is managed in Cluster."
+              >
+                <span id="config-spec-device">{executionDevice}</span>
+                <Button
+                  className={styles.utility}
+                  aria-label="Set speculative execution in Cluster"
+                  onClick={() => onCluster('speculation')}
+                >
+                  Set in Cluster
+                </Button>
               </Row>
             </Section>
             <Section title="Advanced">

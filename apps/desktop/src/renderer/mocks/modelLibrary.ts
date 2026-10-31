@@ -13,6 +13,8 @@ export interface DemoModel {
   readonly ready: boolean;
   readonly lastUsedAt?: number;
   readonly blockCount?: number | null;
+  readonly embeddedMtp?: boolean;
+  readonly speculativeHead?: 'eagle3' | 'dflash' | 'dspark' | 'mtp';
 }
 
 /** Renderer-only state: the active ID denotes a simulation, not an engine session. */

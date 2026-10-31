@@ -13,6 +13,7 @@ import { decodeExecutionIdentity, GENERATION_POLICY } from '../generation/contra
 import type { TerminalOutcome } from '../generation/contracts.js';
 import { parseGenerationStream } from '../generation/stream.js';
 export interface OwnedChatOptions {
+  readonly speculativeProposer?: boolean;
   readonly port: number;
   readonly key: string;
   readonly alias: string;
@@ -98,6 +99,8 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
         ? {}
         : {
             stream: true,
+            timings_per_token: true,
+            return_progress: true,
             ...(settings ? { stream_options: { include_usage: true } } : { max_tokens: 512 }),
             n: 1,
             id_slot: slot,
@@ -306,7 +309,11 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
               body(messages, slot, settings, keep),
               abort.signal,
             );
-            for await (const chunk of parseGenerationStream(response, abort.signal)) {
+            for await (const chunk of parseGenerationStream(
+              response,
+              abort.signal,
+              options.speculativeProposer,
+            )) {
               if (chunk.type === 'terminal') outcome = chunk.outcome;
               await progress(chunk);
             }

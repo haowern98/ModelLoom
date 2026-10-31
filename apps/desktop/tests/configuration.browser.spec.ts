@@ -236,12 +236,8 @@ test('validation, toggles, sliders, exact stop strings and advanced editors work
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Model configuration' })).toBeFocused();
   const auto = page.getByRole('switch', { name: 'Automatic Optimize Based on Hardware' });
-  await auto.focus();
-  await page.keyboard.press('Space');
+  await expect(auto).toHaveCount(0);
   await page.getByRole('spinbutton', { name: 'Context Length' }).fill('4096');
-  await auto.click();
-  await expect(page.getByRole('textbox', { name: 'Context Length' })).toHaveValue('Auto');
-  await auto.click();
   await expect(page.getByRole('spinbutton', { name: 'Context Length' })).toHaveValue('4096');
   const temperature = page.getByRole('spinbutton', { name: 'Temperature', exact: true });
   await temperature.fill('3');
@@ -270,7 +266,8 @@ test('validation, toggles, sliders, exact stop strings and advanced editors work
     page.getByRole('spinbutton', { name: 'Reasoning Budget', exact: true }),
   ).toBeDisabled();
   await page.getByRole('switch', { name: 'Enable Thinking' }).click();
-  await expect(page.getByRole('combobox', { name: 'Method' })).toBeDisabled();
+  await expect(page.getByRole('combobox', { name: 'Method' })).toBeEnabled();
+  await expect(page.getByRole('combobox', { name: 'Method' })).toHaveText('Off');
   await expect(page.getByRole('combobox', { name: /draft model/i })).toHaveCount(0);
   await page.getByText('Chat Template', { exact: true }).click();
   await page.getByRole('textbox', { name: 'Chat Template text' }).fill('<script>example</script>');
@@ -319,8 +316,10 @@ for (const font of ['system', 'Arial fallback']) {
       await expect(page.getByRole('button', { name: /Run|Play|Stop model/ })).toHaveCount(0);
       const context = page.getByRole('region', { name: 'Context and Performance', exact: true });
       const auto = context.getByRole('switch', { name: 'Automatic Optimize Based on Hardware' });
-      await auto.scrollIntoViewIfNeeded();
-      await expect(auto).toHaveCSS('background-color', 'rgb(72, 127, 255)');
+      await expect(auto).toHaveCount(0);
+      await context
+        .getByRole('heading', { name: 'Context and Performance', exact: true })
+        .scrollIntoViewIfNeeded();
       const slider = page.getByRole('slider', { name: 'CPU Thread Pool Size slider' });
       // Chromium does not expose native range-thumb computed styles; inspect their captures.
       await expect(slider).toHaveCSS('background-image', /rgb\(255, 255, 255\)/);

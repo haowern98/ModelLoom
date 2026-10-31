@@ -24,6 +24,7 @@ export function captureClusterDraft(
     profileId,
     load: draft.load,
     runs: valid.runs,
+    ...(draft.proposerDevice === undefined ? {} : { proposerDevice: draft.proposerDevice }),
   });
 }
 /** Capture immutable saved intent. Caller selection and draft JSON are never an active session. */
@@ -42,6 +43,7 @@ export function captureClusterRun(
       draft.configurationId !== saved.id ||
       draft.baseSavedRevision !== saved.revision ||
       !isDeepStrictEqual(draft.load, saved.load) ||
+      draft.proposerDevice !== saved.proposerDevice ||
       !validated?.ok ||
       !isDeepStrictEqual(
         validated.runs,
