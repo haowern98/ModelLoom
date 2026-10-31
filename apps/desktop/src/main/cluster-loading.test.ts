@@ -48,7 +48,7 @@ it('passes the canvas GPU scope to planning and rejects assignments outside it',
       devices: [uuid],
     });
     expect(rejected).toEqual({ ok: false, error: 'INVALID_CONTROL' });
-    expect(f.deps.planCluster.mock.calls[0]?.slice(4)).toEqual([[uuid]]);
+    expect(f.deps.planCluster.mock.calls[0]?.slice(4)).toEqual([[uuid], undefined]);
     expect(f.draft()).toEqual(before);
     expect(
       await f.controller.cluster({
@@ -153,6 +153,8 @@ it('plans the draft model instead of the different model most recently imported 
       expect.objectContaining({ modelId }),
       64,
       expect.any(AbortSignal),
+      undefined,
+      undefined,
     );
   } finally {
     await controller.quit();
@@ -667,6 +669,7 @@ it('warns before running a saved configuration and freshly preflights Load anywa
     f.saved,
     expect.any(AbortSignal),
     true,
+    undefined,
   ]);
   expect(f.host.prepareCluster).toHaveBeenCalledOnce();
   await f.controller.quit();
