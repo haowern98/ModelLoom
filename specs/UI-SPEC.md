@@ -1,7 +1,7 @@
 # ModelLoom UI specification
 
 **Status:** Approved screen compositions retained; Windows development local Chat/runtime and later Chat refinements implemented, other production integrations pending
-**Updated:** 2026-10-31
+**Updated:** 2026-11-01
 **Related:** [product](PRODUCT-SPEC.md), [integration](INTEGRATION-SPEC.md), [security](SECURITY-SPEC.md)
 
 Runtime behavior follows [ADR-0002](decisions/0002-lm-studio-runtime-direction.md): LM Studio GUI/core/runtime direction, accepted grouped llama-server, independent upgrades, ordinary engine-crash isolation, and desktop-owned shutdown. The [runtime process screenshot](references/runtime/README.md) is lifecycle/presentation evidence, not an additional UI-screen design.
@@ -24,6 +24,33 @@ page compositions, selection states and controls. This revision supersedes the
 earlier 50px rail, 240px contextual panels, solid chrome/sidebar/main backgrounds,
 5px outer gaps and 16px outer frame rounding described below. It does not change
 the internal card colours or authorize additional icon replacements.
+
+**Approved Settings scrollbar revision, 2026-11-01:** The user's PROCEED adopts
+Codex's native Chromium scrollbar treatment for Settings categories and details
+only. Use `scrollbar-width: thin`, a transparent track and
+`rgba(252, 252, 252, 0.084)` idle thumb colour, changing to
+`rgba(252, 252, 252, 0.156)` while the scrolling pane is hovered or active.
+Retain Chromium's native thumb hover/press contrast adjustment. Remove Settings'
+fixed WebKit scrollbar width, thumb border and 40px top/bottom track margins;
+the details scroller spans the pane's full height inside the existing rounded
+workspace clipping. Native arrow buttons and end spacing remain Chromium-owned.
+Reserve a stable details scrollbar gutter without changing content padding,
+independent scrolling or keyboard access to the final controls. Other screens'
+scrollbars retain their existing treatment. This supersedes Settings' earlier
+10px strip, 6px painted thumb and 40px track-margin rules below.
+
+**Approved app-wide scrollbar revision, 2026-11-01:** The subsequent PROCEED
+extends the same native thin scrollbars and idle/hover colours to every scroll
+area through shared CSS, including Chat history/transcript/composer, Models and
+model configuration, API pages/code/logs, Cluster navigation/model picker/inspector,
+dropdowns and overflowing dialogs or multiline fields. Remove all fixed WebKit
+scrollbar width, colour, radius and track-margin overrides. Keep each container's
+existing scrolling, clipping and overscroll containment. The Cluster inspector
+retains its fixed padded frame, stable gutter and centred body content; hovering
+the panel padding also brightens its thumb. Its thumb is now visible at idle,
+replacing the earlier transparent-idle and `#626262` hover-only treatment. Model
+configuration actions remain outside their scroller. This supersedes the
+Settings-only scope above and the older scrollbar exceptions below.
 
 **Cluster configuration implementation, 2026-10-16:** Auto place produces a
 reviewable draft using fresh resources and the verified stock estimator, preferring
