@@ -226,7 +226,8 @@ it('replaces Delete feedback when a new Send operation starts', async () => {
       remove: () => Promise.resolve(true),
     };
   const view = render(<ChatPage {...props} live={live} />);
-  await user.click(screen.getByRole('button', { name: 'Delete chat: New chat' }));
+  await user.click(screen.getByRole('button', { name: 'Chat actions: New chat' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Delete chat' }));
   await user.click(screen.getByRole('button', { name: 'Delete' }));
   expect(screen.getByRole('status')).toHaveTextContent('Chat deleted.');
   await user.click(screen.getByRole('button', { name: 'Send message' }));
