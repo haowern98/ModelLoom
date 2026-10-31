@@ -1,7 +1,18 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { StorageSettings } from './StorageSettings';
-import type { CacheBridge, CacheView } from '../../../shared/tensor-cache';
+import type { CacheBridge, CacheReply, CacheView } from '../../../shared/tensor-cache';
+
+const savedView: CacheView = {
+  settings: {
+    enabled: true,
+    limitGiB: 10,
+    reserveGiB: 5,
+    policy: 'replace',
+    location: 'E:\\ModelLoom-TensorCache-v1',
+  },
+  usedBytes: 0,
+};
 
 afterEach(() => {
   cleanup();
@@ -9,14 +20,7 @@ afterEach(() => {
 });
 function setup(error?: CacheView['error']) {
   let view: CacheView = {
-    settings: {
-      enabled: true,
-      limitGiB: 10,
-      reserveGiB: 5,
-      policy: 'replace',
-      location: 'E:\\ModelLoom-TensorCache-v1',
-    },
-    usedBytes: 0,
+    ...savedView,
     ...(error ? { error } : {}),
   };
   const command = vi.fn<CacheBridge['command']>((input) => {
@@ -77,4 +81,85 @@ it('keeps invalid numeric drafts visible instead of sending a zero or silently c
   fireEvent.blur(limit);
   expect(screen.getByRole('alert').textContent).toContain('whole number');
   expect(command.mock.calls.filter(([input]) => input.action === 'set')).toHaveLength(0);
+});
+
+it.each([
+  ['Cache size limit', '10'],
+  ['Keep disk space free', '5'],
+])('clears validation when %s is restored to its saved value', async (name, saved) => {
+  const command = setup();
+  const input = screen.getByRole('spinbutton', { name });
+  await waitFor(() => expect(input).toBeEnabled());
+  fireEvent.change(input, { target: { value: '0' } });
+  fireEvent.blur(input);
+  expect(screen.getByRole('alert')).toHaveTextContent('whole number');
+  fireEvent.change(input, { target: { value: saved } });
+  fireEvent.blur(input);
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(command.mock.calls.filter(([input]) => input.action === 'set')).toHaveLength(0);
+});
+
+it('preserves the cache warning while numeric validation is shown and corrected', async () => {
+  setup('CACHE_LOCATION_UNAVAILABLE');
+  await screen.findByText(/cache location is unavailable/);
+  const input = screen.getByRole('spinbutton', { name: 'Cache size limit' });
+  fireEvent.change(input, { target: { value: '0' } });
+  fireEvent.blur(input);
+  expect(screen.getByRole('alert')).toHaveTextContent('whole number');
+  expect(screen.getByRole('alert')).toHaveTextContent('cache location is unavailable');
+  fireEvent.change(input, { target: { value: '10' } });
+  fireEvent.blur(input);
+  expect(screen.getByRole('alert')).not.toHaveTextContent('whole number');
+  expect(screen.getByRole('alert')).toHaveTextContent('cache location is unavailable');
+});
+
+it('shows unavailable cache information when there is no bridge', () => {
+  render(<StorageSettings />);
+  expect(screen.queryAllByText('Loading…')).toHaveLength(0);
+  expect(screen.getByText('Unavailable')).toBeVisible();
+  expect(screen.getByText('Usage unavailable')).toBeVisible();
+});
+
+it.each(['rejected', 'failed'])(
+  'leaves loading after a %s first read and recovers on retry',
+  async (failure) => {
+    let resolve!: (reply: CacheReply) => void;
+    let reject!: (error: Error) => void;
+    const firstRead = new Promise<CacheReply>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    const command = vi
+      .fn<CacheBridge['command']>()
+      .mockImplementationOnce(() => firstRead)
+      .mockResolvedValue({ ok: true, view: savedView });
+    window.modelLoomCache = { command };
+    render(<StorageSettings />);
+    await waitFor(() => expect(command).toHaveBeenCalledOnce());
+    expect(screen.getAllByText('Loading…')).toHaveLength(2);
+    await act(async () => {
+      if (failure === 'rejected') reject(new Error('read failed'));
+      else resolve({ ok: false, error: 'CACHE_BUSY' });
+      await firstRead.catch(() => undefined);
+    });
+    expect(screen.queryAllByText('Loading…')).toHaveLength(0);
+    expect(screen.getByText('Unavailable')).toBeVisible();
+    expect(screen.getByText('Usage unavailable')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText(savedView.settings.location)).toBeVisible();
+    expect(screen.getByText('0 B of 10 GiB used')).toBeVisible();
+    expect(screen.queryByRole('alert')).toBeNull();
+  },
+);
+
+it('keeps the last cache values alongside an error when a later refresh fails', async () => {
+  const command = setup('CACHE_LOCATION_UNAVAILABLE');
+  await screen.findByRole('alert');
+  command.mockRejectedValueOnce(new Error('read failed'));
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await screen.findByText('Cache information is unavailable. Try again.');
+  expect(screen.getByText(savedView.settings.location)).toBeVisible();
+  expect(screen.getByText('0 B of 10 GiB used')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+  expect(screen.queryAllByText('Loading…')).toHaveLength(0);
 });
