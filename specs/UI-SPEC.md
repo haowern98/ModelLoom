@@ -52,6 +52,32 @@ replacing the earlier transparent-idle and `#626262` hover-only treatment. Model
 configuration actions remain outside their scroller. This supersedes the
 Settings-only scope above and the older scrollbar exceptions below.
 
+**Approved dropdown scrollbar revision, 2026-11-01:** Apply the inspected Codex
+standard menu's 4px padding and 16px corners to the Cluster model picker and the
+shared configuration dropdowns: Context Overflow, Method, Companion, CPU suffix
+retrieval, Execution device, This PC's address and When cache is full. Retain the
+shared native thin scrollbar colours and Chromium-owned track ends. Replace the
+380px/60vh caps with the available space above or below the trigger, bounded by
+the viewport minus 16px, using a 5px trigger gap and 6px collision clearance.
+Reposition on resize or surrounding scrolling; keyboard navigation must scroll
+the focused option into view. Short lists show no scrollbar unless they overflow.
+This does not add scrolling to the Chat composer's model popup.
+
+The reference is the default menu surface in Codex Windows package
+`OpenAI.Codex_26.1023.6621.0_x64`, inspected statically with REA. Specialized
+Codex picker/fade variants can differ; this revision adopts its standard menu.
+
+**Approved Devices consistency revision, 2026-11-01:** The user approved the
+Devices mockup that adopts Connections' card and row treatment. Hardware cards
+inherit the shared 16px rounding and 16px horizontal padding; rows inherit the
+56px minimum height and 14px vertical padding. Use 14px medium-weight property
+labels and muted 13px values, keeping the existing right-aligned value column
+and narrow-screen stacking. Use 14px heading-to-card gaps, 36px between hardware
+sections and 24px between the device identity and its first section. Keep device
+names, role badges, reported hardware facts, unavailable states, navigation and
+the existing content column unchanged. This supersedes the older compact
+Devices row sizing and 12px hardware-card rounding.
+
 **Cluster configuration implementation, 2026-10-16:** Auto place produces a
 reviewable draft using fresh resources and the verified stock estimator, preferring
 one GPU before both GPU orders and centre-out cuts. Save retains named intent;
