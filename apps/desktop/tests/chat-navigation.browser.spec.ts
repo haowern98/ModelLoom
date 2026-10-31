@@ -11,7 +11,7 @@ test('Chat header, collapsible groups and action menu match the approved navigat
   const sidebar = page.getByRole('complementary', { name: 'Conversations' });
   await expect(sidebar).toHaveCSS('width', '238px');
   await expect(sidebar.getByRole('heading', { name: 'Chat', exact: true })).toBeVisible();
-  const search = sidebar.getByRole('button', { name: 'Search conversations' });
+  const search = sidebar.getByRole('button', { name: 'Search chats' });
   const newChat = sidebar.getByRole('button', { name: 'New chat', exact: true }).first();
   expect((await newChat.boundingBox())!.y).toBeGreaterThan((await search.boundingBox())!.y);
   await expect(newChat).toHaveCSS('height', '30px');
@@ -130,31 +130,80 @@ test('header and Archived chats stay fixed while long chat history scrolls', asy
   }
 });
 
-test('search filters chat text and archived history without changing selection or drafts', async ({
-  page,
-}) => {
-  const sidebar = page.getByRole('complementary', { name: 'Conversations' });
-  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Keep this draft');
-  await sidebar.getByRole('button', { name: 'Search conversations' }).click();
-  const search = sidebar.getByRole('searchbox', { name: 'Search chats' });
-  await expect(search).toBeFocused();
-  await search.fill('Q4_K_M');
-  await expect(sidebar.locator('[data-conversation-id]')).toHaveCount(1);
-  const row = sidebar.locator('[data-conversation-id="quantization"]');
-  await row.hover();
-  await row.getByRole('button', { name: 'Archive chat: Explain model quantization' }).click();
-  await expect(sidebar.getByText('No matching conversations')).toBeVisible();
-  await sidebar.getByRole('button', { name: 'Archived chats', exact: true }).click();
-  await search.fill('Q4_K_M');
-  await expect(row).toBeVisible();
-  await search.fill('No such archived chat');
-  await expect(sidebar.getByText('No archived chats')).toBeVisible();
-  await search.press('Escape');
-  await expect(sidebar.getByRole('button', { name: 'Search conversations' })).toBeFocused();
-  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
-    'Keep this draft',
-  );
-});
+for (const width of [1280, 1000]) {
+  test('chat search popup replaces inline search at ' + width + 'px', async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    const sidebar = page.locator('aside[aria-label="Conversations"]');
+    const trigger = sidebar.getByRole('button', { name: 'Search chats' });
+    await expect(trigger.locator('svg')).toHaveCSS('width', '16px');
+    await expect(trigger.locator('svg')).toHaveCSS('height', '16px');
+    await expect(trigger.locator('svg')).toHaveAttribute('viewBox', '0 0 16 16');
+    await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Keep this draft');
+    const archivedRow = sidebar.locator('[data-conversation-id="quantization"]');
+    await archivedRow.hover();
+    await archivedRow
+      .getByRole('button', { name: 'Archive chat: Explain model quantization' })
+      .click();
+    await trigger.click();
+    const dialog = page.getByRole('dialog', { name: 'Search chats' });
+    const search = dialog.getByRole('searchbox', { name: 'Search chats' });
+    await expect(search).toHaveAttribute('placeholder', 'Search chats');
+    await expect(search).toHaveCSS('outline-style', 'none');
+    await expect(search).toBeFocused();
+    await expect(dialog).toHaveCSS('width', '768px');
+    await expect(dialog).toHaveCSS('border-radius', '16px');
+    await expect(dialog).toHaveCSS('backdrop-filter', 'blur(24px)');
+    await expect(sidebar.locator('input[type="search"]')).toHaveCount(0);
+    await expect(dialog.getByRole('tablist')).toHaveCount(0);
+    await expect(dialog.getByText('Quick actions')).toHaveCount(0);
+    await expect(dialog.getByRole('heading', { name: 'Chats' })).toBeVisible();
+    await search.fill('Q4_K_M');
+    await expect(dialog.getByRole('option')).toHaveCount(1);
+    await expect(dialog.getByRole('option', { name: 'Explain model quantization' })).toBeVisible();
+    await expect(sidebar.locator('[data-conversation-id]')).toHaveCount(3);
+    await search.fill('No such chat');
+    await expect(dialog.getByText('No matching chats')).toBeVisible();
+    await search.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
+      'Keep this draft',
+    );
+    await trigger.click();
+    await expect(search).toHaveValue('');
+    await expect(dialog.getByRole('option')).toHaveCount(4);
+    await search.press('Shift+Tab');
+    expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press('Tab');
+    await expect(search).toBeFocused();
+    await page.screenshot({ path: test.info().outputPath('chat-search-' + width + '.png') });
+    await page.mouse.click(2, 2);
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await trigger.click();
+    await search.press('End');
+    await expect(dialog.getByRole('option').last()).toHaveAttribute('aria-selected', 'true');
+    await search.press('Home');
+    await expect(dialog.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
+    await search.press('ArrowDown');
+    await expect(
+      dialog.getByRole('option', { name: 'Explain model quantization' }),
+    ).toHaveAttribute('aria-selected', 'true');
+    await search.press('Enter');
+    await expect(dialog).toHaveCount(0);
+    await expect(
+      page.getByRole('heading', { name: 'Explain model quantization', exact: true }),
+    ).toBeVisible();
+    await expect(
+      sidebar.getByRole('button', { name: 'Explain model quantization', exact: true }),
+    ).toBeVisible();
+    await sidebar.getByRole('button', { name: 'Back to chats' }).click();
+    await sidebar.getByRole('button', { name: 'Planning a local setup', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
+      'Keep this draft',
+    );
+  });
+}
 
 test('Chat typography and insets match Cluster at both desktop widths', async ({ page }) => {
   for (const width of [1280, 1000]) {
@@ -231,4 +280,29 @@ test('Chat typography and insets match Cluster at both desktop widths', async ({
     await page.mouse.move(0, 0);
     await page.screenshot({ path: test.info().outputPath(`chat-cluster-spacing-${width}.png`) });
   }
+});
+
+test('chat search results scroll inside a short window and ignore composition Enter', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1000, height: 400 });
+  const sidebar = page.locator('aside[aria-label="Conversations"]');
+  for (let index = 0; index < 14; index++) {
+    await sidebar.getByRole('button', { name: 'New chat', exact: true }).first().click();
+    await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Draft ' + index);
+  }
+  await sidebar.getByRole('button', { name: 'Search chats' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Search chats' }),
+    input = dialog.getByRole('searchbox');
+  const list = dialog.getByRole('listbox', { name: 'Chats' });
+  expect(await list.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+  await input.dispatchEvent('keydown', { key: 'Enter', isComposing: true });
+  await expect(dialog).toBeVisible();
+  await input.press('End');
+  await expect(dialog.getByRole('option').last()).toBeInViewport();
+  expect(await list.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const bounds = (await dialog.boundingBox())!;
+  expect(bounds.y).toBeGreaterThanOrEqual(0);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(400);
 });

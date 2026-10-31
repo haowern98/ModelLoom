@@ -76,7 +76,7 @@ test('long chat titles fade, reveal a fixed trash button and scroll only during 
     await expect(text).toHaveCSS('animation-name', 'none');
     await expect(text).toHaveCSS('transform', 'none');
   }
-  await page.getByRole('button', { name: 'Search conversations' }).focus();
+  await page.getByRole('button', { name: 'Search chats' }).focus();
   await page.keyboard.press('Tab');
   await expect(selection).toBeFocused();
   await expect(trash).toHaveCSS('opacity', '1');
@@ -186,19 +186,19 @@ test('conversation selection, search and per-chat drafts survive navigation', as
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
     'My setup draft',
   );
-  await page.getByRole('button', { name: 'Search conversations' }).click();
+  await page.getByRole('button', { name: 'Search chats' }).click();
   const search = page.getByRole('searchbox', { name: 'Search chats' });
   await expect(search).toBeFocused();
   await search.fill('Q4_K_M');
+  const popup = page.getByRole('dialog', { name: 'Search chats' });
+  await expect(popup.getByRole('option')).toHaveCount(1);
   await expect(
-    page
-      .getByRole('navigation', { name: 'Conversation history' })
-      .locator('[data-conversation-id]'),
-  ).toHaveCount(1);
+    page.locator('aside[aria-label="Conversations"] [data-conversation-id]'),
+  ).toHaveCount(4);
   await search.fill('no such conversation');
-  await expect(page.getByText('No matching conversations')).toBeVisible();
+  await expect(popup.getByText('No matching chats')).toBeVisible();
   await search.press('Escape');
-  await expect(page.getByRole('button', { name: 'Search conversations' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Search chats' })).toBeFocused();
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   const draft = page.getByRole('textbox', { name: 'Message', exact: true });
   await expect(draft).toBeFocused();
