@@ -75,6 +75,7 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 44px 24px 32px;
   background: var(--workspace-surface);
 }
@@ -255,17 +256,6 @@
 }
 .pending button {
   margin-top: 14px;
-}
-.details::-webkit-scrollbar {
-  width: 10px;
-}
-.categories::-webkit-scrollbar-track,
-.details::-webkit-scrollbar-track {
-  margin-block: 40px;
-}
-.details::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  background-clip: padding-box;
 }
 @media (max-width: 1050px) {
   .details {

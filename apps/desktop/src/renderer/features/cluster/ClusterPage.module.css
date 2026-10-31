@@ -376,8 +376,8 @@
 }
 .panelContent {
   min-height: 0;
-  margin-right: -14px;
-  /* Offset the 6px scrollbar and 8px content gap together to preserve symmetric body padding. */
+  /* Offset the native gutter and content gap to retain the 18px body insets. */
+  margin-right: -18px;
   padding-right: 8px;
   scrollbar-gutter: stable;
   overflow-y: auto;
@@ -387,28 +387,15 @@
 .panelContent:has(.overviewSummary),
 .panelContent:has(.speculationSummary),
 .panelContent:has(.deviceDetailsLink) {
+  /* Leave room for the full row hover surface without moving its text or controls. */
   margin-left: -12px;
   padding-left: 12px;
-  /* Leave room for the full row hover surface without moving its text or controls. */
-  margin-right: -18px;
-  padding-right: 12px;
 }
 .panel:focus {
   outline: none;
 }
-.panelContent::-webkit-scrollbar {
-  width: 6px;
-}
-.panelContent::-webkit-scrollbar-track {
-  background: transparent;
-}
-.panelContent::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 999px;
-}
-.panel:hover .panelContent::-webkit-scrollbar-thumb,
-.panelContent::-webkit-scrollbar-thumb:active {
-  background: #626262;
+.panel:hover .panelContent {
+  scrollbar-color: rgba(252, 252, 252, 0.156) transparent;
 }
 .panelContent :focus-visible {
   outline-offset: -2px;
