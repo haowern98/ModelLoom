@@ -28,8 +28,11 @@ test('panel scrolling retains its padded frame and contains a neutral scrollbar'
     expect(frame.y + frame.height - viewport.y - viewport.height).toBeGreaterThanOrEqual(18);
     const header = await panel.locator('header').boundingBox();
     if (!header) throw new Error('Panel header is missing');
+    const gutter = await content.evaluate(
+      (element) => element.getBoundingClientRect().width - element.clientWidth,
+    );
     expect(header.x - frame.x).toBeCloseTo(frame.x + frame.width - header.x - header.width, 0);
-    expect(viewport.x + viewport.width - 6 - header.x - header.width).toBeCloseTo(12, 0);
+    expect(viewport.x + viewport.width - gutter - header.x - header.width).toBeCloseTo(8, 0);
     expect(frame.x + frame.width - viewport.x - viewport.width).toBeGreaterThanOrEqual(0);
     expect(frame.x + frame.width - viewport.x - viewport.width).toBeLessThanOrEqual(2);
     await content.evaluate((element) => {
@@ -37,23 +40,31 @@ test('panel scrolling retains its padded frame and contains a neutral scrollbar'
     });
     await page.mouse.move(10, 10);
     const scrollbar = await content.evaluate((element) => ({
-      thumb: getComputedStyle(element, '::-webkit-scrollbar-thumb').backgroundColor,
+      thumb: getComputedStyle(element).scrollbarColor,
       overflow: element.scrollHeight - element.clientHeight,
     }));
-    expect(scrollbar.thumb).toBe('rgba(0, 0, 0, 0)');
-    const clip = { x: viewport.x + viewport.width - 6, y: viewport.y + 6, width: 6, height: 40 };
-    const hiddenRail = await page.screenshot({ clip });
-    // Hovering even the outer padding reveals the thumb; no rail targeting is required.
+    await expect(content).toHaveCSS('scrollbar-width', 'thin');
+    expect(scrollbar.thumb).toBe('rgba(252, 252, 252, 0.082) rgba(0, 0, 0, 0)');
+    const clip = {
+      x: viewport.x + viewport.width - gutter,
+      y: viewport.y + 6,
+      width: gutter,
+      height: 40,
+    };
+    const idleRail = await page.screenshot({ clip });
+    // Hovering the outer padding also brightens the native thumb.
     await page.mouse.move(frame.x + 4, frame.y + 40);
-    // Native scrollbar pseudo-element hover is painted by Chromium's scrollbar widget,
-    // so compare its rendered strip rather than the base pseudo-element computed style.
+    await expect(content).toHaveCSS(
+      'scrollbar-color',
+      'rgba(252, 252, 252, 0.157) rgba(0, 0, 0, 0)',
+    );
     await page.evaluate(
       () =>
         new Promise<void>((resolve) =>
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         ),
     );
-    expect(await page.screenshot({ clip })).not.toEqual(hiddenRail);
+    expect(await page.screenshot({ clip })).not.toEqual(idleRail);
     const hoveredViewport = await content.boundingBox();
     expect(hoveredViewport).toEqual(viewport);
     await page.mouse.move(10, 10);
@@ -63,7 +74,7 @@ test('panel scrolling retains its padded frame and contains a neutral scrollbar'
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         ),
     );
-    expect(await page.screenshot({ clip })).toEqual(hiddenRail);
+    expect(await page.screenshot({ clip })).toEqual(idleRail);
     // A short viewport with both GPU layer editors retains real scrolling in the compact editor,
     // then exercise its actual middle and bottom instead of assuming a minimum content length.
     expect(scrollbar.overflow).toBeGreaterThan(0);

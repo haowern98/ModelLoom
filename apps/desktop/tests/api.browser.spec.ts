@@ -118,24 +118,15 @@ test('API matches configuration geometry and scroll margins at desktop widths', 
         await expect(card).toHaveCSS('border-radius', '16px');
       }
       const track = await main.evaluate((node) => {
-        // Chromium omits orientation-specific margins from pseudo-element computed styles.
-        // Check the applicable live rule here; native screenshots verify the painted clearance.
-        const suffix = '::-webkit-scrollbar-track:vertical';
-        const rule = Array.from(document.styleSheets)
-          .flatMap((sheet) => Array.from(sheet.cssRules))
-          .find(
-            (item): item is CSSStyleRule =>
-              item instanceof CSSStyleRule &&
-              item.selectorText.endsWith(suffix) &&
-              node.matches(item.selectorText.slice(0, -suffix.length)),
-          );
+        const style = getComputedStyle(node, '::-webkit-scrollbar-track');
         return {
-          top: rule?.style.marginBlockStart,
-          bottom: rule?.style.marginBlockEnd,
+          top: style.marginTop,
+          bottom: style.marginBottom,
           overflow: node.scrollWidth > node.clientWidth,
         };
       });
-      expect(track).toEqual({ top: '40px', bottom: '40px', overflow: false });
+      await expect(main).toHaveCSS('scrollbar-width', 'thin');
+      expect(track).toEqual({ top: '0px', bottom: '0px', overflow: false });
       await page
         .getByRole('heading', { name: 'Runtime logs', exact: true })
         .scrollIntoViewIfNeeded();
