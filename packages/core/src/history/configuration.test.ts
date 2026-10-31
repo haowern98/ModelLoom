@@ -52,7 +52,7 @@ it('round-trips an immutable request snapshot and retries its original settings'
     expect(
       (await store.readConversation(conversation.id)).turns[0]!.attempts.map((a) => a.settings),
     ).toEqual([settings, settings]);
-    expect(database.prepare('SELECT version FROM schema_version').get()?.version).toBe(5);
+    expect(database.prepare('SELECT version FROM schema_version').get()?.version).toBe(6);
   } finally {
     store.close();
   }

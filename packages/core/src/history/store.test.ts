@@ -326,7 +326,7 @@ it.each([1, 2, 3, 4])(
     const before = db.prepare('SELECT * FROM attempts').all();
     const store = new HistoryStore(db);
     stores.push(store);
-    expect(db.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 5 });
+    expect(db.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 6 });
     expect(db.prepare('SELECT * FROM attempts').all()).toMatchObject(before);
     expect(await store.readConversation('old')).toMatchObject({
       title: 'Saved title',
