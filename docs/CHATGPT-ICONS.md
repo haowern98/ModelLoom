@@ -24,7 +24,11 @@ The faint divider before Reset is CSS, separate from the SVG paths.
 
 ChatGptRailIcon.tsx contains exact static path data, not executable code from the reference bundle. Imported assets are Home outline (home-light-20, shared U9n), Home selected (initial S0o), Books outline (books-light-20, shared G3n), Books selected (initial JAo), and More (ellipsis-horizontal-light-20, shared V5n). All use their original 20x20 canvas. More has no separate filled state in this implementation; it retains the same three dots when its menu opens.
 
-The user chose to retain the existing Phosphor hollow/filled pairs for Cluster, API and Settings. The reference icon paths carry no separate licence declaration in the selected asset records; they are not covered by the Phosphor MIT notice. This change is a local development reference, not release/distribution clearance.
+The earlier decision to retain Phosphor hollow/filled pairs for Cluster, API and Settings is superseded by the 2026-10-31 rail revision below. The reference icon paths carry no separate licence declaration in the selected asset records; they are not covered by the Phosphor MIT notice. This change is a local development reference, not release/distribution clearance.
+
+**Rail revision, 2026-10-31:** ChatGptRailIcon.tsx replaces Cluster's Phosphor Network with the exact `circle-grid-2x2-connect-light-24` paths, API's HardDrives with `terminal-light-20`, and Settings' GearSix with `gear-light-20`. Cluster retains its original 24x24 viewBox scaled to a 20px CSS box; API and Settings retain their original 20x20 viewBoxes. All three use the same artwork selected and unselected, inheriting white `#ffffff` when selected and muted grey `#8b8b8b` at rest, with the existing charcoal selected background. No filled variants are fabricated. Home and Books remain unchanged.
+
+These three records were read statically from the installed OpenAI.Codex 26.1023.6621.0 package's `app.asar` member `webview/assets/app-shared-3b88f728481f.js`, SHA-256 `049e002cddcc8b63436e0197d3f061302eafa7e760379b5937e3ea876384ccd7`, with original archive integrity verified. The local development scope and distribution limitations above also apply to these paths.
 
 The top rail uses 20px icons in 36px buttons with a uniform 8px gap, giving 44px between centres, including after Home. The gap matches the installed desktop package's rail list (`itemSpacing: rail`, `gap-2`) and CSS (`--spacing: .25rem`) at the default 16px root. The lower Downloads/profile group retains its separate spacing.
 

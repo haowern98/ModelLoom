@@ -1,10 +1,29 @@
 # ModelLoom UI specification
 
 **Status:** Approved screen compositions retained; Windows development local Chat/runtime and later Chat refinements implemented, other production integrations pending
-**Updated:** 2026-10-10
+**Updated:** 2026-10-31
 **Related:** [product](PRODUCT-SPEC.md), [integration](INTEGRATION-SPEC.md), [security](SECURITY-SPEC.md)
 
 Runtime behavior follows [ADR-0002](decisions/0002-lm-studio-runtime-direction.md): LM Studio GUI/core/runtime direction, accepted grouped llama-server, independent upgrades, ordinary engine-crash isolation, and desktop-owned shutdown. The [runtime process screenshot](references/runtime/README.md) is lifecycle/presentation evidence, not an additional UI-screen design.
+
+**Approved Codex frame revision, 2026-10-31:** The user's PROCEED adopts the
+inspected Codex Windows frame dimensions and surface treatment across Chat,
+Cluster, Models, API and Settings. Use a 52px icon rail and 238px contextual
+navigation panel, preserving the combined 290px sidebar. Keep 20px rail icons,
+36px buttons and 8px gaps; the wider rail gives 8px horizontal button insets.
+Right and bottom workspace gaps are 4px. Exposed workspace corners use 12px
+rounding except the bottom-right corner, which uses 4px. Keep this frame rounding
+separate from existing card, dialog and composer radii.
+
+On Windows, use the native Mica backdrop with transparent window chrome and rail.
+Contextual navigation uses `rgba(17, 17, 17, 0.65)` over that backdrop, with
+transparent ancestors; main content uses opaque `#111111`. Mica is an operating
+system material, not a fixed sampled hex colour. Other platforms retain the
+existing opaque native window fallback. Preserve the 44px title bar, typography,
+page compositions, selection states and controls. This revision supersedes the
+earlier 50px rail, 240px contextual panels, solid chrome/sidebar/main backgrounds,
+5px outer gaps and 16px outer frame rounding described below. It does not change
+the internal card colours or authorize additional icon replacements.
 
 **Cluster configuration implementation, 2026-10-16:** Auto place produces a
 reviewable draft using fresh resources and the verified stock estimator, preferring
@@ -76,6 +95,8 @@ The user's later comparison makes the ChatGPT app the proportion reference for t
 **Rail simplification, 2026-10-18:** Remove the Downloads, WW profile and More buttons, including the More menu. Keep Home/Chat, Cluster, Models and API at their existing top positions. Move Settings to the former WW profile centre at the bottom, retaining its 20px icon, 36px button, selection state and keyboard focus. Other shell geometry and screen content stay unchanged. This supersedes the lower controls and More behavior described in earlier rail revisions.
 
 **Rail icon and spacing revision, 2026-10-15:** Home and Models use the installed OpenAI desktop package's actual hollow/filled Home and Books paths; More uses its three-dot artwork in both closed and open states. The user chose to retain the existing Phosphor Network, HardDrives and GearSix hollow/filled pairs for Cluster, API and Settings. Selected destinations use filled artwork in white; unselected destinations use hollow artwork in muted grey. Retain 20px icon boxes, 36px buttons, the charcoal selected/open background and visible keyboard focus. Use a uniform 8px gap between the top buttons with no extra margin after Home, giving 44px between centres. This matches the packaged desktop rail's `gap-2`, `.25rem` spacing token and `2.25rem` buttons at the default 16px root. See [asset provenance](../docs/CHATGPT-ICONS.md). This supersedes earlier glyph, stroke and spacing rules for the top rail only; the lower download/profile controls and overflow-menu entry remain unchanged.
+
+**Rail icon revision, 2026-10-31:** Replace Cluster's Phosphor Network with the installed Codex `circle-grid-2x2-connect-light-24`, API's HardDrives with `terminal-light-20`, and Settings' GearSix with `gear-light-20`, using their exact static paths through ChatGptRailIcon.tsx. Cluster retains its original 24x24 viewBox scaled to 20px CSS; API and Settings retain their original 20x20 viewBoxes. All three retain the same artwork selected and unselected, inheriting white `#ffffff` when selected and muted grey `#8b8b8b` at rest; retain the charcoal selected background, existing buttons, spacing and keyboard focus. Do not fabricate filled variants. This supersedes the earlier Phosphor glyph and hollow/filled rules for these three rail destinations only. Home and Books artwork remain unchanged. See [asset provenance and distribution limitations](../docs/CHATGPT-ICONS.md).
 
 The user's subsequent sidebar revision standardizes the main navigation icons (Home, Cluster, Models, API, Storage, Metrics, Settings and overflow) to **20px CSS boxes with 1.75 strokes**, preserving their existing glyphs, positions, 36px button areas and 11px corner radius. Unselected navigation buttons are transparent with muted `#8b8b8b` icons; enabled hover and selected/open controls use rounded `#2f2f2f` shading and white `#ffffff` icons. Selected navigation has no blue border, tinted surface or glow. Keyboard focus remains distinct through a neutral `#ababab` outline and does not select a destination. Home now opens Chat and uses the same hover/selected rules as the other enabled destinations. Keep unavailable controls disabled with their existing accessible explanation and muted treatment; this styling revision does not enable unfinished destinations. Overflow uses a neutral `#262626` menu with a subtle `#383838` border and contains Chat only; API is a direct rail destination. The separate bottom download/profile controls and 16px overflow-menu glyphs retain their existing sizes and treatments. These are approved ModelLoom review targets, not measured ChatGPT computed styles or a claim of exact screenshot parity.
 
