@@ -257,15 +257,15 @@ test('copy is explicit, unavailable attachments are disclosed and model selectio
   context,
 }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  const text = await page
+  const paragraphs = await page
     .getByRole('article', { name: 'Assistant response 2' })
     .locator('p')
-    .innerText();
+    .allInnerTexts();
   await page.getByRole('button', { name: 'Copy response 2' }).click();
   await expect(page.getByRole('status')).toHaveText('Response copied');
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   // Windows clipboard text uses CRLF; compare the exact content with normalized line endings.
-  expect(copied.replace(/\r\n/g, '\n')).toBe(text);
+  expect(copied.replace(/\r\n/g, '\n')).toBe(paragraphs.join('\n\n'));
   await expect(page.getByRole('button', { name: 'Attachments unavailable' })).toBeDisabled();
   await page
     .getByRole('textbox', { name: 'Message', exact: true })
