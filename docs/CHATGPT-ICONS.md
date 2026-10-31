@@ -35,10 +35,10 @@ The top rail uses 20px icons in 36px buttons with a uniform 8px gap, giving 44px
 ChatGptSidebarIcon.tsx uses static reference paths for the Cluster sidebar: `plus-circle-light-24` (Add device), `square-grid-2x2-light-16` (Overview), `desktop-light-16` (Devices), `wifi-light-16` (Connections), `envelope-light-16` (Requests), and `laptop-connector-light-16` (Your devices). All six render at 16x16 CSS px and stay outlined on selection; the row background indicates selection. The plus retains its original 24x24 viewBox, scaled to 16px; the others retain 16x16 viewBoxes. All six records come from the shared member below. Sidebar layout, text, badges and actions are unchanged.
 
 **Chat navigation revision, 2026-11-01:** `ChatNavIcon.tsx` uses the exact
-`square-and-pencil-light-16`, `magnifying-glass-lg-light-20`, `pin-light-16`,
+`square-and-pencil-light-16`, `magnifying-glass-lg-light-16`, `pin-light-16`,
 `pin-slash-light-16`, `archive-light-16`, `ellipsis-horizontal-light-16` and
 `C6` section-disclosure SVG from the installed Codex package
-`OpenAI.Codex_26.1023.6621.0_x64`. Search renders at 20px; New chat renders the verified 16px compose record; row actions render
+`OpenAI.Codex_26.1023.6621.0_x64`. Search renders at 16px; New chat renders the verified 16px compose record; row actions render
 at 16px, preserving each original viewBox. The footer archive glyph also renders
 at 16px, matching New chat. The section disclosure uses the original 20×21 viewBox at 14×14px with
 its 0.6 currentColor stroke; the shared member exports C6 as TN, imported as qo
@@ -50,6 +50,14 @@ with archive integrity verified. No reference bundle code executes in ModelLoom.
 The generation indicator uses a local CSS ring animation rather than importing
 Codex's runtime animation implementation. The local-development provenance and
 distribution limitations stated above remain applicable.
+
+**Chat search correction, 2026-11-01:** The sidebar search control uses the
+original magnifying-glass-lg-light-16 record QKt, wrapped as D6t and exported as
+dK (primary import _u). Native GK renders it through SM with iconSize sm; the
+sm token is 1rem (16px at the default root) in a 2rem/32px target. This supersedes
+the previous 20px Chat search record. Chat search results use the original
+chat-bubble-light-16 record from the same verified shared member, at 16px.
+Scoped REA search Evidence: ev_5cbaeb1f2cacf097a4c757ff672103ca8a2d02511d612113d9ebfb2247a9f7e0.
 
 Source members in app.asar:
 

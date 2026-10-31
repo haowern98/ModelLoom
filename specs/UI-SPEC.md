@@ -127,6 +127,53 @@ and failure remove the spinner. Hover actions temporarily replace its visible
 slot without changing generation state. This supersedes the older direct-delete
 Chat row controls and combined New chat/search header.
 
+**Approved Chat Markdown rendering, 2026-11-01:** Render assistant answers and
+expanded thinking as safe Markdown with headings, emphasis, nested lists,
+blockquotes, inline/fenced code, task lists, links and tables. Keep user prompts
+literal. Fenced code has a language label, syntax highlighting for supported
+languages, explicit Copy code feedback and contained horizontal scrolling;
+unknown languages remain readable plain code. Tables scroll independently at
+narrow window sizes. Reparse streamed content as it grows, including open code
+fences, without changing the stored answer or raw Copy response contents.
+
+Use pinned react-markdown, remark-gfm and rehype-highlight dependencies. HTML
+stays escaped text, not active elements. Do not enable raw HTML, executable
+previews, remote images, scripts or new Electron permissions. Only absolute
+HTTP/HTTPS URLs without credentials become links, with noopener/noreferrer;
+existing desktop navigation restrictions remain in force. Images display their
+alt text without fetching resources. This milestone does not add math, diagram
+execution, attachments or external-link IPC.
+
+The user's correction hides only the successful Complete status and removes
+only the brain glyph beside thinking. Keep the thinking label, duration,
+chevron and expansion. All other statuses, including Stopped and errors, retain
+their existing text and behavior. The complete response action footer (Copy,
+Retry, generation speed, prompt processing speed and acceptance rate), its
+icons, styling, handlers and positions relative to one another stay unchanged.
+This supersedes section 6's earlier plain-text-rendering milestone only.
+
+**Approved Chat search popup, 2026-11-01:** Replace the inline Chat sidebar
+search field completely. The header search button uses the original Codex
+magnifying-glass-lg-light-16 artwork at 16×16px in its existing 32px target.
+Clicking it opens a native modal with an autofocused Search chats input and
+one Chats results section. Omit the All/Actions/Chats tabs, Tab hint, Quick
+actions, New chat/Open folder commands and project labels.
+
+Use the inspected command-menu proportions: up to 768px wide, capped at 92vw,
+16px corners, a surface at 65% opacity and 24px backdrop blur. The adapted header
+and list occupy up to 504px total, capped at 90vh. Results use original 16px
+chat-bubble artwork, neutral selection highlights and contained vertical
+scrolling. Show recent saved chats for an empty query; filter titles and saved
+message text, including archived conversations, when typing. Search results
+never filter the sidebar or alter drafts, selection or generation until opened.
+Opening an archived result also reveals its archived sidebar group.
+
+Arrow keys/Home/End select results; Enter opens the selected chat and dismisses
+the modal. Escape or an outside click cancels. Keep Tab focus inside the modal,
+restore focus to the search trigger on dismissal and clear the saved-message
+search query when closing. Retain the current stored-message search
+implementation and its debounced updates. No new IPC or model operation is added.
+
 **Cluster configuration implementation, 2026-10-16:** Auto place produces a
 reviewable draft using fresh resources and the verified stock estimator, preferring
 one GPU before both GPU orders and centre-out cuts. Save retains named intent;
