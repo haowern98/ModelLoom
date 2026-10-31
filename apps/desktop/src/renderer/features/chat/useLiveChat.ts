@@ -27,6 +27,11 @@ function text(input: unknown): string {
   if (typeof input !== 'string') throw new Error('INVALID_CONTROL');
   return input;
 }
+function flag(input: unknown): boolean {
+  if (input === undefined) return false;
+  if (typeof input !== 'boolean') throw new Error('INVALID_CONTROL');
+  return input;
+}
 function thinkingDuration(input: unknown): number {
   if (typeof input !== 'number' || !Number.isSafeInteger(input) || input < 0)
     throw new Error('INVALID_CONTROL');
@@ -209,7 +214,11 @@ class LiveChatClient {
         return;
       }
       const selectedId =
-        this.chat.selectedId || (summaries[0] ? text(object(summaries[0]).id) : '');
+        this.chat.selectedId ||
+        (() => {
+          const first = (summaries as unknown[]).find((item) => !flag(object(item).archived));
+          return first ? text(object(first).id) : '';
+        })();
       const previous = this.chat;
       this.chat = {
         selectedId,
@@ -221,11 +230,20 @@ class LiveChatClient {
             id,
             title: text(item.title),
             group: dateGroup(item.updated),
+            pinned: flag(item.pinned),
+            archived: flag(item.archived),
+            generating:
+              flag(item.generating) || (this.pending.has(id) && !this.pending.get(id)?.requestId),
             draft: this.drafts.get(id) ?? old?.draft ?? '',
             messages: old?.messages ?? [],
           };
         }),
       };
+      for (const value of summaries) {
+        const item = object(value),
+          id = text(item.id);
+        if (item.generating === false && this.pending.get(id)?.requestId) this.pending.delete(id);
+      }
       if (selectedId) {
         const item = object(await this.page({ action: 'read', conversationId: selectedId }));
         if (epoch !== this.epoch || this.closed) return;
@@ -261,7 +279,7 @@ class LiveChatClient {
         this.searchVersion = searchVersion;
       }
       this.loaded = true;
-      if (!selectedId && !summaries.length && !this.initialConversationAttempted) {
+      if (!selectedId && !this.initialConversationAttempted) {
         this.initialConversationAttempted = true;
         await this.newConversation();
       }
@@ -321,6 +339,10 @@ class LiveChatClient {
     })();
   }
   dispatch(action: ChatAction): void {
+    if (action.type === 'pin' || action.type === 'archive') {
+      void this.sidebar(action);
+      return;
+    }
     if (action.type === 'delete') {
       void this.remove(action.id);
       return;
@@ -350,6 +372,28 @@ class LiveChatClient {
     this.update();
     if (action.type === 'select') void this.refresh();
   }
+  private async sidebar(action: Extract<ChatAction, { type: 'pin' | 'archive' }>): Promise<void> {
+    try {
+      await this.command({
+        action: action.type === 'pin' ? 'pinConversation' : 'archiveConversation',
+        conversationId: action.id,
+        value: action.value,
+      });
+      this.chat = transitionDemoChat(this.chat, action);
+      this.notice =
+        action.type === 'pin'
+          ? action.value
+            ? 'Chat pinned.'
+            : 'Chat unpinned.'
+          : action.value
+            ? 'Chat archived.'
+            : 'Chat restored.';
+      void this.refresh();
+    } catch {
+      this.notice = 'Could not update the chat. Try again.';
+    }
+    if (!this.closed) this.update();
+  }
   private newConversation(): Promise<void> {
     if (this.creating) return this.creating;
     this.creating = (async () => {
@@ -378,11 +422,7 @@ class LiveChatClient {
   busy(): boolean {
     return (
       this.pending.has(this.chat.selectedId) ||
-      Boolean(
-        this.chat.conversations
-          .find((chat) => chat.id === this.chat.selectedId)
-          ?.messages.some((message) => active.includes(message.state ?? '')),
-      )
+      Boolean(this.chat.conversations.find((chat) => chat.id === this.chat.selectedId)?.generating)
     );
   }
   async send(attemptId?: string): Promise<void> {

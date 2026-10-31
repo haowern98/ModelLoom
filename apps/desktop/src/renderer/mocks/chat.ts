@@ -21,6 +21,9 @@ export interface DemoConversation {
   readonly group: 'Today' | 'Yesterday' | 'Older';
   readonly draft: string;
   readonly messages: readonly ChatMessage[];
+  readonly pinned?: boolean;
+  readonly archived?: boolean;
+  readonly generating?: boolean;
 }
 
 export interface DemoChat {
@@ -31,6 +34,8 @@ export interface DemoChat {
 export type ChatAction =
   | { type: 'select'; id: string }
   | { type: 'delete'; id: string }
+  | { type: 'pin'; id: string; value: boolean }
+  | { type: 'archive'; id: string; value: boolean }
   | { type: 'new'; id: string }
   | { type: 'draft'; text: string };
 
@@ -84,6 +89,15 @@ export function createDemoChat(demo: boolean): DemoChat {
 
 /** Session-only conversation actions cannot change the globally active model. */
 export function transitionDemoChat(state: DemoChat, action: ChatAction): DemoChat {
+  if (action.type === 'pin' || action.type === 'archive')
+    return {
+      ...state,
+      conversations: state.conversations.map((chat) =>
+        chat.id === action.id
+          ? { ...chat, [action.type === 'pin' ? 'pinned' : 'archived']: action.value }
+          : chat,
+      ),
+    };
   if (action.type === 'delete')
     return {
       selectedId: state.selectedId === action.id ? '' : state.selectedId,
@@ -94,7 +108,9 @@ export function transitionDemoChat(state: DemoChat, action: ChatAction): DemoCha
       ? { ...state, selectedId: action.id }
       : state;
   if (action.type === 'new') {
-    const empty = state.conversations.find((chat) => !chat.messages.length && !chat.draft);
+    const empty = state.conversations.find(
+      (chat) => !chat.archived && !chat.messages.length && !chat.draft,
+    );
     if (empty) return { ...state, selectedId: empty.id };
     return {
       selectedId: action.id,
