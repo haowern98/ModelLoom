@@ -8,6 +8,7 @@ import {
   clipboard,
   safeStorage,
   shell,
+  nativeTheme,
 } from 'electron';
 import { createDesktopNetwork } from '../../../../packages/core/src/network/desktop';
 import { decodeNetworkCommand, decodeNetworkReply } from '../shared/network';
@@ -80,6 +81,7 @@ async function createWindow(): Promise<void> {
     openLogin: (url) => shell.openExternal(validateLoginUrl(url)),
   });
   const windowNetwork = network;
+  if (process.platform === 'win32') nativeTheme.themeSource = 'dark';
   const window = new BrowserWindow({
     width: 1280,
     height: 720,
@@ -87,10 +89,11 @@ async function createWindow(): Promise<void> {
     minHeight: 620,
     show: false,
     title: 'ModelLoom',
-    backgroundColor: '#212121',
+    backgroundColor: process.platform === 'win32' ? '#00000000' : '#212121',
+    backgroundMaterial: process.platform === 'win32' ? 'mica' : 'none',
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#212121', symbolColor: '#c7c8d1', height: 44 },
+    titleBarOverlay: { color: '#00000000', symbolColor: '#c7c8d1', height: 44 },
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
