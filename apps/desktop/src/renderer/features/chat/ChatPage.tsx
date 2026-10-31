@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dispatch } from 'react';
 import { ArrowUp, Square, RotateCcw, ChevronDown, ChevronRight, Copy, Plus } from 'lucide-react';
-import { SearchField } from '../../components/SearchField';
+import { ChatSearchDialog } from './ChatSearchDialog';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { ChatNavIcon } from '../../components/ChatNavIcon';
@@ -51,7 +51,6 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
   const [searchOpen, setSearchOpen] = useState(false);
   const [archived, setArchived] = useState(false);
   const [collapsed, setCollapsed] = useState<Readonly<Record<string, boolean>>>({});
-  const [query, setQuery] = useState('');
   const [modelOpen, setModelOpen] = useState(false);
   const [notice, setNotice] = useState('');
   const [previousLiveNotice, setPreviousLiveNotice] = useState(live?.notice);
@@ -61,35 +60,17 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
   const transcript = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const previousConversation = useRef(chat.selectedId);
-  const search = useRef<HTMLDivElement>(null);
-  const searchButton = useRef<HTMLButtonElement>(null);
   const model = useRef<HTMLDivElement>(null);
   const modelButton = useRef<HTMLButtonElement>(null);
   const conversation = chat.conversations.find((item) => item.id === chat.selectedId);
   const lastMessage = conversation?.messages[conversation.messages.length - 1];
-  const searchChats = live?.search;
-  const visible = chat.conversations.filter(
-    (item) =>
-      Boolean(item.archived) === archived &&
-      (live?.search && query.trim()
-        ? live.matches?.includes(item.id)
-        : `${item.title} ${item.messages.map((message) => message.text).join(' ')}`
-            .toLowerCase()
-            .includes(query.trim().toLowerCase())),
-  );
+  const visible = chat.conversations.filter((item) => Boolean(item.archived) === archived);
 
   // Copy/Delete feedback belongs to the current live status, never a later operation.
   if (previousLiveNotice !== live?.notice) {
     setPreviousLiveNotice(live?.notice);
     setNotice('');
   }
-
-  useEffect(() => {
-    if (searchOpen) search.current?.querySelector('input')?.focus();
-  }, [searchOpen]);
-  useEffect(() => {
-    searchChats?.(query);
-  }, [query, searchChats]);
 
   useEffect(() => {
     if (previousConversation.current !== chat.selectedId) following.current = true;
@@ -129,18 +110,17 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
         <div className={styles.sidebarHeader}>
           <h2>Chat</h2>
           <button
-            ref={searchButton}
             type="button"
             className={styles.icon}
-            aria-label="Search conversations"
-            title="Search conversations"
+            aria-label="Search chats"
+            title="Search chats"
+            aria-haspopup="dialog"
             aria-expanded={searchOpen}
             onClick={() => {
-              setSearchOpen(!searchOpen);
-              setQuery('');
+              setSearchOpen(true);
             }}
           >
-            <ChatNavIcon name="search" />
+            <ChatNavIcon name="search" width={16} height={16} />
           </button>
         </div>
         <div className={styles.newChatRow}>
@@ -149,7 +129,6 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
             className={styles.newChat}
             onClick={() => {
               dispatch({ type: 'new', id: crypto.randomUUID() });
-              setQuery('');
               setNotice('');
               setArchived(false);
               composer.current?.focus();
@@ -159,26 +138,6 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
             New chat
           </button>
         </div>
-        {searchOpen && (
-          <div
-            ref={search}
-            className={styles.search}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                setSearchOpen(false);
-                setQuery('');
-                searchButton.current?.focus();
-              }
-            }}
-          >
-            <SearchField
-              label="Search chats"
-              value={query}
-              onChange={setQuery}
-              icon={<ChatNavIcon name="search" width={16} height={16} />}
-            />
-          </div>
-        )}
         <nav className={styles.history} aria-label="Conversation history">
           {(archived ? ['Archived chats'] : ['Pinned', 'Today', 'Yesterday', 'Older']).map(
             (group) => {
@@ -240,11 +199,7 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
           )}
           {!visible.length && (
             <p className={styles.emptyHistory}>
-              {live?.search && query.trim() && live.matches === undefined
-                ? 'Searching…'
-                : archived
-                  ? 'No archived chats'
-                  : 'No matching conversations'}
+              {archived ? 'No archived chats' : 'No matching conversations'}
             </p>
           )}
         </nav>
@@ -254,7 +209,6 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
             aria-pressed={archived}
             onClick={() => {
               setArchived(!archived);
-              setQuery('');
             }}
           >
             <ChatNavIcon name="archive" width={16} height={16} />
@@ -540,6 +494,22 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
             </Button>
           </footer>
         </Dialog>
+      )}
+      {searchOpen && (
+        <ChatSearchDialog
+          conversations={chat.conversations}
+          search={live?.search}
+          matches={live?.matches}
+          onClose={() => setSearchOpen(false)}
+          onSelect={(item) => {
+            dispatch({ type: 'select', id: item.id });
+            setArchived(Boolean(item.archived));
+            const group = item.archived ? 'Archived chats' : item.pinned ? 'Pinned' : item.group;
+            setCollapsed((previous) => ({ ...previous, [group]: false }));
+            setNotice('');
+            setSearchOpen(false);
+          }}
+        />
       )}
     </section>
   );

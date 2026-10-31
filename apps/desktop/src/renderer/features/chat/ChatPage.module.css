@@ -63,14 +63,6 @@
   background: #2f2f2f;
   color: var(--text);
 }
-.search {
-  padding: 0 12px 10px;
-}
-.search > label {
-  width: 100%;
-  border-color: #2e2d30;
-  background: #2e2d30;
-}
 .history {
   flex: 1;
   min-height: 0;
