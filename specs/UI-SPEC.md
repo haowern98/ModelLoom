@@ -78,6 +78,55 @@ names, role badges, reported hardware facts, unavailable states, navigation and
 the existing content column unchanged. This supersedes the older compact
 Devices row sizing and 12px hardware-card rounding.
 
+**Approved Chat navigation revision, 2026-11-01:** Use the inspected Codex
+navigation treatment with a Chat header and search action, followed by a separate
+New chat row. No notification button or Projects controls are included. Pinned
+chats appear first; unpinned chats retain Today when needed, Yesterday and Older
+groups. Section buttons reveal a chevron on hover or keyboard focus and toggle
+their group's contents. Use Codex's traced C6 disclosure SVG (20×21 viewBox),
+rendered at 14×14px with its original 0.6 currentColor stroke. Expanded groups
+reveal it on hover/focus; collapsed groups retain the visible, right-facing
+chevron. Keep the 238px contextual panel, native history scrollbar
+and a fixed Archived chats entry outside the history scroller.
+
+Use the packaged Codex compose, search, pin/unpin, archive, ellipsis and chevron
+artwork. The user's subsequent correction matches Configurations typography:
+14px regular (400) chat titles and 14px semibold (600) section headings. The
+subsequent spacing correction also adopts Cluster's 18px/500 title with a
+14px top and 18px left inset, 6px outer row insets, 6px vertical/12px horizontal
+row padding, 18px row line height and 18px following-section margins. Section
+heading padding is 0px top, 12px horizontally and 6px bottom. The title, section
+headings and chat names share the same 18px left text inset. New chat and the
+fixed archive footer use the same horizontal insets and 14px text. The subsequent
+REA-verified New chat correction uses the original 16px compose artwork in a
+30px row with 14px text and 5px vertical padding, retaining Cluster alignment.
+The New chat wrapper has 14.5px top padding so its text bounds begin exactly
+24px below the Chat title text bounds in the shared system-font layout. Chat rows
+retain 30px minimum height, 10px selection rounding and a 16px title fade. Hover or focus reveals ellipsis,
+pin/unpin and archive controls. The ellipsis menu contains only Pin/Unpin,
+Archive and Delete chat; archived rows substitute Unarchive. Deletion retains
+the existing confirmation and safe cancellation. Archived chats remain readable
+and restorable through the footer entry. Pin/archive actions never cancel a
+response or change the globally active model.
+
+The subsequent chat-title hover correction starts movement immediately when the
+pointer enters any part of the row, including its padding and action area.
+Keyboard focus within the row also reveals overflowing titles. Use a linear
+out-and-back animation with no initial hold or delay and half the shared line
+duration (minimum two seconds per leg, reaching 60 CSS px/s for longer titles).
+Leaving the row resets the text; short titles stay still and reduced motion
+disables animation. The subsequent Configurations correction applies the same
+timing and whole-row hover trigger to saved configuration names in Cluster.
+
+Real chat pin/archive flags are stored in protected history schema 6 through
+validated boolean commands and survive restart. Renderer-only demo flags survive
+page navigation in the existing app state. Row spinners reflect active
+conversation summaries and pending Send preparation, including background chats;
+leaving Chat does not stop polling or reset generation. Completion, cancellation
+and failure remove the spinner. Hover actions temporarily replace its visible
+slot without changing generation state. This supersedes the older direct-delete
+Chat row controls and combined New chat/search header.
+
 **Cluster configuration implementation, 2026-10-16:** Auto place produces a
 reviewable draft using fresh resources and the verified stock estimator, preferring
 one GPU before both GPU orders and centre-out cuts. Save retains named intent;

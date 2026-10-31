@@ -15,9 +15,16 @@ to one protected utility-owned history/admission core and a separately owned,
 verified llama-server. History starts before model loading. Explicit loading
 prepares the exact development CUDA adapter; Send/Retry require it to be ready.
 The core has four active/eight pending reservations, caller-owned cancellation,
-native slot settlement, schema-5 persistent history and confirmed deletion.
+native slot settlement, schema-6 persistent history and confirmed deletion.
 Thinking/answer, native final speeds and measured thinking duration are saved
 separately. No stored work is automatically replayed.
+
+The 2026-11-01 Chat navigation revision adds durable pin/archive flags through
+closed boolean commands. Verified history schemas 1–5 migrate atomically to 6,
+defaulting both flags to false. Flag updates retain message contents and the
+conversation's updated timestamp while invalidating revision-bound cursors.
+Bounded summaries include active generation state for background row indicators;
+archiving does not cancel generation, and new-chat reuse excludes archived chats.
 
 [ADR-0006](decisions/0006-model-configuration-and-local-api.md) adds separate
 protected configuration/key storage, captured immutable request settings and
