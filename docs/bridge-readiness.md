@@ -45,8 +45,7 @@ the readiness fixture in 78 / 94 / 94 ms. All payload comparisons passed. The
 existing residency/session test subset passed 57 tests.
 
 These are isolated bridge measurements, not WAN model-load or token-generation
-benchmarks. The initiating cause of the earlier `RPC_DISCONNECTED` incident is
-not established or repaired by these results.
+benchmarks.
 
 The development peer package is `b11306-dev15-readiness-tensor-cache-v1`.
 Its helper SHA-256 is

@@ -27,7 +27,7 @@ Native `ngram-simple` and `ngram-mod` are wired, including a neural-plus-retriev
 
 Controlled native smoke tests exercised target-only, a standalone draft, a separate MTP head and DFlash with the cached Bonsai target. All produced the same 64-token greedy output hash. This finite smoke result does not establish a speed gain, single-GPU equivalence for every model or nonzero-temperature distributional correctness. EAGLE-3 and DSpark loading still need compatible local assets for model-level acceptance. General product correctness and release gates remain separate from this development integration.
 
-## Live rates and reported issues
+## Live rates and diagnostics
 
 Chat requests enable the pinned runtime's streaming timing and prompt-progress fields. Generation rates include thinking and use native accepted-output accounting. Prefill rates exclude cached input. Live measurements are limited to roughly four updates per second and remain saved after cancellation or interruption. Optional malformed timing metadata does not invalidate otherwise valid text. No new GPU inference was run to validate this display change.
 
@@ -35,13 +35,13 @@ An active neural proposer also exposes **Acceptance rate** after prompt processi
 
 RPC lifecycle diagnostics include a connection ID, role, setup phase, fixed error codes, elapsed time and close direction. The client and worker share an opaque trace ID; the local gateway has a separate ID and records its original opening error. An eight-event rolling metadata context is emitted on errors into the existing bounded runtime log. No packet payloads, model text, credentials or addresses are retained. Forwarding, retry and lease policies are unchanged.
 
-Slot failures emit `slots.read-failed` for HTTP/transport, JSON, ownership and schema failures, and `slots.monitor-failed` for the exact monitor invariant or proof deadline. A per-load monitor ID links both records. The monitor retains at most eight scalar snapshots, each capped at eight observed slots and reservations, sampled on state changes or every five seconds. Failure output is capped at 4,096 characters and uses the bounded runtime log; raw `/slots` responses, prompts, generated text and credentials are excluded. Poll cadence, observation deadlines, cancellation proofs, admission and shutdown rules remain unchanged. These diagnostics do not establish or repair the initiating cause of earlier `EXECUTION_FAILED` incidents.
+Slot failures emit `slots.read-failed` for HTTP/transport, JSON, ownership and schema failures, and `slots.monitor-failed` for the exact monitor invariant or proof deadline. A per-load monitor ID links both records. The monitor retains at most eight scalar snapshots, each capped at eight observed slots and reservations, sampled on state changes or every five seconds. Failure output is capped at 4,096 characters and uses the bounded runtime log; raw `/slots` responses, prompts, generated text and credentials are excluded. Poll cadence, observation deadlines, cancellation proofs, admission and shutdown rules remain unchanged.
 
 The Cluster device menu floats outside its scrolling panel, stays within the viewport and preserves keyboard navigation. The Model configuration row uses the Layer assignment gutters, with a 4 px gap below the visible device pill.
 
 The peer-control failure path now normalizes local overlay dial failures into transport errors, preserving its bounded retry policy. An inventory-probe failure alone no longer removes an approved peer while an admitted RPC stream remains open. The stream's authenticated heartbeat and independent worker lease still close lost sessions; explicit revocation, sharing changes and invalid authenticated responses do not receive transport grace. New admissions still obtain fresh authenticated inventory/status rather than trusting retained display facts.
 
-The normal application-data `peers/connection-failures.json` retains the latest 64 inventory, heartbeat and RPC-close events. Only fixed error codes, stage, decision and timestamps are recorded, without prompts, credentials, addresses or arbitrary error text. Logging failures cannot prevent runtime cleanup. This corrects a reproduced failure-handling defect; it does not establish the initiating error in earlier incidents, which was not retained, or validate remote MTP model execution. The stale MTP summary after saving Off remains a separate unresolved report.
+The normal application-data `peers/connection-failures.json` retains the latest 64 inventory, heartbeat and RPC-close events. Only fixed error codes, stage, decision and timestamps are recorded, without prompts, credentials, addresses or arbitrary error text. Logging failures cannot prevent runtime cleanup. This corrects a reproduced failure-handling defect; it does not validate remote MTP model execution. The stale MTP summary after saving Off remains a separate unresolved report.
 
 ## PowerShell diagnostics
 
