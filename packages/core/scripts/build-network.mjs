@@ -136,20 +136,22 @@ if (check) {
     delete patchEnv.GIT_WORK_TREE;
     delete patchEnv.GIT_INDEX_FILE;
     const patchOptions = { cwd: patchedModule, env: patchEnv };
-    execFileSync('git', ['apply', '--no-index', '--check', patchFile], patchOptions);
-    execFileSync('git', ['apply', '--no-index', patchFile], patchOptions);
+    // Keep patched source bytes independent of the host's Git line-ending configuration.
+    const apply = ['-c', 'core.autocrlf=false', '-c', 'core.eol=lf', 'apply', '--no-index'];
+    execFileSync('git', [...apply, '--check', patchFile], patchOptions);
+    execFileSync('git', [...apply, patchFile], patchOptions);
     if (
       digest(readFileSync(path.join(patchedModule, relative))) !==
-      'e535bed5660fe33d6a4fe0a1a5e2abd422b78be64564d69c6dbf771a0c705c24'
+      'a22521bd4f5d0727f167071cbef0ec932e595309d477ab5cfea4dd644521ad4a'
     )
       throw new Error('TCP patch did not produce the validated source');
-    execFileSync('git', ['apply', '--no-index', '--check', recoveryPatch], patchOptions);
-    execFileSync('git', ['apply', '--no-index', recoveryPatch], patchOptions);
+    execFileSync('git', [...apply, '--check', recoveryPatch], patchOptions);
+    execFileSync('git', [...apply, recoveryPatch], patchOptions);
     if (
       digest(readFileSync(path.join(patchedModule, relative))) !==
-        '0b850576e1cb0a337e6bda8f97f4c2254343e8b7d1d16bd86bb2c10b32e4eecb' ||
+        '3091b338e7aa074c9c04b05a3800a83e408b03dfe9c49b85f60e8488d840839f' ||
       digest(readFileSync(rackFile)) !==
-        '2f1590210149db6a12afee75c83248bf1f756a4d47583f3e2c338c4884634a0c'
+        '4d6d3fa2f310c32835627d2943994c27a98893935e7a2a7b89fd1ee91a24a3ad'
     )
       throw new Error('Recovery patch did not produce the validated source');
     const modfile = path.join(scratch, 'network.mod');
