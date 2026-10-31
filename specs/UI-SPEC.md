@@ -174,6 +174,33 @@ restore focus to the search trigger on dismissal and clear the saved-message
 search query when closing. Retain the current stored-message search
 implementation and its debounced updates. No new IPC or model operation is added.
 
+**Approved Chat composer revision, 2026-11-01:** Replace the fixed-height message
+field with content-based sizing: grow and shrink with typed, pasted or restored
+drafts, starting at 44px and scrolling internally after 25dvh. Keep a 20px line
+height, the existing 14px message font, 24px composer corners, 10px top/side and
+8px bottom surface padding, 18px total input inset and a 4px input/footer gap.
+Remove the inner textarea focus outline; indicate keyboard focus on the outer
+composer border. Keep the existing model selector, attachments and Send/Stop
+controls, stored drafts, generation state and protected response footer.
+
+Offer Expand/Collapse for drafts with a newline or at least five lines of
+content. Use Codex's original 20px paired-arrow artwork in a 32px target at the
+input's upper-right, with text clearance. Expanded mode occupies available
+conversation space, bounded by the viewport minus the 44px title bar and 128px
+clearance; retain internal scrolling and reachable bottom controls. Collapse
+returns to content-based sizing. Both actions retain the draft, selection and
+editor focus. A different conversation starts compact. Enter sends normally;
+in expanded mode Enter inserts a line and Ctrl/Cmd+Enter sends, retaining Shift
+and IME safeguards. Respect reduced motion.
+
+Reference: static REA inspection of the installed Codex Windows
+`OpenAI.Codex_26.1023.6621.0_x64` composer functions A1n, T1n, x4r and S4r.
+Scoped parent evidence:
+`ev_ad22ed099c058ad3c3e03b56e31429e45822f298bc53f388f1346d15f92f528d`.
+This establishes packaged implementation details, not live pixel parity or
+feature availability in every Codex configuration. ModelLoom uses Chromium's
+native textarea content sizing to reproduce that behavior.
+
 **Cluster configuration implementation, 2026-10-16:** Auto place produces a
 reviewable draft using fresh resources and the verified stock estimator, preferring
 one GPU before both GPU orders and centre-out cuts. Save retains named intent;

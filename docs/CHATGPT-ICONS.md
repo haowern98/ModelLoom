@@ -59,6 +59,17 @@ the previous 20px Chat search record. Chat search results use the original
 chat-bubble-light-16 record from the same verified shared member, at 16px.
 Scoped REA search Evidence: ev_5cbaeb1f2cacf097a4c757ff672103ca8a2d02511d612113d9ebfb2247a9f7e0.
 
+**Chat composer expansion, 2026-11-01:** The expansion control uses the original
+`arrow-up-right-arrow-down-left-sm-light-20` record tBt and
+`arrow-down-left-arrow-up-right-sm-light-20` record dzt. Keep their original
+20×20 viewBoxes and currentColor paths, rendered at 20px in 32px targets.
+Primary S4r imports shared gH as Bte (I2t wrapping tBt) for Expand and WV as sc
+(P2t wrapping dzt) for Collapse. The source is the same verified
+`app-shared-3b88f728481f.js` member and SHA-256 recorded above. Only inert SVG
+path data is copied; no reference runtime code executes in ModelLoom.
+Composer REA parent evidence:
+`ev_ad22ed099c058ad3c3e03b56e31429e45822f298bc53f388f1346d15f92f528d`.
+
 Source members in app.asar:
 
 The same shared sidebar icon component supplies Settings' `sun-light-16` (Appearance), `pulse-light-20` (Diagnostics), `sliders-light-16` (Advanced), and `magnifying-glass-lg-light-16` (Search). Diagnostics retains its 20x20 viewBox and scales to 16px; the other three retain 16x16 viewBoxes. The user's subsequent choice replaces Runtime, Storage and Network with Phosphor Cpu, Database and Network, rendered at 16px with regular outline weight. SearchField accepts this Settings-specific artwork; other search fields keep their existing icons.
