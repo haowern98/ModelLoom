@@ -105,6 +105,15 @@ export class ChatController {
         this.changed();
         return { ok: true, conversationId: conversation.id };
       }
+      if (command.action === 'pinConversation' || command.action === 'archiveConversation') {
+        await this.history.setSidebarFlag(
+          command.conversationId,
+          command.action === 'pinConversation' ? 'pinned' : 'archived',
+          command.value,
+        );
+        this.changed();
+        return { ok: true };
+      }
       if (command.action === 'list' || command.action === 'read' || command.action === 'search') {
         const target =
           command.action === 'read'
@@ -130,7 +139,15 @@ export class ChatController {
             command.action === 'search' ? command.query : undefined,
           );
           const payload = JSON.stringify(
-            summaries.map(({ id, title, revision, updated }) => ({ id, title, revision, updated })),
+            summaries.map(({ id, title, revision, updated, pinned, archived, generating }) => ({
+              id,
+              title,
+              revision,
+              updated,
+              pinned,
+              archived,
+              generating,
+            })),
           );
           const next =
             summaries.length === 32 ? this.issue({ target, version, offset: offset + 32 }) : null;

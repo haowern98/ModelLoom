@@ -42,6 +42,9 @@ export interface Conversation {
   readonly draft: string;
   readonly revision: number;
   readonly updated: number;
+  readonly pinned: boolean;
+  readonly archived: boolean;
+  readonly generating?: boolean;
   readonly turns: readonly Turn[];
 }
 export interface BeginTurn {
@@ -87,12 +90,20 @@ const durationTables = {
     ', thinking_ms INTEGER,UNIQUE(turn_id,ordinal)',
   ),
 };
-const tables = {
+const settingsTables = {
   ...durationTables,
   schema_version: 'CREATE TABLE schema_version(version INTEGER NOT NULL CHECK(version=5))',
   attempts: durationTables.attempts.replace(
     ',UNIQUE(turn_id,ordinal)',
     ', generation_settings TEXT,UNIQUE(turn_id,ordinal)',
+  ),
+};
+const tables = {
+  ...settingsTables,
+  schema_version: 'CREATE TABLE schema_version(version INTEGER NOT NULL CHECK(version=6))',
+  conversations: settingsTables.conversations.replace(
+    'CHECK(revision>=0))',
+    'CHECK(revision>=0), pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1)), archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)))',
   ),
 };
 const safeErrors = new Set([
@@ -226,14 +237,17 @@ function inspectSchema(database: DatabaseSync) {
             ? speedsTables
             : versions[0]?.version === 4
               ? durationTables
-              : tables;
+              : versions[0]?.version === 5
+                ? settingsTables
+                : tables;
     if (
       versions.length !== 1 ||
       (versions[0]?.version !== 1 &&
         versions[0]?.version !== 2 &&
         versions[0]?.version !== 3 &&
         versions[0]?.version !== 4 &&
-        versions[0]?.version !== 5) ||
+        versions[0]?.version !== 5 &&
+        versions[0]?.version !== 6) ||
       rows.length !== 4 ||
       rows.some(
         (row) =>
@@ -294,7 +308,7 @@ export class HistoryStore {
       if (!rows.length)
         this.transaction(() => {
           for (const sql of Object.values(tables)) database.exec(sql);
-          database.exec('INSERT INTO schema_version VALUES(5)');
+          database.exec('INSERT INTO schema_version VALUES(6)');
         });
       // Acquire and retain the exclusive SQLite lock even for an existing idle database.
       else
@@ -308,9 +322,17 @@ export class HistoryStore {
               database.exec('ALTER TABLE attempts ADD COLUMN speeds TEXT');
             if (version !== 4) database.exec('ALTER TABLE attempts ADD COLUMN thinking_ms INTEGER');
             database.exec('ALTER TABLE attempts ADD COLUMN generation_settings TEXT');
+          }
+          if (version !== 6) {
+            database.exec(
+              'ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))',
+            );
+            database.exec(
+              'ALTER TABLE conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1))',
+            );
             database.exec('DROP TABLE schema_version');
             database.exec(tables.schema_version);
-            database.exec('INSERT INTO schema_version VALUES(5)');
+            database.exec('INSERT INTO schema_version VALUES(6)');
             inspectSchema(database);
           }
         });
@@ -439,7 +461,7 @@ export class HistoryStore {
         if (reuseEmpty) {
           const empty = this.database
             .prepare(
-              "SELECT id,updated,revision FROM conversations c WHERE title='New chat' AND draft='' AND NOT EXISTS (SELECT 1 FROM user_turns u WHERE u.conversation_id=c.id) ORDER BY updated DESC,id LIMIT 1",
+              "SELECT id,updated,revision,pinned FROM conversations c WHERE archived=0 AND title='New chat' AND draft='' AND NOT EXISTS (SELECT 1 FROM user_turns u WHERE u.conversation_id=c.id) ORDER BY updated DESC,id LIMIT 1",
             )
             .get();
           if (empty)
@@ -449,15 +471,28 @@ export class HistoryStore {
               draft: '',
               revision: integer(empty, 'revision'),
               updated: integer(empty, 'updated'),
+              pinned: integer(empty, 'pinned') === 1,
+              archived: false,
               turns: [],
             };
         }
         const value = randomUUID();
         const now = Date.now();
         this.database
-          .prepare('INSERT INTO conversations VALUES(?,?,?,?,?,?)')
+          .prepare(
+            'INSERT INTO conversations(id,title,draft,created,updated,revision) VALUES(?,?,?,?,?,?)',
+          )
           .run(value, 'New chat', '', now, now, 0);
-        return { id: value, title: 'New chat', draft: '', revision: 0, updated: now, turns: [] };
+        return {
+          id: value,
+          title: 'New chat',
+          draft: '',
+          revision: 0,
+          updated: now,
+          pinned: false,
+          archived: false,
+          turns: [],
+        };
       }),
     );
   }
@@ -469,6 +504,26 @@ export class HistoryStore {
         this.conversation(value);
         this.database.prepare('UPDATE conversations SET draft=? WHERE id=?').run(draft, value);
         this.bump(value);
+      });
+    });
+  }
+  /** Sidebar metadata never cancels work, changes message contents or moves the chat's date. */
+  setSidebarFlag(value: string, flag: 'pinned' | 'archived', enabled: boolean): Promise<void> {
+    return this.run(() => {
+      id(value);
+      if (!['pinned', 'archived'].includes(flag) || typeof enabled !== 'boolean')
+        throw new Error('INVALID_HISTORY');
+      this.transaction(() => {
+        const row = this.conversation(value);
+        const revision = integer(row, 'revision');
+        if (revision === Number.MAX_SAFE_INTEGER) throw new Error('HISTORY_FULL');
+        this.database
+          .prepare(
+            flag === 'pinned'
+              ? 'UPDATE conversations SET pinned=?,revision=revision+1 WHERE id=?'
+              : 'UPDATE conversations SET archived=?,revision=revision+1 WHERE id=?',
+          )
+          .run(enabled ? 1 : 0, value);
       });
     });
   }
@@ -740,6 +795,8 @@ export class HistoryStore {
         draft: field(row, 'draft'),
         revision: integer(row, 'revision'),
         updated: integer(row, 'updated'),
+        pinned: integer(row, 'pinned') === 1,
+        archived: integer(row, 'archived') === 1,
         turns,
       };
     });
@@ -775,7 +832,10 @@ export class HistoryStore {
     return this.run(() =>
       this.database
         .prepare(
-          `SELECT id,title,draft,revision,updated FROM conversations c
+          `SELECT id,title,draft,revision,updated,pinned,archived,
+          EXISTS (SELECT 1 FROM attempts a JOIN user_turns u ON u.id=a.turn_id
+            WHERE u.conversation_id=c.id AND a.state IN ('queued','running','cancelling')) AS generating
+          FROM conversations c
           ${
             query === undefined
               ? ''
@@ -794,6 +854,9 @@ export class HistoryStore {
           draft: field(row, 'draft'),
           revision: integer(row, 'revision'),
           updated: integer(row, 'updated'),
+          pinned: integer(row, 'pinned') === 1,
+          archived: integer(row, 'archived') === 1,
+          generating: integer(row, 'generating') === 1,
           turns: [],
         })),
     );

@@ -5,6 +5,8 @@ export type ChatCommand =
   | { action: 'search'; query: string; cursor?: string }
   | { action: 'read'; conversationId: string; cursor?: string }
   | { action: 'deleteConversation'; conversationId: string }
+  | { action: 'pinConversation'; conversationId: string; value: boolean }
+  | { action: 'archiveConversation'; conversationId: string; value: boolean }
   | { action: 'cancelConversation'; conversationId: string }
   | { action: 'saveDraft' | 'send'; conversationId: string; text: string }
   | { action: 'cancel'; requestId: string }
@@ -114,13 +116,17 @@ export function decodeChatCommand(input: unknown): ChatCommand {
     keys = ['action', 'conversationId', ...(value.cursor === undefined ? [] : ['cursor'])];
   else if (action === 'deleteConversation' || action === 'cancelConversation')
     keys = ['action', 'conversationId'];
-  else if (action === 'saveDraft' || action === 'send') keys = ['action', 'conversationId', 'text'];
+  else if (action === 'pinConversation' || action === 'archiveConversation') {
+    keys = ['action', 'conversationId', 'value'];
+    if (typeof value.value !== 'boolean') throw new Error('INVALID_CONTROL');
+  } else if (action === 'saveDraft' || action === 'send')
+    keys = ['action', 'conversationId', 'text'];
   else if (action === 'cancel') keys = ['action', 'requestId'];
   else if (action === 'retry') keys = ['action', 'attemptId'];
   else throw new Error('INVALID_CONTROL');
   if (Object.keys(value).length !== keys.length || !keys.every((key) => Object.hasOwn(value, key)))
     throw new Error('INVALID_CONTROL');
-  for (const key of keys.filter((key) => !['action', 'text', 'query'].includes(key))) {
+  for (const key of keys.filter((key) => !['action', 'text', 'query', 'value'].includes(key))) {
     if (typeof value[key] !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(value[key]))
       throw new Error('INVALID_CONTROL');
   }
