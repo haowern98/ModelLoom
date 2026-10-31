@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { CaretDown as ChevronDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import type { DemoModel } from '../../mocks/modelLibrary';
 import styles from './ClusterPage.module.css';
+import { useDropdownPosition } from '../../components/useDropdownPosition';
 
 /** Library selection plans a model only; the caller opens placement choices before committing. */
 export function ClusterModelPicker({
@@ -22,6 +23,8 @@ export function ClusterModelPicker({
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const position = useDropdownPosition(open, trigger, menu, models);
   const menuId = useId();
   useEffect(() => {
     if (!open) return;
@@ -88,7 +91,14 @@ export function ClusterModelPicker({
         <ChevronDown size={14} aria-hidden="true" />
       </button>
       {open && (
-        <div id={menuId} role="menu" aria-label="Model library" className={styles.modelMenu}>
+        <div
+          ref={menu}
+          id={menuId}
+          role="menu"
+          aria-label="Model library"
+          className={styles.modelMenu}
+          style={position}
+        >
           {models.map((model) => (
             <button
               key={model.id}
