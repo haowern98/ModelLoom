@@ -7,6 +7,7 @@ import { Dialog } from '../../components/Dialog';
 import { ChatNavIcon } from '../../components/ChatNavIcon';
 import { ChatHistoryRow } from './ChatHistoryRow';
 import { ChatMarkdown } from './ChatMarkdown';
+import { ChatComposerInput } from './ChatComposerInput';
 import { copyText } from '../../components/copyText';
 import type { ChatAction, ChatMessage, DemoChat } from '../../mocks/chat';
 import type { DemoModel } from '../../mocks/modelLibrary';
@@ -220,235 +221,238 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
         <header className={styles.header}>
           <h1>{conversation?.title ?? 'New chat'}</h1>
         </header>
-        <div
-          ref={transcript}
-          className={styles.messages}
-          aria-label="Messages"
-          role="region"
-          onScroll={(event) => {
-            const node = event.currentTarget;
-            following.current = node.scrollHeight - node.scrollTop - node.clientHeight < 64;
-          }}
-        >
-          <div className={styles.messageColumn}>
-            {!conversation?.messages.length && (
-              <p className={styles.emptyChat}>What would you like to discuss?</p>
-            )}
-            {conversation?.messages.map((message, index) => (
-              <article
-                key={message.id}
-                aria-label={`${message.role === 'user' ? 'Your message' : 'Assistant response'} ${index + 1}`}
-                className={`${styles.message} ${message.role === 'user' ? styles.user : ''}`}
-              >
-                {message.reasoning && (
-                  <details className={styles.thinking}>
-                    <summary>
-                      <span>{thinkingLabel(message)}</span>
-                      <ChevronRight
-                        className={styles.thinkingChevron}
-                        size={16}
-                        aria-hidden="true"
-                      />
-                    </summary>
-                    <ChatMarkdown text={message.reasoning} />
-                  </details>
-                )}
-                {message.text &&
-                  (message.role === 'assistant' ? (
-                    <ChatMarkdown text={message.text} />
-                  ) : (
-                    <p>{message.text}</p>
-                  ))}
-                {message.state && message.state !== 'completed' && (
-                  <p role="status">
-                    {(
-                      {
-                        queued: 'Waiting…',
-                        running: 'Generating…',
-                        cancelling: 'Stopping…',
-                        completed: 'Complete',
-                        'limit-reached': 'Output limit reached',
-                        cancelled: 'Stopped',
-                        interrupted: 'Interrupted',
-                        failed: 'Response failed',
-                      } as Record<string, string>
-                    )[message.state] ?? 'Unavailable'}
-                  </p>
-                )}
-                {message.role === 'assistant' && (
-                  <div className={styles.responseActions}>
-                    <button
-                      type="button"
-                      className={styles.icon}
-                      aria-label={`Copy response ${index + 1}`}
-                      title="Copy response"
-                      onClick={() => {
-                        void copy(message.text);
-                      }}
-                    >
-                      <Copy size={16} aria-hidden="true" />
-                    </button>
-                    {live &&
-                      message.attemptId &&
-                      !['queued', 'running', 'cancelling'].includes(message.state ?? '') && (
-                        <button
-                          type="button"
-                          className={styles.icon}
-                          aria-label={`Retry response ${index + 1}`}
-                          title="Retry response"
-                          disabled={!live.ready || live.busy}
-                          onClick={() => {
-                            setNotice('');
-                            live.retry(message.attemptId!);
-                          }}
-                        >
-                          <RotateCcw size={16} aria-hidden="true" />
-                        </button>
-                      )}
-                    {message.speeds && (
-                      <span className={styles.speeds}>
-                        {message.speeds.generation !== null && (
-                          <span>
-                            Generation:{' '}
-                            {message.speeds.generation.toLocaleString('en-US', {
-                              maximumFractionDigits: 1,
-                            })}{' '}
-                            tok/s
-                          </span>
-                        )}
-                        {message.speeds.prefill !== null && (
-                          <span>
-                            Prompt processing:{' '}
-                            {message.speeds.prefill.toLocaleString('en-US', {
-                              maximumFractionDigits: 1,
-                            })}{' '}
-                            tok/s
-                          </span>
-                        )}
-                        {message.speeds.acceptance !== undefined && (
-                          <span title="Percentage of proposed tokens accepted by the target model.">
-                            Acceptance rate:{' '}
-                            {message.speeds.acceptance === null
-                              ? '—'
-                              : `${(message.speeds.acceptance * 100).toLocaleString('en-US', { maximumFractionDigits: 1 })}%`}
-                          </span>
-                        )}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </article>
-            ))}
-          </div>
-        </div>
-        <div className={styles.composerColumn}>
-          <div className={styles.composer}>
-            <textarea
-              ref={composer}
-              aria-label="Message"
-              placeholder="Message..."
-              value={conversation?.draft ?? live?.draft ?? ''}
-              maxLength={12000}
-              onKeyDown={(event) => {
-                if (
-                  event.key === 'Enter' &&
-                  !event.shiftKey &&
-                  !event.nativeEvent.isComposing &&
-                  live?.ready &&
-                  !live.busy &&
-                  conversation?.draft.trim()
-                ) {
-                  event.preventDefault();
-                  setNotice('');
-                  live.send();
-                }
-              }}
-              onChange={(event) => dispatch({ type: 'draft', text: event.target.value })}
-            />
-            <div className={styles.composerActions}>
-              <button
-                type="button"
-                className={styles.icon}
-                aria-label="Attachments unavailable"
-                title="Attachments are not available yet"
-                disabled
-              >
-                <Plus size={16} aria-hidden="true" />
-              </button>
-              <span className={styles.spacer} />
-              <div
-                ref={model}
-                className={styles.modelWrapper}
-                onBlur={(event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget)) setModelOpen(false);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') {
-                    setModelOpen(false);
-                    modelButton.current?.focus();
-                  }
-                }}
-              >
-                <button
-                  ref={modelButton}
-                  type="button"
-                  className={styles.model}
-                  aria-label={`Chat model: ${activeModel?.name ?? 'No active model'}`}
-                  title={activeModel?.name ?? 'No active model'}
-                  aria-expanded={modelOpen}
-                  onClick={() => setModelOpen(!modelOpen)}
+        <div className={styles.chatBody}>
+          <div
+            ref={transcript}
+            className={styles.messages}
+            aria-label="Messages"
+            role="region"
+            onScroll={(event) => {
+              const node = event.currentTarget;
+              following.current = node.scrollHeight - node.scrollTop - node.clientHeight < 64;
+            }}
+          >
+            <div className={styles.messageColumn}>
+              {!conversation?.messages.length && (
+                <p className={styles.emptyChat}>What would you like to discuss?</p>
+              )}
+              {conversation?.messages.map((message, index) => (
+                <article
+                  key={message.id}
+                  aria-label={`${message.role === 'user' ? 'Your message' : 'Assistant response'} ${index + 1}`}
+                  className={`${styles.message} ${message.role === 'user' ? styles.user : ''}`}
                 >
-                  <span>{activeModel?.name ?? 'No active model'}</span>
-                  <ChevronDown size={14} aria-hidden="true" />
-                </button>
-                {modelOpen && (
-                  <div className={styles.modelMenu}>
-                    <p>
-                      {activeModel
-                        ? `${demo ? 'Active demo model' : 'Active model'}: ${activeModel.name}`
-                        : 'No model is active.'}
+                  {message.reasoning && (
+                    <details className={styles.thinking}>
+                      <summary>
+                        <span>{thinkingLabel(message)}</span>
+                        <ChevronRight
+                          className={styles.thinkingChevron}
+                          size={16}
+                          aria-hidden="true"
+                        />
+                      </summary>
+                      <ChatMarkdown text={message.reasoning} />
+                    </details>
+                  )}
+                  {message.text &&
+                    (message.role === 'assistant' ? (
+                      <ChatMarkdown text={message.text} />
+                    ) : (
+                      <p>{message.text}</p>
+                    ))}
+                  {message.state && message.state !== 'completed' && (
+                    <p role="status">
+                      {(
+                        {
+                          queued: 'Waiting…',
+                          running: 'Generating…',
+                          cancelling: 'Stopping…',
+                          completed: 'Complete',
+                          'limit-reached': 'Output limit reached',
+                          cancelled: 'Stopped',
+                          interrupted: 'Interrupted',
+                          failed: 'Response failed',
+                        } as Record<string, string>
+                      )[message.state] ?? 'Unavailable'}
                     </p>
-                    <button type="button" onClick={onCluster}>
-                      Choose model in Cluster
-                    </button>
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                className={`${styles.icon} ${styles.send}`}
-                aria-label={live?.busy ? 'Stop response' : 'Send message'}
-                title={
-                  !live
-                    ? 'Sending is not available yet'
-                    : live.busy
-                      ? 'Stop response'
-                      : live?.ready
-                        ? 'Send message'
-                        : 'Load a model to send a message'
-                }
-                disabled={!live || (!live.busy && (!live.ready || !conversation?.draft.trim()))}
-                onClick={() => {
-                  setNotice('');
-                  if (live?.busy) live.stop();
-                  else live?.send();
-                }}
-              >
-                {live?.busy ? (
-                  <Square size={16} aria-hidden="true" />
-                ) : (
-                  <ArrowUp size={16} aria-hidden="true" />
-                )}
-              </button>
+                  )}
+                  {message.role === 'assistant' && (
+                    <div className={styles.responseActions}>
+                      <button
+                        type="button"
+                        className={styles.icon}
+                        aria-label={`Copy response ${index + 1}`}
+                        title="Copy response"
+                        onClick={() => {
+                          void copy(message.text);
+                        }}
+                      >
+                        <Copy size={16} aria-hidden="true" />
+                      </button>
+                      {live &&
+                        message.attemptId &&
+                        !['queued', 'running', 'cancelling'].includes(message.state ?? '') && (
+                          <button
+                            type="button"
+                            className={styles.icon}
+                            aria-label={`Retry response ${index + 1}`}
+                            title="Retry response"
+                            disabled={!live.ready || live.busy}
+                            onClick={() => {
+                              setNotice('');
+                              live.retry(message.attemptId!);
+                            }}
+                          >
+                            <RotateCcw size={16} aria-hidden="true" />
+                          </button>
+                        )}
+                      {message.speeds && (
+                        <span className={styles.speeds}>
+                          {message.speeds.generation !== null && (
+                            <span>
+                              Generation:{' '}
+                              {message.speeds.generation.toLocaleString('en-US', {
+                                maximumFractionDigits: 1,
+                              })}{' '}
+                              tok/s
+                            </span>
+                          )}
+                          {message.speeds.prefill !== null && (
+                            <span>
+                              Prompt processing:{' '}
+                              {message.speeds.prefill.toLocaleString('en-US', {
+                                maximumFractionDigits: 1,
+                              })}{' '}
+                              tok/s
+                            </span>
+                          )}
+                          {message.speeds.acceptance !== undefined && (
+                            <span title="Percentage of proposed tokens accepted by the target model.">
+                              Acceptance rate:{' '}
+                              {message.speeds.acceptance === null
+                                ? '—'
+                                : `${(message.speeds.acceptance * 100).toLocaleString('en-US', { maximumFractionDigits: 1 })}%`}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </article>
+              ))}
             </div>
           </div>
-          <p role="status" className={styles.notice}>
-            {notice ||
-              live?.notice ||
-              (demo
-                ? 'Sample conversations · This app session only'
-                : 'Sending is not available yet')}
-          </p>
+          <div className={styles.composerColumn}>
+            <div className={styles.composer}>
+              <ChatComposerInput
+                conversationId={chat.selectedId}
+                ref={composer}
+                aria-label="Message"
+                placeholder="Message..."
+                value={conversation?.draft ?? live?.draft ?? ''}
+                maxLength={12000}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === 'Enter' &&
+                    !event.shiftKey &&
+                    !event.nativeEvent.isComposing &&
+                    live?.ready &&
+                    !live.busy &&
+                    conversation?.draft.trim()
+                  ) {
+                    event.preventDefault();
+                    setNotice('');
+                    live.send();
+                  }
+                }}
+                onChange={(event) => dispatch({ type: 'draft', text: event.target.value })}
+              />
+              <div className={styles.composerActions}>
+                <button
+                  type="button"
+                  className={styles.icon}
+                  aria-label="Attachments unavailable"
+                  title="Attachments are not available yet"
+                  disabled
+                >
+                  <Plus size={16} aria-hidden="true" />
+                </button>
+                <span className={styles.spacer} />
+                <div
+                  ref={model}
+                  className={styles.modelWrapper}
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) setModelOpen(false);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      setModelOpen(false);
+                      modelButton.current?.focus();
+                    }
+                  }}
+                >
+                  <button
+                    ref={modelButton}
+                    type="button"
+                    className={styles.model}
+                    aria-label={`Chat model: ${activeModel?.name ?? 'No active model'}`}
+                    title={activeModel?.name ?? 'No active model'}
+                    aria-expanded={modelOpen}
+                    onClick={() => setModelOpen(!modelOpen)}
+                  >
+                    <span>{activeModel?.name ?? 'No active model'}</span>
+                    <ChevronDown size={14} aria-hidden="true" />
+                  </button>
+                  {modelOpen && (
+                    <div className={styles.modelMenu}>
+                      <p>
+                        {activeModel
+                          ? `${demo ? 'Active demo model' : 'Active model'}: ${activeModel.name}`
+                          : 'No model is active.'}
+                      </p>
+                      <button type="button" onClick={onCluster}>
+                        Choose model in Cluster
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className={`${styles.icon} ${styles.send}`}
+                  aria-label={live?.busy ? 'Stop response' : 'Send message'}
+                  title={
+                    !live
+                      ? 'Sending is not available yet'
+                      : live.busy
+                        ? 'Stop response'
+                        : live?.ready
+                          ? 'Send message'
+                          : 'Load a model to send a message'
+                  }
+                  disabled={!live || (!live.busy && (!live.ready || !conversation?.draft.trim()))}
+                  onClick={() => {
+                    setNotice('');
+                    if (live?.busy) live.stop();
+                    else live?.send();
+                  }}
+                >
+                  {live?.busy ? (
+                    <Square size={16} aria-hidden="true" />
+                  ) : (
+                    <ArrowUp size={16} aria-hidden="true" />
+                  )}
+                </button>
+              </div>
+            </div>
+            <p role="status" className={styles.notice}>
+              {notice ||
+                live?.notice ||
+                (demo
+                  ? 'Sample conversations · This app session only'
+                  : 'Sending is not available yet')}
+            </p>
+          </div>
         </div>
       </div>
       {deleteTarget && (
