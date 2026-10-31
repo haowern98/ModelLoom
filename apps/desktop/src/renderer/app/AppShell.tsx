@@ -1,7 +1,4 @@
 import type { ReactNode } from 'react';
-import { Network } from '@phosphor-icons/react/dist/csr/Network';
-import { HardDrives } from '@phosphor-icons/react/dist/csr/HardDrives';
-import { GearSix } from '@phosphor-icons/react/dist/csr/GearSix';
 import { ChatGptRailIcon } from '../components/ChatGptRailIcon';
 import type { Destination } from './navigation';
 import styles from './AppShell.module.css';
@@ -12,8 +9,6 @@ interface AppShellProps {
   demo: boolean;
   children: ReactNode;
 }
-
-const navigationIconProps = { size: 20, 'aria-hidden': true } as const;
 
 export function AppShell({ destination, onNavigate, demo, children }: AppShellProps) {
   const splitPanel =
@@ -48,10 +43,7 @@ export function AppShell({ destination, onNavigate, demo, children }: AppShellPr
             title="Cluster"
             onClick={() => onNavigate('Cluster')}
           >
-            <Network
-              {...navigationIconProps}
-              weight={destination === 'Cluster' ? 'fill' : 'regular'}
-            />
+            <ChatGptRailIcon icon="cluster" />
           </button>
           <button
             type="button"
@@ -69,10 +61,7 @@ export function AppShell({ destination, onNavigate, demo, children }: AppShellPr
             title="API"
             onClick={() => onNavigate('API')}
           >
-            <HardDrives
-              {...navigationIconProps}
-              weight={destination === 'API' ? 'fill' : 'regular'}
-            />
+            <ChatGptRailIcon icon="api" />
           </button>
         </div>
         <div className={styles.railBottom}>
@@ -83,15 +72,12 @@ export function AppShell({ destination, onNavigate, demo, children }: AppShellPr
             title="Settings"
             onClick={() => onNavigate('Settings')}
           >
-            <GearSix
-              {...navigationIconProps}
-              weight={destination === 'Settings' ? 'fill' : 'regular'}
-            />
+            <ChatGptRailIcon icon="settings" />
           </button>
         </div>
       </aside>
       <section
-        className={`${styles.foreground} ${styles.neutralForeground} ${splitPanel ? styles.chatForeground : ''}`}
+        className={`${styles.foreground} ${splitPanel ? styles.chatForeground : ''}`}
         aria-label="ModelLoom workspace"
       >
         <main className={`${styles.main} ${splitPanel ? styles.chatMain : ''}`}>{children}</main>
