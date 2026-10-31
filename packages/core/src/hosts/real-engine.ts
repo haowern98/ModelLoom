@@ -478,6 +478,7 @@ export function realEngineAdapter(
                   }
                   // Concurrent readiness callers share one status preparation/monitor.
                   slotPreparation ??= (async () => {
+                    const monitorId = randomUUID();
                     const owns = () => !ended && !finishing && native.ownedListener(child, port);
                     // Native WAN state transfers can delay status; retain capacity
                     // within the existing generation deadline while waiting.
@@ -491,7 +492,16 @@ export function realEngineAdapter(
                     const monitor = new OwnedSlotMonitor(
                       cfg.slots,
                       (signal) =>
-                        readOwnedSlots(port, secret, cfg.slots, owns, signal, observationMs),
+                        readOwnedSlots(
+                          port,
+                          secret,
+                          cfg.slots,
+                          owns,
+                          signal,
+                          observationMs,
+                          log,
+                          monitorId,
+                        ),
                       owns,
                       exited.then(() => undefined),
                       () => {
@@ -500,6 +510,8 @@ export function realEngineAdapter(
                         native.requestStop(child);
                       },
                       observationMs,
+                      log,
+                      monitorId,
                     );
                     await monitor.initialize();
                     return monitor;

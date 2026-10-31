@@ -1,5 +1,13 @@
 import type { SlotStatus } from './slot-status.js';
 import { GENERATION_POLICY } from '../generation/contracts.js';
+import { randomUUID } from 'node:crypto';
+import { emitRuntimeDiagnostic } from './runtime-diagnostics.js';
+import type { RuntimeDiagnostic } from './runtime-diagnostics.js';
+class SlotMonitorFault extends Error {
+  constructor(readonly reason: string) {
+    super('STATUS_UNCONFIRMED');
+  }
+}
 /** Owner-internal captured stream completion, not a caller-supplied outcome. */
 export type OwnedStreamEnd = 'terminal' | 'aborted';
 type Release = 'released' | 'engine-exited';
@@ -37,6 +45,10 @@ export class OwnedSlotMonitor {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private lastPoll = -Infinity;
   private poll: AbortController | undefined;
+  private readonly started = performance.now();
+  private history: object[] = [];
+  private lastSignature = '';
+  private recordedAt = -Infinity;
 
   constructor(
     private readonly count: number,
@@ -45,6 +57,8 @@ export class OwnedSlotMonitor {
     exited: Promise<void>,
     private readonly cleanup: () => void,
     private readonly observationMs = 5000,
+    private readonly diagnostic: RuntimeDiagnostic = emitRuntimeDiagnostic,
+    private readonly monitorId = randomUUID(),
   ) {
     if (
       !Number.isInteger(count) ||
@@ -57,7 +71,7 @@ export class OwnedSlotMonitor {
       throw new Error('STATUS_UNCONFIRMED');
     void exited.then(
       () => this.exited(),
-      () => this.fail(),
+      () => this.fail('EXIT_RECEIPT_REJECTED'),
     );
   }
 
@@ -68,12 +82,12 @@ export class OwnedSlotMonitor {
     try {
       const status = await this.observe();
       if (this.closed || status.some((slot) => slot.processing))
-        throw new Error('STATUS_UNCONFIRMED');
+        throw new SlotMonitorFault('INITIAL_STATE_BUSY');
       for (const slot of status) this.previous.set(slot.id, slot.task);
       this.ready = true;
-    } catch {
-      this.fail();
-      throw new Error('STATUS_UNCONFIRMED');
+    } catch (error) {
+      this.fail(error instanceof SlotMonitorFault ? error.reason : 'INITIAL_READ_FAILED');
+      throw new Error('STATUS_UNCONFIRMED', { cause: error });
     } finally {
       this.initializing = false;
     }
@@ -83,12 +97,12 @@ export class OwnedSlotMonitor {
   start(dispatch: (slot: number) => Promise<OwnedStreamEnd>): Promise<Release> {
     if (this.closed) throw new Error('STATUS_UNCONFIRMED');
     if (!this.ready || !this.owns()) {
-      this.fail();
+      this.fail('NOT_READY_OR_OWNER_LOST');
       throw new Error('STATUS_UNCONFIRMED');
     }
     const slot = [...this.previous.keys()].find((id) => !this.reservations.has(id));
     if (slot === undefined) {
-      this.fail();
+      this.fail('CAPACITY_EXHAUSTED');
       throw new Error('NO_NATIVE_CAPACITY');
     }
     let resolve!: Reservation['resolve'], reject!: Reservation['reject'];
@@ -100,26 +114,31 @@ export class OwnedSlotMonitor {
     void released.catch(() => undefined);
     const entry: Reservation = { slot, previous: this.previous.get(slot) ?? null, resolve, reject };
     this.reservations.set(slot, entry);
+    this.record('dispatch');
     try {
       const stream = dispatch(slot);
       void stream.then(
         (end) => {
           if (this.closed || this.reservations.get(slot) !== entry) return;
           if (end !== 'terminal' && end !== 'aborted') {
-            this.fail();
+            this.fail('INVALID_STREAM_END');
             return;
           }
           entry.end = end;
+          this.record(end);
           entry.deadline = setTimeout(
-            () => this.fail(),
+            () =>
+              this.fail(
+                end === 'terminal' ? 'TERMINAL_PROOF_TIMEOUT' : 'CANCELLATION_PROOF_TIMEOUT',
+              ),
             end === 'terminal' ? this.observationMs : 5000,
           );
         },
-        () => this.fail(),
+        () => this.fail('DISPATCH_REJECTED'),
       );
     } catch {
       // A throw after dispatch cannot prove that no native work was created.
-      this.fail();
+      this.fail('DISPATCH_THROW');
     }
     this.schedule();
     return released;
@@ -137,26 +156,37 @@ export class OwnedSlotMonitor {
   }
 
   private async observe(): Promise<readonly SlotStatus[]> {
-    if (this.closed || !this.owns() || this.poll) throw new Error('STATUS_UNCONFIRMED');
+    if (this.closed || !this.owns() || this.poll)
+      throw new SlotMonitorFault('OBSERVATION_PRECONDITION');
     const abort = new AbortController();
     this.poll = abort;
     this.lastPoll = Date.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
     try {
       const status = await Promise.race([
         this.read(abort.signal),
         new Promise<never>((_, reject) => {
-          abort.signal.addEventListener('abort', () => reject(new Error('STATUS_UNCONFIRMED')), {
-            once: true,
-          });
+          abort.signal.addEventListener(
+            'abort',
+            () =>
+              reject(
+                new SlotMonitorFault(timedOut ? 'OBSERVATION_TIMEOUT' : 'OBSERVATION_ABORTED'),
+              ),
+            {
+              once: true,
+            },
+          );
           timer = setTimeout(() => {
+            timedOut = true;
             abort.abort();
-            reject(new Error('STATUS_UNCONFIRMED'));
+            reject(new SlotMonitorFault('OBSERVATION_TIMEOUT'));
           }, this.observationMs);
         }),
       ]);
+      this.record('poll', status);
       if (this.closed || abort.signal.aborted || !this.owns() || status.length !== this.count)
-        throw new Error('STATUS_UNCONFIRMED');
+        throw new SlotMonitorFault('OBSERVATION_STATE');
       const ids = new Set<number>(),
         tasks = new Set<number>();
       for (const slot of status) {
@@ -170,7 +200,7 @@ export class OwnedSlotMonitor {
             (!Number.isSafeInteger(slot.task) || slot.task < 0 || tasks.has(slot.task))) ||
           (slot.processing && slot.task === null)
         )
-          throw new Error('STATUS_UNCONFIRMED');
+          throw new SlotMonitorFault('INVALID_SLOT');
         ids.add(slot.id);
         if (slot.task !== null) tasks.add(slot.task);
       }
@@ -197,15 +227,15 @@ export class OwnedSlotMonitor {
         if (current !== snapshot?.entry) continue; // dispatch occurred during this status request
         if (!snapshot) {
           if (slot.processing || slot.task !== this.previous.get(slot.id))
-            throw new Error('STATUS_UNCONFIRMED');
+            throw new SlotMonitorFault('UNRESERVED_SLOT_CHANGED');
           continue;
         }
         const { entry, afterEnd } = snapshot;
         if (entry.task !== undefined && slot.task !== entry.task)
-          throw new Error('STATUS_UNCONFIRMED');
+          throw new SlotMonitorFault('TASK_CHANGED');
         if (slot.processing) {
           if (slot.task === null || slot.task === entry.previous)
-            throw new Error('STATUS_UNCONFIRMED');
+            throw new SlotMonitorFault('TASK_REUSED');
           entry.task = slot.task;
         } else if (
           afterEnd &&
@@ -224,8 +254,8 @@ export class OwnedSlotMonitor {
         this.reservations.delete(entry.slot);
         entry.resolve('released');
       }
-    } catch {
-      this.fail();
+    } catch (error) {
+      this.fail(error instanceof SlotMonitorFault ? error.reason : 'READ_FAILED');
     } finally {
       this.schedule();
     }
@@ -239,8 +269,54 @@ export class OwnedSlotMonitor {
       if (entry.deadline) clearTimeout(entry.deadline);
   }
 
-  private fail(): void {
+  /** Retain only scalar slot metadata, on changes or every five seconds, never native text. */
+  private record(event: string, status?: readonly SlotStatus[]): void {
+    try {
+      const integer = (value: unknown) =>
+        typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+      const slots = status
+        ?.slice(0, 8)
+        .map((slot) => [
+          integer(slot.id),
+          typeof slot.processing === 'boolean' ? slot.processing : null,
+          integer(slot.task),
+        ]);
+      const active = [...this.reservations.values()]
+        .slice(0, 8)
+        .map((entry) => [entry.slot, entry.previous, entry.task ?? null, entry.end ?? null]);
+      const signature = JSON.stringify({ slots, active });
+      const now = performance.now();
+      if (event === 'poll' && signature === this.lastSignature && now - this.recordedAt < 5000)
+        return;
+      this.lastSignature = signature;
+      this.recordedAt = now;
+      this.history = [
+        ...this.history.slice(-7),
+        {
+          elapsedMs: Math.round(now - this.started),
+          event,
+          ...(status ? { count: status.length, slots } : {}),
+          active,
+        },
+      ];
+    } catch {
+      /* Diagnostics must not affect ownership or slot validation. */
+    }
+  }
+
+  private fail(reason: string): void {
     if (this.exitConfirmed) return;
+    if (!this.cleanupRequested) {
+      try {
+        const context = [...this.history];
+        const message = () =>
+          `slots.monitor-failed ${JSON.stringify({ monitor: this.monitorId, reason, deadlineMs: this.observationMs, closed: this.closed, history: context })}`;
+        while (message().length > 4096 && context.length) context.shift();
+        this.diagnostic('runtime', message());
+      } catch {
+        /* Logs cannot prevent the existing failure cleanup. */
+      }
+    }
     this.closed = true;
     this.stopTimers();
     for (const entry of this.reservations.values()) entry.reject(new Error('STATUS_UNCONFIRMED'));
