@@ -282,10 +282,6 @@
   color: var(--muted);
   font-size: var(--font-size-status);
 }
-.history::-webkit-scrollbar-track,
-.messages::-webkit-scrollbar-track {
-  margin-block: 40px;
-}
 @media (max-width: 1050px) {
   .header {
     padding-inline: 18px;

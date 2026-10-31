@@ -12,16 +12,6 @@
   overflow: auto;
   padding: 20px 26px 12px 27px;
 }
-.scroller::-webkit-scrollbar {
-  width: 10px;
-}
-.scroller::-webkit-scrollbar-track:vertical {
-  margin-block: 40px;
-}
-.scroller::-webkit-scrollbar-thumb:vertical {
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
 .content {
   max-width: 800px;
   margin: 24px auto 32px;

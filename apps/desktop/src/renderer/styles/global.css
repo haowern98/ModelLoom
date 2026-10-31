@@ -63,6 +63,13 @@
 
 * {
   box-sizing: border-box;
+  /* Native painting retains Chromium's thumb hover and drag contrast adjustment. */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(252, 252, 252, 0.084) transparent;
+}
+*:hover,
+*:active {
+  scrollbar-color: rgba(252, 252, 252, 0.156) transparent;
 }
 body {
   margin: 0;
@@ -105,14 +112,6 @@ button {
 }
 ::selection {
   background: #174ba3;
-}
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-thumb {
-  background: #343640;
-  border-radius: 6px;
 }
 @media (prefers-reduced-motion: reduce) {
   *,
