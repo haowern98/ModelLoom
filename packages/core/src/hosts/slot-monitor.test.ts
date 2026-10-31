@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { OwnedSlotMonitor } from './slot-monitor.js';
 import type { SlotStatus } from './slot-status.js';
 import { GenerationAdmission } from '../generation/admission.js';
+import type { RuntimeDiagnostic } from './runtime-diagnostics.js';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -25,6 +26,7 @@ async function fixture(count = 1, observationMs = 5000) {
     reads = 0;
   let reader: ((signal: AbortSignal) => Promise<readonly SlotStatus[]>) | undefined;
   const exit = deferred<void>();
+  const diagnostic = vi.fn<RuntimeDiagnostic>();
   const monitor = new OwnedSlotMonitor(
     count,
     (signal) => {
@@ -37,10 +39,12 @@ async function fixture(count = 1, observationMs = 5000) {
       cleanup++;
     },
     observationMs,
+    diagnostic,
   );
   await monitor.initialize();
   return {
     monitor,
+    diagnostic,
     exit,
     status: (value: readonly SlotStatus[]) => {
       status = value;
@@ -56,6 +60,39 @@ async function fixture(count = 1, observationMs = 5000) {
   };
 }
 const tick = () => vi.advanceTimersByTimeAsync(100);
+it('records the exact task mismatch and bounded state history before unchanged cleanup', async () => {
+  const f = await fixture();
+  const stream = deferred<'terminal' | 'aborted'>();
+  const done = f.monitor.start(() => stream.promise);
+  const failed = expect(done).rejects.toThrow('STATUS_UNCONFIRMED');
+  f.status([{ id: 0, processing: true, task: 42 }]);
+  for (let i = 0; i < 100; i++) await tick();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(f.diagnostic).not.toHaveBeenCalled();
+  f.status([{ id: 0, processing: true, task: 43 }]);
+  await tick();
+  await failed;
+  expect(f.cleanup()).toBe(1);
+  const output = f.diagnostic.mock.calls.map((call) => call[1]).join('\n');
+  expect(output).toContain('TASK_CHANGED');
+  expect(output).toContain('42');
+  expect(output).toContain('43');
+  expect(output.length).toBeLessThanOrEqual(4096);
+  const snapshot: unknown = JSON.parse(output.slice('slots.monitor-failed '.length));
+  const history: unknown =
+    snapshot && typeof snapshot === 'object' ? Reflect.get(snapshot, 'history') : undefined;
+  expect(Array.isArray(history) && history.length <= 8).toBe(true);
+  expect(f.diagnostic).toHaveBeenCalledTimes(1);
+});
+it('records dispatch failure categories without retaining arbitrary error text', async () => {
+  const f = await fixture();
+  const done = f.monitor.start(() => Promise.reject(Error('private generated answer')));
+  await expect(done).rejects.toThrow('STATUS_UNCONFIRMED');
+  const output = f.diagnostic.mock.calls.map((call) => call[1]).join('\n');
+  expect(output).toContain('DISPATCH_REJECTED');
+  expect(output).not.toContain('private generated answer');
+  expect(f.cleanup()).toBe(1);
+});
 it('retains a remote reservation through a slow status response without stopping generation', async () => {
   const f = await fixture(1, 300_000);
   const stream = deferred<'terminal' | 'aborted'>();
