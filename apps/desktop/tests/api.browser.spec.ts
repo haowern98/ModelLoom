@@ -7,10 +7,10 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole('button', { name: 'API', exact: true }).click();
 });
 
-test('API exposes four sections while server, credentials and logs stay unavailable', async ({
+test('API exposes four sections while server and credentials stay unavailable', async ({
   page,
 }) => {
-  for (const name of ['Server', 'Access', 'Integration', 'Server logs']) {
+  for (const name of ['Server', 'Access', 'Integration', 'Runtime logs']) {
     await expect(page.getByRole('region', { name, exact: true })).toBeAttached();
   }
   await expect(page.getByText('No API server is running.')).toBeVisible();
@@ -25,15 +25,23 @@ test('API exposes four sections while server, credentials and logs stay unavaila
     'Reveal API key',
     'Copy API key',
     'Generate key',
-    'Copy server logs',
-    'Clear server logs',
+    'Copy runtime logs',
+    'Clear runtime logs',
   ]) {
     await expect(page.getByRole('button', { name, exact: true })).toBeDisabled();
   }
   await expect(page.getByRole('group', { name: 'API key status', exact: true })).toHaveText(
     'Unavailable',
   );
-  await expect(page.getByText('No server logs yet.')).toBeAttached();
+  await expect(page.getByRole('log', { name: 'Runtime log viewer' })).toContainText(
+    'Waiting for runtime events.',
+  );
+  await expect(page.getByRole('button', { name: 'All', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await page.getByRole('button', { name: 'Errors', exact: true }).click();
+  await expect(page.getByRole('log', { name: 'Runtime log viewer' })).toContainText('No errors.');
   await expect(page.getByText('Qwen3.8-27B (demo)', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Choose in Cluster' }).click();
   await expect(page.getByRole('heading', { name: 'Cluster', exact: true })).toBeVisible();
@@ -129,9 +137,11 @@ test('API matches configuration geometry and scroll margins at desktop widths', 
       });
       expect(track).toEqual({ top: '40px', bottom: '40px', overflow: false });
       await page
-        .getByRole('heading', { name: 'Server logs', exact: true })
+        .getByRole('heading', { name: 'Runtime logs', exact: true })
         .scrollIntoViewIfNeeded();
-      await expect(page.getByRole('region', { name: 'Server logs', exact: true })).toBeInViewport();
+      await expect(
+        page.getByRole('region', { name: 'Runtime logs', exact: true }),
+      ).toBeInViewport();
       await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeInViewport();
       await main.evaluate((node) => {
         node.scrollTop = 0;
