@@ -1,9 +1,9 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CaretUp } from '@phosphor-icons/react/dist/csr/CaretUp';
 import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import styles from './ConfigurationControls.module.css';
+import { useDropdownPosition } from '../../components/useDropdownPosition';
 
 function decimalPlaces(value: number): number {
   const [coefficient = '', exponent = '0'] = String(value).split('e');
@@ -30,52 +30,8 @@ export function ConfigurationSelect({
   const anchor = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<CSSProperties>({ visibility: 'hidden' });
+  const position = useDropdownPosition(open, trigger, menu, options);
   const menuId = useId();
-  useLayoutEffect(() => {
-    if (!open) return;
-    const place = () => {
-      const button = trigger.current?.getBoundingClientRect();
-      const popup = menu.current;
-      if (!button || !popup) return;
-      const margin = 8;
-      const availableWidth = Math.max(0, window.innerWidth - margin * 2);
-      const width = Math.min(
-        availableWidth,
-        Math.max(button.width, 180, popup.getBoundingClientRect().width),
-      );
-      const height = Math.min(popup.scrollHeight || popup.getBoundingClientRect().height, 380);
-      const below = Math.max(0, window.innerHeight - button.bottom - margin * 2);
-      const above = Math.max(0, button.top - margin * 2);
-      const upwards = height > below && above > below;
-      const maxHeight = Math.min(380, upwards ? above : below);
-      setPosition({
-        position: 'fixed',
-        left: Math.max(margin, Math.min(button.left, window.innerWidth - margin - width)),
-        top: upwards
-          ? Math.max(margin, button.top - margin - Math.min(height, maxHeight))
-          : button.bottom + margin,
-        minWidth: Math.min(availableWidth, Math.max(button.width, 180)),
-        maxWidth: availableWidth,
-        maxHeight,
-      });
-    };
-    const scrolled = (event: Event) => {
-      if (event.target instanceof Node && menu.current?.contains(event.target)) return;
-      place();
-    };
-    place();
-    window.addEventListener('resize', place);
-    document.addEventListener('scroll', scrolled, true);
-    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(place);
-    if (trigger.current) observer?.observe(trigger.current);
-    if (menu.current) observer?.observe(menu.current);
-    return () => {
-      window.removeEventListener('resize', place);
-      document.removeEventListener('scroll', scrolled, true);
-      observer?.disconnect();
-    };
-  }, [open, options]);
   useEffect(() => {
     if (!open) return;
     const selected = menu.current?.querySelector<HTMLButtonElement>(
@@ -83,7 +39,7 @@ export function ConfigurationSelect({
     );
     (
       selected ?? menu.current?.querySelector<HTMLButtonElement>('[role="option"]:not(:disabled)')
-    )?.focus({ preventScroll: true });
+    )?.focus();
     const outside = (event: PointerEvent) => {
       if (
         event.target instanceof Node &&
@@ -135,7 +91,7 @@ export function ConfigurationSelect({
               : event.key === 'End'
                 ? items.length - 1
                 : (current + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
-          items[next]?.focus({ preventScroll: true });
+          items[next]?.focus();
         }
       }}
     >
