@@ -1,20 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dispatch } from 'react';
-import {
-  ArrowUp,
-  Square,
-  RotateCcw,
-  ChevronDown,
-  ChevronRight,
-  Brain,
-  Copy,
-  Plus,
-} from 'lucide-react';
+import { ArrowUp, Square, RotateCcw, ChevronDown, ChevronRight, Copy, Plus } from 'lucide-react';
 import { SearchField } from '../../components/SearchField';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { ChatNavIcon } from '../../components/ChatNavIcon';
 import { ChatHistoryRow } from './ChatHistoryRow';
+import { ChatMarkdown } from './ChatMarkdown';
 import { copyText } from '../../components/copyText';
 import type { ChatAction, ChatMessage, DemoChat } from '../../mocks/chat';
 import type { DemoModel } from '../../mocks/modelLibrary';
@@ -54,7 +46,7 @@ function thinkingLabel(message: ChatMessage): string {
   return `Thought for ${hours ? `${hours}h ${minutes % 60}m ` : minutes ? `${minutes}m ` : ''}${seconds % 60}s`;
 }
 
-/** Safe, local conversation presentation; model text is rendered as text, never HTML. */
+/** Local conversation presentation with inert Markdown and preserved raw response actions. */
 export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }: ChatPageProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [archived, setArchived] = useState(false);
@@ -297,7 +289,6 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
                 {message.reasoning && (
                   <details className={styles.thinking}>
                     <summary>
-                      <Brain size={16} aria-hidden="true" />
                       <span>{thinkingLabel(message)}</span>
                       <ChevronRight
                         className={styles.thinkingChevron}
@@ -305,11 +296,16 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
                         aria-hidden="true"
                       />
                     </summary>
-                    <p>{message.reasoning}</p>
+                    <ChatMarkdown text={message.reasoning} />
                   </details>
                 )}
-                {message.text && <p>{message.text}</p>}
-                {message.state && (
+                {message.text &&
+                  (message.role === 'assistant' ? (
+                    <ChatMarkdown text={message.text} />
+                  ) : (
+                    <p>{message.text}</p>
+                  ))}
+                {message.state && message.state !== 'completed' && (
                   <p role="status">
                     {(
                       {

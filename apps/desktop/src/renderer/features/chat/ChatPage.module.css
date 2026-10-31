@@ -173,7 +173,7 @@
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
-.message p {
+.message > p {
   white-space: pre-wrap;
 }
 .thinking {
@@ -194,9 +194,8 @@
 .thinking[open] .thinkingChevron {
   transform: rotate(90deg);
 }
-.thinking p {
+.thinking > div {
   margin-top: 10px;
-  padding-left: 24px;
 }
 .user {
   display: flex;
