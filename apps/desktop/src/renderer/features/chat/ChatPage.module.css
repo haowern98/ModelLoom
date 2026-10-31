@@ -23,16 +23,26 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 14px 12px 12px;
+  padding: 14px 18px 0;
+}
+.sidebarHeader h2 {
+  font-size: var(--font-size-dialog-title);
+  font-weight: var(--font-weight-medium);
+  line-height: 32px;
+}
+.newChatRow {
+  padding: 14.5px 6px 0;
 }
 .newChat {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: var(--control-height-icon);
-  padding: 1px 10px;
-  font-size: var(--font-size-control);
-  line-height: var(--line-height-control);
+  height: 30px;
+  min-height: 30px;
+  width: 100%;
+  padding: 5px 12px;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
   border: 0;
   border-radius: 10px;
   background: transparent;
@@ -62,18 +72,65 @@
   background: #2e2d30;
 }
 .history {
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 6px 6px 40px;
+  padding: 0 6px 8px;
 }
-.history h2 {
+.history h3 button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 0;
+  width: 100%;
   padding: 0 12px 6px;
+  border: 0;
+  background: transparent;
+  text-align: left;
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-body);
   color: var(--muted);
 }
+.history h3 svg {
+  opacity: 0;
+}
+.history h3:hover svg,
+.history h3:focus-within svg {
+  opacity: 1;
+}
+.history h3 .collapsedChevron {
+  opacity: 1;
+  transform: rotate(-90deg);
+}
 .history section + section {
-  margin-top: 19px;
+  margin-top: 18px;
+}
+.history section:first-child {
+  margin-top: 18px;
+}
+.historyFooter {
+  padding: 8px 6px;
+  border-top: 1px solid #ffffff0d;
+}
+.historyFooter button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-control);
+}
+.historyFooter button:hover,
+.historyFooter button[aria-pressed='true'] {
+  background: #ffffff14;
 }
 .emptyHistory {
   padding: 12px;

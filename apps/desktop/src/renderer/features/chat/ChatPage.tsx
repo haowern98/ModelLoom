@@ -9,13 +9,12 @@ import {
   Brain,
   Copy,
   Plus,
-  Search,
-  SquarePen,
 } from 'lucide-react';
 import { SearchField } from '../../components/SearchField';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
-import { SidebarItemRow } from '../../components/SidebarItemRow';
+import { ChatNavIcon } from '../../components/ChatNavIcon';
+import { ChatHistoryRow } from './ChatHistoryRow';
 import { copyText } from '../../components/copyText';
 import type { ChatAction, ChatMessage, DemoChat } from '../../mocks/chat';
 import type { DemoModel } from '../../mocks/modelLibrary';
@@ -58,6 +57,8 @@ function thinkingLabel(message: ChatMessage): string {
 /** Safe, local conversation presentation; model text is rendered as text, never HTML. */
 export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }: ChatPageProps) {
   const [searchOpen, setSearchOpen] = useState(false);
+  const [archived, setArchived] = useState(false);
+  const [collapsed, setCollapsed] = useState<Readonly<Record<string, boolean>>>({});
   const [query, setQuery] = useState('');
   const [modelOpen, setModelOpen] = useState(false);
   const [notice, setNotice] = useState('');
@@ -75,12 +76,14 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
   const conversation = chat.conversations.find((item) => item.id === chat.selectedId);
   const lastMessage = conversation?.messages[conversation.messages.length - 1];
   const searchChats = live?.search;
-  const visible = chat.conversations.filter((item) =>
-    live?.search && query.trim()
-      ? live.matches?.includes(item.id)
-      : `${item.title} ${item.messages.map((message) => message.text).join(' ')}`
-          .toLowerCase()
-          .includes(query.trim().toLowerCase()),
+  const visible = chat.conversations.filter(
+    (item) =>
+      Boolean(item.archived) === archived &&
+      (live?.search && query.trim()
+        ? live.matches?.includes(item.id)
+        : `${item.title} ${item.messages.map((message) => message.text).join(' ')}`
+            .toLowerCase()
+            .includes(query.trim().toLowerCase())),
   );
 
   // Copy/Delete feedback belongs to the current live status, never a later operation.
@@ -132,19 +135,7 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
     <section className={styles.page} aria-label="Chat">
       <aside className={styles.sidebar} aria-label="Conversations">
         <div className={styles.sidebarHeader}>
-          <button
-            type="button"
-            className={styles.newChat}
-            onClick={() => {
-              dispatch({ type: 'new', id: crypto.randomUUID() });
-              setQuery('');
-              setNotice('');
-              composer.current?.focus();
-            }}
-          >
-            <SquarePen size={16} aria-hidden="true" />
-            New chat
-          </button>
+          <h2>Chat</h2>
           <button
             ref={searchButton}
             type="button"
@@ -157,7 +148,23 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
               setQuery('');
             }}
           >
-            <Search size={16} aria-hidden="true" />
+            <ChatNavIcon name="search" />
+          </button>
+        </div>
+        <div className={styles.newChatRow}>
+          <button
+            type="button"
+            className={styles.newChat}
+            onClick={() => {
+              dispatch({ type: 'new', id: crypto.randomUUID() });
+              setQuery('');
+              setNotice('');
+              setArchived(false);
+              composer.current?.focus();
+            }}
+          >
+            <ChatNavIcon name="compose" width={16} height={16} />
+            New chat
           </button>
         </div>
         {searchOpen && (
@@ -172,42 +179,96 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
               }
             }}
           >
-            <SearchField label="Search chats" value={query} onChange={setQuery} />
+            <SearchField
+              label="Search chats"
+              value={query}
+              onChange={setQuery}
+              icon={<ChatNavIcon name="search" width={16} height={16} />}
+            />
           </div>
         )}
         <nav className={styles.history} aria-label="Conversation history">
-          {(['Today', 'Yesterday', 'Older'] as const).map((group) => {
-            const entries = visible.filter((item) => item.group === group);
-            return (
-              entries.length > 0 && (
-                <section key={group} aria-label={group}>
-                  <h2>{group}</h2>
-                  {entries.map((item) => (
-                    <SidebarItemRow
-                      key={item.id}
-                      id={item.id}
-                      title={item.title}
-                      selected={item.id === chat.selectedId}
-                      disabled={removing || Boolean(live && !live.remove)}
-                      onDelete={() => setDeleteTarget({ id: item.id, title: item.title })}
-                      onSelect={() => {
-                        dispatch({ type: 'select', id: item.id });
-                        setNotice('');
-                      }}
-                    />
-                  ))}
-                </section>
-              )
-            );
-          })}
+          {(archived ? ['Archived chats'] : ['Pinned', 'Today', 'Yesterday', 'Older']).map(
+            (group) => {
+              const entries = visible.filter(
+                (item) =>
+                  archived ||
+                  (group === 'Pinned' ? item.pinned : !item.pinned && item.group === group),
+              );
+              return (
+                entries.length > 0 && (
+                  <section key={group} aria-label={group}>
+                    <h3>
+                      <button
+                        type="button"
+                        aria-expanded={!collapsed[group]}
+                        onClick={() =>
+                          setCollapsed((previous) => ({ ...previous, [group]: !previous[group] }))
+                        }
+                      >
+                        {group}
+                        <ChatNavIcon
+                          name="chevron"
+                          width={14}
+                          height={14}
+                          className={collapsed[group] ? styles.collapsedChevron : undefined}
+                        />
+                      </button>
+                    </h3>
+                    {!collapsed[group] &&
+                      entries.map((item) => (
+                        <ChatHistoryRow
+                          key={item.id}
+                          item={{
+                            ...item,
+                            generating:
+                              (item.generating ??
+                                item.messages.some((message) =>
+                                  ['queued', 'running', 'cancelling'].includes(message.state ?? ''),
+                                )) ||
+                              (item.id === chat.selectedId && Boolean(live?.busy)),
+                          }}
+                          selected={item.id === chat.selectedId}
+                          disabled={removing || Boolean(live && !live.remove)}
+                          onPin={() => dispatch({ type: 'pin', id: item.id, value: !item.pinned })}
+                          onArchive={() =>
+                            dispatch({ type: 'archive', id: item.id, value: !item.archived })
+                          }
+                          onDelete={() => setDeleteTarget({ id: item.id, title: item.title })}
+                          onSelect={() => {
+                            dispatch({ type: 'select', id: item.id });
+                            setNotice('');
+                          }}
+                        />
+                      ))}
+                  </section>
+                )
+              );
+            },
+          )}
           {!visible.length && (
             <p className={styles.emptyHistory}>
               {live?.search && query.trim() && live.matches === undefined
                 ? 'Searching…'
-                : 'No matching conversations'}
+                : archived
+                  ? 'No archived chats'
+                  : 'No matching conversations'}
             </p>
           )}
         </nav>
+        <div className={styles.historyFooter}>
+          <button
+            type="button"
+            aria-pressed={archived}
+            onClick={() => {
+              setArchived(!archived);
+              setQuery('');
+            }}
+          >
+            <ChatNavIcon name="archive" width={16} height={16} />
+            {archived ? 'Back to chats' : 'Archived chats'}
+          </button>
+        </div>
       </aside>
       <div className={styles.conversation}>
         <header className={styles.header}>
