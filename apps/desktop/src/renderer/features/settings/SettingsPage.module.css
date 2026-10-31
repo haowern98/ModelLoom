@@ -2,9 +2,9 @@
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: var(--workspace-sidebar-width) minmax(0, 1fr);
   color: var(--neutral-text);
-  background: #181818;
+  background: transparent;
 }
 .sidebar {
   --font-size-control: var(--font-size-body);
@@ -13,7 +13,7 @@
   min-width: 0;
   min-height: 0;
   border-right: 1px solid #303033;
-  background: #1c1c1c;
+  background: var(--workspace-sidebar);
 }
 .sidebarHeader {
   padding: 14px 18px 12px;
@@ -76,7 +76,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 44px 24px 32px;
-  background: #181818;
+  background: var(--workspace-surface);
 }
 .details:focus-visible {
   outline-offset: -3px;

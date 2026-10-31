@@ -1,6 +1,5 @@
 .page {
   position: relative;
-  --surface: #181818;
   --card: #262626;
   --tile: #303030;
   --border: #383838;
@@ -12,10 +11,11 @@
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  background: var(--surface);
+  grid-template-columns: var(--workspace-sidebar-width) minmax(0, 1fr);
+  background: transparent;
 }
 .main {
+  background: var(--workspace-surface);
   position: relative;
   min-width: 0;
   min-height: 0;
