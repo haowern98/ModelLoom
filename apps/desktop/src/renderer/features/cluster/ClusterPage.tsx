@@ -141,6 +141,7 @@ export function ClusterPage({
   const panelId = useId();
   const panelToggle = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLElement>(null);
+  const canvasBackground = useRef<HTMLDivElement>(null);
   const [notification, setNotification] = useState<ToastMessage | null>(null);
   const notificationId = useRef(0);
   const dismissNotification = useCallback(() => setNotification(null), []);
@@ -488,7 +489,10 @@ export function ClusterPage({
           if (configuration) setModal({ type: 'delete', configuration });
         }}
       />
-      <div className={`${styles.main} ${view !== 'overview' ? styles.detailsMain : ''}`}>
+      <div
+        ref={canvasBackground}
+        className={`${styles.main} ${view !== 'overview' ? styles.detailsMain : ''}`}
+      >
         {notification && (
           <Toast
             key={notification.id}
@@ -714,6 +718,7 @@ export function ClusterPage({
           <div className={styles.overview} hidden={view !== 'overview'}>
             {canvasDevices.length ? (
               <ClusterCanvas
+                backgroundRef={canvasBackground}
                 key={
                   configurations?.selection?.configurationId ??
                   configurations?.selection?.modelId ??

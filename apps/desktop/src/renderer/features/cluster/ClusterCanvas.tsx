@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { Minus, Plus, Scan } from 'lucide-react';
 import styles from './ClusterPage.module.css';
 
@@ -17,6 +17,7 @@ export function ClusterCanvas({
   panelId,
   layoutStyle,
   fitOnMount = false,
+  backgroundRef,
 }: {
   children: ReactNode;
   onClear: () => void;
@@ -24,6 +25,7 @@ export function ClusterCanvas({
   panelId?: string | undefined;
   layoutStyle?: CSSProperties | undefined;
   fitOnMount?: boolean;
+  backgroundRef?: RefObject<HTMLDivElement | null>;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
@@ -33,6 +35,19 @@ export function ClusterCanvas({
   const [view, setView] = useState<Viewport>({ x: 16, y: 16, scale: 1 });
   const [dragging, setDragging] = useState(false);
   const instructions = useId();
+
+  useLayoutEffect(() => {
+    const background = backgroundRef?.current;
+    const element = viewport.current;
+    if (!background || !element) return;
+    const bounds = element.getBoundingClientRect();
+    const origin = background.getBoundingClientRect();
+    background.style.setProperty(
+      'background-position',
+      `${view.x + bounds.left - origin.left}px ${view.y + bounds.top - origin.top}px`,
+    );
+    background.style.setProperty('background-size', `${20 * view.scale}px ${20 * view.scale}px`);
+  }, [backgroundRef, view]);
 
   const centerY = useCallback((element: HTMLDivElement) => {
     const bottomSpace = (controls.current?.offsetHeight ?? 40) + 28;
