@@ -20,8 +20,10 @@
     "test:desktop": "playwright test --project desktop"
   },
   "dependencies": {
+    "@openai/apps-sdk-ui": "0.2.2",
     "@phosphor-icons/react": "2.1.10",
     "lucide-react": "1.49.0",
+    "radix-ui": "1.8.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-markdown": "10.1.0",
