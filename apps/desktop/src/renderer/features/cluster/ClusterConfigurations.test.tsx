@@ -90,7 +90,7 @@ it('confirms unsaved model switches, discards assignments, and plans the next mo
   try {
     await user.click(screen.getByRole('button', { name: 'Choose model' }));
     await user.click(screen.getByRole('menuitem', { name: /Qwen/ }));
-    await user.click(screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }));
+    await user.click(screen.getByRole('button', { name: 'Select Observed device' }));
     await user.type(screen.getByRole('spinbutton', { name: 'First layer for GPU' }), '0');
     await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU' }), '15');
     await user.click(screen.getByRole('button', { name: 'Run model' }));
@@ -221,16 +221,20 @@ it.each(['edit and save', 'restore and load'] as const)(
     const run = vi.fn();
     let view = render(<Harness bridge={bridge} onRun={run} twoGpus blockCount={64} />);
     const checkRanges = () => {
-      for (const [index, text, width] of [
-        [0, 'Layers 0 – 15', '25%'],
-        [1, 'Layers 16 – 63', '75%'],
+      for (const [index, first, last, count] of [
+        [0, 0, 15, 16],
+        [1, 16, 63, 48],
       ] as const) {
         const tile = screen.getByRole('region', { name: `Observed device GPU ${index}` });
-        expect(within(tile).getByText(text)).toBeInTheDocument();
-        const bar = tile.querySelector(
-          '[title="Layer allocation share, not measured memory use"] > span',
+        expect(
+          within(tile).getByRole('button', {
+            name: `Edit layers for Observed device GPU ${index}`,
+          }),
+        ).toHaveTextContent(`${first}\u2013${last}`);
+        expect(within(tile).getByRole('slider')).toHaveAttribute(
+          'aria-valuetext',
+          `Layers ${first} through ${last}, ${count} layers assigned`,
         );
-        expect(bar).toHaveStyle({ width });
         expect(within(tile).queryByText('Unassigned')).not.toBeInTheDocument();
       }
     };
@@ -271,9 +275,7 @@ it.each(['edit and save', 'restore and load'] as const)(
         await user.click(screen.getByRole('button', { name: 'Choose model' }));
         await user.click(screen.getByRole('menuitem', { name: /Observed model/ }));
         await checkOverview('No assignment');
-        await user.click(
-          screen.getByRole('button', { name: 'Edit layers for Observed device GPU 0' }),
-        );
+        await user.click(screen.getByRole('button', { name: 'Select Observed device' }));
         for (const [index, first, last] of [
           [0, '0', '15'],
           [1, '16', '63'],
@@ -293,9 +295,7 @@ it.each(['edit and save', 'restore and load'] as const)(
         await user.clear(lastDraft);
         await user.type(lastDraft, '-');
         await checkOverview('Draft');
-        await user.click(
-          screen.getByRole('button', { name: 'Edit layers for Observed device GPU 1' }),
-        );
+        await user.click(screen.getByRole('button', { name: 'Select Observed device' }));
         lastDraft = screen.getByRole('spinbutton', { name: 'Last layer for GPU 1' });
         await user.click(screen.getByRole('button', { name: 'Undo' }));
         expect(lastDraft).toHaveValue('');
@@ -315,9 +315,7 @@ it.each(['edit and save', 'restore and load'] as const)(
           expect(within(device).getByText(name)).toBeVisible();
         expect(within(device).getByText('This device', { selector: 'p' })).toBeVisible();
         await user.click(screen.getByRole('button', { name: 'Overview' }));
-        await user.click(
-          screen.getByRole('button', { name: 'Edit layers for Observed device GPU 1' }),
-        );
+        await user.click(screen.getByRole('button', { name: 'Select Observed device' }));
         panel = screen.getByRole('complementary', { name: 'Cluster panel' });
         expect(within(panel).getByRole('spinbutton', { name: 'Last layer for GPU 1' })).toHaveValue(
           '63',
@@ -368,12 +366,12 @@ it.each(['edit and save', 'restore and load'] as const)(
       checkRanges();
       expect(screen.getAllByText('In use')).toHaveLength(2);
       await checkOverview('In use');
-      await user.click(
-        screen.getByRole('button', { name: 'Edit layers for Observed device GPU 0' }),
-      );
+      await user.click(screen.getByRole('button', { name: 'Select Observed device' }));
       await user.clear(screen.getByRole('spinbutton', { name: 'Last layer for GPU 0' }));
       await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU 0' }), '14');
-      expect(screen.getByText('Planned layers 0 – 14')).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Edit layers for Observed device GPU 0' }),
+      ).toHaveTextContent('0\u201314');
       expect(screen.getByText('Active layers 0 – 15')).toBeInTheDocument();
       await checkOverview('Draft');
       expect(screen.getAllByText('In use')).toHaveLength(2);
@@ -525,7 +523,7 @@ it('reopens a legacy saved placement with connected equal-width live canvas colu
     const worker = await screen.findByRole('article', { name: 'Observed worker' });
     const local = screen.getByRole('article', { name: 'Observed device' });
     const world = local.closest<HTMLElement>('[data-canvas-device]')!.parentElement!;
-    expect(world.style.gridTemplateColumns).toBe('repeat(2, minmax(0, 498px))');
+    expect(world.style.gridTemplateColumns).toBe('repeat(2, minmax(0, 640px))');
     expect(local.closest<HTMLElement>('[data-canvas-device]')!.style.gridColumn).toBe('1');
     expect(worker.closest<HTMLElement>('[data-canvas-device]')!.style.gridColumn).toBe('2');
     const lines = screen.getByRole('img', { name: 'Canvas layout connections' });
@@ -577,7 +575,7 @@ it('saves a bottom-edge connection with assignments and restores both after a ne
       ['Observed device', '0', '3'],
       ['Observed worker', '4', '7'],
     ]) {
-      await user.click(screen.getByRole('button', { name: `Edit layers for ${device} GPU` }));
+      await user.click(screen.getByRole('button', { name: `Select ${device}` }));
       await user.type(screen.getByRole('spinbutton', { name: 'First layer for GPU' }), first!);
       await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU' }), last!);
     }
@@ -603,8 +601,12 @@ it('saves a bottom-edge connection with assignments and restores both after a ne
     expect(
       screen.getByRole('img', { name: 'Canvas layout connections' }).querySelector('path'),
     ).toHaveAttribute('data-to', peerId);
-    expect(screen.getByText('Layers 0 – 3')).toBeVisible();
-    expect(screen.getByText('Layers 4 – 7')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }),
+    ).toHaveTextContent('0\u20133');
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for Observed worker GPU' }),
+    ).toHaveTextContent('4\u20137');
     expect(screen.getByRole('button', { name: 'Save configuration' })).toBeDisabled();
     expect(run).not.toHaveBeenCalled();
   } finally {
@@ -646,7 +648,7 @@ it('uses durable core storage for Save-only validation, named selection and rest
     await screen.findByRole('button', { name: 'Selected local model: Observed model' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save configuration' })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }));
+    await user.click(screen.getByRole('button', { name: 'Select Observed device' }));
     await user.type(screen.getByRole('spinbutton', { name: 'First layer for GPU' }), '0');
     await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU' }), '-');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -701,6 +703,117 @@ it('uses durable core storage for Save-only validation, named selection and rest
     second.unmount();
   } finally {
     first.unmount();
+    await controller.close();
+    database.close();
+  }
+});
+
+it('applies card previews across local and remote GPUs as one undoable draft edit', async () => {
+  const database = new DatabaseSync(':memory:');
+  const store = new ModelConfigurationStore(
+    database,
+    () => {},
+    () => true,
+    capabilities,
+    record().load,
+  );
+  const controller = new ClusterController(store, 'window', { cacheK: 'q8_0', cacheV: 'q8_0' });
+  await store.recordImport(record().modelId, 123, {
+    modelId: record().modelId,
+    file: 'E:\\Models\\fixture.gguf',
+    name: model.name,
+    size: '4 GB',
+    sizeBytes: 4000,
+    modifiedMs: 1,
+    architecture: 'llama',
+    contextLimit: 32768,
+    blockCount: 64,
+    quantization: 'Q4_K_M',
+    parameters: '4B',
+  });
+  const original = [
+    { uuid, first: '0', last: '21' },
+    { uuid: secondUuid, first: '22', last: '42' },
+    { uuid: `${peerId}:${secondUuid}`, first: '43', last: '63' },
+  ];
+  const draft = store.cluster.writeDraft(`model:${record().modelId}`, null, {
+    modelId: record().modelId,
+    load: { defaults: record().load, cacheK: 'q8_0', cacheV: 'q8_0' },
+    runs: original,
+    canvas: {
+      positions: { local: { column: 0, row: 0 }, [peerId]: { column: 1, row: 0 } },
+      links: [{ from: 'local', to: peerId, edge: 'right' }],
+    },
+  });
+  const saved = store.cluster.saveDraft(draft.key, draft.revision, 'Card allocation');
+  if (!saved.ok) throw Error('fixture save failed');
+  const command = vi.fn<ClusterBridge['command']>((input) => controller.command('window', input));
+  const user = userEvent.setup();
+  const view = render(
+    <Harness bridge={{ command }} onRun={vi.fn()} twoGpus remote blockCount={64} />,
+  );
+  try {
+    await user.click(await screen.findByRole('button', { name: 'Card allocation' }));
+    const peerRange = () =>
+      screen.getByRole('button', { name: 'Edit layers for Observed worker GPU' });
+    const edits = () => command.mock.calls.filter(([input]) => input.action === 'edit').length;
+    const baseline = edits();
+    await user.click(screen.getByRole('button', { name: 'Edit layers for Observed device GPU 1' }));
+    const slider = screen.getByRole('slider', { name: 'Observed device GPU 1 ending layer' });
+    slider.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(peerRange()).toHaveTextContent('44\u201363');
+    expect(
+      screen.getByRole('textbox', { name: 'Last layer for Observed device GPU 1' }),
+    ).toHaveValue('43');
+    expect(screen.getByRole('button', { name: 'Save configuration' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Run model' })).toBeDisabled();
+    expect(edits()).toBe(baseline);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(peerRange()).toHaveTextContent('43\u201363');
+    expect(edits()).toBe(baseline);
+    await user.click(screen.getByRole('button', { name: 'Edit layers for Observed device GPU 1' }));
+    const last = screen.getByRole('textbox', { name: 'Last layer for Observed device GPU 1' });
+    await user.clear(last);
+    await user.type(last, '43');
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    expect(edits()).toBe(baseline);
+    expect(peerRange()).toHaveTextContent('44\u201363');
+    expect(screen.getByRole('button', { name: 'Save configuration' })).toBeEnabled();
+    expect(command.mock.calls.some(([input]) => input.action === 'save')).toBe(false);
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for Observed device GPU 1' }),
+    ).toHaveFocus();
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(peerRange()).toHaveTextContent('43\u201363');
+    expect(
+      screen.getByRole('slider', { name: 'Observed device GPU 1 ending layer' }),
+    ).toHaveAttribute('aria-valuenow', '42');
+    await user.click(screen.getByRole('button', { name: 'Redo' }));
+    expect(peerRange()).toHaveTextContent('44\u201363');
+    expect(edits()).toBe(baseline);
+    await user.click(screen.getByRole('button', { name: 'Save configuration' }));
+    await waitFor(() => expect(edits()).toBe(baseline + 1));
+    const edit = command.mock.calls
+      .map(([input]) => input)
+      .filter((input) => input.action === 'edit')
+      .at(-1)!;
+    expect(edit.edit).toMatchObject({
+      runs: [
+        original[0],
+        { uuid: secondUuid, first: '22', last: '43' },
+        { uuid: `${peerId}:${secondUuid}`, first: '44', last: '63' },
+      ],
+    });
+    await waitFor(() =>
+      expect(store.cluster.read(saved.configuration.id)?.runs).toEqual([
+        { uuid, first: 0, last: 21 },
+        { uuid: secondUuid, first: 22, last: 43 },
+        { uuid: `${peerId}:${secondUuid}`, first: 44, last: 63 },
+      ]),
+    );
+  } finally {
+    view.unmount();
     await controller.close();
     database.close();
   }

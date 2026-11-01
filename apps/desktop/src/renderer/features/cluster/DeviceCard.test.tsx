@@ -34,6 +34,9 @@ it('never infers per-device full offload from model readiness alone', () => {
   );
   expect(screen.getByText('Planned layers 48 – 63')).toBeInTheDocument();
   expect(screen.queryByText('In use')).not.toBeInTheDocument();
+  rerender(<DeviceCard {...props} layerCount={0} />);
+  expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+  expect(screen.getByText('Choose a model to assign layers.')).toBeVisible();
 });
 
 it('moves one add control to the nearest edge and keeps a pinned edge stable', () => {
