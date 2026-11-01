@@ -1,17 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
-import { Cpu } from '@phosphor-icons/react/dist/csr/Cpu';
-import { GraphicsCard as Gpu } from '@phosphor-icons/react/dist/csr/GraphicsCard';
-import { AppleLogo as Apple } from '@phosphor-icons/react/dist/csr/AppleLogo';
-import { Pencil } from '@phosphor-icons/react/dist/csr/Pencil';
-import { DotsThreeVertical as EllipsisVertical } from '@phosphor-icons/react/dist/csr/DotsThreeVertical';
-import { Plus } from '@phosphor-icons/react/dist/csr/Plus';
+import { Button as SdkButton } from '@openai/apps-sdk-ui/components/Button';
+import { Badge } from '@openai/apps-sdk-ui/components/Badge';
+import { Input } from '@openai/apps-sdk-ui/components/Input';
+import { Animate } from '@openai/apps-sdk-ui/components/Transition';
+import {
+  DotsHorizontal,
+  Plus,
+  EditPencil,
+  Speed,
+  Storage,
+} from '@openai/apps-sdk-ui/components/Icon';
 import type { DemoDevice, SampleRange } from '../../mocks/cluster';
-import { Button } from '../../components/Button';
 import styles from './ClusterPage.module.css';
+import card from './DeviceCard.module.css';
+import './cluster-sdk-tokens.css';
 import type { CanvasEdge } from './canvas-layout';
+import { LayerRangeSlider } from './LayerRangeSlider';
+import type { CardAllocation } from './useCardAllocation';
 
 interface DeviceCardProps {
   device: DemoDevice;
+  allocation?: CardAllocation;
+  editableIds?: readonly string[];
   ranges: readonly SampleRange[];
   appliedRanges: readonly SampleRange[];
   layerCount: number;
@@ -33,6 +43,8 @@ interface DeviceCardProps {
 
 export function DeviceCard({
   device,
+  allocation,
+  editableIds,
   ranges,
   appliedRanges,
   layerCount,
@@ -57,6 +69,30 @@ export function DeviceCard({
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
   const [fading, setFading] = useState(false);
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const firstInput = useRef<HTMLInputElement>(null);
+  const editorId = allocation?.editor?.hardwareId;
+  const focusEditor = allocation?.editor?.focusInput;
+  useEffect(() => {
+    if (!focusEditor) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      firstInput.current?.focus({ preventScroll: true });
+      firstInput.current?.select();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [editorId, focusEditor]);
+  const finishEditing = (element: HTMLElement, apply: boolean) => {
+    const trigger = element
+      .closest('section')
+      ?.querySelector<HTMLButtonElement>('button[aria-expanded]');
+    if (apply && !allocation?.done()) return;
+    if (!apply) allocation?.cancel();
+    queueMicrotask(() => trigger?.focus({ preventScroll: true }));
+  };
   const desiredEdge = useRef<CanvasEdge>('right');
   const edgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelEdgeTimer = () => {
@@ -79,7 +115,9 @@ export function DeviceCard({
   return (
     <article
       aria-label={device.name}
-      className={`${styles.device} ${device.role === 'Coordinator' ? styles.coordinator : ''}`}
+      data-cluster-sdk=""
+      data-theme="dark"
+      className={`${styles.device} ${card.card} ${device.role === 'Coordinator' ? styles.coordinator : ''}`}
       data-selected={selected}
       onPointerMove={(event) => {
         setPointerInside(true);
@@ -127,7 +165,11 @@ export function DeviceCard({
         if (!event.currentTarget.contains(event.relatedTarget)) setFocusInside(false);
       }}
       onClick={(event) => {
-        if (event.target instanceof Element && event.target.closest('button, input, a')) return;
+        if (
+          event.target instanceof Element &&
+          event.target.closest('button, input, a, form, [role=slider]')
+        )
+          return;
         onDetails(device);
       }}
     >
@@ -165,7 +207,7 @@ export function DeviceCard({
           onAdd(edge);
         }}
       >
-        <Plus size={16} aria-hidden="true" />
+        <Plus width={16} height={16} aria-hidden="true" />
       </button>
       {showAddHint && (
         <p
@@ -175,9 +217,9 @@ export function DeviceCard({
           Hover near an edge to add a device.
         </p>
       )}
-      <header className={styles.deviceHeader}>
+      <header className={`${styles.deviceHeader} ${card.header}`}>
         <div className={styles.identity}>
-          <h2 aria-label={device.name}>
+          <h2 className={card.deviceName} aria-label={device.name}>
             <button
               type="button"
               className={styles.selectDevice}
@@ -190,8 +232,10 @@ export function DeviceCard({
             </button>
           </h2>
         </div>
-        <div className={styles.headerControls}>
-          <span className={styles.role}>{device.role}</span>
+        <div className={`${styles.headerControls} ${card.headerControls}`}>
+          <Badge color="secondary" size="md" pill>
+            {device.role}
+          </Badge>
           <div
             ref={menuAnchor}
             className={styles.menuAnchor}
@@ -202,15 +246,18 @@ export function DeviceCard({
               if (event.key === 'Escape') setMenuOpen(false);
             }}
           >
-            <Button
-              variant="icon"
-              className={styles.menuButton}
+            <SdkButton
+              color="secondary"
+              variant="ghost"
+              uniform
+              size="md"
+              className={card.sdkButton ?? ''}
               aria-label={`Actions for ${device.name}`}
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen(!menuOpen)}
             >
-              <EllipsisVertical size={16} />
-            </Button>
+              <DotsHorizontal />
+            </SdkButton>
             {menuOpen && (
               <div className={styles.menu}>
                 <button
@@ -255,73 +302,228 @@ export function DeviceCard({
           </div>
         </div>
       </header>
+      <div className={card.deviceMetrics}>
+        <span title="CPU utilization is not reported by this device.">
+          CPU <b>—</b>
+        </span>
+        <span title="Memory from the most recent inventory sample, not a live usage reading.">
+          RAM{' '}
+          <b>
+            {memoryReading(
+              device.inventory?.usableRamBytes ?? device.inventory?.installedRamBytes,
+              device.inventory?.availableRamBytes,
+            )}
+          </b>
+        </span>
+        <span title="Disk read/write activity is not reported by this device.">
+          <Storage width={18} height={18} aria-hidden="true" />R — · W —
+        </span>
+      </div>
       <div className={styles.hardware}>
-        {device.hardware.map((hardware) => {
-          const range = ranges.find((entry) => entry.hardwareId === hardware.id);
-          const activeRange = appliedRanges.find((entry) => entry.hardwareId === hardware.id);
-          const Icon = hardware.kind === 'cpu' ? Cpu : hardware.kind === 'unified' ? Apple : Gpu;
-          return (
-            <section
-              className={`${styles.tile} ${hardware.kind === 'cpu' ? styles.cpu : ''}`}
-              key={hardware.id}
-              aria-label={`${device.name} ${hardware.label}`}
-            >
-              <Icon
-                size={26}
-                strokeWidth={1.7}
-                className={hardware.kind !== 'unified' ? styles.hardwareIcon : ''}
-              />
-              <div className={styles.hardwareText}>
-                <h3>{hardware.label}</h3>
-                <p>{hardware.name}</p>
-                <p>{hardware.detail}</p>
+        {device.hardware
+          .filter((hardware) => hardware.kind !== 'cpu')
+          .map((hardware) => {
+            const range = ranges.find((entry) => entry.hardwareId === hardware.id);
+            const activeRange = appliedRanges.find((entry) => entry.hardwareId === hardware.id);
+            const gpu = device.inventory?.gpus?.find(
+              (gpu) =>
+                hardware.assignmentId === gpu.executionIdentity?.uuid ||
+                hardware.id === gpu.id ||
+                hardware.id === `local-${gpu.id}`,
+            );
+            const editing = allocation?.editor?.hardwareId === hardware.id;
+            const editor = editing ? allocation.editor! : null;
+            const unavailable =
+              !active ||
+              loading ||
+              (editableIds !== undefined && !editableIds.includes(hardware.id));
+            return (
+              <section
+                className={card.gpu}
+                key={hardware.id}
+                aria-label={`${device.name} ${hardware.label}`}
+              >
+                <div className={card.meta}>
+                  <span>{hardware.label}</span>
+                  <span>
+                    {hardware.memoryGb > 0
+                      ? `${hardware.memoryGb.toFixed(1)} GiB`
+                      : 'Memory unavailable'}
+                  </span>
+                </div>
+                <h3>{hardware.name}</h3>
+                <div className={card.gpuMetrics}>
+                  <span title="GPU utilization is not reported by this device.">
+                    <Speed width={18} height={18} aria-hidden="true" />—
+                  </span>
+                  <span title="Memory from the most recent inventory sample, not a live usage reading.">
+                    VRAM <b>{memoryReading(gpu?.totalMemoryBytes, gpu?.availableMemoryBytes)}</b>
+                  </span>
+                </div>
                 {activeRange && (
                   <span className={styles.hardwareStatus}>
                     <i />
-                    In use
+                    <span>In use</span> ·{' '}
+                    <span>
+                      Active layers {activeRange.first} – {activeRange.last}
+                    </span>
                   </span>
                 )}
-                {hardware.kind !== 'cpu' && (
-                  <div className={styles.assignment}>
-                    <div
-                      className={styles.bar}
-                      title={range ? 'Layer allocation share, not measured memory use' : undefined}
+                <div className={card.assignment}>
+                  {layerCount > 0 && (
+                    <LayerRangeSlider
+                      label={`${device.name} ${hardware.label}`}
+                      range={{
+                        first: range?.first ?? 0,
+                        count: range ? range.last - range.first + 1 : 0,
+                      }}
+                      total={Math.max(1, layerCount)}
+                      disabled={unavailable || !allocation || layerCount < 1}
+                      onChange={(last) => allocation?.resize(hardware.id, last)}
+                    />
+                  )}
+                  <div className={card.rangeRow}>
+                    <span>{proposed && !savedAssignment ? 'Planned layers' : 'Layer range'}</span>
+                    <SdkButton
+                      className={card.sdkButton ?? ''}
+                      color="secondary"
+                      variant="outline"
+                      size="sm"
+                      title="Edit layer range"
+                      aria-label={`Edit layers for ${device.name} ${hardware.label}`}
+                      aria-expanded={editing ?? false}
+                      disabled={unavailable}
+                      onClick={() =>
+                        allocation ? allocation.open(hardware.id) : onEdit(hardware.id)
+                      }
                     >
-                      {range && (
-                        <span
-                          style={{
-                            width: `${((range.last - range.first + 1) / layerCount) * 100}%`,
-                          }}
-                        />
-                      )}
-                    </div>
-                    <div className={styles.rangeRow}>
-                      <span>
-                        {range
-                          ? `${proposed && !savedAssignment ? 'Planned layers' : 'Layers'} ${range.first} – ${range.last}`
-                          : 'Unassigned'}
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={`Edit layers for ${device.name} ${hardware.label}`}
-                        disabled={!active || loading}
-                        onClick={() => onEdit(hardware.id)}
-                      >
-                        <Pencil size={14} />
-                      </button>
-                    </div>
-                    {proposed && activeRange && (
-                      <small className={styles.activeRange}>
-                        Active layers {activeRange.first} – {activeRange.last}
-                      </small>
-                    )}
+                      <EditPencil aria-hidden="true" />
+                      {range ? `${range.first}–${range.last}` : 'Unassigned'}
+                    </SdkButton>
                   </div>
-                )}
-              </div>
-            </section>
-          );
-        })}
+                  {!allocation && range && (
+                    <span
+                      className={card.legacyRange}
+                    >{`${proposed && !savedAssignment ? 'Planned layers' : 'Layers'} ${range.first} – ${range.last}`}</span>
+                  )}
+                  <div
+                    data-layer-editor-motion
+                    data-open={Boolean(editor && allocation)}
+                    className={card.editorMotion}
+                    inert={!editing}
+                  >
+                    <Animate
+                      as="div"
+                      className={card.editorTransition ?? ''}
+                      transitionPosition="static"
+                      enter={{ opacity: 1, duration: reduceMotion ? 0 : 160, delay: 0 }}
+                      exit={{ opacity: 0, duration: reduceMotion ? 0 : 160 }}
+                    >
+                      {editor && allocation && (
+                        <div key={hardware.id} className={card.editorContent}>
+                          <form
+                            className={card.editor}
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              finishEditing(event.currentTarget, true);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Escape') {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                finishEditing(event.currentTarget, false);
+                              }
+                            }}
+                          >
+                            <div className={card.fields}>
+                              <label>
+                                First
+                                <Input
+                                  className={card.sdkInput ?? ''}
+                                  ref={firstInput}
+                                  size="sm"
+                                  inputMode="numeric"
+                                  value={editor.first}
+                                  aria-label={`First layer for ${device.name} ${hardware.label}`}
+                                  invalid={Boolean(editor.error)}
+                                  disabled={unavailable}
+                                  onChange={(event) =>
+                                    allocation.fields(event.target.value, editor.last)
+                                  }
+                                />
+                              </label>
+                              <label>
+                                Last
+                                <Input
+                                  className={card.sdkInput ?? ''}
+                                  size="sm"
+                                  inputMode="numeric"
+                                  value={editor.last}
+                                  aria-label={`Last layer for ${device.name} ${hardware.label}`}
+                                  invalid={Boolean(editor.error)}
+                                  disabled={unavailable}
+                                  onChange={(event) =>
+                                    allocation.fields(editor.first, event.target.value)
+                                  }
+                                />
+                              </label>
+                            </div>
+                            <div className={card.editActions}>
+                              <SdkButton
+                                className={card.sdkButton ?? ''}
+                                color="secondary"
+                                variant="ghost"
+                                size="sm"
+                                onClick={(event) => finishEditing(event.currentTarget, false)}
+                              >
+                                Cancel
+                              </SdkButton>
+                              <SdkButton
+                                className={card.sdkButton ?? ''}
+                                type="submit"
+                                color="primary"
+                                size="sm"
+                                disabled={unavailable}
+                              >
+                                Done
+                              </SdkButton>
+                            </div>
+                            {editor.error && (
+                              <p role="alert" className={card.error}>
+                                {editor.error}
+                              </p>
+                            )}
+                            <p
+                              role="status"
+                              className={
+                                allocation.message.includes('multiple GPUs') ||
+                                allocation.message.includes('outside')
+                                  ? card.error
+                                  : card.preview
+                              }
+                            >
+                              Preview · {allocation.message}
+                            </p>
+                            <p className={card.preview}>
+                              Done updates the configuration draft for all devices. Use Save to keep
+                              it.
+                            </p>
+                          </form>
+                        </div>
+                      )}
+                    </Animate>
+                  </div>
+                </div>
+              </section>
+            );
+          })}
       </div>
+      {layerCount < 1 && <p className={card.preview}>Choose a model to assign layers.</p>}
     </article>
   );
+}
+
+function memoryReading(total: number | undefined, available: number | undefined): string {
+  if (!total || available === undefined || available < 0 || available > total) return '—';
+  return `${((total - available) / 2 ** 30).toFixed(1)} / ${(total / 2 ** 30).toFixed(1)} GiB`;
 }

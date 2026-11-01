@@ -1,0 +1,289 @@
+/* Card layout uses the approved OpenAI SDK preview surfaces and dimensions. */
+.card {
+  width: 100%;
+  max-width: 640px;
+  background: #212121 !important;
+  border-radius: 16px;
+  padding: 16px;
+  cursor: default;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-text-md-size);
+  line-height: var(--font-text-md-line-height);
+  user-select: text;
+}
+.card :global(*) {
+  box-sizing: border-box;
+}
+.card button.sdkButton,
+.card button.sdkButton:hover,
+.card .sdkInput input {
+  all: revert-layer;
+  -webkit-app-region: no-drag;
+  /* Match the SDK's expected reset even when a legacy app hover rule applies. */
+  border: 0;
+  background: transparent;
+}
+.card button.sdkButton,
+.card button.sdkButton:hover {
+  font-family: inherit;
+  font-weight: var(--font-weight-normal);
+}
+.card button.sdkButton {
+  cursor: pointer;
+}
+.card .header {
+  margin-bottom: 0;
+}
+.card .headerControls {
+  height: auto;
+  align-self: center;
+}
+.card h2.deviceName {
+  font-size: var(--font-text-lg-size);
+  line-height: var(--font-text-lg-line-height);
+  font-weight: var(--font-weight-medium);
+  transform: none;
+}
+.card .deviceName button {
+  color: inherit;
+}
+.card button.sdkButton:disabled {
+  cursor: not-allowed;
+}
+.card button.sdkButton:focus-visible,
+.card .sdkInput input:focus-visible {
+  outline: 2px solid #78baff;
+  outline-offset: 2px;
+}
+.deviceMetrics {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0;
+  font-size: var(--font-text-sm-size);
+  line-height: var(--font-text-sm-line-height);
+}
+.deviceMetrics span,
+.gpuMetrics span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.deviceMetrics b,
+.gpuMetrics b {
+  font-weight: 400;
+}
+.deviceMetrics svg,
+.gpuMetrics svg {
+  color: var(--muted);
+}
+.gpu {
+  padding: 16px;
+  border-radius: 12px;
+  background: #181818;
+  min-width: 0;
+}
+.meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--font-text-sm-size);
+  line-height: var(--font-text-sm-line-height);
+  color: var(--color-text-secondary);
+}
+.gpu h3 {
+  margin: 6px 0 0;
+  font-size: var(--font-text-md-size);
+  line-height: var(--font-text-md-line-height);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.gpuMetrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  margin-top: 12px;
+  font-size: var(--font-text-sm-size);
+  line-height: var(--font-text-sm-line-height);
+}
+.assignment {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #ffffff0d;
+}
+.rangeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+  font-size: var(--font-text-sm-size);
+  line-height: var(--font-text-sm-line-height);
+  color: var(--muted);
+}
+.editor {
+  margin: 0;
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.editorContent {
+  padding-top: 14px;
+}
+.editorMotion {
+  display: grid;
+  grid-template-rows: 0fr;
+  /* Intrinsic grid sizing stays in layout pixels at every canvas zoom. */
+  transition: grid-template-rows 160ms var(--cubic-move);
+}
+.editorMotion[data-open='true'] {
+  grid-template-rows: 1fr;
+  transition-duration: 200ms;
+}
+.editorTransition {
+  min-height: 0;
+  overflow: hidden;
+}
+.editorMotion :global([data-exiting]) {
+  pointer-events: none;
+}
+.fields {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+  min-width: 170px;
+}
+.fields label {
+  display: grid;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--font-text-sm-size);
+  line-height: var(--font-text-sm-line-height);
+}
+.editActions {
+  display: flex;
+  gap: 4px;
+}
+.error,
+.preview {
+  width: 100%;
+  font-size: var(--font-size-metadata);
+  line-height: var(--line-height-description);
+}
+.error {
+  color: #f04438;
+}
+.preview {
+  color: var(--muted);
+}
+.card > .preview {
+  margin-top: 12px;
+}
+.legacyRange {
+  display: block;
+  color: var(--muted);
+  font-size: var(--font-size-metadata);
+}
+.slider {
+  --slider-track-color: #414141;
+  --slider-range-color: #8f8f8f;
+  --gray-0: #0d0d0d;
+}
+.slider :global(.layer-label) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.slider :global(.layer-label) svg {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+}
+.slider :global(.layer-slider-label) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin-bottom: 8px;
+  font-size: var(--font-size-body);
+}
+.slider :global(.layer-slider-count) {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  min-height: 22px;
+  font-size: var(--font-size-control);
+  font-variant-numeric: tabular-nums;
+}
+.slider :global(.layer-slider-count) span {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-metadata);
+}
+.slider :global(.layer-slider-root) {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 14px;
+  padding-bottom: 6px;
+  touch-action: none;
+  user-select: none;
+}
+.slider :global(.layer-slider-track) {
+  position: relative;
+  flex-grow: 1;
+  height: 4px;
+  border-radius: var(--radius-2xs);
+  background: var(--slider-track-color);
+}
+.slider :global(.layer-slider-interval) {
+  position: absolute;
+  height: 100%;
+  min-width: 4px;
+  border-radius: var(--radius-2xs);
+  background: var(--slider-range-color);
+}
+.slider :global(.layer-slider-thumb) {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--gray-0);
+  box-shadow: inset 0 0 0 2px var(--slider-range-color);
+  cursor: grab;
+  outline: none;
+}
+.slider :global(.layer-slider-thumb):focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+.slider :global(.layer-slider-thumb):active {
+  cursor: grabbing;
+}
+.slider :global(.layer-slider-thumb)[data-disabled] {
+  cursor: default;
+}
+.slider :global(.layer-slider-marks) {
+  position: relative;
+  margin-top: 4px;
+  height: 18px;
+  font-size: var(--font-size-metadata);
+}
+.slider :global(.layer-slider-marks) span {
+  position: absolute;
+}
+@media (max-width: 767px) {
+  .slider :global(.layer-slider-count) {
+    min-height: 26px;
+    font-size: var(--font-size-heading);
+  }
+}
