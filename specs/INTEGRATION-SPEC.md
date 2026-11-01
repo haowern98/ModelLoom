@@ -427,3 +427,28 @@ inference executes 64 model layers without MTP. Preserve this distinction when
 compiling and validating placement; do not enable an MTP or draft-model path to
 reconcile those counts. A successful load alone does not establish unchanged
 inference quality.
+
+### Multiple-GPU cluster assignments (2026-11-02)
+
+Saved assignments, draft runs, placement compilation and observation consumers
+accept up to 16 uniquely identified GPUs, matching the existing planner-command
+device bound. GPUs may be local or peer-qualified; peer approval, hardware sharing,
+owned gateways, resource admission and package verification remain required.
+Contiguous complete coverage is mandatory. Compile cumulative split weights with
+the pinned loader's sequential float32 arithmetic and reject boundaries that cannot
+represent the requested layer ownership. Verify every block, cache/state allocation,
+output and physical identity across all selected devices before readiness.
+
+Automatic planning checks single-GPU candidates first. The existing two-device
+centre-out cut search remains. Larger sets use free-memory-weighted proposals for
+the full canvas and subsets in both orders, each checked by the native estimator.
+This larger search is bounded by cancellation, deadline and 64 native evaluations;
+if it does not find a feasible proposal, return PLANNING_INCOMPLETE rather than
+claiming that every possible cut was exhausted. Never silently truncate the
+candidate set to two GPUs.
+
+Renderer card previews are local. Done updates all range strings in one Undo step;
+explicit Save or Run synchronizes the owner session. Existing revision checks and
+the closed, byte-bounded command/reply contract remain in force. Synthetic tests
+exercise placement arithmetic and log/receipt verification; they do not establish
+live three-or-more-GPU inference quality or throughput.

@@ -1223,3 +1223,43 @@ Idle bandwidth is labelled Last measured bandwidth, distinct from live traffic.
 Unavailable observations retain historical values with explicit labels; unsupported
 older reporters remain usable. Do not fabricate a direct measured connection
 between two remote worker cards merely because a placement line joins them.
+
+### Inline cluster device cards (2026-11-02)
+
+Use the approved OpenAI Apps SDK UI 0.2.2 card preview: a 640px maximum card,
+device heading and role badge, compact metrics, and darker GPU sections. SDK
+tokens and control resets stay inside the card. Preserve the reference's 16px
+SDK scale without changing the app's 14px root. The dark theme must apply to
+the card scope root, including the role badge and all button states.
+
+Show each GPU's actual contiguous interval on the full 0 through N-1 layer
+axis. Its single knob changes the ending layer while preserving the start;
+following GPU assignments update as a cluster-wide preview in layer order,
+including other PCs. An interval starting at zero reaches the track's left edge.
+Sliders and valid First/Last field edits use the same redistribution. Keep later
+existing boundaries where possible; extend or consume following ranges as the
+edited endpoint moves. Share any remaining tail evenly among previously empty
+following GPUs, so an initially unassigned second GPU receives the remainder.
+Retain the edit's original allocation boundaries until Done or Cancel, allowing
+a boundary moved back to restore GPUs temporarily consumed by the preview.
+Manual starts that overlap earlier ranges retain overlap feedback.
+The outlined pencil/range control opens First/Last fields. Slider changes also
+open those fields, with Cancel and Done; sliders remain usable while editing.
+Cancel or Escape restores the whole preview, and Done applies every range in
+one undoable in-memory draft edit. Explicit Save and Run keep their existing
+meaning. Changing model/inventory invalidates a stale preview. Keep overlap and
+unassigned-layer feedback, and prevent Save/Run from bypassing an unfinished preview.
+
+Opening or closing the inline editor preserves the current canvas position and
+zoom. Its card grows downward, moving subsequent GPU sections down. Keep normal
+re-centering for initial loading, viewport/panel resizing, device layout changes,
+and explicit Fit to view. Use the OpenAI SDK Animate fade and easing with an
+intrinsic height transition that remains correct inside a zoomed canvas: 200ms
+expansion and 160ms collapse, with a 160ms fade. Reduced-motion mode skips these
+effects. Moving focus into the editor or back to its trigger must not scroll the canvas.
+
+Before a model is selected, show "Choose a model to assign layers." rather than
+a zero-length slider scale. Missing utilization and disk read/write activity
+remain unavailable. RAM/VRAM values come from the latest inventory sample and
+must not be presented as live utilization. Preserve all four hover-add edges,
+the add-device hint, picker, details, rename, and existing removal restrictions.
