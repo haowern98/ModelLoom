@@ -1,5 +1,7 @@
 import type { ClusterEffectiveLoad } from './effective-load.js';
 import { clusterDeviceNames, decodeClusterDevice } from './device-id.js';
+import { MAX_CLUSTER_GPUS } from './contracts.js';
+import { placementThresholds } from './placement.js';
 
 export type PhysicalPlacementDevice =
   | { readonly uuid: string; readonly pciBus: string; readonly rpcEndpoint?: never }
@@ -42,7 +44,8 @@ export function verifyStockPlacement(
     n < 1 ||
     n > 65536 ||
     ids.length < 1 ||
-    ids.length > 2 ||
+    ids.length > MAX_CLUSTER_GPUS ||
+    load.placement.tensorSplit.length !== ids.length ||
     cacheLayers.length !== n ||
     cacheLayers.some((k) => !['kv', 'recurrent', 'auto', 'none'].includes(k))
   )
@@ -51,6 +54,12 @@ export function verifyStockPlacement(
   const executionCount = executed < 0 ? n : executed;
   if (executionCount < 1 || cacheLayers.slice(executionCount).some((k) => k !== 'none')) fail();
   const names = clusterDeviceNames(ids);
+  let thresholds: readonly number[];
+  try {
+    thresholds = placementThresholds(load.placement.tensorSplit);
+  } catch {
+    return fail();
+  }
   const expectedIdentity = ids.map((id) => {
     const rows = physical.filter((p) => p.uuid.toLowerCase() === id.toLowerCase());
     if (rows.length !== 1) return fail();
@@ -67,10 +76,8 @@ export function verifyStockPlacement(
     return i >= 0 && i < ids.length ? i : fail();
   };
   const expected = (i: number): number => {
-    if (ids.length === 1) return 0;
-    const weights = load.placement.tensorSplit;
-    const threshold = Math.fround(weights[0]! / Math.fround(weights[0]! + weights[1]!));
-    return Math.fround(i / (n + 1)) < threshold ? 0 : 1;
+    const index = thresholds.findIndex((threshold) => Math.fround(i / (n + 1)) < threshold);
+    return index >= 0 ? index : fail();
   };
   const seenDevices = new Set<number>(),
     blocks = new Map<number, number>();

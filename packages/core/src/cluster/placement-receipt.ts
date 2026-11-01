@@ -1,4 +1,5 @@
 import type { ClusterEffectiveLoad } from './effective-load.js';
+import { placementThresholds } from './placement.js';
 /** Proposed owner-only receipt consumer. Stock startup logs cannot satisfy this contract. */
 export function validatePlacementReceipt(
   bytes: Uint8Array,
@@ -55,9 +56,8 @@ export function validatePlacementReceipt(
       )
         return fail();
     };
-    const weights = load.placement.tensorSplit;
-    const threshold =
-      weights.length === 2 ? Math.fround(weights[0]! / Math.fround(weights[0]! + weights[1]!)) : 1;
+    const thresholds = placementThresholds(load.placement.tensorSplit);
+    if (thresholds.length !== load.placement.orderedUuids.length) return fail();
     for (let i = 0; i < r.blocks.length; i++) {
       const b = object(r.blocks[i], [
         'index',
@@ -67,7 +67,9 @@ export function validatePlacementReceipt(
         'executedDeviceUuid',
       ]);
       const uuid =
-        load.placement.orderedUuids[Math.fround(i / (load.blockCount + 1)) < threshold ? 0 : 1]!;
+        load.placement.orderedUuids[
+          thresholds.findIndex((threshold) => Math.fround(i / (load.blockCount + 1)) < threshold)
+        ]!;
       if (
         b.index !== i ||
         b.deviceUuid !== uuid ||
