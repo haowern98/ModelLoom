@@ -122,7 +122,32 @@ export function ClusterCanvas({
     const element = viewport.current;
     const content = world.current;
     if (!element || !content) return;
-    const recenter = () => {
+    const measure = () => ({
+      width: content.offsetWidth,
+      layout: Array.from(content.querySelectorAll<HTMLElement>('[data-canvas-device]'), (node) =>
+        [node.dataset.canvasDevice, node.style.gridColumn, node.style.gridRow].join(':'),
+      ).join('|'),
+      editors: new Map(
+        Array.from(
+          content.querySelectorAll<HTMLElement>('[data-layer-editor-motion]'),
+          (node) => [node, Number.parseFloat(getComputedStyle(node).height) || 0] as const,
+        ),
+      ),
+    });
+    let previous = measure();
+    const recenter = (entries?: ResizeObserverEntry[]) => {
+      const next = measure();
+      // Only editor-driven height changes keep the camera anchored, including exit frames.
+      const editorResize =
+        entries?.length &&
+        entries.every((entry) => entry.target === content) &&
+        next.width === previous.width &&
+        next.layout === previous.layout &&
+        next.editors.size === previous.editors.size &&
+        [...next.editors].every(([node]) => previous.editors.has(node)) &&
+        [...next.editors].some(([node, height]) => height !== previous.editors.get(node));
+      previous = next;
+      if (editorResize) return;
       if (fitOnMount && !touched.current) fitView();
       else if (singleDevice || !touched.current) centerView();
     };
