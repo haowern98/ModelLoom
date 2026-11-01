@@ -30,6 +30,7 @@ import type { ResourceSnapshot } from '../runtime/gpu-resources.js';
 import type { ModelSource } from '../model-configuration/model-source.js';
 import type { ModelConfigurationRecord } from '../model-configuration/contracts.js';
 import type { ClusterDraft, SavedClusterConfiguration, GpuRun } from '../cluster/contracts.js';
+import { MAX_CLUSTER_GPUS } from '../cluster/contracts.js';
 import { resolveClusterLoad } from '../cluster/effective-load.js';
 import { autoPlace } from '../cluster/auto-place.js';
 import {
@@ -470,7 +471,7 @@ export function developmentDesktopDependencies(
             : []
         )
           .filter((id) => !devices || devices.includes(id))
-          .slice(0, 2);
+          .slice(0, MAX_CLUSTER_GPUS);
         const snapshot = remoteIds.length ? await clusterResources(remoteIds, signal) : local;
         const ids =
           snapshot.gpus
@@ -482,10 +483,9 @@ export function developmentDesktopDependencies(
                 g.mig !== 'Enabled',
             )
             .sort((a, b) => b.free! - a.free!)
-            .slice(0, 2)
+            .slice(0, MAX_CLUSTER_GPUS)
             .map((g) => g.uuid) ?? [];
         let overflow: { runs: readonly GpuRun[]; pressure: number } | undefined;
-        let evaluated = 0;
         const ordered = [...ids].sort();
         const free = ordered.map((uuid) => snapshot.gpus!.find((g) => g.uuid === uuid)!.free!);
         const preferredCut =
@@ -502,7 +502,6 @@ export function developmentDesktopDependencies(
           blockCount,
           ids,
           async (runs) => {
-            if (++evaluated > 10) return null;
             const saved: SavedClusterConfiguration = {
               id: randomUUID(),
               name: 'Auto assign',
@@ -563,6 +562,10 @@ export function developmentDesktopDependencies(
           signal,
           Date.now() + (remoteIds.length ? GENERATION_POLICY.generationMs : 120000),
           preferredCut,
+          {
+            maximumEvaluations: 64,
+            weights: Object.fromEntries(ordered.map((id, i) => [id, free[i]!])),
+          },
         );
         if (result.code === 'PROPOSED') return result.runs;
         if (overflow && (result.code === 'NO_FIT' || result.code === 'INCOMPLETE'))

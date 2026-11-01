@@ -1,5 +1,6 @@
 import type { GpuRun } from './contracts.js';
 import { decodeClusterDevice } from './device-id.js';
+import { MAX_CLUSTER_GPUS } from './contracts.js';
 export interface AutoCandidate {
   readonly runs: readonly GpuRun[];
   readonly pressure: number;
@@ -15,13 +16,24 @@ export async function autoPlace(
   signal: AbortSignal,
   deadline = Date.now() + 120000,
   preferredCut?: number,
+  search: {
+    readonly maximumEvaluations?: number;
+    readonly weights?: Readonly<Record<string, number>>;
+  } = {},
 ): Promise<AutoPlaceResult> {
   if (
     !Number.isSafeInteger(blockCount) ||
     blockCount < 1 ||
     blockCount > 16777214 ||
     uuids.length < 1 ||
-    uuids.length > 2 ||
+    uuids.length > MAX_CLUSTER_GPUS ||
+    (search.maximumEvaluations !== undefined &&
+      (!Number.isSafeInteger(search.maximumEvaluations) || search.maximumEvaluations < 1)) ||
+    uuids.some(
+      (uuid) =>
+        search.weights?.[uuid] !== undefined &&
+        (!Number.isSafeInteger(search.weights[uuid]) || search.weights[uuid] < 0),
+    ) ||
     new Set(uuids.map((u) => u.toLowerCase())).size !== uuids.length ||
     uuids.some((u) => {
       try {
@@ -34,6 +46,7 @@ export async function autoPlace(
   )
     return { code: 'UNSUPPORTED' };
   const ordered = [...uuids].sort();
+  let evaluated = 0;
   const check = () =>
     signal.aborted
       ? ('CANCELLED' as const)
@@ -45,6 +58,8 @@ export async function autoPlace(
     const candidates = function* (): Generator<readonly GpuRun[]> {
       if (count === 1) {
         for (const uuid of ordered) yield [{ uuid, first: 0, last: blockCount - 1 }];
+      } else if (ordered.length > 2) {
+        yield* multiGpuCandidates(ordered, blockCount, search.weights);
       } else if (ordered.length === 2) {
         const center =
           preferredCut !== undefined &&
@@ -67,6 +82,8 @@ export async function autoPlace(
     for (const runs of candidates()) {
       const stopped = check();
       if (stopped) return { code: stopped };
+      if (evaluated >= (search.maximumEvaluations ?? Infinity)) return { code: 'INCOMPLETE' };
+      evaluated++;
       const found = await evaluate(runs, signal);
       const after = check();
       if (after) return { code: after };
@@ -84,5 +101,53 @@ export async function autoPlace(
     }
     if (best) return { code: 'PROPOSED', runs: best.runs };
   }
-  return { code: 'NO_FIT' };
+  return { code: ordered.length > 2 ? 'INCOMPLETE' : 'NO_FIT' };
+}
+
+/** Larger sets use resource-weighted seeds, not an exponential exhaustive-cut claim. */
+function* multiGpuCandidates(
+  ids: readonly string[],
+  blocks: number,
+  weights: Readonly<Record<string, number>> | undefined,
+): Generator<readonly GpuRun[]> {
+  function* subsets(
+    size: number,
+    from = 0,
+    prefix: readonly string[] = [],
+  ): Generator<readonly string[]> {
+    if (prefix.length === size) {
+      yield prefix;
+      return;
+    }
+    for (let i = from; i <= ids.length - (size - prefix.length); i++)
+      yield* subsets(size, i + 1, [...prefix, ids[i]!]);
+  }
+  const sets = function* () {
+    // Try the full canvas early so pair searches cannot consume the whole native budget.
+    if (ids.length <= blocks) yield ids;
+    for (let size = 2; size < ids.length && size <= blocks; size++) yield* subsets(size);
+  };
+  for (const subset of sets())
+    for (const order of [subset, [...subset].reverse()]) {
+      const capacity = order.map((id) => Math.max(1, weights?.[id] ?? 1));
+      const total = capacity.reduce((sum, value) => sum + value, 0);
+      let cumulative = 0,
+        first = 0;
+      yield order.map((uuid, i) => {
+        cumulative += capacity[i]!;
+        const end =
+          i === order.length - 1
+            ? blocks
+            : Math.max(
+                first + 1,
+                Math.min(
+                  blocks - (order.length - i - 1),
+                  Math.round((blocks * cumulative) / total),
+                ),
+              );
+        const run = { uuid, first, last: end - 1 };
+        first = end;
+        return run;
+      });
+    }
 }
