@@ -1,4 +1,4 @@
-import { decodeCapturedClusterLoad, decodeClusterDraft } from './contracts.js';
+import { decodeCapturedClusterLoad, decodeClusterDraft, MAX_CLUSTER_GPUS } from './contracts.js';
 import { decodeClusterDevice } from './device-id.js';
 import type {
   AssignmentIssue,
@@ -62,12 +62,37 @@ export function validateAssignment(draft: ClusterDraft, blockCount: number): Pla
     ? Object.freeze({ ok: false, issues: Object.freeze(issues) })
     : Object.freeze({ ok: true, runs: Object.freeze(runs) });
 }
+/** Match the loader's sequential float32 sum and normalization, including decimal serialization. */
+export function placementThresholds(weights: readonly number[]): readonly number[] {
+  if (
+    !weights.length ||
+    weights.length > MAX_CLUSTER_GPUS ||
+    weights.some((weight) => !Number.isFinite(weight) || weight <= 0)
+  )
+    throw Error('UNREPRESENTABLE_CLUSTER_PLACEMENT');
+  let sum = 0;
+  const cumulative = weights.map(
+    (weight) => (sum = Math.fround(sum + Math.fround(Number(String(weight))))),
+  );
+  const thresholds = cumulative.map((value) => Math.fround(value / sum));
+  if (
+    !Number.isFinite(sum) ||
+    sum <= 0 ||
+    thresholds.some(
+      (value, i) => !Number.isFinite(value) || value <= (i ? thresholds[i - 1]! : 0),
+    ) ||
+    thresholds.at(-1) !== 1
+  )
+    throw Error('UNREPRESENTABLE_CLUSTER_PLACEMENT');
+  return Object.freeze(thresholds);
+}
+
 /** Compile pure placement ratios, never runtime arguments or launch authority. */
 export function compilePlacement(runs: readonly GpuRun[], blockCount: number): CompiledPlacement {
   const fail = (): never => {
     throw new Error('UNREPRESENTABLE_CLUSTER_PLACEMENT');
   };
-  if (!supported(blockCount) || runs.length < 1 || runs.length > 2) return fail();
+  if (!supported(blockCount) || runs.length < 1 || runs.length > MAX_CLUSTER_GPUS) return fail();
   const ordered = [...runs].sort((a, b) => a.first - b.first);
   try {
     ordered.forEach((run) => decodeClusterDevice(run.uuid));
@@ -89,20 +114,28 @@ export function compilePlacement(runs: readonly GpuRun[], blockCount: number): C
   )
     return fail();
   let tensorSplit: readonly number[] = Object.freeze([1]);
-  if (ordered.length === 2) {
-    const cut = ordered[1]!.first;
-    const low = Math.fround((cut - 1) / (blockCount + 1));
-    const high = Math.fround(cut / (blockCount + 1));
-    const threshold = Math.fround((low + high) / 2);
-    if (!(threshold > low && threshold < high)) return fail();
-    const weights = [threshold, Math.fround(1 - threshold)].map((x) =>
-      Math.fround(Number(String(x))),
+  if (ordered.length > 1) {
+    const boundaries = ordered.slice(1).map((run) => {
+      const low = Math.fround((run.first - 1) / (blockCount + 1));
+      const high = Math.fround(run.first / (blockCount + 1));
+      const midpoint = Math.fround((low + high) / 2);
+      if (!(low < midpoint && midpoint < high)) return fail();
+      return midpoint;
+    });
+    const weights = [...boundaries, 1].map((value, i) =>
+      Math.fround(value - (i ? boundaries[i - 1]! : 0)),
     );
-    const sum = Math.fround(weights[0]! + weights[1]!);
-    const normalized = Math.fround(weights[0]! / sum);
+    const normalized = placementThresholds(weights);
     // The loader uses upper_bound: a slot exactly on the threshold goes right.
     // Monotonic float32 division makes these adjacent-slot checks exhaustive.
-    if (!(low < normalized && normalized < high) || Math.fround(sum / sum) !== 1) return fail();
+    for (let i = 0; i < ordered.length - 1; i++) {
+      const cut = ordered[i + 1]!.first;
+      if (!(
+        Math.fround((cut - 1) / (blockCount + 1)) < normalized[i]! &&
+        normalized[i]! < Math.fround(cut / (blockCount + 1))
+      ))
+        return fail();
+    }
     tensorSplit = Object.freeze(weights);
   }
   return Object.freeze({
