@@ -26,6 +26,7 @@ import {
 } from '../../mocks/cluster';
 import type { DemoDevice, DemoPlacement, LayerInput, PlacementAction } from '../../mocks/cluster';
 import { DeviceCard } from './DeviceCard';
+import { useCardAllocation } from './useCardAllocation';
 import { ClusterCanvas } from './ClusterCanvas';
 import { ClusterPanel } from './ClusterPanel';
 import { ClusterModelPicker } from './ClusterModelPicker';
@@ -375,6 +376,62 @@ export function ClusterPage({
     : activeModel
       ? placement.applied
       : [];
+  const editableIds = canvasDevices.flatMap((device) =>
+    device.hardware
+      .filter(
+        (hardware) =>
+          hardware.kind !== 'cpu' &&
+          (demo || executableGpus.some((gpu) => gpu.hardwareId === hardware.id)),
+      )
+      .map((hardware) => hardware.id),
+  );
+  const cardBaseRanges = selectedIsActive && !changed && activeCluster ? appliedRanges : ranges;
+  const cardEditsDisabled =
+    !canPlace || loading || Boolean(configurations?.pending || configurations?.planning);
+  const cardContext = JSON.stringify([
+    selectedModel?.id,
+    configurations?.selection,
+    configurations?.raw,
+    editorInputs,
+    appliedRanges,
+    editableIds,
+    layerCount,
+  ]);
+  const cardEditor = useCardAllocation({
+    ranges: cardBaseRanges,
+    ids: editableIds,
+    total: layerCount,
+    context: cardContext,
+    disabled: cardEditsDisabled,
+    commit: (next) => {
+      if (!configurations) {
+        dispatch({
+          type: 'edit-all',
+          inputs: editableIds.map((hardwareId) => {
+            const range = next.find((range) => range.hardwareId === hardwareId);
+            return {
+              hardwareId,
+              first: range ? String(range.first) : '',
+              last: range ? String(range.last) : '',
+            };
+          }),
+        });
+        return;
+      }
+      const editable = executableGpus.filter((gpu) => editableIds.includes(gpu.hardwareId));
+      configurations.edit([
+        ...(configurations.raw?.runs ?? []).filter(
+          (run) => !editable.some((gpu) => gpu.uuid === run.uuid),
+        ),
+        ...next.flatMap((range) => {
+          const gpu = editable.find((gpu) => gpu.hardwareId === range.hardwareId);
+          return gpu
+            ? [{ uuid: gpu.uuid, first: String(range.first), last: String(range.last) }]
+            : [];
+        }),
+      ]);
+    },
+  });
   const runCurrentAllocation = async () => {
     if (!configurations || !localRuntime) return;
     if (configurations.saved && !configurations.dirty) {
@@ -515,6 +572,7 @@ export function ClusterPage({
                   aria-label="Undo"
                   title="Undo"
                   disabled={
+                    cardEditor.editing ||
                     loading ||
                     !canPlace ||
                     !(configurations ? configurations.canUndo : placement.past.length)
@@ -531,6 +589,7 @@ export function ClusterPage({
                   aria-label="Redo"
                   title="Redo"
                   disabled={
+                    cardEditor.editing ||
                     loading ||
                     !canPlace ||
                     !(configurations ? configurations.canRedo : placement.future.length)
@@ -548,6 +607,7 @@ export function ClusterPage({
                   aria-label="Reset to default"
                   title="Reset to default"
                   disabled={
+                    cardEditor.editing ||
                     !canPlace ||
                     !changed ||
                     loading ||
@@ -570,6 +630,7 @@ export function ClusterPage({
                 selectedModel={selectedModel}
                 activeModelId={activeModel?.id}
                 disabled={
+                  cardEditor.editing ||
                   (!demo && !localRuntime) ||
                   loading ||
                   Boolean(configurations?.planning || configurations?.pending)
@@ -609,8 +670,13 @@ export function ClusterPage({
                   type="button"
                   className={styles.runIcon}
                   aria-label="Save configuration"
-                  title="Save configuration"
+                  title={
+                    cardEditor.editing
+                      ? 'Finish the layer preview with Done or Cancel first.'
+                      : 'Save configuration'
+                  }
                   disabled={
+                    cardEditor.editing ||
                     !configurations?.dirty ||
                     loading ||
                     configurations.planning ||
@@ -636,6 +702,7 @@ export function ClusterPage({
                   aria-label={runAction}
                   title={`${runAction}${loading && !localRuntime ? ' · simulated loading' : ''}`}
                   disabled={
+                    (cardEditor.editing && !loading && !selectedIsActive) ||
                     (!demo && !localRuntime) ||
                     (!loading &&
                       (!selectedModel ||
@@ -730,8 +797,8 @@ export function ClusterPage({
                 layoutStyle={
                   spatial
                     ? {
-                        width: columns * 498 + (columns - 1) * 96,
-                        gridTemplateColumns: `repeat(${columns}, minmax(0, 498px))`,
+                        width: columns * 640 + (columns - 1) * 96,
+                        gridTemplateColumns: `repeat(${columns}, minmax(0, 640px))`,
                         gap: 96,
                         minHeight: 0,
                       }
@@ -798,14 +865,14 @@ export function ClusterPage({
                   >
                     <DeviceCard
                       device={device}
-                      ranges={
-                        selectedIsActive && !changed && activeCluster ? appliedRanges : ranges
-                      }
+                      ranges={cardEditor.ranges}
+                      allocation={cardEditor.allocation}
+                      editableIds={editableIds}
                       appliedRanges={appliedRanges}
                       layerCount={layerCount}
                       proposed={!selectedIsActive || changed || loading}
                       savedAssignment={Boolean(configurations?.saved && !changed)}
-                      loading={loading}
+                      loading={cardEditsDisabled}
                       active={canPlace}
                       localReady={false}
                       onDetails={(device) => showPanel({ type: 'device', device })}
