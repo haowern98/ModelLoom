@@ -804,6 +804,20 @@ The user's 2026-10-05 PROCEED replaces the bottom-left text hint with a fixed fl
 
 The user's subsequent colour/outline fix makes the Cluster content and its surrounding workspace padding one continuous `#181818` surface, with neutral `#212121` window chrome/navigation surround. Set the Cluster surface at its workspace container so the parent padding cannot expose the former `#111215` background. The canvas never draws a focus outline, including during mouse clicks, dragging, programmatic focus, or keyboard focus. It remains keyboard focusable and operable; individual buttons and inputs retain their focus indicators. This explicit canvas exception supersedes the general focus-outline rule only for the canvas region.
 
+### Approved Cluster canvas dot grid, 2026-11-01
+
+The overview uses a neutral dot grid across its full content background, including
+behind the fixed floating top and zoom controls. Solid cards and controls cover
+the dots; the navigation sidebar, Devices and Connections remain plain. Clip the
+grid at the existing workspace boundary and preserve all layout and interactions.
+
+Use Amoeba's 20 CSS px base spacing at ModelLoom's 100% zoom, with `#383838` dots
+of 1px radius fading to transparent at 1.2px over the existing workspace surface.
+The user rejected the initial 9.2px spacing as too dense at 100% zoom.
+Scale the spacing with ModelLoom's zoom and anchor its origin to the same pan
+coordinates as the cards; keep dot radius fixed. This background is decorative
+and adds no pointer targets or accessibility announcements.
+
 ### Approved model planning and Run revision, 2026-10-04
 
 **Scope:** Cluster demo and specifications only at this milestone. Preserve the four-device diagram, existing device/link/add/rename panel flows, neutral palette, scroll containment and pan/zoom. The later compact Models revision above removes its transitional launch controls. No engine, file transfer, GPU loading, inference, optimizer or real memory preflight is implemented by this demo.
