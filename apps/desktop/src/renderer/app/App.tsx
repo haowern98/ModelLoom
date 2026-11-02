@@ -351,9 +351,11 @@ export function App() {
                                 label: gpus.length > 1 ? `GPU ${index}` : 'GPU',
                                 name: gpu.name,
                                 detail:
-                                  gpu.totalMemoryBytes !== undefined
-                                    ? `${(gpu.totalMemoryBytes / 2 ** 30).toFixed(1)} GiB dedicated memory`
-                                    : 'Dedicated memory unavailable',
+                                  gpu.memoryKind === 'unified'
+                                    ? 'Unified memory shared with the system'
+                                    : gpu.totalMemoryBytes !== undefined
+                                      ? `${(gpu.totalMemoryBytes / 2 ** 30).toFixed(1)} GiB dedicated memory`
+                                      : 'Dedicated memory unavailable',
                                 memoryGb: (gpu.totalMemoryBytes ?? 0) / 2 ** 30,
                                 kind: 'gpu' as const,
                               }),

@@ -870,6 +870,7 @@ export function ClusterPage({
                       editableIds={editableIds}
                       appliedRanges={appliedRanges}
                       layerCount={layerCount}
+                      modelSelected={Boolean(selectedModel)}
                       proposed={!selectedIsActive || changed || loading}
                       savedAssignment={Boolean(configurations?.saved && !changed)}
                       loading={cardEditsDisabled}

@@ -25,6 +25,7 @@ interface DeviceCardProps {
   ranges: readonly SampleRange[];
   appliedRanges: readonly SampleRange[];
   layerCount: number;
+  modelSelected?: boolean;
   loading: boolean;
   proposed: boolean;
   savedAssignment?: boolean;
@@ -48,6 +49,7 @@ export function DeviceCard({
   ranges,
   appliedRanges,
   layerCount,
+  modelSelected = layerCount > 0,
   loading,
   proposed,
   savedAssignment = false,
@@ -63,6 +65,19 @@ export function DeviceCard({
   onRemove,
   removeDisabled = false,
 }: DeviceCardProps) {
+  const [observedAt, setObservedAt] = useState(() => Date.now());
+  const hasInventory = device.inventory !== undefined;
+  useEffect(() => {
+    if (!hasInventory) return;
+    const timer = setInterval(() => setObservedAt(Date.now()), 2000);
+    return () => clearInterval(timer);
+  }, [hasInventory]);
+  const inventory =
+    device.inventory &&
+    observedAt - device.inventory.sampledAt < 15000 &&
+    observedAt - device.inventory.sampledAt >= -5000
+      ? device.inventory
+      : undefined;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuAnchor = useRef<HTMLDivElement>(null);
   const [hoverEdge, setHoverEdge] = useState<CanvasEdge>('right');
@@ -303,37 +318,45 @@ export function DeviceCard({
         </div>
       </header>
       <div className={card.deviceMetrics}>
-        <span title="CPU utilization is not reported by this device.">
-          CPU <b>—</b>
+        <span title="Host CPU utilization between recent samples. A dash means unavailable or stale.">
+          CPU <b>{percentage(inventory?.cpuUsagePercent)}</b>
         </span>
-        <span title="Memory from the most recent inventory sample, not a live usage reading.">
+        <span title="System memory from the latest sample. A dash means unavailable or stale.">
           RAM{' '}
           <b>
             {memoryReading(
-              device.inventory?.usableRamBytes ?? device.inventory?.installedRamBytes,
-              device.inventory?.availableRamBytes,
+              inventory?.usableRamBytes ?? inventory?.installedRamBytes,
+              inventory?.availableRamBytes,
             )}
           </b>
         </span>
-        <span title="Disk read/write activity is not reported by this device.">
-          <Storage width={18} height={18} aria-hidden="true" />R — · W —
+        <span title="Read/write activity across physical disks, in bytes per second.">
+          <Storage width={18} height={18} aria-hidden="true" />R{' '}
+          {byteRate(inventory?.diskReadBytesPerSecond)} · W{' '}
+          {byteRate(inventory?.diskWriteBytesPerSecond)}
         </span>
       </div>
       <div className={styles.hardware}>
         {device.hardware
           .filter((hardware) => hardware.kind !== 'cpu')
           .map((hardware) => {
-            const range = ranges.find((entry) => entry.hardwareId === hardware.id);
+            const range = modelSelected
+              ? ranges.find((entry) => entry.hardwareId === hardware.id)
+              : undefined;
             const activeRange = appliedRanges.find((entry) => entry.hardwareId === hardware.id);
-            const gpu = device.inventory?.gpus?.find(
+            const gpuInfo = device.inventory?.gpus?.find(
               (gpu) =>
-                hardware.assignmentId === gpu.executionIdentity?.uuid ||
+                (hardware.assignmentId !== undefined &&
+                  hardware.assignmentId === gpu.executionIdentity?.uuid) ||
                 hardware.id === gpu.id ||
                 hardware.id === `local-${gpu.id}`,
             );
-            const editing = allocation?.editor?.hardwareId === hardware.id;
+            const gpu = inventory ? gpuInfo : undefined;
+            const unified = gpuInfo?.memoryKind === 'unified';
+            const editing = modelSelected && allocation?.editor?.hardwareId === hardware.id;
             const editor = editing ? allocation.editor! : null;
             const unavailable =
+              !modelSelected ||
               !active ||
               loading ||
               (editableIds !== undefined && !editableIds.includes(hardware.id));
@@ -346,18 +369,38 @@ export function DeviceCard({
                 <div className={card.meta}>
                   <span>{hardware.label}</span>
                   <span>
-                    {hardware.memoryGb > 0
-                      ? `${hardware.memoryGb.toFixed(1)} GiB`
-                      : 'Memory unavailable'}
+                    {unified
+                      ? 'Shared RAM'
+                      : hardware.memoryGb > 0
+                        ? `${hardware.memoryGb.toFixed(1)} GiB`
+                        : 'Memory unavailable'}
                   </span>
                 </div>
                 <h3>{hardware.name}</h3>
                 <div className={card.gpuMetrics}>
-                  <span title="GPU utilization is not reported by this device.">
-                    <Speed width={18} height={18} aria-hidden="true" />—
+                  <span title="GPU utilization from its driver. A dash means unavailable or stale.">
+                    <Speed width={18} height={18} aria-hidden="true" />
+                    {percentage(gpu?.utilizationPercent)}
                   </span>
-                  <span title="Memory from the most recent inventory sample, not a live usage reading.">
-                    VRAM <b>{memoryReading(gpu?.totalMemoryBytes, gpu?.availableMemoryBytes)}</b>
+                  <span
+                    title={
+                      unified
+                        ? 'GPU allocation within shared system memory; not additional dedicated VRAM.'
+                        : 'Dedicated GPU memory used versus total from the latest sample.'
+                    }
+                  >
+                    {unified ? 'Unified memory' : 'VRAM'}{' '}
+                    <b>
+                      {unified
+                        ? gpu?.usedMemoryBytes !== undefined
+                          ? `${(gpu.usedMemoryBytes / 2 ** 30).toFixed(1)} GiB`
+                          : '—'
+                        : memoryReading(
+                            gpu?.totalMemoryBytes,
+                            gpu?.availableMemoryBytes,
+                            gpu?.usedMemoryBytes,
+                          )}
+                    </b>
                   </span>
                 </div>
                 {activeRange && (
@@ -369,19 +412,17 @@ export function DeviceCard({
                     </span>
                   </span>
                 )}
-                <div className={card.assignment}>
-                  {layerCount > 0 && (
-                    <LayerRangeSlider
-                      label={`${device.name} ${hardware.label}`}
-                      range={{
-                        first: range?.first ?? 0,
-                        count: range ? range.last - range.first + 1 : 0,
-                      }}
-                      total={Math.max(1, layerCount)}
-                      disabled={unavailable || !allocation || layerCount < 1}
-                      onChange={(last) => allocation?.resize(hardware.id, last)}
-                    />
-                  )}
+                <div className={card.assignment} data-model-missing={!modelSelected}>
+                  <LayerRangeSlider
+                    label={`${device.name} ${hardware.label}`}
+                    range={{
+                      first: range?.first ?? 0,
+                      count: range ? range.last - range.first + 1 : 0,
+                    }}
+                    total={modelSelected ? Math.max(1, layerCount) : 1}
+                    disabled={unavailable || !allocation || layerCount < 1}
+                    onChange={(last) => allocation?.resize(hardware.id, last)}
+                  />
                   <div className={card.rangeRow}>
                     <span>{proposed && !savedAssignment ? 'Planned layers' : 'Layer range'}</span>
                     <SdkButton
@@ -389,8 +430,12 @@ export function DeviceCard({
                       color="secondary"
                       variant="outline"
                       size="sm"
-                      title="Edit layer range"
-                      aria-label={`Edit layers for ${device.name} ${hardware.label}`}
+                      title={modelSelected ? 'Edit layer range' : 'Load a model to assign layers'}
+                      aria-label={
+                        modelSelected
+                          ? `Edit layers for ${device.name} ${hardware.label}`
+                          : 'Load a model to assign layers'
+                      }
                       aria-expanded={editing ?? false}
                       disabled={unavailable}
                       onClick={() =>
@@ -398,7 +443,11 @@ export function DeviceCard({
                       }
                     >
                       <EditPencil aria-hidden="true" />
-                      {range ? `${range.first}–${range.last}` : 'Unassigned'}
+                      {!modelSelected
+                        ? 'Load a model to assign layers'
+                        : range
+                          ? `${range.first}–${range.last}`
+                          : 'Unassigned'}
                     </SdkButton>
                   </div>
                   {!allocation && range && (
@@ -518,12 +567,35 @@ export function DeviceCard({
             );
           })}
       </div>
-      {layerCount < 1 && <p className={card.preview}>Choose a model to assign layers.</p>}
     </article>
   );
 }
 
-function memoryReading(total: number | undefined, available: number | undefined): string {
-  if (!total || available === undefined || available < 0 || available > total) return '—';
-  return `${((total - available) / 2 ** 30).toFixed(1)} / ${(total / 2 ** 30).toFixed(1)} GiB`;
+function memoryReading(
+  total: number | undefined,
+  available: number | undefined,
+  used?: number,
+): string {
+  const allocated =
+    used ?? (total !== undefined && available !== undefined ? total - available : undefined);
+  if (
+    total === undefined &&
+    allocated !== undefined &&
+    allocated >= 0 &&
+    Number.isFinite(allocated)
+  )
+    return `${(allocated / 2 ** 30).toFixed(1)} GiB`;
+  if (!total || allocated === undefined || allocated < 0 || allocated > total) return '—';
+  return `${(allocated / 2 ** 30).toFixed(1)} / ${(total / 2 ** 30).toFixed(1)} GiB`;
+}
+
+function percentage(value: number | undefined): string {
+  return value !== undefined && Number.isFinite(value) && value >= 0 && value <= 100
+    ? `${Math.round(value)}%`
+    : '—';
+}
+function byteRate(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value) || value < 0) return '—';
+  const unit = value >= 2 ** 30 ? 3 : value >= 2 ** 20 ? 2 : value >= 1024 ? 1 : 0;
+  return `${(value / 1024 ** unit).toFixed(unit ? 1 : 0)} ${['B', 'KiB', 'MiB', 'GiB'][unit]}/s`;
 }

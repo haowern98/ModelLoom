@@ -50,6 +50,15 @@ export function peerDevices(view: PeerView | null): readonly DemoDevice[] {
           ? {
               inventory: {
                 sampledAt: facts.sampledAt,
+                ...(facts.cpuUsagePercent !== undefined
+                  ? { cpuUsagePercent: facts.cpuUsagePercent }
+                  : {}),
+                ...(facts.diskReadBytesPerSecond !== undefined
+                  ? { diskReadBytesPerSecond: facts.diskReadBytesPerSecond }
+                  : {}),
+                ...(facts.diskWriteBytesPerSecond !== undefined
+                  ? { diskWriteBytesPerSecond: facts.diskWriteBytesPerSecond }
+                  : {}),
                 ...(facts.architecture !== undefined ? { architecture: facts.architecture } : {}),
                 ...(facts.cpuCores !== undefined ? { cpuCores: facts.cpuCores } : {}),
                 ...(facts.installedRamBytes !== undefined
@@ -67,8 +76,17 @@ export function peerDevices(view: PeerView | null): readonly DemoDevice[] {
                 gpus: gpus.map((gpu) => ({
                   id: qualifyPeerGpu(peer.peerFingerprint, gpu.id),
                   name: gpu.name,
-                  pciVendorId: '10de',
+                  ...(gpu.vendor
+                    ? { vendor: gpu.vendor }
+                    : { pciVendorId: gpu.pciVendorId ?? '10de' }),
                   totalMemoryBytes: gpu.memoryBytes,
+                  ...(gpu.utilizationPercent !== undefined
+                    ? { utilizationPercent: gpu.utilizationPercent }
+                    : {}),
+                  ...(gpu.usedMemoryBytes !== undefined
+                    ? { usedMemoryBytes: gpu.usedMemoryBytes }
+                    : {}),
+                  ...(gpu.memoryKind !== undefined ? { memoryKind: gpu.memoryKind } : {}),
                   ...(gpu.availableMemoryBytes !== undefined
                     ? { availableMemoryBytes: gpu.availableMemoryBytes }
                     : {}),

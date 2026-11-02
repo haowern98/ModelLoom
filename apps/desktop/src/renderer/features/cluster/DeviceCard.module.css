@@ -60,9 +60,10 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: 24px;
   margin: 16px 0;
+  padding-inline: 16px;
   font-size: var(--font-text-sm-size);
   line-height: var(--font-text-sm-line-height);
 }
@@ -72,6 +73,10 @@
   align-items: center;
   gap: 8px;
   font-variant-numeric: tabular-nums;
+}
+.deviceMetrics > span:first-child,
+.gpuMetrics > span:first-child {
+  flex: 0 0 72px;
 }
 .deviceMetrics b,
 .gpuMetrics b {
@@ -116,6 +121,12 @@
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid #ffffff0d;
+}
+.assignment[data-model-missing='true'] .slider :global(.layer-slider-label),
+.assignment[data-model-missing='true'] .slider :global(.layer-slider-marks),
+.assignment[data-model-missing='true'] .rangeRow > span,
+.assignment[data-model-missing='true'] .rangeRow button {
+  opacity: 0.5;
 }
 .rangeRow {
   display: flex;
