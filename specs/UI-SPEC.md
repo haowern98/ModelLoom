@@ -1226,11 +1226,28 @@ between two remote worker cards merely because a placement line joins them.
 
 ### Inline cluster device cards (2026-11-02)
 
-Use the approved OpenAI Apps SDK UI 0.2.2 card preview: a 640px maximum card,
+Use the approved OpenAI Apps SDK UI 0.2.2 card preview: a 520px maximum card,
 device heading and role badge, compact metrics, and darker GPU sections. SDK
 tokens and control resets stay inside the card. Preserve the reference's 16px
 SDK scale without changing the app's 14px root. The dark theme must apply to
 the card scope root, including the role badge and all button states.
+
+The 2026-11-03 polish uses a 19px outer radius, 18px left/right insets,
+17px bottom inset and 14px between GPU sections. Device and GPU usage stats use
+13px text at 100% canvas zoom. Single-device canvases and spatial grid columns
+use the same 520px card width. Height remains content-driven so inline editors
+and additional GPUs can expand downward.
+First / Last inputs retain their normal borders without the blue focus outline;
+their dimensions, placement, automatic focus and editing behaviour stay unchanged.
+Show a small green dot immediately after each GPU name only while that GPU
+has a confirmed active runtime assignment. Replace the separate In use / Active
+layers row with this dot. Saved or draft ranges alone never show it; manual
+unload, runtime failure and cleared active assignments remove it. Keep the dot
+visible between generations while the model remains loaded.
+The device actions menu uses 14px regular text at 100% zoom and stays inside
+the canvas transform, scaling its text, spacing and width with the device card.
+It remains anchored to the ellipsis button and supports keyboard navigation,
+Escape, outside dismissal and focus restoration.
 
 Show each GPU's actual contiguous interval on the full 0 through N-1 layer
 axis. Its single knob changes the ending layer while preserving the start;
