@@ -449,7 +449,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
   }
   const observeDevice = async () => {
     if (deviceCleanupFailed) throw new Error('QUERY_CLEANUP_FAILED');
-    if (!deps.device || quitting || (view.device && Date.now() - deviceObservedAt < 10000)) return;
+    if (!deps.device || quitting || (view.device && Date.now() - deviceObservedAt < 2000)) return;
     const generation = deviceGeneration;
     deviceProbe ??= Promise.resolve()
       .then(() => (quitting ? undefined : deps.device!()))

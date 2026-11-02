@@ -27,7 +27,7 @@ import { isTransientPeerFailure, peerDeadline } from './deadline.js';
 import type { PeerFailure } from './failure-journal.js';
 import { decodePeerResources } from './resources.js';
 import type { PeerResources } from './resources.js';
-import { decodePeerHardware } from './hardware.js';
+import { decodePeerHardware, peerHardwareView } from './hardware.js';
 import type { PeerHardware } from './hardware.js';
 import { CodePairing, verifyPairingCode } from './pairing-code.js';
 import type { PeerTrust } from './trust-store.js';
@@ -304,6 +304,7 @@ export class PeerNode {
   private trustPending = new Map<string, Promise<void>>();
   private outgoingRpc = new Map<Duplex, string>();
   private outgoingRequests = new WeakMap<Outgoing, AbortController>();
+  private metricsUnsupported = new WeakSet<Outgoing>();
   private hardware: PeerHardware | undefined;
   private inventoryRevision = 0;
   private inventoryWaiters = new Set<() => void>();
@@ -1024,7 +1025,13 @@ export class PeerNode {
           : request.url === '/v1/diagnostics-activity'
             ? ['id', 'busy']
             : request.url === '/v1/inventory-watch'
-              ? ['id', 'after']
+              ? [
+                  'id',
+                  'after',
+                  ...(data && typeof data === 'object' && Object.hasOwn(data, 'displayMetrics')
+                    ? ['displayMetrics']
+                    : []),
+                ]
               : scopedHeartbeat
                 ? ['id', 'gpuId']
                 : ['id'],
@@ -1057,6 +1064,7 @@ export class PeerNode {
     } else if (request.url === '/v1/cancel') {
       await this.decline(value.id);
     } else if (request.url === '/v1/inventory-watch') {
+      if (input.displayMetrics !== undefined && input.displayMetrics !== true) return invalid();
       if (value.phase !== 'approved' || !value.localVerified || !value.remoteVerified)
         return invalid('PEER_NOT_APPROVED');
       if (!Number.isSafeInteger(input.after) || (input.after as number) < -1) return invalid();
@@ -1073,12 +1081,15 @@ export class PeerNode {
         gpus: this.allowed(value),
         ...(this.hardware
           ? {
-              hardware: {
-                ...this.hardware,
-                gpus: this.hardware.gpus.filter((g) =>
-                  this.allowed(value).some((p) => p.id === g.id),
-                ),
-              },
+              hardware: peerHardwareView(
+                {
+                  ...this.hardware,
+                  gpus: this.hardware.gpus.filter((g) =>
+                    this.allowed(value).some((p) => p.id === g.id),
+                  ),
+                },
+                input.displayMetrics === true,
+              ),
             }
           : {}),
       };
@@ -1581,7 +1592,22 @@ export class PeerNode {
   }> {
     const peer = this.outgoing.get(id);
     if (!peer?.verified) return invalid('PEER_NOT_APPROVED');
-    const input = await this.call(id, 'inventory-watch', { after });
+    let input: unknown;
+    if (this.metricsUnsupported.has(peer))
+      input = await this.call(id, 'inventory-watch', { after });
+    else {
+      try {
+        input = await this.call(id, 'inventory-watch', { after, displayMetrics: true });
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !['INVALID_PEER_MESSAGE', 'UNKNOWN_PEER_OPERATION'].includes(error.message)
+        )
+          throw error;
+        this.metricsUnsupported.add(peer);
+        input = await this.call(id, 'inventory-watch', { after });
+      }
+    }
     const value = object(input, [
       'revision',
       'gpus',

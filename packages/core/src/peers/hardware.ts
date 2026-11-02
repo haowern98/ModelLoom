@@ -8,6 +8,9 @@ export interface PeerHardware {
   installedRamBytes?: number;
   usableRamBytes?: number;
   availableRamBytes?: number;
+  cpuUsagePercent?: number;
+  diskReadBytesPerSecond?: number;
+  diskWriteBytesPerSecond?: number;
   runtimeBackends?: readonly string[];
   sampledAt: number;
   gpus: readonly {
@@ -16,10 +19,36 @@ export interface PeerHardware {
     memoryBytes: number;
     availableMemoryBytes?: number;
     driverVersion?: string;
+    utilizationPercent?: number;
+    usedMemoryBytes?: number;
+    memoryKind?: 'dedicated' | 'unified';
+    vendor?: 'apple' | 'intel';
+    pciVendorId?: string;
   }[];
 }
 function invalid(): never {
   throw Error('INVALID_HARDWARE');
+}
+
+/** Metrics are opt-in on inventory-watch, so older closed-schema readers retain their wire format. */
+export function peerHardwareView(hardware: PeerHardware, metrics: boolean): PeerHardware {
+  if (metrics) return hardware;
+  const result = {
+    ...hardware,
+    gpus: hardware.gpus.map((gpu) => {
+      const value = { ...gpu };
+      delete value.utilizationPercent;
+      delete value.usedMemoryBytes;
+      delete value.memoryKind;
+      delete value.vendor;
+      delete value.pciVendorId;
+      return value;
+    }),
+  };
+  delete result.cpuUsagePercent;
+  delete result.diskReadBytesPerSecond;
+  delete result.diskWriteBytesPerSecond;
+  return result;
 }
 function shape(input: unknown, allowed: readonly string[]): Record<string, unknown> {
   if (
@@ -45,6 +74,11 @@ function number(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) return invalid();
   return value;
 }
+function reading(value: unknown, maximum = Number.MAX_SAFE_INTEGER): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > maximum)
+    return invalid();
+  return value;
+}
 /** Closed, size-bounded schema on both the authenticated network and parent IPC. */
 export function decodePeerHardware(input: unknown): PeerHardware {
   const value = shape(input, [
@@ -56,6 +90,9 @@ export function decodePeerHardware(input: unknown): PeerHardware {
     'installedRamBytes',
     'usableRamBytes',
     'availableRamBytes',
+    'cpuUsagePercent',
+    'diskReadBytesPerSecond',
+    'diskWriteBytesPerSecond',
     'runtimeBackends',
     'sampledAt',
     'gpus',
@@ -71,6 +108,11 @@ export function decodePeerHardware(input: unknown): PeerHardware {
         'memoryBytes',
         'availableMemoryBytes',
         'driverVersion',
+        'utilizationPercent',
+        'usedMemoryBytes',
+        'memoryKind',
+        'vendor',
+        'pciVendorId',
       ]);
       const result: PeerHardware['gpus'][number] = {
         id: text(gpu.id, 160),
@@ -81,6 +123,27 @@ export function decodePeerHardware(input: unknown): PeerHardware {
           : {}),
         ...(gpu.driverVersion !== undefined ? { driverVersion: text(gpu.driverVersion) } : {}),
       };
+      if (gpu.utilizationPercent !== undefined)
+        result.utilizationPercent = reading(gpu.utilizationPercent, 100);
+      if (gpu.usedMemoryBytes !== undefined) result.usedMemoryBytes = number(gpu.usedMemoryBytes);
+      if (gpu.memoryKind !== undefined) {
+        if (gpu.memoryKind !== 'dedicated' && gpu.memoryKind !== 'unified') return invalid();
+        result.memoryKind = gpu.memoryKind;
+      }
+      if (gpu.vendor !== undefined) {
+        if (gpu.vendor !== 'apple' && gpu.vendor !== 'intel') return invalid();
+        result.vendor = gpu.vendor;
+      }
+      if (gpu.pciVendorId !== undefined) {
+        if (gpu.pciVendorId !== '1002' && gpu.pciVendorId !== '10de') return invalid();
+        result.pciVendorId = gpu.pciVendorId;
+      }
+      if (
+        result.memoryKind !== 'unified' &&
+        result.usedMemoryBytes !== undefined &&
+        result.usedMemoryBytes > result.memoryBytes
+      )
+        return invalid();
       if (
         result.availableMemoryBytes !== undefined &&
         result.availableMemoryBytes > result.memoryBytes
@@ -89,6 +152,10 @@ export function decodePeerHardware(input: unknown): PeerHardware {
       return result;
     }),
   };
+  if (value.cpuUsagePercent !== undefined)
+    result.cpuUsagePercent = reading(value.cpuUsagePercent, 100);
+  for (const key of ['diskReadBytesPerSecond', 'diskWriteBytesPerSecond'] as const)
+    if (value[key] !== undefined) result[key] = reading(value[key]);
   if (new Set(result.gpus.map((gpu) => gpu.id.toLowerCase())).size !== result.gpus.length)
     return invalid();
   for (const key of ['architecture', 'cpuName'] as const)

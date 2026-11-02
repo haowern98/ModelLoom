@@ -19,6 +19,9 @@ export function toPeerHardware(device: RuntimeDevice): PeerHardware {
           'usableRamBytes',
           'availableRamBytes',
           'runtimeBackends',
+          'cpuUsagePercent',
+          'diskReadBytesPerSecond',
+          'diskWriteBytesPerSecond',
         ] as const
       )
         .filter((key) => inventory?.[key] !== undefined)
@@ -40,6 +43,11 @@ export function toPeerHardware(device: RuntimeDevice): PeerHardware {
           ? { availableMemoryBytes: gpu.availableMemoryBytes }
           : {}),
         ...(gpu.driverVersion ? { driverVersion: gpu.driverVersion } : {}),
+        ...(gpu.utilizationPercent !== undefined
+          ? { utilizationPercent: gpu.utilizationPercent }
+          : {}),
+        ...(gpu.usedMemoryBytes !== undefined ? { usedMemoryBytes: gpu.usedMemoryBytes } : {}),
+        ...(gpu.memoryKind !== undefined ? { memoryKind: gpu.memoryKind } : {}),
       })),
   });
 }

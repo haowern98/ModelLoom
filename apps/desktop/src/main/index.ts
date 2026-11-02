@@ -26,7 +26,7 @@ import { runtimePaths } from './runtime-paths';
 import { createRuntimeController } from './runtime-controller';
 import { watchDeviceChanges } from './device-changes';
 import type { RuntimeDependencies } from './runtime-controller';
-import { localDeviceSnapshot } from './local-device';
+import { invalidateDeviceInventory, localDeviceSnapshot } from './local-device';
 import { createCacheHandler } from './tensor-cache';
 import type { developmentDesktopDependencies } from '../../../../packages/core/src/hosts/development-desktop.js';
 import {
@@ -205,6 +205,7 @@ async function createWindow(): Promise<void> {
     }),
   );
   watchDeviceChanges(window, () => {
+    invalidateDeviceInventory();
     void windowController.deviceChanged().catch(() => {
       console.error('Hardware refresh could not be completed.');
     });
