@@ -1258,8 +1258,16 @@ intrinsic height transition that remains correct inside a zoomed canvas: 200ms
 expansion and 160ms collapse, with a 160ms fade. Reduced-motion mode skips these
 effects. Moving focus into the editor or back to its trigger must not scroll the canvas.
 
-Before a model is selected, show "Choose a model to assign layers." rather than
-a zero-length slider scale. Missing utilization and disk read/write activity
-remain unavailable. RAM/VRAM values come from the latest inventory sample and
-must not be presented as live utilization. Preserve all four hover-add edges,
+Before a model is selected, retain each card's layer area with zero assigned
+layers, a zero-only scale, and a disabled slider at zero. Dim its heading, count,
+scale and range controls while preserving the slider track and thumb colours.
+The disabled range button reads "Load a model to assign layers". Remove the
+separate card-level Choose-model footer. Selecting a model restores ordinary
+pre-run layer editing; it does not require a running model. Keep the inline
+editor's Done/Save hint. Display measured CPU/GPU utilization, memory usage,
+and physical-disk read/write rates when their platform collectors provide them.
+Missing or stale readings remain unavailable. Apple GPU allocations are labelled
+unified memory shared with the system, never additional dedicated VRAM.
+See [device telemetry](../docs/device-telemetry.md) for source definitions and
+deferred platform validation. Preserve all four hover-add edges,
 the add-device hint, picker, details, rename, and existing removal restrictions.
