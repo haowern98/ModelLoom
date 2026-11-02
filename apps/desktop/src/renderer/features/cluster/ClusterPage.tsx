@@ -797,8 +797,8 @@ export function ClusterPage({
                 layoutStyle={
                   spatial
                     ? {
-                        width: columns * 640 + (columns - 1) * 96,
-                        gridTemplateColumns: `repeat(${columns}, minmax(0, 640px))`,
+                        width: columns * 520 + (columns - 1) * 96,
+                        gridTemplateColumns: `repeat(${columns}, minmax(0, 520px))`,
                         gap: 96,
                         minHeight: 0,
                       }

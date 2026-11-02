@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { DropdownMenu } from 'radix-ui';
 import { Button as SdkButton } from '@openai/apps-sdk-ui/components/Button';
 import { Badge } from '@openai/apps-sdk-ui/components/Badge';
 import { Input } from '@openai/apps-sdk-ui/components/Input';
@@ -79,7 +80,13 @@ export function DeviceCard({
       ? device.inventory
       : undefined;
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuAnchor = useRef<HTMLDivElement>(null);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
+  const menuActionSelected = useRef(false);
+  const selectMenuAction = (action: () => void) => {
+    menuActionSelected.current = true;
+    menuTrigger.current?.focus({ preventScroll: true });
+    action();
+  };
   const [hoverEdge, setHoverEdge] = useState<CanvasEdge>('right');
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
@@ -182,7 +189,7 @@ export function DeviceCard({
       onClick={(event) => {
         if (
           event.target instanceof Element &&
-          event.target.closest('button, input, a, form, [role=slider]')
+          event.target.closest('button, input, a, form, [role=slider], [role=menu]')
         )
           return;
         onDetails(device);
@@ -251,70 +258,66 @@ export function DeviceCard({
           <Badge color="secondary" size="md" pill>
             {device.role}
           </Badge>
-          <div
-            ref={menuAnchor}
-            className={styles.menuAnchor}
-            onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') setMenuOpen(false);
-            }}
-          >
-            <SdkButton
-              color="secondary"
-              variant="ghost"
-              uniform
-              size="md"
-              className={card.sdkButton ?? ''}
+          <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
+            <DropdownMenu.Trigger asChild>
+              <SdkButton
+                ref={menuTrigger}
+                color="secondary"
+                variant="ghost"
+                uniform
+                size="md"
+                className={card.sdkButton ?? ''}
+                aria-label={`Actions for ${device.name}`}
+              >
+                <DotsHorizontal />
+              </SdkButton>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Content
               aria-label={`Actions for ${device.name}`}
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen(!menuOpen)}
+              data-cluster-sdk=""
+              data-theme="dark"
+              className={card.actionMenu}
+              align="end"
+              sideOffset={5}
+              collisionPadding={6}
+              updatePositionStrategy="always"
+              onPointerMove={(event) => event.stopPropagation()}
+              onCloseAutoFocus={(event) => {
+                // A selected action may open a dialog; restore focus before that action instead.
+                if (menuActionSelected.current) {
+                  event.preventDefault();
+                  menuActionSelected.current = false;
+                }
+              }}
             >
-              <DotsHorizontal />
-            </SdkButton>
-            {menuOpen && (
-              <div className={styles.menu}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onDetails(device);
-                  }}
+              <DropdownMenu.Item
+                className={card.actionMenuItem}
+                onSelect={() => selectMenuAction(() => onDetails(device))}
+              >
+                Device details
+              </DropdownMenu.Item>
+              <DropdownMenu.Item
+                className={card.actionMenuItem}
+                onSelect={() => selectMenuAction(() => onRename(device))}
+              >
+                Rename device
+              </DropdownMenu.Item>
+              {onRemove && (
+                <DropdownMenu.Item
+                  className={card.actionMenuItem}
+                  disabled={removeDisabled}
+                  title={
+                    removeDisabled
+                      ? 'Stop the model and finish assigning layers before removing this PC.'
+                      : undefined
+                  }
+                  onSelect={() => selectMenuAction(onRemove)}
                 >
-                  Device details
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    // The menu item disappears; use its persistent trigger when the panel closes.
-                    menuAnchor.current?.querySelector('button')?.focus();
-                    onRename(device);
-                  }}
-                >
-                  Rename device
-                </button>
-                {onRemove && (
-                  <button
-                    type="button"
-                    disabled={removeDisabled}
-                    title={
-                      removeDisabled
-                        ? 'Stop the model and finish assigning layers before removing this PC.'
-                        : undefined
-                    }
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onRemove();
-                    }}
-                  >
-                    Remove from canvas
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+                  Remove from canvas
+                </DropdownMenu.Item>
+              )}
+            </DropdownMenu.Content>
+          </DropdownMenu.Root>
         </div>
       </header>
       <div className={card.deviceMetrics}>
@@ -376,7 +379,17 @@ export function DeviceCard({
                         : 'Memory unavailable'}
                   </span>
                 </div>
-                <h3>{hardware.name}</h3>
+                <h3>
+                  {hardware.name}
+                  {activeRange && (
+                    <span
+                      className={card.activeDot}
+                      role="img"
+                      aria-label="GPU in use"
+                      title="Model loaded on this GPU"
+                    />
+                  )}
+                </h3>
                 <div className={card.gpuMetrics}>
                   <span title="GPU utilization from its driver. A dash means unavailable or stale.">
                     <Speed width={18} height={18} aria-hidden="true" />
@@ -403,15 +416,6 @@ export function DeviceCard({
                     </b>
                   </span>
                 </div>
-                {activeRange && (
-                  <span className={styles.hardwareStatus}>
-                    <i />
-                    <span>In use</span> ·{' '}
-                    <span>
-                      Active layers {activeRange.first} – {activeRange.last}
-                    </span>
-                  </span>
-                )}
                 <div className={card.assignment} data-model-missing={!modelSelected}>
                   <LayerRangeSlider
                     label={`${device.name} ${hardware.label}`}

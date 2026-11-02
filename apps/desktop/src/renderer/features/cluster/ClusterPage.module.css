@@ -539,7 +539,7 @@
   align-items: start;
 }
 .singleDeviceCanvas {
-  width: 640px;
+  width: 520px;
   min-height: 0;
   grid-template-columns: minmax(0, 1fr);
 }
@@ -662,7 +662,7 @@
   box-shadow: 0 0 0 1px #ababab;
 }
 .coordinator {
-  max-width: 640px;
+  max-width: 520px;
   margin-inline: auto;
 }
 .deviceHeader {
@@ -701,7 +701,7 @@
 }
 .hardware {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 .tile {
   display: flex;
