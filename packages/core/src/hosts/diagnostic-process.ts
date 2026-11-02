@@ -8,6 +8,7 @@ export function collectDiagnostic(
   child: ChildProcessWithoutNullStreams,
   signal?: AbortSignal,
   timeoutMs = 2000,
+  input?: Buffer,
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     let failure: string | undefined,
@@ -45,7 +46,7 @@ export function collectDiagnostic(
     child.once('close', finish);
     const deadline = setTimeout(() => stop('QUERY_TIMEOUT'), timeoutMs);
     signal?.addEventListener('abort', cancel, { once: true });
-    child.stdin.end();
+    child.stdin.end(input);
     if (signal?.aborted) cancel();
   });
 }
