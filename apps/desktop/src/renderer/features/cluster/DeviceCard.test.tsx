@@ -1,7 +1,123 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { DeviceCard } from './DeviceCard';
 import { demoDevices } from '../../mocks/cluster';
+
+it('keeps device actions inside the zoomed card and restores keyboard focus', async () => {
+  const user = userEvent.setup();
+  const device = demoDevices[1]!;
+  const view = render(
+    <div style={{ transform: 'scale(0.5)' }}>
+      <DeviceCard
+        device={device}
+        ranges={[]}
+        appliedRanges={[]}
+        layerCount={0}
+        loading={false}
+        proposed={false}
+        active={false}
+        selected={false}
+        onAdd={vi.fn()}
+        onDetails={vi.fn()}
+        onRename={vi.fn()}
+        onEdit={vi.fn()}
+      />
+    </div>,
+  );
+  const trigger = screen.getByRole('button', { name: `Actions for ${device.name}` });
+  trigger.focus();
+  await user.keyboard('{ArrowDown}');
+  const menu = await screen.findByRole('menu');
+  expect(view.container.contains(menu)).toBe(true);
+  expect(screen.getByRole('menuitem', { name: 'Device details' })).toHaveFocus();
+  await user.keyboard('{ArrowDown}');
+  expect(screen.getByRole('menuitem', { name: 'Rename device' })).toHaveFocus();
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  expect(trigger).toHaveFocus();
+});
+
+it('keeps scaled actions functional, dismisses outside, and respects removal restrictions', async () => {
+  const user = userEvent.setup();
+  const device = demoDevices[1]!;
+  const onDetails = vi.fn(),
+    onRename = vi.fn(),
+    onRemove = vi.fn();
+  render(
+    <>
+      <button type="button">Outside the card</button>
+      <DeviceCard
+        device={device}
+        ranges={[]}
+        appliedRanges={[]}
+        layerCount={0}
+        loading={false}
+        proposed={false}
+        active={false}
+        selected={false}
+        onAdd={vi.fn()}
+        onDetails={onDetails}
+        onRename={onRename}
+        onEdit={vi.fn()}
+        onRemove={onRemove}
+        removeDisabled
+      />
+    </>,
+  );
+  const trigger = screen.getByRole('button', { name: `Actions for ${device.name}` });
+  await user.click(trigger);
+  const remove = await screen.findByRole('menuitem', { name: 'Remove from canvas' });
+  expect(remove).toHaveAttribute('aria-disabled', 'true');
+  await user.click(remove);
+  expect(onRemove).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: 'Outside the card' }));
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  await user.click(trigger);
+  await user.click(screen.getByRole('menuitem', { name: 'Rename device' }));
+  expect(onRename).toHaveBeenCalledWith(device);
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  await user.click(trigger);
+  await user.click(screen.getByRole('menuitem', { name: 'Device details' }));
+  expect(onDetails).toHaveBeenCalledWith(device);
+});
+
+it('marks only loaded GPUs beside their names and clears the dots when assignments end', () => {
+  const device = demoDevices[0]!;
+  const gpus = device.hardware.filter((hardware) => hardware.kind !== 'cpu');
+  const first = { hardwareId: gpus[0]!.id, first: 0, last: 31 };
+  const second = { hardwareId: gpus[1]!.id, first: 32, last: 63 };
+  const props = {
+    device,
+    ranges: [first, second],
+    appliedRanges: [],
+    layerCount: 64,
+    loading: false,
+    proposed: true,
+    active: true,
+    selected: false,
+    onAdd: vi.fn(),
+    onDetails: vi.fn(),
+    onRename: vi.fn(),
+    onEdit: vi.fn(),
+  };
+  const view = render(<DeviceCard {...props} />);
+  expect(screen.queryByRole('img', { name: 'GPU in use' })).not.toBeInTheDocument();
+  view.rerender(<DeviceCard {...props} appliedRanges={[second]} />);
+  const dot = screen.getByRole('img', { name: 'GPU in use' });
+  expect(dot.closest('h3')).toHaveTextContent(gpus[1]!.name);
+  expect(screen.queryByText('In use')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Active layers/u)).not.toBeInTheDocument();
+  view.rerender(<DeviceCard {...props} appliedRanges={[first, second]} />);
+  expect(screen.getAllByRole('img', { name: 'GPU in use' })).toHaveLength(2);
+  // Both manual unload and runtime failure clear applied ranges, retaining saved intent.
+  view.rerender(<DeviceCard {...props} appliedRanges={[]} />);
+  expect(screen.queryByRole('img', { name: 'GPU in use' })).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: /Edit layers for studio-desktop GPU 1/u }),
+  ).toHaveTextContent('32\u201363');
+});
+
 it('never infers per-device full offload from model readiness alone', () => {
   const props = {
     device: demoDevices[1]!,

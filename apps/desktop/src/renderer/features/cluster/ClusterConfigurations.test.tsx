@@ -364,7 +364,7 @@ it.each(['edit and save', 'restore and load'] as const)(
         />,
       );
       checkRanges();
-      expect(screen.getAllByText('In use')).toHaveLength(2);
+      expect(screen.getAllByRole('img', { name: 'GPU in use' })).toHaveLength(2);
       await checkOverview('In use');
       await user.click(screen.getByRole('button', { name: 'Select Observed device' }));
       await user.clear(screen.getByRole('spinbutton', { name: 'Last layer for GPU 0' }));
@@ -372,9 +372,17 @@ it.each(['edit and save', 'restore and load'] as const)(
       expect(
         screen.getByRole('button', { name: 'Edit layers for Observed device GPU 0' }),
       ).toHaveTextContent('0\u201314');
-      expect(screen.getByText('Active layers 0 – 15')).toBeInTheDocument();
+      expect(
+        within(screen.getByRole('region', { name: 'Observed device GPU 0' })).getByRole('img', {
+          name: 'GPU in use',
+        }),
+      ).toBeInTheDocument();
       await checkOverview('Draft');
-      expect(screen.getAllByText('In use')).toHaveLength(2);
+      expect(screen.getAllByRole('img', { name: 'GPU in use' })).toHaveLength(2);
+      view.rerender(
+        <Harness bridge={bridge} onRun={run} twoGpus blockCount={64} activeCluster={null} />,
+      );
+      expect(screen.queryByRole('img', { name: 'GPU in use' })).not.toBeInTheDocument();
     } finally {
       view.unmount();
       await controller.close();
@@ -523,7 +531,7 @@ it('reopens a legacy saved placement with connected equal-width live canvas colu
     const worker = await screen.findByRole('article', { name: 'Observed worker' });
     const local = screen.getByRole('article', { name: 'Observed device' });
     const world = local.closest<HTMLElement>('[data-canvas-device]')!.parentElement!;
-    expect(world.style.gridTemplateColumns).toBe('repeat(2, minmax(0, 640px))');
+    expect(world.style.gridTemplateColumns).toBe('repeat(2, minmax(0, 520px))');
     expect(local.closest<HTMLElement>('[data-canvas-device]')!.style.gridColumn).toBe('1');
     expect(worker.closest<HTMLElement>('[data-canvas-device]')!.style.gridColumn).toBe('2');
     const lines = screen.getByRole('img', { name: 'Canvas layout connections' });
