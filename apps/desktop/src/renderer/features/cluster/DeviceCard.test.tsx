@@ -35,8 +35,85 @@ it('never infers per-device full offload from model readiness alone', () => {
   expect(screen.getByText('Planned layers 48 – 63')).toBeInTheDocument();
   expect(screen.queryByText('In use')).not.toBeInTheDocument();
   rerender(<DeviceCard {...props} layerCount={0} />);
-  expect(screen.queryByRole('slider')).not.toBeInTheDocument();
-  expect(screen.getByText('Choose a model to assign layers.')).toBeVisible();
+  expect(screen.getByRole('slider')).toHaveAttribute('data-disabled');
+  expect(screen.getByRole('button', { name: /Load a model to assign layers/u })).toBeDisabled();
+  expect(screen.queryByText('Choose a model to assign layers.')).not.toBeInTheDocument();
+});
+
+it('keeps a zero-only disabled layer area without a selection and restores editing before a model runs', () => {
+  const device = demoDevices[1]!;
+  const hardwareId = device.hardware.find((hardware) => hardware.kind !== 'cpu')!.id;
+  const allocation = {
+    editor: null,
+    message: '',
+    open: vi.fn(),
+    resize: vi.fn(),
+    fields: vi.fn(),
+    done: vi.fn(() => true),
+    cancel: vi.fn(),
+  };
+  const props = {
+    device,
+    ranges: [],
+    appliedRanges: [],
+    layerCount: 0,
+    modelSelected: false,
+    allocation,
+    loading: false,
+    proposed: false,
+    active: true,
+    selected: false,
+    showAddHint: false,
+    onAdd: vi.fn(),
+    onDetails: vi.fn(),
+    onRename: vi.fn(),
+    onEdit: vi.fn(),
+  };
+  const view = render(<DeviceCard {...props} />);
+  const slider = screen.getByRole('slider');
+  expect(slider).toHaveAttribute('data-disabled');
+  expect(slider).toHaveAttribute('aria-valuenow', '0');
+  expect(view.container.querySelector('.layer-slider-marks')).toHaveTextContent(/^0$/u);
+  expect(view.container.querySelector('.layer-slider-interval')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Load a model to assign layers/u })).toBeDisabled();
+  fireEvent.keyDown(slider, { key: 'ArrowRight' });
+  fireEvent.keyDown(slider, { key: 'End' });
+  expect(allocation.resize).not.toHaveBeenCalled();
+  expect(allocation.open).not.toHaveBeenCalled();
+
+  view.rerender(<DeviceCard {...props} modelSelected />);
+  expect(view.container.querySelector('[data-model-missing]')).toHaveAttribute(
+    'data-model-missing',
+    'false',
+  );
+  expect(
+    screen.queryByRole('button', { name: /Load a model to assign layers/u }),
+  ).not.toBeInTheDocument();
+
+  view.rerender(<DeviceCard {...props} modelSelected layerCount={24} />);
+  const enabled = screen.getByRole('slider');
+  expect(enabled).not.toHaveAttribute('data-disabled');
+  expect(enabled).toHaveAttribute('aria-valuemax', '23');
+  fireEvent.keyDown(enabled, { key: 'ArrowRight' });
+  expect(allocation.resize).toHaveBeenCalledWith(hardwareId, 1);
+  fireEvent.click(screen.getByRole('button', { name: /Edit layers for/u }));
+  expect(allocation.open).toHaveBeenCalledWith(hardwareId);
+  expect(screen.queryByText('Choose a model to assign layers.')).not.toBeInTheDocument();
+
+  view.rerender(
+    <DeviceCard
+      {...props}
+      modelSelected
+      layerCount={24}
+      allocation={{
+        ...allocation,
+        editor: { hardwareId, first: '0', last: '23', error: '', focusInput: false },
+      }}
+    />,
+  );
+  expect(
+    screen.getByText(/Done updates the configuration draft for all devices/u),
+  ).toBeInTheDocument();
 });
 
 it('moves one add control to the nearest edge and keeps a pinned edge stable', () => {

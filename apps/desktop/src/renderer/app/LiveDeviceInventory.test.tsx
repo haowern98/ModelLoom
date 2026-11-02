@@ -44,9 +44,15 @@ it.each(['8086', undefined])(
       }),
     );
     const canvas = within(screen.getByRole('region', { name: 'Cluster canvas' }));
-    expect(await canvas.findByText('Observed CPU')).toBeVisible();
+    expect(await canvas.findByText('CPU')).toBeVisible();
     expect(canvas.queryByRole('heading', { name: /^GPU/ })).not.toBeInTheDocument();
     expect(canvas.queryByText('NVIDIA name alone is insufficient')).not.toBeInTheDocument();
+    await user.click(
+      within(screen.getByRole('navigation', { name: 'Cluster navigation' })).getByRole('button', {
+        name: 'Devices',
+      }),
+    );
+    expect(await screen.findByText('Observed CPU')).toBeVisible();
   },
 );
 
@@ -105,12 +111,12 @@ it('filters both GPU views and updates Devices when the observed GPU is disabled
   const canvas = within(screen.getByRole('region', { name: 'Cluster canvas' }));
   expect(await canvas.findByText('Observed discrete GPU')).toBeVisible();
   expect(canvas.getByText('AMD physical GPU')).toBeVisible();
-  expect(canvas.getByText('Observed processor')).toBeVisible();
+  expect(canvas.getByText('CPU')).toBeVisible();
   expect(canvas.queryByText('Observed integrated GPU')).not.toBeInTheDocument();
   expect(canvas.queryByText('StarDesk Virtual Display Adapter')).not.toBeInTheDocument();
   expect(canvas.queryByText('NVIDIA named adapter with unknown identity')).not.toBeInTheDocument();
-  expect(canvas.getByRole('heading', { name: 'GPU 0' })).toBeVisible();
-  expect(canvas.getByRole('heading', { name: 'GPU 1' })).toBeVisible();
+  expect(canvas.getByText('GPU 0')).toBeVisible();
+  expect(canvas.getByText('GPU 1')).toBeVisible();
   await user.click(
     within(screen.getByRole('navigation', { name: 'Cluster navigation' })).getByRole('button', {
       name: 'Devices',
@@ -118,6 +124,7 @@ it('filters both GPU views and updates Devices when the observed GPU is disabled
   );
   const inventory = within(screen.getByRole('region', { name: 'Devices' }));
   expect(await inventory.findByText('ARM64')).toBeVisible();
+  expect(inventory.getByText('Observed processor')).toBeVisible();
   expect(inventory.getByText('6 cores · 12 threads')).toBeVisible();
   expect(inventory.getByText('Microsoft Windows 11 Pro · 24H2 · Build 26100.7623')).toBeVisible();
   expect(inventory.queryByText('Observed integrated GPU')).not.toBeInTheDocument();

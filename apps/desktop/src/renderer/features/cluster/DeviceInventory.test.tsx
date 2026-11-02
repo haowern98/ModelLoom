@@ -117,7 +117,7 @@ it('excludes unsupported, virtual and disabled GPUs and renumbers the remaining 
     />,
   );
   expect(screen.queryByText('AMD GPU')).not.toBeInTheDocument();
-  expect(screen.getByText('No enabled AMD or NVIDIA GPU detected')).toBeVisible();
+  expect(screen.getByText('No enabled supported GPU detected')).toBeVisible();
 });
 
 it('groups hardware underneath each PC and omits the last-checked timestamp', () => {
