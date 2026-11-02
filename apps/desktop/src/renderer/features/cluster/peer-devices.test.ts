@@ -46,8 +46,17 @@ it('shows only mutually approved GPU inventory, qualified by its installation', 
       availableRamBytes: 10 * 2 ** 30,
       runtimeBackends: ['CUDA'],
       sampledAt: 123,
+      cpuUsagePercent: 25,
+      diskReadBytesPerSecond: 0,
+      diskWriteBytesPerSecond: 1000,
       gpus: [
-        { ...gpu, availableMemoryBytes: 4 * 2 ** 30, driverVersion: '617.14' },
+        {
+          ...gpu,
+          availableMemoryBytes: 4 * 2 ** 30,
+          driverVersion: '617.14',
+          utilizationPercent: 40,
+          usedMemoryBytes: 4 * 2 ** 30,
+        },
         { ...gpu, id: 'unshared' },
       ],
     },
@@ -67,11 +76,16 @@ it('shows only mutually approved GPU inventory, qualified by its installation', 
     cpuCores: 8,
     availableRamBytes: 10 * 2 ** 30,
     sampledAt: 123,
+    cpuUsagePercent: 25,
+    diskReadBytesPerSecond: 0,
+    diskWriteBytesPerSecond: 1000,
   });
   expect(device.inventory?.gpus).toHaveLength(1);
   expect(device.inventory?.gpus?.[0]).toMatchObject({
     availableMemoryBytes: 4 * 2 ** 30,
     driverVersion: '617.14',
+    utilizationPercent: 40,
+    usedMemoryBytes: 4 * 2 ** 30,
   });
   expect(device.inventory?.gpus?.[0]?.id).toBe(device.hardware[1]?.id);
   expect(peerDevices({ ...view, outgoing: [{ ...detailed, gpus: [] }] })[0]?.hardware).toHaveLength(
