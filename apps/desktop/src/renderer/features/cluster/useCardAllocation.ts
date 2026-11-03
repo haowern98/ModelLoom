@@ -61,7 +61,7 @@ export function useCardAllocation({
       slots,
       editor: {
         hardwareId: id,
-        first: String(slot.first),
+        first: slot.count ? String(slot.first) : '',
         last: slot.count ? String(slot.first + slot.count - 1) : '',
         error: '',
         focusInput,
@@ -69,6 +69,7 @@ export function useCardAllocation({
     });
   };
   const validate = (first: string, last: string) => {
+    if (first === '' && last === '') return '';
     if (!/^\d+$/u.test(first) || !/^\d+$/u.test(last))
       return 'Enter a whole number in both fields.';
     if (Number(first) >= total || Number(last) >= total)
@@ -83,7 +84,9 @@ export function useCardAllocation({
     resize: (id, last) => {
       const slots = slotsFor(id);
       const first =
-        current?.editor.hardwareId === id && !validate(current.editor.first, current.editor.last)
+        current?.editor.hardwareId === id &&
+        current.editor.first !== '' &&
+        !validate(current.editor.first, current.editor.last)
           ? Number(current.editor.first)
           : undefined;
       preview(id, resizeLayerEnd(slots, id, last, total, first), false, slots);
@@ -97,7 +100,9 @@ export function useCardAllocation({
         editor: { ...current.editor, first, last, error },
         ranges: error
           ? current.ranges
-          : resizeLayerEnd(current.slots, id, Number(last), total, Number(first)),
+          : first === '' && last === ''
+            ? ranges.filter((range) => range.hardwareId !== id)
+            : resizeLayerEnd(current.slots, id, Number(last), total, Number(first)),
       });
     },
     done: () => {
