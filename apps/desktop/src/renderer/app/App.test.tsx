@@ -33,7 +33,7 @@ it('shows an unloaded local worker before any model import, without requiring GP
   expect(device.queryByText('Windows · This device')).not.toBeInTheDocument();
   expect(device.getByText('Actual CPU')).toBeVisible();
   expect(device.queryByText('NVIDIA GPU')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Run model' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Load model' })).toBeDisabled();
   expect(screen.queryByText('No devices connected')).not.toBeInTheDocument();
   expect(command.mock.calls.every(([input]) => input?.action === 'snapshot')).toBe(true);
   await user.click(device.getByRole('button', { name: 'Actions for own-pc' }));
@@ -105,7 +105,7 @@ it('displays the detected GPU model beside the observed VRAM without loading a m
   expect(device.getByText('16.0 GiB dedicated memory')).toBeVisible();
   expect(device.getByRole('heading', { name: 'GPU' })).toBeVisible();
   expect(device.queryByText('NVIDIA GPU')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Run model' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Load model' })).toBeDisabled();
 });
 
 describe('Models milestone', () => {
@@ -168,7 +168,7 @@ describe('Models milestone', () => {
     expect(screen.getByRole('spinbutton', { name: 'Temperature' })).toHaveValue(0.6);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
     expect(screen.getByRole('button', { name: 'Selected demo model: Qwen3.8-27B' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Stop model' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Unload model' })).toBeVisible();
   });
 
   it('protects active removal until the model is stopped in Cluster', async () => {
@@ -179,7 +179,7 @@ describe('Models milestone', () => {
     expect(screen.queryByRole('button', { name: 'Stop demo model' })).not.toBeInTheDocument();
     await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
-    await user.click(screen.getByRole('button', { name: 'Stop model' }));
+    await user.click(screen.getByRole('button', { name: 'Unload model' }));
     await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Actions for Qwen3.8-27B' }));
     await user.click(screen.getByRole('button', { name: 'Remove model entry' }));

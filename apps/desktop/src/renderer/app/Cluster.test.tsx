@@ -183,7 +183,7 @@ describe('Cluster demo', () => {
     await user.click(screen.getByRole('button', { name: 'Apply and restart' }));
     await user.click(screen.getByRole('button', { name: 'Restart demo' }));
     expect(screen.getByRole('button', { name: 'Cancel loading' })).toBeVisible();
-    await screen.findByRole('button', { name: 'Stop model' });
+    await screen.findByRole('button', { name: 'Unload model' });
     expect(
       screen.getByRole('button', { name: 'Edit layers for studio-desktop GPU 0' }),
     ).toHaveTextContent('0\u201325');
@@ -218,8 +218,8 @@ describe('Cluster demo', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
-    await user.click(screen.getByRole('button', { name: 'Stop model' }));
-    expect(screen.getByRole('button', { name: 'Run model' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Unload model' }));
+    expect(screen.getByRole('button', { name: 'Load model' })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Select studio-desktop' }));
     expect(screen.getByRole('heading', { name: 'Cluster overview' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Edit layers for studio-desktop GPU 0' }));

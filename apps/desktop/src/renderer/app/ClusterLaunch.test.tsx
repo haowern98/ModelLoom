@@ -23,7 +23,7 @@ describe('Cluster planning and launch', () => {
     ).toBe(true);
     expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Keep draft/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Run model' }));
+    await user.click(screen.getByRole('button', { name: 'Load model' }));
     expect(screen.getByRole('alert')).toHaveTextContent(/cover all 32 sample layers exactly once/);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Models' }));
@@ -49,20 +49,20 @@ describe('Cluster planning and launch', () => {
     expect(
       screen.getByRole('button', { name: 'Edit layers for inference-node GPU 0' }),
     ).toHaveTextContent('0\u201331');
-    await user.click(screen.getByRole('button', { name: 'Run model' }));
+    await user.click(screen.getByRole('button', { name: 'Load model' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(
       screen.getByRole('button', { name: 'Edit layers for inference-node GPU 0' }),
     ).toHaveTextContent('0\u201331');
-    await user.click(screen.getByRole('button', { name: 'Run model' }));
+    await user.click(screen.getByRole('button', { name: 'Load model' }));
     await user.click(screen.getByRole('button', { name: 'Switch and run demo' }));
     expect(screen.getByRole('button', { name: 'Cancel loading' })).toBeVisible();
-    await screen.findByRole('button', { name: 'Stop model' });
+    await screen.findByRole('button', { name: 'Unload model' });
     expect(
       screen.getByRole('button', { name: 'Edit layers for inference-node GPU 0' }),
     ).toHaveTextContent('0\u201331');
-    await user.click(screen.getByRole('button', { name: 'Stop model' }));
-    expect(screen.getByRole('button', { name: 'Run model' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Unload model' }));
+    expect(screen.getByRole('button', { name: 'Load model' })).toBeVisible();
     expect(screen.queryByText('In use')).not.toBeInTheDocument();
   });
 
@@ -80,7 +80,7 @@ describe('Cluster planning and launch', () => {
     await user.click(screen.getByRole('menuitem', { name: /Llama 3.1 8B/ }));
     await user.click(screen.getByRole('button', { name: 'Auto place' }));
     expect(screen.getAllByText(/^Planned layers/)).toHaveLength(5);
-    await user.click(screen.getByRole('button', { name: 'Run model' }));
+    await user.click(screen.getByRole('button', { name: 'Load model' }));
     await user.click(screen.getByRole('button', { name: 'Switch and run demo' }));
     await user.click(screen.getByRole('button', { name: 'Cancel loading' }));
     await user.click(screen.getByRole('button', { name: 'Models' }));
