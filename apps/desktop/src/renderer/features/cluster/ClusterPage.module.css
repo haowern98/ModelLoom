@@ -538,6 +538,14 @@
   row-gap: 24px;
   align-items: start;
 }
+.canvasCamera {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.canvasCamera > .canvas {
+  pointer-events: auto;
+}
 .singleDeviceCanvas {
   width: 520px;
   min-height: 0;

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { Minus, Plus, Scan } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
+import { clusterPanelSpring } from './cluster-motion';
 import styles from './ClusterPage.module.css';
 
 interface Viewport {
@@ -34,7 +36,35 @@ export function ClusterCanvas({
   const drag = useRef<{ id: number; x: number; y: number; moved: boolean } | null>(null);
   const [view, setView] = useState<Viewport>({ x: 16, y: 16, scale: 1 });
   const [dragging, setDragging] = useState(false);
+  const [reservedWidth, setReservedWidth] = useState(0);
+  const reservation = useRef(0);
+  const reducedMotion = useReducedMotion();
   const instructions = useId();
+
+  useLayoutEffect(() => {
+    const element = viewport.current;
+    const panel = panelId ? document.getElementById(panelId) : null;
+    if (!element) return;
+    const measure = () => {
+      // offsetLeft is the resting position; the panel's animated rectangle slides every frame.
+      const parentLeft = panel?.offsetParent?.getBoundingClientRect().left ?? 0;
+      const left = panel
+        ? parentLeft + panel.offsetLeft - element.getBoundingClientRect().left
+        : element.clientWidth;
+      const next = Math.max(
+        0,
+        Math.min(element.clientWidth, element.clientWidth - left + (panel ? 16 : 0)),
+      );
+      reservation.current = next;
+      setReservedWidth((current) => (current === next ? current : next));
+    };
+    measure();
+    const observer =
+      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
+    observer?.observe(element);
+    if (panel) observer?.observe(panel);
+    return () => observer?.disconnect();
+  }, [panelId]);
 
   useLayoutEffect(() => {
     const background = backgroundRef?.current;
@@ -56,19 +86,8 @@ export function ClusterCanvas({
   }, []);
 
   const availableWidth = useCallback(
-    (element: HTMLDivElement) => {
-      const panel = panelId ? document.getElementById(panelId) : null;
-      return panel
-        ? Math.max(
-            0,
-            Math.min(
-              element.clientWidth,
-              panel.getBoundingClientRect().left - element.getBoundingClientRect().left,
-            ),
-          )
-        : element.clientWidth;
-    },
-    [panelId],
+    (element: HTMLDivElement) => Math.max(0, element.clientWidth - reservation.current),
+    [],
   );
 
   const centerView = useCallback(() => {
@@ -78,7 +97,7 @@ export function ClusterCanvas({
     const width = availableWidth(element);
     setView((previous) => ({
       ...previous,
-      x: (width - content.offsetWidth * previous.scale) / 2,
+      x: (width - content.offsetWidth * previous.scale) / 2 + reservation.current / 2,
       y: singleDevice ? centerY(element) - (content.offsetHeight * previous.scale) / 2 : 20,
     }));
   }, [availableWidth, centerY, singleDevice]);
@@ -94,7 +113,7 @@ export function ClusterCanvas({
       Math.min(1, (width - 40) / content.offsetWidth, (2 * (y - 20)) / content.offsetHeight),
     );
     setView({
-      x: (width - content.offsetWidth * scale) / 2,
+      x: (width - content.offsetWidth * scale) / 2 + reservation.current / 2,
       y: y - (content.offsetHeight * scale) / 2,
       scale,
     });
@@ -104,7 +123,7 @@ export function ClusterCanvas({
     const element = viewport.current;
     if (!element) return;
     touched.current = true;
-    const x = availableWidth(element) / 2;
+    const x = availableWidth(element) / 2 + reservation.current / 2;
     const y = singleDevice ? centerY(element) : element.clientHeight / 2;
     setView((previous) => {
       const scale = Math.max(0.25, Math.min(2, previous.scale * factor));
@@ -156,14 +175,12 @@ export function ClusterCanvas({
       typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(recenter);
     observer?.observe(element);
     observer?.observe(content);
-    const panel = panelId ? document.getElementById(panelId) : null;
-    if (panel) observer?.observe(panel);
     const wheel = (event: WheelEvent) => {
       if (event.target instanceof Node && controls.current?.contains(event.target)) return;
       event.preventDefault();
       touched.current = true;
       const bounds = element.getBoundingClientRect();
-      const x = event.clientX - bounds.left;
+      const x = event.clientX - bounds.left + reservation.current / 2;
       const y = event.clientY - bounds.top;
       const delta =
         event.deltaY *
@@ -183,7 +200,7 @@ export function ClusterCanvas({
       observer?.disconnect();
       element.removeEventListener('wheel', wheel);
     };
-  }, [centerView, fitOnMount, fitView, singleDevice, panelId]);
+  }, [centerView, fitOnMount, fitView, singleDevice]);
 
   return (
     <div
@@ -261,16 +278,23 @@ export function ClusterCanvas({
         Drag empty canvas with the left mouse button to pan. Scroll to zoom. Keyboard: arrow keys to
         pan, plus and minus to zoom, zero to fit.
       </span>
-      <div
-        ref={world}
-        className={`${styles.canvas} ${singleDevice ? styles.singleDeviceCanvas : ''}`}
-        style={{
-          ...layoutStyle,
-          transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
-        }}
+      <motion.div
+        className={styles.canvasCamera}
+        animate={{ x: -reservedWidth / 2 }}
+        initial={false}
+        transition={reducedMotion ? { duration: 0 } : clusterPanelSpring}
       >
-        {children}
-      </div>
+        <div
+          ref={world}
+          className={`${styles.canvas} ${singleDevice ? styles.singleDeviceCanvas : ''}`}
+          style={{
+            ...layoutStyle,
+            transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+          }}
+        >
+          {children}
+        </div>
+      </motion.div>
       <div
         ref={controls}
         className={styles.canvasControls}
