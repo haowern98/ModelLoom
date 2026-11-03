@@ -26,6 +26,7 @@ import { supportedDeviceGpus } from '../../shared/runtime';
 import { useLiveChat } from '../features/chat/useLiveChat';
 import { usePeerInventory } from '../features/cluster/usePeerInventory';
 import { peerDevices } from '../features/cluster/peer-devices';
+import { readDeviceDisplayNames, saveDeviceDisplayName } from './deviceDisplayNames';
 
 type Modal =
   { type: 'remove' | 'details'; model: DemoModel } | { type: 'info'; title: string; text: string };
@@ -56,6 +57,12 @@ export function App() {
   const [speculativeRequest, setSpeculativeRequest] = useState(0);
   const [chat, dispatchChat] = useReducer(transitionDemoChat, demo, createDemoChat);
   const [deviceNames, setDeviceNames] = useState<Record<string, string>>({});
+  const [liveDeviceNames, setLiveDeviceNames] = useState(readDeviceDisplayNames);
+  const localDisplayName = liveDeviceNames.local ?? localDevice?.name;
+  const connectedDevices = peerDevices(peers).map((device) => ({
+    ...device,
+    name: liveDeviceNames[device.id] ?? device.name,
+  }));
   const [joining, dispatchJoining] = useReducer(
     transitionDemoJoining,
     undefined,
@@ -145,7 +152,7 @@ export function App() {
     if (location.destination === 'Models' && location.configurationModelId)
       return displayLibrary.models.some((model) => model.id === location.configurationModelId);
     if (location.destination === 'Cluster' && location.deviceId)
-      return (local ? [{ id: 'local' }, ...peerDevices(peers)] : demoDevices).some(
+      return (local ? [{ id: 'local' }, ...connectedDevices] : demoDevices).some(
         (device) => device.id === location.deviceId,
       );
     return true;
@@ -260,12 +267,12 @@ export function App() {
               return 'Choose an allocation in Cluster';
             const device = allocation.proposerDevice ?? 'auto';
             if (device === 'auto') return 'Automatic';
-            if (device === 'cpu') return `${localDevice?.name ?? 'This PC'} · CPU`;
+            if (device === 'cpu') return `${localDisplayName ?? 'This PC'} · CPU`;
             const localGpu = localDevice?.inventory?.gpus?.find(
               (gpu) => gpu.executionIdentity?.uuid === device,
             );
-            if (localGpu) return `${localDevice?.name ?? 'This PC'} · ${localGpu.name}`;
-            for (const peer of peerDevices(peers)) {
+            if (localGpu) return `${localDisplayName ?? 'This PC'} · ${localGpu.name}`;
+            for (const peer of connectedDevices) {
               const gpu = peer.hardware.find((entry) => entry.id === device);
               if (gpu) return `${peer.name} · ${gpu.name}`;
             }
@@ -388,7 +395,7 @@ export function App() {
                     ? [
                         {
                           id: 'local',
-                          name: localDevice.name,
+                          name: localDisplayName ?? localDevice.name,
                           role: localDevice.role,
                           os: localDevice.os,
                           ...(localDevice.inventory ? { inventory: localDevice.inventory } : {}),
@@ -424,14 +431,23 @@ export function App() {
                         },
                       ]
                     : []),
-                  ...peerDevices(peers),
+                  ...connectedDevices,
                 ]
               : demoDevices.map((device) => ({
                   ...device,
                   name: deviceNames[device.id] ?? device.name,
                 }))
           }
-          onRenameDevice={(id, name) => setDeviceNames((current) => ({ ...current, [id]: name }))}
+          onRenameDevice={(id, name) => {
+            if (!local) {
+              setDeviceNames((current) => ({ ...current, [id]: name }));
+              return true;
+            }
+            const names = saveDeviceDisplayName(id, name);
+            if (!names) return false;
+            setLiveDeviceNames(names);
+            return true;
+          }}
           activeModel={activeModel}
           models={displayLibrary.models.filter((model) => !model.speculativeHead)}
           placement={

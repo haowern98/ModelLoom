@@ -109,7 +109,7 @@ interface ClusterPageProps extends JoiningProps {
   pendingPeerRequests?: number;
   configurations?: ClusterConfigurations;
   devices: readonly DemoDevice[];
-  onRenameDevice: (id: string, name: string) => void;
+  onRenameDevice: (id: string, name: string) => boolean | void;
   activeModel: DemoModel | undefined;
   models: readonly DemoModel[];
   placement: DemoPlacement;
@@ -1211,7 +1211,10 @@ export function ClusterPage({
               device={devices.find((device) => device.id === modal.device.id) ?? modal.device}
               onCancel={close}
               onSave={(name) => {
-                onRenameDevice(modal.device.id, name);
+                if (onRenameDevice(modal.device.id, name) === false) {
+                  notify('error', 'Could not save the device name. Try again.');
+                  return;
+                }
                 close();
                 notify('success', 'Device renamed');
               }}
