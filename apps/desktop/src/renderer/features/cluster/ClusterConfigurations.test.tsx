@@ -124,7 +124,7 @@ it('confirms unsaved model switches, discards assignments, and plans the next mo
     expect(command.mock.calls.some(([input]) => input.action === 'auto-place')).toBe(false);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Selected local model: Qwen' }));
-    await user.click(screen.getByRole('menuitem', { name: /Bonsai/ }));
+    await user.click(screen.getByRole('menuitem', { name: 'No model' }));
     expect(screen.getByRole('dialog', { name: 'Unsaved changes' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Close dialog' }));
     expect(screen.getByRole('button', { name: 'Selected local model: Qwen' })).toBeVisible();
@@ -132,8 +132,12 @@ it('confirms unsaved model switches, discards assignments, and plans the next mo
       screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }),
     ).toHaveTextContent('0–15');
     await user.click(screen.getByRole('button', { name: 'Selected local model: Qwen' }));
-    await user.click(screen.getByRole('menuitem', { name: /Bonsai/ }));
+    await user.click(screen.getByRole('menuitem', { name: 'No model' }));
     await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+    await screen.findByRole('button', { name: 'Choose model' });
+    expect(screen.getByRole('button', { name: 'Load model' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Choose model' }));
+    await user.click(screen.getByRole('menuitem', { name: /Bonsai/ }));
     await screen.findByRole('button', { name: 'Selected local model: Bonsai' });
     expect(onRunDraft).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('Planned layers 0 – 15')).not.toBeInTheDocument();

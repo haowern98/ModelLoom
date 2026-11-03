@@ -519,6 +519,9 @@ it('discards each model editor history explicitly before changing selection', as
   expect(result.current.canUndo).toBe(false);
   await act(() => result.current.selectModel('b'.repeat(64)));
   expect(result.current.raw?.runs).toEqual([]);
+  expect(result.current.selection?.configurationId).toBeNull();
+  expect(result.current.raw?.runs).toEqual([]);
+  await act(() => result.current.selectConfiguration(fixture.configuration));
 });
 
 it('retains invalid draft history on failed Save and resets history only after successful Save', async () => {
@@ -567,7 +570,8 @@ it('saves a named automatic assignment only after the user chooses Save changes'
   await act(async () => expect(await result.current.saveAndLeave('Qwen placement')).toBe(true));
   expect(result.current.selection?.modelId).toBe(second);
   await act(() => result.current.selectModel(first));
-  expect(result.current.raw?.runs).toEqual([{ uuid: 'gpu', first: '0', last: '7' }]);
+  expect(result.current.selection?.configurationId).toBeNull();
+  expect(result.current.raw?.runs).toEqual([]);
   expect(result.current.dirty).toBe(false);
   expect(fixture.command).toHaveBeenCalledWith(
     expect.objectContaining({ action: 'save', name: 'Qwen placement' }),
