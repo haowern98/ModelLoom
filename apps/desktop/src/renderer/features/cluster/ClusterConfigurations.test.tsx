@@ -806,6 +806,30 @@ it('applies card previews across local and remote GPUs as one undoable draft edi
     await user.click(screen.getByRole('button', { name: 'Redo' }));
     expect(peerRange()).toHaveTextContent('44\u201363');
     expect(edits()).toBe(baseline);
+    const localRange = () =>
+      screen.getByRole('button', { name: 'Edit layers for Observed device GPU 1' });
+    for (const action of ['Cancel', 'Done'] as const) {
+      await user.click(localRange());
+      await user.clear(
+        screen.getByRole('textbox', { name: 'First layer for Observed device GPU 1' }),
+      );
+      expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number in both fields.');
+      await user.clear(
+        screen.getByRole('textbox', { name: 'Last layer for Observed device GPU 1' }),
+      );
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(localRange()).toHaveTextContent('Unassigned');
+      expect(screen.getByLabelText('Observed device GPU 1 assigned layer count')).toHaveTextContent(
+        '0 layers',
+      );
+      expect(peerRange()).toHaveTextContent('44\u201363');
+      await user.click(screen.getByRole('button', { name: action }));
+      expect(localRange()).toHaveTextContent(action === 'Cancel' ? '22\u201343' : 'Unassigned');
+      expect(edits()).toBe(baseline);
+    }
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(localRange()).toHaveTextContent('22\u201343');
+    expect(peerRange()).toHaveTextContent('44\u201363');
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));
     await waitFor(() => expect(edits()).toBe(baseline + 1));
     const edit = command.mock.calls

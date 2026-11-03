@@ -198,3 +198,77 @@ it('does not accept an unassigned GPU with incomplete fields', () => {
   act(() => expect(result.current.allocation.done()).toBe(false));
   expect(commit).not.toHaveBeenCalled();
 });
+
+it.each(ids)('clears only %s with two empty fields, with Cancel and Done kept separate', (id) => {
+  const { result, commit } = setup();
+  const remaining = ranges.filter((range) => range.hardwareId !== id);
+  act(() => result.current.allocation.open(id));
+  act(() => result.current.allocation.fields('', ''));
+  expect(result.current.allocation.editor).toMatchObject({ first: '', last: '', error: '' });
+  expect(result.current.ranges).toEqual(remaining);
+  expect(result.current.allocation.message).toContain('unassigned');
+  expect(commit).not.toHaveBeenCalled();
+  act(() => result.current.allocation.cancel());
+  expect(result.current.ranges).toEqual(ranges);
+  act(() => result.current.allocation.open(id));
+  act(() => result.current.allocation.fields('', ''));
+  act(() => {
+    expect(result.current.allocation.done()).toBe(true);
+  });
+  expect(commit).toHaveBeenCalledExactlyOnceWith(remaining);
+  expect(result.current.editing).toBe(false);
+});
+
+it.each([
+  ['', '0', 'Enter a whole number in both fields.'],
+  ['0', '', 'Enter a whole number in both fields.'],
+  ['1.5', '2', 'Enter a whole number in both fields.'],
+  ['0', 'bad', 'Enter a whole number in both fields.'],
+  ['-1', '0', 'Enter a whole number in both fields.'],
+  ['24', '24', 'Choose layers between 0 and 23.'],
+  ['0', '24', 'Choose layers between 0 and 23.'],
+  ['2', '1', 'Last layer must be at least the first layer.'],
+])('keeps existing validation for First=%j and Last=%j', (first, last, error) => {
+  const commit = vi.fn();
+  const original = [{ hardwareId: ids[0]!, first: 0, last: 23 }];
+  const { result } = renderHook(() =>
+    useCardAllocation({
+      ranges: original,
+      ids,
+      total: 24,
+      context: 'validation',
+      disabled: false,
+      commit,
+    }),
+  );
+  act(() => result.current.allocation.open(ids[0]!));
+  act(() => result.current.allocation.fields(first, last));
+  act(() => {
+    expect(result.current.allocation.done()).toBe(false);
+  });
+  expect(result.current.allocation.editor?.error).toBe(error);
+  expect(result.current.ranges).toEqual(original);
+  expect(commit).not.toHaveBeenCalled();
+});
+
+it('opens an unassigned GPU with empty fields and still accepts 0–0 as one layer', () => {
+  const commit = vi.fn();
+  const { result } = renderHook(() =>
+    useCardAllocation({
+      ranges: [],
+      ids: [ids[0]!],
+      total: 24,
+      context: 'empty',
+      disabled: false,
+      commit,
+    }),
+  );
+  act(() => result.current.allocation.open(ids[0]!));
+  expect(result.current.allocation.editor).toMatchObject({ first: '', last: '' });
+  act(() => result.current.allocation.fields('0', '0'));
+  expect(result.current.allocation.message).toBe('1 of 24 layers assigned · 23 unassigned');
+  act(() => {
+    expect(result.current.allocation.done()).toBe(true);
+  });
+  expect(commit).toHaveBeenCalledExactlyOnceWith([{ hardwareId: ids[0], first: 0, last: 0 }]);
+});
