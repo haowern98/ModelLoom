@@ -1320,6 +1320,20 @@ Device details opens the existing Devices view, and Rename uses the existing
 name editor in a dialog. Connection information appears as an additional inline
 section without replacing the overview.
 
+Connection details starts collapsed and shares Speculative workload's exact
+14px chevron and hover/focus behavior. Inside it, use aligned From/To, network,
+path, status and latency rows, followed by transfer rates. Keep all measurements,
+historical labels and direction explanations. Use 13px regular rows, 12px muted
+notes and 8px between groups, without internal divider lines or bold Devices/
+Connection subheadings. The separator above the whole section remains.
+
+Latency (including Last latency) and Bandwidth/Live transfer rate have 14px SDK
+InfoCircle glyphs beside their labels. Use the SDK Tooltip with scoped dark
+tokens for explanations instead of paragraphs below these rows. Preserve the
+bandwidth context for active, measured, testing, unsupported and unavailable
+states. Tooltips open on hover or keyboard focus; Escape dismisses the tooltip
+without closing Cluster overview. Measurements and polling remain unchanged.
+
 Retain edge-hover + controls and the add-device hint. The compact Add device
 picker appears after Layer assignment. Closing or completing it keeps the summary
 open; added PCs remain unassigned. Existing inventory, sharing and runtime guards
