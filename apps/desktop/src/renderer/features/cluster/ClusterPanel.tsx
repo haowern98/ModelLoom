@@ -65,6 +65,29 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
     </section>
   );
 }
+function CollapsibleSection({ title, children }: { title: string; children: ReactNode }) {
+  const [expanded, setExpanded] = useState(false);
+  const contentId = useId();
+  return (
+    <section className={styles.section}>
+      <h2 className={styles.sectionLabel}>
+        <button
+          type="button"
+          className={styles.sectionToggle}
+          aria-expanded={expanded}
+          aria-controls={contentId}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span>{title}</span>
+          <ChatNavIcon name="chevron" className={styles.sectionChevron} />
+        </button>
+      </h2>
+      <div id={contentId} className={styles.rows} hidden={!expanded}>
+        {children}
+      </div>
+    </section>
+  );
+}
 function Row({ label, meta, icon }: { label: string; meta?: ReactNode; icon?: ReactNode }) {
   return (
     <div className={styles.row}>
@@ -119,10 +142,8 @@ export function ClusterPanel({
 }: ClusterPanelProps) {
   const isPresent = useIsPresent();
   const reducedMotion = useReducedMotion();
-  const [expanded, setExpanded] = useState(false);
   const picker = useRef<HTMLElement>(null);
   const pickerClose = useRef<HTMLButtonElement>(null);
-  const workloadId = useId();
   const deviceId = useId();
   const pickerId = useId();
   const adding = selection.type === 'add';
@@ -218,95 +239,81 @@ export function ClusterPanel({
         />
         {unified.length > 0 && <Row label="Unified memory" meta={memory(unified)} />}
       </Section>
-      <section className={styles.section}>
-        <h2 className={styles.sectionLabel}>
-          <button
-            type="button"
-            className={styles.sectionToggle}
-            aria-expanded={expanded}
-            aria-controls={workloadId}
-            onClick={() => setExpanded(!expanded)}
-          >
-            <span>Speculative workload</span>
-            <ChatNavIcon name="chevron" className={styles.sectionChevron} />
-          </button>
-        </h2>
-        <div id={workloadId} className={styles.rows} hidden={!expanded}>
-          {speculation.enabled && speculation.proposer && (
-            <div className={`${styles.row} ${styles.placement}`}>
-              <label
-                className={styles.rowLabel}
-                htmlFor={speculation.placementNote ? undefined : deviceId}
-              >
-                {speculation.method ?? 'MTP'}
-              </label>
-              {speculation.placementNote ? (
-                <span className={styles.rowMeta}>Follows target</span>
-              ) : (
-                <Select<Option>
-                  multiple={false}
-                  id={deviceId}
-                  size="sm"
-                  variant="ghost"
-                  pill
-                  block={false}
-                  value={speculation.device}
-                  disabled={editingDisabled}
-                  onChange={(option) => speculation.onDevice(option.value)}
-                  options={[
-                    { value: 'auto', label: 'Automatic' },
-                    ...speculation.devices,
-                    ...(unavailable
-                      ? [
-                          {
-                            value: speculation.device,
-                            label: 'Selected device unavailable',
-                            disabled: true,
-                          },
-                        ]
-                      : []),
-                  ]}
-                  triggerClassName={styles.placementSelect ?? ''}
-                  optionClassName={styles.placementOption ?? ''}
-                  OptionView={PlacementOption}
-                  listMinWidth={220}
-                  align="end"
-                />
-              )}
-            </div>
-          )}
-          {speculation.enabled && speculation.proposer && speculation.placementNote && (
-            <p className={styles.note}>This head follows the target output placement.</p>
-          )}
-          {speculation.enabled &&
-            speculation.proposer &&
-            !speculation.placementNote &&
-            unavailable && (
-              <p className={styles.warning} role="alert">
-                Selected device unavailable. Choose an available device.
-              </p>
+      <CollapsibleSection title="Speculative workload">
+        {speculation.enabled && speculation.proposer && (
+          <div className={`${styles.row} ${styles.placement}`}>
+            <label
+              className={styles.rowLabel}
+              htmlFor={speculation.placementNote ? undefined : deviceId}
+            >
+              {speculation.method ?? 'MTP'}
+            </label>
+            {speculation.placementNote ? (
+              <span className={styles.rowMeta}>Follows target</span>
+            ) : (
+              <Select<Option>
+                multiple={false}
+                id={deviceId}
+                size="sm"
+                variant="ghost"
+                pill
+                block={false}
+                value={speculation.device}
+                disabled={editingDisabled}
+                onChange={(option) => speculation.onDevice(option.value)}
+                options={[
+                  { value: 'auto', label: 'Automatic' },
+                  ...speculation.devices,
+                  ...(unavailable
+                    ? [
+                        {
+                          value: speculation.device,
+                          label: 'Selected device unavailable',
+                          disabled: true,
+                        },
+                      ]
+                    : []),
+                ]}
+                triggerClassName={styles.placementSelect ?? ''}
+                optionClassName={styles.placementOption ?? ''}
+                OptionView={PlacementOption}
+                listMinWidth={220}
+                align="end"
+              />
             )}
-          {speculation.enabled && speculation.retrieval && (
-            <Row label="CPU retrieval" meta="This PC · CPU" />
-          )}
-          {!speculation.enabled && <p className={styles.note}>Off in model configuration.</p>}
-          {speculation.enabled && speculation.pendingHint && (
-            <p className={styles.note} role="status">
-              {speculation.pendingHint}
+          </div>
+        )}
+        {speculation.enabled && speculation.proposer && speculation.placementNote && (
+          <p className={styles.note}>This head follows the target output placement.</p>
+        )}
+        {speculation.enabled &&
+          speculation.proposer &&
+          !speculation.placementNote &&
+          unavailable && (
+            <p className={styles.warning} role="alert">
+              Selected device unavailable. Choose an available device.
             </p>
           )}
-          {onModelConfiguration && (
-            <button
-              type="button"
-              className={`${styles.row} ${styles.action}`}
-              onClick={onModelConfiguration}
-            >
-              <span className={styles.rowLabel}>Model configuration</span>
-              <ChevronRight className={styles.rowChevron} aria-hidden="true" />
-            </button>
-          )}
-        </div>
-      </section>
+        {speculation.enabled && speculation.retrieval && (
+          <Row label="CPU retrieval" meta="This PC · CPU" />
+        )}
+        {!speculation.enabled && <p className={styles.note}>Off in model configuration.</p>}
+        {speculation.enabled && speculation.pendingHint && (
+          <p className={styles.note} role="status">
+            {speculation.pendingHint}
+          </p>
+        )}
+        {onModelConfiguration && (
+          <button
+            type="button"
+            className={`${styles.row} ${styles.action}`}
+            onClick={onModelConfiguration}
+          >
+            <span className={styles.rowLabel}>Model configuration</span>
+            <ChevronRight className={styles.rowChevron} aria-hidden="true" />
+          </button>
+        )}
+      </CollapsibleSection>
       <Section title="Layer assignment">
         {devices.map((device) => (
           <div
@@ -380,12 +387,12 @@ export function ClusterPanel({
         </section>
       )}
       {selection.type === 'connection' && (
-        <Section title="Connection details">
+        <CollapsibleSection title="Connection details">
           <ConnectionDetails
             from={devices.find((device) => device.id === selection.from)}
             to={devices.find((device) => device.id === selection.to)}
           />
-        </Section>
+        </CollapsibleSection>
       )}
       {selection.type === 'link' && (
         <Section title="Connection">
