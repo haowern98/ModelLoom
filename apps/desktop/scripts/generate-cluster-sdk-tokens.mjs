@@ -14,7 +14,7 @@ const tokens = (await Promise.all(files.map((file) => readFile(path.join(source,
   // A scoped descendant selector does not match the scope root itself.
   .replace(
     /^([ \t]*):where\(\[data-theme="dark"\]\)\s*\{/gmu,
-    '$1:scope:where([data-theme="dark"]), :scope:has([data-cluster-summary-option]), :where([data-theme="dark"]) {',
+    '$1:scope:where([data-theme="dark"]), :scope:has([data-cluster-summary-option], [data-cluster-toolbar-option]), :where([data-theme="dark"]) {',
   )
   .replace(/^.*--(?:font-weight|radius)-\*: initial;\r?\n/gmu, '')
   // Keep the SDK's 16px reference scale without changing the app's 14px root.
@@ -24,7 +24,7 @@ const target = new URL('../src/renderer/features/cluster/cluster-sdk-tokens.css'
 await writeFile(
   target,
   await format(
-    `/* Generated from OpenAI Apps SDK UI 0.2.2. MIT; see OPENAI-UI-LICENSE.txt.\n * Regenerate: node apps/desktop/scripts/generate-cluster-sdk-tokens.mjs\n */\n@scope ([data-cluster-sdk], [data-radix-popper-content-wrapper]:has([data-cluster-summary-option])) {\n${tokens}\n}\n`,
+    `/* Generated from OpenAI Apps SDK UI 0.2.2. MIT; see OPENAI-UI-LICENSE.txt.\n * Regenerate: node apps/desktop/scripts/generate-cluster-sdk-tokens.mjs\n */\n@scope ([data-cluster-sdk], [data-radix-popper-content-wrapper]:has([data-cluster-summary-option], [data-cluster-toolbar-option])) {\n${tokens}\n}\n`,
     { ...(await resolveConfig(target)), parser: 'css' },
   ),
 );

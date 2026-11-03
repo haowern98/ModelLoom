@@ -390,6 +390,7 @@ export function App() {
             ? {
                 localRuntime: {
                   activeCluster: runtime.view?.activeCluster ?? null,
+                  loadingStage: runtime.view?.loadingStage,
                   loading:
                     runtime.loading ||
                     runtime.view?.phase === 'starting' ||

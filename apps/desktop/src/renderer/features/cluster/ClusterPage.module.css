@@ -38,26 +38,54 @@
 .overview[hidden] {
   display: none;
 }
-.actionCapsule {
+.historyCapsule,
+.toolbarActions {
   display: flex;
   align-items: center;
-  gap: 0;
-  padding: 0;
+  flex-shrink: 0;
+}
+.historyCapsule {
   border-radius: 999px;
   background: #2c2c2c;
 }
-.historyCapsule {
-  flex-shrink: 0;
-  padding: 0 4px;
+.toolbarActions {
+  gap: 8px;
+  margin-left: auto;
 }
-.historyCapsule .runIcon {
-  color: var(--text);
+.modelPickerSlot {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 220px;
 }
-.historyDivider {
-  width: 1px;
-  height: 16px;
-  margin-inline: 2px;
-  background: #ffffff14;
+.header .modelPickerSlot .model {
+  max-width: 100%;
+  min-width: 0;
+  height: 32px;
+}
+.header button.sdkButton,
+.header button.sdkButton:hover {
+  all: revert-layer;
+  border: 0;
+  background: transparent;
+  outline: none;
+  -webkit-app-region: no-drag;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  --button-ring-color: #afafaf;
+}
+.header button.runtimeAction,
+.header button.runtimeAction:hover {
+  min-width: 0;
+}
+.header button.runtimeAction,
+.header button.runtimeAction:hover,
+.header button[aria-label='Save configuration'],
+.header button[aria-label='Save configuration']:hover {
+  font-size: 13px;
+}
+.header button.runtimeAction svg {
+  font-size: 14px;
 }
 .candidateGrid {
   display: grid;
@@ -103,19 +131,12 @@
 }
 .header {
   justify-content: space-between;
-  flex-wrap: wrap;
   gap: 12px;
   padding-top: 10px;
 }
 .heading {
   gap: 8px;
   min-width: 0;
-}
-.heading h1 {
-  margin-right: 6px;
-  font-size: var(--font-size-page-title);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-page-title);
 }
 .toolbar {
   gap: 8px;
@@ -323,8 +344,6 @@
 .hardwareChoices input {
   --checkbox-layout-size: 13px;
 }
-.runIcon,
-.panelToggle,
 .panelBack {
   display: grid;
   place-items: center;
@@ -336,22 +355,10 @@
   color: var(--text);
   background: transparent;
 }
-.page .runIcon,
-.page .panelToggle,
 .page .panelBack {
   background: transparent;
   border-radius: 50%;
 }
-.page .panelToggle {
-  background: #2c2c2c;
-}
-.runIcon,
-.panelToggle {
-  color: #8b8b8b;
-}
-.page .runIcon:not(:disabled):hover,
-.page .panelToggle:hover,
-.page .panelToggle[aria-expanded='true'],
 .page .panelBack:hover {
   background: var(--cluster-control-hover);
 }
@@ -1328,13 +1335,6 @@
 .activeRange {
   display: block;
   margin-top: 4px;
-}
-.runIcon {
-  flex-shrink: 0;
-}
-.page .runIcon:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 .placementChoices {
   display: flex;

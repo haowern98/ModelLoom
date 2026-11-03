@@ -24,8 +24,9 @@ export function useRuntime() {
                 ? {
                     ...previous,
                     ...(['starting', 'loading'].includes(next.phase)
-                      ? { phase: next.phase, error: null }
+                      ? { phase: next.phase, error: null, loadingStage: next.loadingStage }
                       : {}),
+                    ...(next.device ? { device: next.device } : {}),
                     memoryWarning: next.memoryWarning ?? null,
                   }
                 : null,
@@ -55,7 +56,9 @@ export function useRuntime() {
     // A retry is a new observation. Do not redisplay the previous attempt's fault
     // while main is still preparing the next one.
     if (startsLoad)
-      setView((previous) => (previous ? { ...previous, error: null, memoryWarning: null } : null));
+      setView((previous) =>
+        previous ? { ...previous, error: null, memoryWarning: null, loadingStage: 0 } : null,
+      );
     try {
       const next = await bridge.command(command);
       if (current === generation.current) setView(next);

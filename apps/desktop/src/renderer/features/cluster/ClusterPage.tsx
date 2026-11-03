@@ -1,19 +1,24 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { Dispatch } from 'react';
 import { AnimatePresence } from 'motion/react';
+import { Button as SdkButton } from '@openai/apps-sdk-ui/components/Button';
+import {
+  ArrowRotateCcw,
+  ArrowRotateCw,
+  DotsHorizontal,
+  SidebarRight,
+  StopOutline,
+} from '@openai/apps-sdk-ui/components/Icon';
+import { Menu } from '@openai/apps-sdk-ui/components/Menu';
+import { ModelLoadingIcon } from './ModelLoadingIcon';
 import { DeviceNameEditor } from './DeviceNameEditor';
 import summaryStyles from './ClusterPanel.module.css';
 import type { ClusterConfigurations } from './useClusterConfigurations';
 import type { SavedClusterConfiguration } from '../../../shared/cluster-configuration';
 import type { RuntimeView } from '../../../shared/runtime';
-import { FloppyDisk } from '@phosphor-icons/react/dist/csr/FloppyDisk';
 import { Network } from '@phosphor-icons/react/dist/csr/Network';
-import { SidebarSimple } from '@phosphor-icons/react/dist/csr/SidebarSimple';
 import { ChatGptPlayIcon } from '../../components/ChatGptPlayIcon';
 import { ChatGptHistoryIcon } from '../../components/ChatGptHistoryIcon';
-import { Stop as Square } from '@phosphor-icons/react/dist/csr/Stop';
-import { ArrowClockwise as RotateCw } from '@phosphor-icons/react/dist/csr/ArrowClockwise';
-import { Spinner as LoaderCircle } from '@phosphor-icons/react/dist/csr/Spinner';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { Toast } from '../../components/Toast';
@@ -107,6 +112,7 @@ interface ClusterPageProps extends JoiningProps {
   onStop: () => void;
   localRuntime?: {
     loading: boolean;
+    loadingStage?: number | undefined;
     activeCluster?: RuntimeView['activeCluster'];
     onChoose(model: DemoModel): void;
     onRun(): void;
@@ -486,15 +492,8 @@ export function ClusterPage({
     : selectedIsActive && changed && !configurations
       ? 'Apply and restart'
       : selectedIsActive
-        ? 'Stop model'
-        : 'Run model';
-  const RunIcon = loading
-    ? LoaderCircle
-    : selectedIsActive && changed && !configurations
-      ? RotateCw
-      : selectedIsActive
-        ? Square
-        : null;
+        ? 'Unload model'
+        : 'Load model';
   const close = () => {
     setModal(null);
   };
@@ -530,7 +529,14 @@ export function ClusterPage({
       className={styles.page}
       aria-labelledby="cluster-heading"
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && panelOpen && !modal && !configurations?.leaveRequested) {
+        if (
+          !event.defaultPrevented &&
+          !(event.target instanceof Element && event.target.closest('[role="menu"]')) &&
+          event.key === 'Escape' &&
+          panelOpen &&
+          !modal &&
+          !configurations?.leaveRequested
+        ) {
           event.stopPropagation();
           closePanel();
         }
@@ -572,16 +578,36 @@ export function ClusterPage({
           />
         )}
         <div hidden={view !== 'overview'}>
-          <header className={styles.header}>
+          <header className={styles.header} data-cluster-sdk="" data-theme="dark">
             <div className={styles.heading}>
-              <div
-                className={`${styles.actionCapsule} ${styles.historyCapsule}`}
-                role="group"
-                aria-label="Assignment history"
-              >
-                <button
+              <div className={styles.modelPickerSlot}>
+                <ClusterModelPicker
+                  local={Boolean(localRuntime)}
+                  models={models}
+                  selectedModel={selectedModel}
+                  activeModelId={activeModel?.id}
+                  disabled={
+                    cardEditor.editing ||
+                    (!demo && !localRuntime) ||
+                    loading ||
+                    Boolean(configurations?.planning || configurations?.pending)
+                  }
+                  onChoose={(model) =>
+                    localRuntime
+                      ? localRuntime.onChoose(model)
+                      : setModal({ type: 'placement', model })
+                  }
+                />
+              </div>
+              <div className={styles.historyCapsule} role="group" aria-label="Assignment history">
+                <SdkButton
                   type="button"
-                  className={styles.runIcon}
+                  className={styles.sdkButton ?? ''}
+                  size="md"
+                  color="secondary"
+                  variant="ghost"
+                  pill
+                  uniform
                   aria-label="Undo"
                   title="Undo"
                   disabled={
@@ -594,11 +620,16 @@ export function ClusterPage({
                     configurations ? configurations.undo() : dispatch({ type: 'undo' })
                   }
                 >
-                  <ChatGptHistoryIcon kind="undo" />
-                </button>
-                <button
+                  <ArrowRotateCcw />
+                </SdkButton>
+                <SdkButton
                   type="button"
-                  className={styles.runIcon}
+                  className={styles.sdkButton ?? ''}
+                  size="md"
+                  color="secondary"
+                  variant="ghost"
+                  pill
+                  uniform
                   aria-label="Redo"
                   title="Redo"
                   disabled={
@@ -611,160 +642,180 @@ export function ClusterPage({
                     configurations ? configurations.redo() : dispatch({ type: 'redo' })
                   }
                 >
-                  <ChatGptHistoryIcon kind="redo" />
-                </button>
-                <span className={styles.historyDivider} aria-hidden="true" />
-                <button
-                  type="button"
-                  className={styles.runIcon}
-                  aria-label="Reset to default"
-                  title="Reset to default"
-                  disabled={
-                    cardEditor.editing ||
-                    !canPlace ||
-                    !changed ||
-                    loading ||
-                    Boolean(configurations?.planning || configurations?.pending)
-                  }
-                  onClick={() => {
-                    if (configurations)
-                      void configurations.autoPlace([
-                        ...new Set(executableGpus.map((gpu) => gpu.uuid)),
-                      ]);
-                    else dispatch({ type: 'auto-place' });
-                  }}
-                >
-                  <ChatGptHistoryIcon kind="reset" />
-                </button>
+                  <ArrowRotateCw />
+                </SdkButton>
               </div>
-              <ClusterModelPicker
-                local={Boolean(localRuntime)}
-                models={models}
-                selectedModel={selectedModel}
-                activeModelId={activeModel?.id}
-                disabled={
-                  cardEditor.editing ||
-                  (!demo && !localRuntime) ||
-                  loading ||
-                  Boolean(configurations?.planning || configurations?.pending)
-                }
-                onChoose={(model) =>
-                  localRuntime
-                    ? localRuntime.onChoose(model)
-                    : setModal({ type: 'placement', model })
-                }
-              />
-              <div className={styles.actionCapsule} role="group" aria-label="Cluster actions">
-                {configurations?.planning && (
-                  <button
-                    type="button"
-                    className={styles.runIcon}
-                    aria-label="Cancel planning"
-                    title="Cancel planning"
-                    onClick={() => {
-                      void configurations.cancelPlanning();
+              <Menu>
+                <Menu.Trigger>
+                  <SdkButton
+                    className={styles.sdkButton ?? ''}
+                    color="secondary"
+                    variant="soft"
+                    size="md"
+                    pill
+                    uniform
+                    aria-label="Assignment options"
+                    title="Assignment options"
+                  >
+                    <DotsHorizontal />
+                  </SdkButton>
+                </Menu.Trigger>
+                <Menu.Content align="start" minWidth={180}>
+                  <Menu.Item
+                    disabled={
+                      cardEditor.editing ||
+                      !canPlace ||
+                      !changed ||
+                      loading ||
+                      Boolean(configurations?.planning || configurations?.pending)
+                    }
+                    onSelect={() => {
+                      if (configurations)
+                        void configurations.autoPlace([
+                          ...new Set(executableGpus.map((gpu) => gpu.uuid)),
+                        ]);
+                      else dispatch({ type: 'auto-place' });
                     }}
                   >
-                    <Square size={16} aria-hidden="true" />
-                  </button>
-                )}
-                {configurations && activeModel && !selectedIsActive && (
-                  <button
-                    type="button"
-                    className={styles.runIcon}
-                    aria-label="Stop model"
-                    title="Stop model"
-                    onClick={onStop}
-                  >
-                    <Square size={16} aria-hidden="true" />
-                  </button>
-                )}
-                <button
+                    <ChatGptHistoryIcon kind="reset" />
+                    <span data-cluster-toolbar-option="">Reset to default</span>
+                  </Menu.Item>
+                </Menu.Content>
+              </Menu>
+            </div>
+            <div className={styles.toolbarActions} role="group" aria-label="Cluster actions">
+              {configurations?.planning && (
+                <SdkButton
                   type="button"
-                  className={styles.runIcon}
-                  aria-label="Save configuration"
-                  title={
-                    cardEditor.editing
-                      ? 'Finish the layer preview with Done or Cancel first.'
-                      : 'Save configuration'
-                  }
-                  disabled={
-                    cardEditor.editing ||
-                    !configurations?.dirty ||
-                    loading ||
-                    configurations.planning ||
-                    configurations.pending
-                  }
+                  className={styles.sdkButton ?? ''}
+                  size="md"
+                  color="secondary"
+                  variant="soft"
+                  pill
+                  uniform
+                  aria-label="Cancel planning"
+                  title="Cancel planning"
                   onClick={() => {
-                    if (!configurations) return;
-                    if (configurations.saved)
-                      void configurations.save(null).then((saved) => {
-                        if (!saved && devices[0]) showPanel({ type: 'device', device: devices[0] });
-                      });
-                    else {
-                      setConfigurationName('');
-                      setModal({ type: 'name' });
-                    }
+                    void configurations.cancelPlanning();
                   }}
                 >
-                  <FloppyDisk size={16} aria-hidden="true" />
-                </button>
-                <button
+                  <StopOutline />
+                </SdkButton>
+              )}
+              {configurations && activeModel && !selectedIsActive && (
+                <SdkButton
                   type="button"
-                  className={styles.runIcon}
-                  aria-label={runAction}
-                  title={`${runAction}${loading && !localRuntime ? ' · simulated loading' : ''}`}
-                  disabled={
-                    (cardEditor.editing && !loading && !selectedIsActive) ||
-                    (!demo && !localRuntime) ||
-                    (!loading &&
-                      (!selectedModel ||
-                        !devices.length ||
-                        Boolean(
-                          configurations &&
-                          (!configurations.raw ||
-                            configurations.pending ||
-                            configurations.planning),
-                        )))
+                  className={styles.sdkButton ?? ''}
+                  size="md"
+                  color="secondary"
+                  variant="soft"
+                  pill
+                  uniform
+                  aria-label="Stop model"
+                  title="Stop model"
+                  onClick={onStop}
+                >
+                  <StopOutline />
+                </SdkButton>
+              )}
+              <SdkButton
+                type="button"
+                className={styles.sdkButton ?? ''}
+                size="md"
+                color="secondary"
+                variant="soft"
+                pill
+                aria-label="Save configuration"
+                title={
+                  cardEditor.editing
+                    ? 'Finish the layer preview with Done or Cancel first.'
+                    : 'Save configuration'
+                }
+                disabled={
+                  cardEditor.editing ||
+                  !configurations?.dirty ||
+                  loading ||
+                  configurations.planning ||
+                  configurations.pending
+                }
+                onClick={() => {
+                  if (!configurations) return;
+                  if (configurations.saved)
+                    void configurations.save(null).then((saved) => {
+                      if (!saved && devices[0]) showPanel({ type: 'device', device: devices[0] });
+                    });
+                  else {
+                    setConfigurationName('');
+                    setModal({ type: 'name' });
                   }
-                  onClick={() => {
-                    if (configurations && localRuntime) {
-                      if (loading || selectedIsActive) {
-                        onStop();
-                        return;
-                      }
-                      if (!configurations.hasAssignments && selectedModel) {
-                        setModal({ type: 'placement', model: selectedModel });
-                        return;
-                      }
-                      if (activeModel) {
-                        setModal({ type: 'restart' });
-                        return;
-                      }
-                      void runCurrentAllocation();
-                      return;
-                    }
-                    if (localRuntime) {
-                      if (loading || selectedIsActive) onStop();
-                      else localRuntime.onRun();
-                      return;
-                    }
-                    if (loading) {
-                      dispatch({ type: 'cancel' });
-                      notify('information', 'Demo loading cancelled · previous session unchanged');
-                    } else if (selectedIsActive && !changed) {
+                }}
+              >
+                Save
+              </SdkButton>
+              <SdkButton
+                type="button"
+                className={`${styles.sdkButton} ${styles.runtimeAction}`}
+                size="md"
+                color={loading || runAction === 'Unload model' ? 'secondary' : 'primary'}
+                variant={loading || runAction === 'Unload model' ? 'soft' : 'solid'}
+                pill
+                aria-label={runAction}
+                title={
+                  loading && localRuntime
+                    ? `Cancel loading · ${['Preparing allocation', 'Validating model', 'Memory check passed', 'Starting engine', 'Loading model'][Math.min(4, Math.max(0, localRuntime.loadingStage ?? 0))]}`
+                    : `${runAction}${loading ? ' · simulated loading' : ''}`
+                }
+                disabled={
+                  (cardEditor.editing && !loading && !selectedIsActive) ||
+                  (!demo && !localRuntime) ||
+                  (!loading &&
+                    (!selectedModel ||
+                      !devices.length ||
+                      Boolean(
+                        configurations &&
+                        (!configurations.raw || configurations.pending || configurations.planning),
+                      )))
+                }
+                onClick={() => {
+                  if (configurations && localRuntime) {
+                    if (loading || selectedIsActive) {
                       onStop();
-                      notify('information', 'Demo model stopped · no process was running');
-                    } else run();
-                  }}
-                >
-                  {RunIcon ? (
-                    <RunIcon size={16} weight="regular" aria-hidden="true" />
-                  ) : (
-                    <ChatGptPlayIcon />
-                  )}
-                </button>
-              </div>
+                      return;
+                    }
+                    if (!configurations.hasAssignments && selectedModel) {
+                      setModal({ type: 'placement', model: selectedModel });
+                      return;
+                    }
+                    if (activeModel) {
+                      setModal({ type: 'restart' });
+                      return;
+                    }
+                    void runCurrentAllocation();
+                    return;
+                  }
+                  if (localRuntime) {
+                    if (loading || selectedIsActive) onStop();
+                    else localRuntime.onRun();
+                    return;
+                  }
+                  if (loading) {
+                    dispatch({ type: 'cancel' });
+                    notify('information', 'Demo loading cancelled · previous session unchanged');
+                  } else if (selectedIsActive && !changed) {
+                    onStop();
+                    notify('information', 'Demo model stopped · no process was running');
+                  } else run();
+                }}
+              >
+                {loading ? (
+                  <ModelLoadingIcon stage={localRuntime?.loadingStage ?? 0} />
+                ) : runAction === 'Unload model' ? (
+                  <StopOutline />
+                ) : (
+                  <ChatGptPlayIcon />
+                )}
+                {runAction}
+              </SdkButton>
               <span className={styles.srOnly} aria-live="polite">
                 {loading
                   ? localRuntime
@@ -776,22 +827,27 @@ export function ClusterPage({
                       : 'Demo model ready'
                     : 'Selected model not loaded'}
               </span>
+              <SdkButton
+                type="button"
+                ref={panelToggle}
+                className={styles.sdkButton ?? ''}
+                color="secondary"
+                variant="soft"
+                size="md"
+                pill
+                uniform
+                aria-label="Cluster panel"
+                aria-expanded={panelOpen}
+                aria-controls={panelId}
+                title={panelOpen ? 'Hide details' : 'Show details'}
+                onClick={() => {
+                  if (panelOpen) closePanel();
+                  else showPanel(selection);
+                }}
+              >
+                <SidebarRight />
+              </SdkButton>
             </div>
-            <button
-              type="button"
-              ref={panelToggle}
-              className={styles.panelToggle}
-              aria-label="Cluster panel"
-              aria-expanded={panelOpen}
-              aria-controls={panelId}
-              title={panelOpen ? 'Hide details' : 'Show details'}
-              onClick={() => {
-                if (panelOpen) closePanel();
-                else showPanel(selection);
-              }}
-            >
-              <SidebarSimple size={16} aria-hidden="true" />
-            </button>
           </header>
         </div>
         <div className={styles.workspace}>
