@@ -79,7 +79,7 @@ test('window Quit during preparation joins work and leaves no captured owner or 
   try {
     const window = await app.firstWindow();
     await importModel(app, window);
-    await window.getByRole('button', { name: 'Run model', exact: true }).click();
+    await window.getByRole('button', { name: 'Load model', exact: true }).click();
     await expect(window.getByRole('button', { name: 'Cancel loading', exact: true })).toBeVisible();
     const captured = ownedProcesses(child.pid!);
     const began = Date.now();
@@ -115,7 +115,7 @@ test('window Quit with real generation and a full queue closes all owned work', 
   try {
     const window = await app.firstWindow();
     await importModel(app, window);
-    await window.getByRole('button', { name: 'Run model', exact: true }).click();
+    await window.getByRole('button', { name: 'Load model', exact: true }).click();
     await expect(window.getByText('Local model ready', { exact: true })).toBeVisible({
       timeout: 240_000,
     });
@@ -179,7 +179,7 @@ test('captured native termination interrupts Chat, recovers explicitly, and owne
   try {
     const window = await app.firstWindow();
     await importModel(app, window);
-    await window.getByRole('button', { name: 'Run model', exact: true }).click();
+    await window.getByRole('button', { name: 'Load model', exact: true }).click();
     await expect(window.getByText('Local model ready', { exact: true })).toBeVisible({
       timeout: 240_000,
     });
@@ -201,7 +201,7 @@ test('captured native termination interrupts Chat, recovers explicitly, and owne
     }
     await expect(window.getByRole('button', { name: 'Models', exact: true })).toBeEnabled();
     await window.getByRole('button', { name: 'Cluster', exact: true }).click();
-    await window.getByRole('button', { name: 'Run model', exact: true }).click();
+    await window.getByRole('button', { name: 'Load model', exact: true }).click();
     await expect(window.getByText('Local model ready', { exact: true })).toBeVisible({
       timeout: 240_000,
     });

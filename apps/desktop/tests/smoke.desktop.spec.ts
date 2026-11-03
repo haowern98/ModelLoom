@@ -127,7 +127,7 @@ test('packaged demo opens safely, navigates, and exits its owned app', async () 
     await expect(window.getByText('Active layers 0 – 27')).toBeVisible();
     await window.getByRole('button', { name: 'Undo', exact: true }).click();
     await window.getByRole('button', { name: 'Undo', exact: true }).click();
-    await expect(window.getByRole('button', { name: 'Stop model' })).toBeVisible();
+    await expect(window.getByRole('button', { name: 'Unload model' })).toBeVisible();
     await window.getByRole('button', { name: 'Cluster panel', exact: true }).click();
     await window.getByRole('button', { name: 'Fit to view', exact: true }).click();
     await window.getByRole('button', { name: 'Actions for ml-workstation' }).click();
@@ -147,10 +147,10 @@ test('packaged demo opens safely, navigates, and exits its owned app', async () 
     await window.getByRole('button', { name: 'Edit layers for inference-node GPU 0' }).click();
     await window.getByRole('spinbutton', { name: 'First layer for GPU 0' }).fill('0');
     await window.getByRole('spinbutton', { name: 'Last layer for GPU 0' }).fill('31');
-    await window.getByRole('button', { name: 'Run model' }).click();
+    await window.getByRole('button', { name: 'Load model' }).click();
     await window.getByRole('button', { name: 'Switch and run demo' }).click();
     await expect(window.getByRole('button', { name: 'Cancel loading' })).toBeVisible();
-    await expect(window.getByRole('button', { name: 'Stop model' })).toBeVisible();
+    await expect(window.getByRole('button', { name: 'Unload model' })).toBeVisible();
     await expect(window.getByText('Layers 0 – 31', { exact: true })).toBeVisible();
     await window.getByRole('button', { name: 'Cluster panel', exact: true }).click();
     await navigation.getByRole('button', { name: 'Chat', exact: true }).click();

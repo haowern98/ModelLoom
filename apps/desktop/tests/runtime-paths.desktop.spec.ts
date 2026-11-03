@@ -58,7 +58,7 @@ test('packaged runtime preserves original runtime paths, generation and loading-
     await window.getByRole('button', { name: 'Cluster', exact: true }).click();
     await window.getByRole('button', { name: 'Choose model', exact: true }).click();
     await window.getByRole('menuitem', { name: /Bonsai 27B/ }).click();
-    await window.getByRole('button', { name: 'Run model', exact: true }).click();
+    await window.getByRole('button', { name: 'Load model', exact: true }).click();
     await expect(
       window
         .getByText('Local model ready', { exact: true })
@@ -91,14 +91,14 @@ test('packaged runtime preserves original runtime paths, generation and loading-
     ).toHaveText(/Complete|Output limit reached/, { timeout: 90_000 });
     console.log('Runtime check: actual Chat generation completed');
     await window.getByRole('button', { name: 'Cluster', exact: true }).click();
-    await window.getByRole('button', { name: 'Stop model', exact: true }).click();
+    await window.getByRole('button', { name: 'Unload model', exact: true }).click();
     await expect(window.getByText('Selected model not loaded', { exact: true })).toBeVisible({
       timeout: 15_000,
     });
     await expect
       .poll(() => survivingProcesses([firstServer!, helper!]).length, { timeout: 10_000 })
       .toBe(0);
-    await window.getByRole('button', { name: 'Run model', exact: true }).click();
+    await window.getByRole('button', { name: 'Load model', exact: true }).click();
     await expect
       .poll(() => runtimeServer(ownedProcesses(mainPid))?.pid, { timeout: 60_000 })
       .toBeTruthy();
