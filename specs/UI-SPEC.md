@@ -25,6 +25,17 @@ earlier 50px rail, 240px contextual panels, solid chrome/sidebar/main background
 5px outer gaps and 16px outer frame rounding described below. It does not change
 the internal card colours or authorize additional icon replacements.
 
+**Approved title-bar history revision, 2026-11-04:** Add global Back and Forward
+in the existing 44px title bar. The inspected Codex Windows controls use 28px
+square hit areas, 16px arrow glyphs, 6px corner radii and a 6px gap, starting at
+6px left and 4px top. Keep them outside the draggable region. Hover and disabled
+states must not change their geometry. Tooltips show Back/Forward and Ctrl+[/Ctrl+].
+Support those shortcuts and mouse Back/Forward buttons. Restore visited chats,
+settings categories, Cluster views/device details and model configuration pages;
+keep existing drafts and Cluster departure confirmation. New navigation clears
+forward history, and deleted targets are skipped. Assignment Undo/Redo remains
+separate. This revision does not add panel resizing or a sidebar toggle.
+
 **Approved Settings scrollbar revision, 2026-11-01:** The user's PROCEED adopts
 Codex's native Chromium scrollbar treatment for Settings categories and details
 only. Use `scrollbar-width: thin`, a transparent track and
