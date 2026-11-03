@@ -1351,3 +1351,12 @@ closing the panel preserves the current zoom and GPU-editor anchoring; explicit
 Fit to view, viewport and device-layout changes retain their normal behavior.
 The exiting panel is inert and hidden from assistive technology. Restore focus
 on dismissal, and honor reduced motion with immediate transitions.
+
+### Cluster overview toolbar
+
+Put the model chooser first, followed by grouped Undo and Redo and an Assignment
+options menu containing Reset to default. Align Save, the labeled runtime action,
+and the panel toggle on the right. Load model is the primary action. The same
+runtime control shows Cancel loading, Unload model, or Apply and restart as
+appropriate. Reset edits the assignment draft; it does not load a model. Keep the
+existing action guards and panel and canvas transitions.
