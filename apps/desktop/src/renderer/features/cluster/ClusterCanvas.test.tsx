@@ -46,7 +46,7 @@ function fixture(fitOnMount = false) {
     </ClusterCanvas>,
   );
   const viewport = screen.getByRole('region', { name: 'Cluster canvas' });
-  const world = viewport.querySelector<HTMLElement>('[style*="transform"]')!;
+  const world = viewport.querySelector<HTMLElement>('[data-canvas-device]')!.parentElement!;
   const editor = world.querySelector<HTMLElement>('[data-layer-editor-motion]')!;
   return {
     viewport,
@@ -96,4 +96,44 @@ it('still recenters for viewport, ordinary content and device layout changes', (
   canvas.world.querySelector<HTMLElement>('[data-canvas-device]')!.style.gridRow = '2';
   canvas.resizeEditor(200);
   expect(canvas.world.style.transform).not.toBe(previous);
+});
+
+it('reserves panel space without changing the current zoom', () => {
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(1000);
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(640);
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.getAttribute('aria-label') === 'Canvas controls' ? 40 : 600;
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return {
+      left: this.id === 'test-panel' ? 600 : 0,
+      top: 0,
+      width: 300,
+      height: 600,
+      right: 900,
+      bottom: 600,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    };
+  });
+  const content = (panelId?: string) => (
+    <>
+      <ClusterCanvas singleDevice fitOnMount panelId={panelId} onClear={() => {}}>
+        <div data-canvas-device="local" />
+      </ClusterCanvas>
+      <aside id="test-panel" />
+    </>
+  );
+  const view = render(content());
+  const zoom = screen.getByLabelText('Zoom level').textContent;
+  view.rerender(content('test-panel'));
+  expect(screen.getByLabelText('Zoom level')).toHaveTextContent(zoom);
+  view.rerender(content());
+  expect(screen.getByLabelText('Zoom level')).toHaveTextContent(zoom);
 });

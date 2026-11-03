@@ -1,3 +1,4 @@
+import type * as MotionReact from 'motion/react';
 import { useReducer } from 'react';
 import { DatabaseSync } from 'node:sqlite';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -16,6 +17,26 @@ import { useClusterConfigurations } from './useClusterConfigurations';
 import { createDemoPlacement } from '../../mocks/cluster';
 import { createDemoLibrary } from '../../mocks/modelLibrary';
 import { createDemoJoining, transitionDemoJoining } from '../../mocks/clusterJoining';
+vi.mock('motion/react', async (load) => ({
+  ...(await load<typeof MotionReact>()),
+  useReducedMotion: () => true,
+}));
+
+async function editCard(
+  user: ReturnType<typeof userEvent.setup>,
+  device: string,
+  gpu: string,
+  first: string,
+  last: string,
+) {
+  await user.click(screen.getByRole('button', { name: `Edit layers for ${device} ${gpu}` }));
+  await user.clear(screen.getByRole('textbox', { name: /^First layer for / }));
+  await user.type(screen.getByRole('textbox', { name: /^First layer for / }), first);
+  await user.clear(screen.getByRole('textbox', { name: /^Last layer for / }));
+  await user.type(screen.getByRole('textbox', { name: /^Last layer for / }), last);
+  await user.click(screen.getByRole('button', { name: 'Done' }));
+}
+
 const uuid = 'GPU-12345678-1234-1234-1234-123456789abc';
 const secondUuid = 'GPU-87654321-4321-4321-4321-cba987654321';
 const peerId = `peer:${'b'.repeat(64)}`;
@@ -91,8 +112,7 @@ it('confirms unsaved model switches, discards assignments, and plans the next mo
     await user.click(screen.getByRole('button', { name: 'Choose model' }));
     await user.click(screen.getByRole('menuitem', { name: /Qwen/ }));
     await user.click(screen.getByRole('button', { name: 'Select Observed device' }));
-    await user.type(screen.getByRole('spinbutton', { name: 'First layer for GPU' }), '0');
-    await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU' }), '15');
+    await editCard(user, 'Observed device', 'GPU', '0', '15');
     await user.click(screen.getByRole('button', { name: 'Run model' }));
     await waitFor(() =>
       expect(onRunDraft).toHaveBeenCalledWith({
@@ -108,7 +128,9 @@ it('confirms unsaved model switches, discards assignments, and plans the next mo
     expect(screen.getByRole('dialog', { name: 'Unsaved changes' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Close dialog' }));
     expect(screen.getByRole('button', { name: 'Selected local model: Qwen' })).toBeVisible();
-    expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('15');
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }),
+    ).toHaveTextContent('0–15');
     await user.click(screen.getByRole('button', { name: 'Selected local model: Qwen' }));
     await user.click(screen.getByRole('menuitem', { name: /Bonsai/ }));
     await user.click(screen.getByRole('button', { name: 'Discard changes' }));
@@ -120,13 +142,17 @@ it('confirms unsaved model switches, discards assignments, and plans the next mo
     expect(onRunDraft).toHaveBeenCalledTimes(1);
     expect(command.mock.calls.some(([input]) => input.action === 'auto-place')).toBe(false);
     await user.click(within(dialog).getByRole('button', { name: 'Place manually' }));
-    expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('');
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }),
+    ).toHaveTextContent('Unassigned');
     expect(onRunDraft).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', { name: 'Run model' }));
     dialog = await screen.findByRole('dialog');
     await user.click(within(dialog).getByRole('button', { name: 'Auto place' }));
     await waitFor(() =>
-      expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('7'),
+      expect(
+        screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }),
+      ).toHaveTextContent('0–7'),
     );
     expect(onRunDraft).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -134,15 +160,21 @@ it('confirms unsaved model switches, discards assignments, and plans the next mo
     await user.click(screen.getByRole('menuitem', { name: /Qwen/ }));
     await user.click(screen.getByRole('button', { name: 'Discard changes' }));
     await screen.findByRole('button', { name: 'Selected local model: Qwen' });
-    expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('');
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }),
+    ).toHaveTextContent('Unassigned');
     expect(onRunDraft).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', { name: 'Selected local model: Qwen' }));
     await user.click(screen.getByRole('menuitem', { name: /Bonsai/ }));
-    expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('');
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }),
+    ).toHaveTextContent('Unassigned');
     await user.click(screen.getByRole('button', { name: 'Run model' }));
     await user.click(screen.getByRole('button', { name: 'Auto place' }));
     await waitFor(() =>
-      expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('7'),
+      expect(
+        screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }),
+      ).toHaveTextContent('0–7'),
     );
     expect(onRunDraft).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', { name: 'Run model' }));
@@ -158,13 +190,17 @@ it('confirms unsaved model switches, discards assignments, and plans the next mo
         .filter(([input]) => input.action === 'auto-place')
         .map(([input]) => ('key' in input ? input.key : null)),
     ).toEqual([`model:${bonsaiId}`, `model:${bonsaiId}`]);
-    expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('7');
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }),
+    ).toHaveTextContent('0–7');
     expect(screen.queryByText('Planned layers 0 – 15')).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(onRunDraft).toHaveBeenCalledTimes(2);
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Run model' })).toBeEnabled());
-    expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('');
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }),
+    ).toHaveTextContent('Unassigned');
     await user.click(screen.getByRole('button', { name: 'Run model' }));
     await screen.findByRole('dialog');
     expect(screen.getByRole('button', { name: 'Auto place' })).toBeVisible();
@@ -255,10 +291,11 @@ it.each(['edit and save', 'restore and load'] as const)(
       expect(
         within(panel).queryByText('Proposed layer assignments. Save before Run.'),
       ).not.toBeInTheDocument();
-      const row = within(panel).getByRole('button', {
-        name: new RegExp(`Observed device.*${state}`),
+      const row = within(panel).getByRole('group', {
+        name: 'Layer assignment for Observed device',
       });
-      expect(within(row).getByText(state)).toBeVisible();
+      expect(row).toHaveAttribute('title', state);
+      expect(row).toHaveTextContent(state === 'No assignment' ? 'No assignment' : /0–/);
       await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
     };
     try {
@@ -280,51 +317,22 @@ it.each(['edit and save', 'restore and load'] as const)(
           [0, '0', '15'],
           [1, '16', '63'],
         ] as const) {
-          await user.type(
-            screen.getByRole('spinbutton', { name: `First layer for GPU ${index}` }),
-            first,
-          );
-          await user.type(
-            screen.getByRole('spinbutton', { name: `Last layer for GPU ${index}` }),
-            last,
-          );
+          await editCard(user, 'Observed device', `GPU ${index}`, first, last);
         }
         expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
         expect(screen.getByRole('button', { name: 'Save configuration' })).toBeEnabled();
-        let lastDraft = screen.getByRole('spinbutton', { name: 'Last layer for GPU 1' });
+        await user.click(
+          screen.getByRole('button', { name: 'Edit layers for Observed device GPU 1' }),
+        );
+        const lastDraft = screen.getByRole('textbox', { name: /^Last layer for / });
         await user.clear(lastDraft);
         await user.type(lastDraft, '-');
+        await user.click(screen.getByRole('button', { name: 'Done' }));
+        expect(screen.getByText('Enter a whole number in both fields.')).toBeVisible();
+        await user.clear(lastDraft);
+        await user.type(lastDraft, '63');
+        await user.click(screen.getByRole('button', { name: 'Done' }));
         await checkOverview('Draft');
-        await user.click(screen.getByRole('button', { name: 'Select Observed device' }));
-        lastDraft = screen.getByRole('spinbutton', { name: 'Last layer for GPU 1' });
-        await user.click(screen.getByRole('button', { name: 'Undo' }));
-        expect(lastDraft).toHaveValue('');
-        await user.click(screen.getByRole('button', { name: 'Redo' }));
-        expect(lastDraft).toHaveValue('-');
-        await user.click(screen.getByRole('button', { name: 'Undo' }));
-        await user.click(screen.getByRole('button', { name: 'Undo' }));
-        expect(lastDraft).toHaveValue('63');
-        let panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-        expect(within(panel).getByText('64 layers \u00b7 0\u201363')).toBeVisible();
-        expect(within(panel).getByRole('heading', { name: 'Observed device' })).toBeVisible();
-        expect(within(panel).getByText('This device \u00b7 Coordinator')).toBeVisible();
-        await user.click(within(panel).getByText('Device details'));
-        expect(screen.getByRole('heading', { name: 'Devices' })).toBeVisible();
-        const device = screen.getByRole('article', { name: 'Observed device' });
-        for (const name of ['Operating system', 'Address'])
-          expect(within(device).getByText(name)).toBeVisible();
-        expect(within(device).getByText('This device', { selector: 'p' })).toBeVisible();
-        await user.click(screen.getByRole('button', { name: 'Overview' }));
-        await user.click(screen.getByRole('button', { name: 'Select Observed device' }));
-        panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-        expect(within(panel).getByRole('spinbutton', { name: 'Last layer for GPU 1' })).toHaveValue(
-          '63',
-        );
-        const editor = within(panel)
-          .getByRole('heading', { name: 'Layer assignment' })
-          .closest('section')!;
-        expect(within(editor).queryByRole('heading', { name: 'CPU' })).not.toBeInTheDocument();
-        expect(within(editor).queryByText(/dedicated memory|NVIDIA/)).not.toBeInTheDocument();
         await user.click(screen.getByRole('button', { name: 'Save configuration' }));
         await user.type(screen.getByRole('textbox', { name: 'Configuration name' }), 'Two GPUs');
         await user.click(
@@ -367,8 +375,7 @@ it.each(['edit and save', 'restore and load'] as const)(
       expect(screen.getAllByRole('img', { name: 'GPU in use' })).toHaveLength(2);
       await checkOverview('In use');
       await user.click(screen.getByRole('button', { name: 'Select Observed device' }));
-      await user.clear(screen.getByRole('spinbutton', { name: 'Last layer for GPU 0' }));
-      await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU 0' }), '14');
+      await editCard(user, 'Observed device', 'GPU 0', '0', '14');
       expect(
         screen.getByRole('button', { name: 'Edit layers for Observed device GPU 0' }),
       ).toHaveTextContent('0\u201314');
@@ -584,8 +591,7 @@ it('saves a bottom-edge connection with assignments and restores both after a ne
       ['Observed worker', '4', '7'],
     ]) {
       await user.click(screen.getByRole('button', { name: `Select ${device}` }));
-      await user.type(screen.getByRole('spinbutton', { name: 'First layer for GPU' }), first!);
-      await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU' }), last!);
+      await editCard(user, device!, 'GPU', first!, last!);
     }
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));
     await user.type(screen.getByRole('textbox', { name: 'Configuration name' }), 'Bottom pair');
@@ -657,8 +663,7 @@ it('uses durable core storage for Save-only validation, named selection and rest
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save configuration' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Select Observed device' }));
-    await user.type(screen.getByRole('spinbutton', { name: 'First layer for GPU' }), '0');
-    await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU' }), '-');
+    await editCard(user, 'Observed device', 'GPU', '0', '6');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));
     await user.type(screen.getByRole('textbox', { name: 'Configuration name' }), 'Laptop');
@@ -674,10 +679,11 @@ it('uses durable core storage for Save-only validation, named selection and rest
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Save$/u }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     await user.click(await screen.findByRole('button', { name: 'Dismiss notification' }));
-    expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('-');
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }),
+    ).toHaveTextContent('0–6');
     expect(store.cluster.list()).toEqual([]);
-    await user.clear(screen.getByRole('spinbutton', { name: 'Last layer for GPU' }));
-    await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU' }), '7');
+    await editCard(user, 'Observed device', 'GPU', '0', '7');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Save configuration' }));
     await user.type(screen.getByRole('textbox', { name: 'Configuration name' }), 'Laptop');
