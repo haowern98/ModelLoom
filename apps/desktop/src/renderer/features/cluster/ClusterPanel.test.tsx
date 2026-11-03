@@ -108,3 +108,53 @@ it('shows stale placement honestly and locks the selector during loading', async
   expect(screen.queryByRole('option')).not.toBeInTheDocument();
   expect(input.speculation.onDevice).not.toHaveBeenCalled();
 });
+
+it('starts connection details collapsed and keeps live measurements current across toggles', async () => {
+  const user = userEvent.setup();
+  const input = props();
+  const worker = {
+    ...demoDevices[1]!,
+    telemetry: {
+      state: 'active' as const,
+      latencyMs: 4.2,
+      latencyMeasuredAt: 1,
+      uploadMbps: null,
+      downloadMbps: null,
+      bandwidthMeasuredAt: null,
+      sendingBytesPerSecond: 2048,
+      receivingBytesPerSecond: 4096,
+    },
+  };
+  input.devices = [demoDevices[0]!, worker];
+  input.selection = { type: 'connection', from: demoDevices[0]!.id, to: worker.id };
+  const { rerender } = render(<ClusterPanel {...input} />);
+  const disclosure = screen.getByRole('button', { name: 'Connection details' });
+  expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.getByText('4.2 ms')).not.toBeVisible();
+  disclosure.focus();
+  await user.keyboard('{Enter}');
+  expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+  expect(screen.getByText('4.2 ms')).toBeVisible();
+  expect(screen.getByText('2.0 KiB/s')).toBeVisible();
+  expect(screen.getByText('From').nextElementSibling).toHaveTextContent(demoDevices[0]!.name);
+  expect(screen.getByText('To').nextElementSibling).toHaveTextContent(worker.name);
+  expect(screen.queryByRole('heading', { name: 'Devices' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Connection' })).not.toBeInTheDocument();
+  await user.click(disclosure);
+  rerender(
+    <ClusterPanel
+      {...input}
+      devices={[
+        demoDevices[0]!,
+        {
+          ...worker,
+          telemetry: { ...worker.telemetry, latencyMs: 8.5 },
+        },
+      ]}
+    />,
+  );
+  expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  await user.click(disclosure);
+  expect(screen.getByText('8.5 ms')).toBeVisible();
+  expect(input.speculation.onDevice).not.toHaveBeenCalled();
+});

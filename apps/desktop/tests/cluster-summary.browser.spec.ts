@@ -247,6 +247,71 @@ test('uses real configuration data and SDK placement options inside the persiste
   await addDevice.press('Enter');
   await closePicker.click();
   await expect(panel.getByRole('heading', { name: 'Cluster overview' })).toBeVisible();
+  await page.getByRole('button', { name: 'Fit to view', exact: true }).click();
+  await page.getByRole('button', { name: 'Connection details between Local and ptss' }).click();
+  const connectionToggle = panel.getByRole('button', { name: 'Connection details', exact: true });
+  await expect(connectionToggle).toHaveAttribute('aria-expanded', 'false');
+  await page.mouse.move(0, 0);
+  const connectionChevron = connectionToggle.locator('svg');
+  await expect(connectionChevron).toHaveCSS('width', '14px');
+  await expect(connectionChevron).toHaveCSS('opacity', '1');
+  await connectionToggle.click();
+  await page.mouse.move(0, 0);
+  await connectionToggle.blur();
+  await expect(connectionChevron).toHaveCSS('opacity', '0');
+  await connectionToggle.hover();
+  await expect(connectionChevron).toHaveCSS('opacity', '1');
+  const connectionContent = panel.locator(
+    `[id="${await connectionToggle.getAttribute('aria-controls')}"]`,
+  );
+  await expect(connectionContent.getByText('From', { exact: true })).toBeVisible();
+  await expect(connectionContent.getByText('To', { exact: true })).toBeVisible();
+  await expect(connectionContent.getByText('ptss', { exact: true })).toBeVisible();
+  expect(
+    await connectionContent.locator('section, dl, dl > div').evaluateAll((nodes) =>
+      nodes.every((node) => {
+        const css = getComputedStyle(node);
+        return css.borderTopWidth === '0px' && css.borderBottomWidth === '0px';
+      }),
+    ),
+  ).toBe(true);
+  await expect(connectionContent.locator('h3')).toHaveCSS('font-size', '13px');
+  await expect(connectionContent.locator('h3')).toHaveCSS('font-weight', '400');
+  await expect(connectionContent.locator('dt').first()).toHaveCSS('font-size', '13px');
+  await expect(connectionContent.locator('p')).toHaveCount(0);
+  const latencyInfo = connectionContent.getByRole('button', { name: 'About latency' });
+  await expect(latencyInfo.locator('svg')).toHaveCSS('width', '14px');
+  await expect(latencyInfo).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await latencyInfo.hover();
+  await expect(page.getByRole('tooltip')).toHaveText(
+    'Control connection round-trip, including connection setup.',
+  );
+  const tooltipSurface = page.locator('[data-cluster-sdk][data-theme="dark"][data-side]');
+  await expect(tooltipSurface).toHaveCSS('font-family', '"Segoe UI", sans-serif');
+  expect(
+    await tooltipSurface.evaluate((node) =>
+      getComputedStyle(node).getPropertyValue('--color-surface-elevated').trim(),
+    ),
+  ).not.toBe('');
+  expect((await tooltipSurface.boundingBox())!.width).toBeLessThanOrEqual(260);
+  await page.mouse.move(0, 0);
+  await latencyInfo.focus();
+  await expect(page.getByRole('tooltip')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tooltip')).toBeHidden();
+  await expect(panel).toBeVisible();
+  const bandwidthInfo = connectionContent.getByRole('button', { name: 'About bandwidth' });
+  await bandwidthInfo.hover();
+  await expect(page.getByRole('tooltip')).toHaveText('Connection measurements are unavailable.');
+  await page.mouse.move(0, 0);
+  await bandwidthInfo.focus();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tooltip')).toBeHidden();
+  await expect(panel).toBeVisible();
+  await connectionContent.scrollIntoViewIfNeeded();
+  await panel.screenshot({ path: '../../.git/connection-summary-panel.png' });
+  await connectionToggle.click();
+  await expect(connectionContent).toBeHidden();
   await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
   await expect(panel).toBeHidden();
   await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
