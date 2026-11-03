@@ -36,6 +36,23 @@ keep existing drafts and Cluster departure confirmation. New navigation clears
 forward history, and deleted targets are skipped. Assignment Undo/Redo remains
 separate. This revision does not add panel resizing or a sidebar toggle.
 
+**Approved sidebar revision, 2026-11-04:** Chat and Cluster share a resizable
+navigation panel, starting at 238px and capped at 468px. The 52px icon rail
+stays visible when the panel collapses. Place the sidebar toggle 6px after
+Forward and restore the saved width when reopening. Drag the panel divider
+or use its arrow keys, Home and End to resize. The toggle animates the width
+and opacity with a 300ms spring (bounce 0.1). Reduced motion makes the toggle
+instant, and the divider follows the pointer directly. On narrow windows, cap the
+maximum width to leave 240px of main content where possible. Settings keeps
+its fixed 238px navigation panel. Settings, Models and API omit the toggle
+and resize handle.
+
+**Live device display names:** Rename device saves a local display alias for
+the coordinator or peer in the desktop profile. The alias survives restart,
+configuration changes and reconnects with the same device identity. Canvas
+positions and links still resolve by device ID, and assignments resolve by GPU
+UUID. Demo aliases last for the current app session.
+
 **Approved Settings scrollbar revision, 2026-11-01:** The user's PROCEED adopts
 Codex's native Chromium scrollbar treatment for Settings categories and details
 only. Use `scrollbar-width: thin`, a transparent track and
@@ -698,7 +715,7 @@ group vertically centered against the combined heading and description, matching
 the supplied Plugins header reference. Preserve the shared typography, button
 styling, content-column width and networking availability behavior.
 
-- U13 (P3, P8): The 2026-10-17 revision keeps acknowledged raw drafts and makes named Save optional. Put Configurations below Your devices. Keep icon-only Save beside Play, with Save configuration tooltip and accessible name. First Save requests a name and subsequent Saves update it. Play with empty assignments opens Auto place / Place manually, with the top-right X for dismissal. Assignment choices only prepare layers; the same Play button loads prepared assignments. The 2026-10-18 explicit-save revision supersedes draft retention when switching. Switching models or saved configurations, or leaving Cluster, shows Unsaved changes when assignments differ from the saved baseline. Provide exactly Save changes and Discard changes as the dialog actions, with a top-right X; X or Escape stays with edits intact. A new configuration includes its name field. Save switches only after successful persistence and updates an existing saved configuration in place. Discard clears a never-saved assignment or restores the last saved ranges, clearing Undo/Redo. Failed Save or Discard stays with recoverable feedback. Manual edits and Undo/Redo stay in memory, with no automatic draft writes. Only explicit Save, Auto place or Run synchronizes the owner session draft. Explicitly saved configurations survive restart. Undo to empty restores the assignment-choice popup. Preserve raw text and clear old validation errors on edits. Keep Stop/Cancel reachable while another selection is dirty; confirm interruption before replacing a session.
+- U13 (P3, P8): The 2026-10-17 revision keeps acknowledged raw drafts and makes named Save optional. Put Configurations below Your devices. Keep icon-only Save beside Play, with Save configuration tooltip and accessible name. First Save requests a name and subsequent Saves update it. Play with empty assignments opens Auto place / Place manually, with the top-right X for dismissal. Assignment choices only prepare layers; the same Play button loads prepared assignments. The 2026-10-18 explicit-save revision supersedes draft retention when switching. Switching models or saved configurations, or leaving Cluster, shows Unsaved changes when assignments differ from the saved baseline. Choosing a different model from the toolbar opens that model’s independent draft with no saved configuration selected. Open saved configurations from their sidebar rows. Provide exactly Save changes and Discard changes as the dialog actions, with a top-right X; X or Escape stays with edits intact. A new configuration includes its name field. Save switches only after successful persistence and updates an existing saved configuration in place. Discard clears a never-saved assignment or restores the last saved ranges, clearing Undo/Redo. Failed Save or Discard stays with recoverable feedback. Manual edits and Undo/Redo stay in memory, with no automatic draft writes. Only explicit Save, Auto place or Run synchronizes the owner session draft. Explicitly saved configurations survive restart. Undo to empty restores the assignment-choice popup. Preserve raw text and clear old validation errors on edits. Keep Stop/Cancel reachable while another selection is dirty; confirm interruption before replacing a session.
 - U14 (P4, P6): A required worker disconnect interrupts affected generation. Mark the peer and model/session appropriately and provide reconnect/restart/removal choices consistent with actual recovery policy.
 - U15 (P3): Configuration rows share the chat-row layout, font, rounded selection, measured truncation/fade and hover scrolling. Reveal the original OpenAI trash-light-16 icon on hover or keyboard focus, reserving its fixed control width. Reset scrolling on leave and respect reduced motion. Trash opens the shared confirmation dialog. Confirmed deletion removes only that saved configuration and its own draft, retaining model settings, other drafts/configurations and any already running session. Deletion is unavailable during loading or planning. Failed deletion preserves the row and edits.
 
