@@ -341,8 +341,8 @@ export function ClusterPage({
       canvasDevices.some((device) => device.id === link.to),
   );
   const selectedModel = models.find((model) =>
-    configurations?.selection
-      ? model.id.replace(/^model-/u, '') === configurations.selection.modelId
+    configurations
+      ? model.id.replace(/^model-/u, '') === configurations.selection?.modelId
       : model.id === placement.modelId,
   );
   const executableGpus = canvasDevices.flatMap((device) => [
@@ -501,11 +501,13 @@ export function ClusterPage({
               ? 'Draft'
               : 'No assignment';
   }
+  const canUnloadWithoutSelection = Boolean(localRuntime && activeModel && !selectedModel);
+  const canUnload = selectedIsActive || canUnloadWithoutSelection;
   const runAction = loading
     ? 'Cancel loading'
     : selectedIsActive && changed && !configurations
       ? 'Apply and restart'
-      : selectedIsActive
+      : canUnload
         ? 'Unload model'
         : 'Load model';
   const close = () => {
@@ -606,6 +608,7 @@ export function ClusterPage({
                     loading ||
                     Boolean(configurations?.planning || configurations?.pending)
                   }
+                  {...(configurations ? { onClear: configurations.clearSelection } : {})}
                   onChoose={(model) =>
                     localRuntime
                       ? localRuntime.onChoose(model)
@@ -783,6 +786,7 @@ export function ClusterPage({
                   (cardEditor.editing && !loading && !selectedIsActive) ||
                   (!demo && !localRuntime) ||
                   (!loading &&
+                    !canUnloadWithoutSelection &&
                     (!selectedModel ||
                       !devices.length ||
                       Boolean(
@@ -792,7 +796,7 @@ export function ClusterPage({
                 }
                 onClick={() => {
                   if (configurations && localRuntime) {
-                    if (loading || selectedIsActive) {
+                    if (loading || canUnload) {
                       onStop();
                       return;
                     }
@@ -808,7 +812,7 @@ export function ClusterPage({
                     return;
                   }
                   if (localRuntime) {
-                    if (loading || selectedIsActive) onStop();
+                    if (loading || canUnload) onStop();
                     else localRuntime.onRun();
                     return;
                   }

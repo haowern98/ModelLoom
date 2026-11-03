@@ -11,6 +11,7 @@ export function ClusterModelPicker({
   activeModelId,
   disabled,
   onChoose,
+  onClear,
   local = false,
 }: {
   models: readonly DemoModel[];
@@ -18,6 +19,7 @@ export function ClusterModelPicker({
   activeModelId: string | undefined;
   disabled: boolean;
   onChoose: (model: DemoModel) => void;
+  onClear?: () => void;
   local?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -99,6 +101,23 @@ export function ClusterModelPicker({
           className={styles.modelMenu}
           style={position}
         >
+          {onClear && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                aria-current={selectedModel ? undefined : 'true'}
+                className={styles.modelOption}
+                onClick={() => {
+                  close();
+                  if (selectedModel) onClear();
+                }}
+              >
+                No model
+              </button>
+              <div role="separator" className={styles.modelMenuDivider} />
+            </>
+          )}
           {models.map((model) => (
             <button
               key={model.id}

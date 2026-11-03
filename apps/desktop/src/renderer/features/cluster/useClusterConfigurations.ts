@@ -61,7 +61,6 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     error: string | null;
   }>({ entry: undefined, configurations: [], planning: false, error: null });
   const entries = useRef(new Map<string, Entry>());
-  const modelSelections = useRef(new Map<string, string>());
   const selected = useRef<string | null>(null);
   const selectionGeneration = useRef(0);
   const planning = useRef(false);
@@ -113,7 +112,6 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
       void bridge.command({ action: 'cancel-planning' }).catch(() => {});
     }
     const key = configurationId ? `config:${configurationId}` : `model:${modelId}`;
-    modelSelections.current.set(modelId, key);
     selected.current = key;
     readError.current = null;
     refresh();
@@ -304,8 +302,6 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
       entry.saved = reply.configuration;
       entry.draft = reply.draft;
       const nextKey = `config:${reply.configuration.id}`;
-      if (modelSelections.current.get(entry.raw.modelId) === entry.key)
-        modelSelections.current.set(entry.raw.modelId, nextKey);
       entries.current.set(nextKey, entry);
       if (nextKey !== entry.key) entries.current.delete(entry.key);
       if (selected.current === entry.key) selected.current = nextKey;
@@ -417,8 +413,6 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
       );
       configurations.current = reply.configurations;
       entries.current.delete(key);
-      if (modelSelections.current.get(configuration.modelId) === key)
-        modelSelections.current.delete(configuration.modelId);
       if (selected.current === key) await select(configuration.modelId, null);
       refresh();
       return true;
@@ -553,12 +547,17 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
     issues: entry?.issues ?? [],
     selectModel: (modelId: string) => {
       const id = modelId.replace(/^model-/u, '');
-      const entry = entries.current.get(modelSelections.current.get(id) ?? '');
-      const configurationId = entry?.saved?.id ?? null;
-      const key = configurationId ? `config:${configurationId}` : `model:${id}`;
-      if (selected.current === key) return Promise.resolve();
-      return requestLeave(() => select(id, configurationId));
+      if (selected.current === `model:${id}` || current()?.raw.modelId === id)
+        return Promise.resolve();
+      return requestLeave(() => select(id, null));
     },
+    clearSelection: () =>
+      requestLeave(() => {
+        ++selectionGeneration.current;
+        selected.current = null;
+        readError.current = null;
+        refresh();
+      }),
     selectConfiguration: (configuration: SavedClusterConfiguration) => {
       if (selected.current === `config:${configuration.id}`) return Promise.resolve();
       return requestLeave(() => select(configuration.modelId, configuration.id));

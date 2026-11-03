@@ -1302,6 +1302,10 @@
   background: #262626;
   box-shadow: 0 8px 24px #0005;
 }
+.modelMenuDivider {
+  border-top: 1px solid var(--border);
+  margin: 4px 6px;
+}
 .page .modelOption {
   display: flex;
   align-items: center;
