@@ -17,6 +17,7 @@ import { networkProtection } from './network-protection';
 import { developmentInstance } from './development-launch';
 import { cleanupForQuit } from './quit-cleanup';
 import { createApiManagementHandler } from './api-management';
+import { createModelLoadingStatus } from './model-loading-status';
 import { createRuntimeLogsHandler } from './runtime-logs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -134,6 +135,11 @@ async function createWindow(): Promise<void> {
       mkdirSync(logDirectory, { recursive: true });
       const diagnostics = createRuntimeLog(logDirectory);
       runtimeLog = diagnostics;
+      const loadingStatus = createModelLoadingStatus();
+      const writeDiagnostic: typeof diagnostics.write = (source, message) => {
+        if (source === 'runtime') loadingStatus.observe(message);
+        diagnostics.write(source, message);
+      };
       diagnostics.write('app', `logging.started file=${path.join(logDirectory, 'runtime.log')}`);
       const development = createDependencies(
         (entry) => {
@@ -141,7 +147,7 @@ async function createWindow(): Promise<void> {
             serviceName: 'ModelLoom Core',
             stdio: 'pipe',
           });
-          forwardUtilityDiagnostics(child, diagnostics.write);
+          forwardUtilityDiagnostics(child, writeDiagnostic);
           child.on('exit', (code) => diagnostics.write('core', `utility.exit code=${code}`));
           return child;
         },
@@ -156,11 +162,12 @@ async function createWindow(): Promise<void> {
           subscribe: (listener) => windowNetwork.subscribe(listener),
           incoming: (listener) => windowNetwork.setIncoming(listener),
         },
-        diagnostics.write,
+        writeDiagnostic,
       );
       tensorCache = development.tensorCache;
       dependencies = {
         ...development,
+        loadingStatus,
         device: async () => {
           const local = await localDeviceSnapshot();
           const runtimeBackends = development.runtimeBackends?.();

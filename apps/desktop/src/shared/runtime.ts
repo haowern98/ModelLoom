@@ -79,6 +79,8 @@ export interface RuntimeView {
   model: RuntimeModel | null;
   phase: 'stopped' | 'starting' | 'loading' | 'ready' | 'stopping' | 'failed';
   error: string | null;
+  /** Observed startup stage, not a tensor byte percentage. */
+  loadingStage?: number | undefined;
   device?: RuntimeDevice;
   models?: readonly RuntimeModel[];
   indexing?: string | null;
