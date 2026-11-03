@@ -1,9 +1,12 @@
 import type { ReactNode } from 'react';
+import { motion } from 'motion/react';
+import type { MotionStyle } from 'motion/react';
 import { ChatGptRailIcon } from '../components/ChatGptRailIcon';
 import type { Destination } from './navigation';
 import styles from './AppShell.module.css';
 import { TitlebarNavigation } from './TitlebarNavigation';
 import type { TitlebarHistory } from './TitlebarNavigation';
+import { useWorkspaceSidebar } from './useWorkspaceSidebar';
 
 interface AppShellProps {
   destination: Destination;
@@ -14,12 +17,25 @@ interface AppShellProps {
 }
 
 export function AppShell({ destination, onNavigate, demo, children, history }: AppShellProps) {
+  const resizable = destination === 'Chat' || destination === 'Cluster';
+  const sidebar = useWorkspaceSidebar(resizable);
+  const collapsed = resizable && !sidebar.expanded;
+  const sidebarId = destination === 'Chat' ? 'chat-sidebar' : 'cluster-sidebar';
   const splitPanel =
     destination === 'Chat' || destination === 'Settings' || destination === 'Cluster';
   return (
     <div className={styles.shell}>
-      <div className={styles.titlebar}>
-        {history && <TitlebarNavigation {...history} />}
+      <div className={styles.titlebar} data-sidebar-toggle={resizable}>
+        {history && (
+          <TitlebarNavigation
+            {...history}
+            sidebar={
+              resizable
+                ? { expanded: sidebar.expanded, controls: sidebarId, toggle: sidebar.toggle }
+                : undefined
+            }
+          />
+        )}
         {demo && (
           <span
             className={styles.demo}
@@ -80,12 +96,33 @@ export function AppShell({ destination, onNavigate, demo, children, history }: A
           </button>
         </div>
       </aside>
-      <section
+      <motion.section
         className={`${styles.foreground} ${splitPanel ? styles.chatForeground : ''}`}
         aria-label="ModelLoom workspace"
+        data-sidebar-collapsed={collapsed}
+        style={
+          resizable
+            ? ({
+                '--animated-sidebar-width': sidebar.animatedWidth,
+                '--sidebar-opacity': sidebar.fraction,
+                '--sidebar-visibility': sidebar.visibility,
+              } as MotionStyle)
+            : {}
+        }
       >
         <main className={`${styles.main} ${splitPanel ? styles.chatMain : ''}`}>{children}</main>
-      </section>
+        {resizable && !collapsed && (
+          <div
+            className={styles.sidebarHandle}
+            role="separator"
+            aria-label="Resize sidebar"
+            aria-orientation="vertical"
+            aria-controls={sidebarId}
+            tabIndex={0}
+            {...sidebar.handle}
+          />
+        )}
+      </motion.section>
     </div>
   );
 }

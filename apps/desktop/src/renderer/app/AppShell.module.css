@@ -17,6 +17,34 @@
   -webkit-app-region: drag;
   user-select: none;
 }
+.titlebar[data-sidebar-toggle='true'] {
+  padding-left: 116px;
+}
+.foreground :is([id='chat-sidebar'], [id='cluster-sidebar']) {
+  visibility: var(--sidebar-visibility, visible);
+  opacity: var(--sidebar-opacity, 1);
+  overflow: clip;
+}
+.foreground[data-sidebar-collapsed='true'] :is([id='chat-sidebar'], [id='cluster-sidebar']) {
+  interactivity: inert;
+}
+.sidebarHandle {
+  position: absolute;
+  inset-block: 0;
+  left: calc(var(--animated-sidebar-width, var(--workspace-sidebar-width)) - 3px);
+  width: 7px;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sidebarHandle:is(:hover, :active, :focus-visible)::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 3px;
+  width: 1px;
+  background: rgb(255 255 255 / 25%);
+}
 .rail {
   --rail-icon: #8b8b8b;
   --rail-highlight: #2f2f2f;

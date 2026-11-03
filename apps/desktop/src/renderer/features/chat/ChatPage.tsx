@@ -129,7 +129,7 @@ export function ChatPage({
 
   return (
     <section className={styles.page} aria-label="Chat">
-      <aside className={styles.sidebar} aria-label="Conversations">
+      <aside id="chat-sidebar" className={styles.sidebar} aria-label="Conversations">
         <div className={styles.sidebarHeader}>
           <h2>Chat</h2>
           <button
