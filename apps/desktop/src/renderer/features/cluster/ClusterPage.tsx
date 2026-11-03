@@ -95,6 +95,11 @@ const configurationErrors: Readonly<Record<string, string>> = {
 };
 
 interface ClusterPageProps extends JoiningProps {
+  navigation?: {
+    view: ClusterView;
+    deviceId: string | null;
+    onChange: (view: ClusterView, deviceId: string | null) => void;
+  };
   speculativeRequest?: number;
   onSpeculationOpened?: () => void;
   onModelConfiguration?: (modelId: string) => void;
@@ -123,6 +128,7 @@ interface ClusterPageProps extends JoiningProps {
 
 /** Cluster presentation delegates local runtime actions; networking previews remain session-only. */
 export function ClusterPage({
+  navigation,
   demo,
   joining,
   onJoining,
@@ -143,8 +149,19 @@ export function ClusterPage({
   onModelConfiguration,
 }: ClusterPageProps) {
   const [configurationName, setConfigurationName] = useState('');
-  const [view, setView] = useState<ClusterView>('overview');
-  const [deviceDetailsTarget, setDeviceDetailsTarget] = useState<string | null>(null);
+  const [localNavigation, setLocalNavigation] = useState<{
+    view: ClusterView;
+    deviceId: string | null;
+  }>({ view: 'overview', deviceId: null });
+  const { view, deviceId: deviceDetailsTarget } = navigation ?? localNavigation;
+  const onNavigationChange = navigation?.onChange;
+  const setRoute = useCallback(
+    (view: ClusterView, deviceId: string | null = null) => {
+      if (onNavigationChange) onNavigationChange(view, deviceId);
+      else setLocalNavigation({ view, deviceId });
+    },
+    [onNavigationChange],
+  );
   const [panelOpen, setPanelOpen] = useState(false);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const panelId = useId();
@@ -251,17 +268,15 @@ export function ClusterPage({
   );
   const navigate = useCallback(
     (next: ClusterView) => {
-      setView(next);
+      setRoute(next);
       if (next === 'overview' && deviceDetailsTarget) {
-        setDeviceDetailsTarget(null);
         setPanelOpen(true);
         return;
       }
-      setDeviceDetailsTarget(null);
       setPanelOpen(false);
       setSelection({ type: 'overview' });
     },
-    [deviceDetailsTarget],
+    [deviceDetailsTarget, setRoute],
   );
   useEffect(() => {
     if (!connectionsRequest) return;
@@ -280,7 +295,7 @@ export function ClusterPage({
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
-      setView('overview');
+      setRoute('overview');
       setSelection({ type: 'speculation' });
       setPanelOpen(true);
       onSpeculationOpened?.();
@@ -288,7 +303,7 @@ export function ClusterPage({
     return () => {
       cancelled = true;
     };
-  }, [speculativeRequest, onSpeculationOpened]);
+  }, [speculativeRequest, onSpeculationOpened, setRoute]);
   const liveArrangement = demo ? arrangement : restoreCanvas(canvasDevices, arrangement);
   const positions = demo
     ? canvasPositions(canvasDevices, arrangement.positions)
@@ -302,8 +317,7 @@ export function ClusterPage({
     (link) => positions[link.from] && positions[link.to],
   );
   const inspectDevice = (device: DemoDevice) => {
-    setDeviceDetailsTarget(null);
-    setView('overview');
+    setRoute('overview');
     if (canvasDevices.some((item) => item.id === device.id)) showPanel({ type: 'device', device });
     else {
       setSelectedDeviceId(device.id);
@@ -556,7 +570,7 @@ export function ClusterPage({
           const configuration = configurations?.configurations.find((item) => item.id === id);
           if (configuration) {
             void configurations?.selectConfiguration(configuration);
-            setView('overview');
+            setRoute('overview');
           }
         }}
         deletingDisabled={loading || Boolean(configurations?.pending || configurations?.planning)}
@@ -949,8 +963,7 @@ export function ClusterPage({
                       onSelect={(device) => showPanel({ type: 'device', device })}
                       onDetails={(device) => {
                         setSelectedDeviceId(device.id);
-                        setDeviceDetailsTarget(device.id);
-                        setView('devices');
+                        setRoute('devices', device.id);
                         setPanelOpen(false);
                       }}
                       onRename={(device) => setModal({ type: 'rename-device', device })}

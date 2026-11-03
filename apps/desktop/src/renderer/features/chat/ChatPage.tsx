@@ -14,6 +14,9 @@ import type { DemoModel } from '../../mocks/modelLibrary';
 import styles from './ChatPage.module.css';
 
 interface ChatPageProps {
+  archived?: boolean;
+  onArchivedChange?: (archived: boolean) => void;
+  onConversationSelect?: (id: string, archived: boolean) => void;
   demo: boolean;
   chat: DemoChat;
   dispatch: Dispatch<ChatAction>;
@@ -48,9 +51,28 @@ function thinkingLabel(message: ChatMessage): string {
 }
 
 /** Local conversation presentation with inert Markdown and preserved raw response actions. */
-export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }: ChatPageProps) {
+export function ChatPage({
+  demo,
+  chat,
+  dispatch,
+  activeModel,
+  onCluster,
+  live,
+  archived: controlledArchived,
+  onArchivedChange,
+  onConversationSelect,
+}: ChatPageProps) {
   const [searchOpen, setSearchOpen] = useState(false);
-  const [archived, setArchived] = useState(false);
+  const [localArchived, setLocalArchived] = useState(false);
+  const archived = controlledArchived ?? localArchived;
+  const setArchived = onArchivedChange ?? setLocalArchived;
+  const selectConversation = (id: string, archived: boolean) => {
+    if (onConversationSelect) onConversationSelect(id, archived);
+    else {
+      dispatch({ type: 'select', id });
+      setArchived(archived);
+    }
+  };
   const [collapsed, setCollapsed] = useState<Readonly<Record<string, boolean>>>({});
   const [modelOpen, setModelOpen] = useState(false);
   const [notice, setNotice] = useState('');
@@ -188,7 +210,7 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
                           }
                           onDelete={() => setDeleteTarget({ id: item.id, title: item.title })}
                           onSelect={() => {
-                            dispatch({ type: 'select', id: item.id });
+                            selectConversation(item.id, Boolean(item.archived));
                             setNotice('');
                           }}
                         />
@@ -506,8 +528,7 @@ export function ChatPage({ demo, chat, dispatch, activeModel, onCluster, live }:
           matches={live?.matches}
           onClose={() => setSearchOpen(false)}
           onSelect={(item) => {
-            dispatch({ type: 'select', id: item.id });
-            setArchived(Boolean(item.archived));
+            selectConversation(item.id, Boolean(item.archived));
             const group = item.archived ? 'Archived chats' : item.pinned ? 'Pinned' : item.group;
             setCollapsed((previous) => ({ ...previous, [group]: false }));
             setNotice('');

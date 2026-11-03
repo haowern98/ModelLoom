@@ -2,20 +2,24 @@ import type { ReactNode } from 'react';
 import { ChatGptRailIcon } from '../components/ChatGptRailIcon';
 import type { Destination } from './navigation';
 import styles from './AppShell.module.css';
+import { TitlebarNavigation } from './TitlebarNavigation';
+import type { TitlebarHistory } from './TitlebarNavigation';
 
 interface AppShellProps {
   destination: Destination;
   onNavigate: (destination: Destination) => void;
   demo: boolean;
   children: ReactNode;
+  history?: TitlebarHistory;
 }
 
-export function AppShell({ destination, onNavigate, demo, children }: AppShellProps) {
+export function AppShell({ destination, onNavigate, demo, children, history }: AppShellProps) {
   const splitPanel =
     destination === 'Chat' || destination === 'Settings' || destination === 'Cluster';
   return (
     <div className={styles.shell}>
       <div className={styles.titlebar}>
+        {history && <TitlebarNavigation {...history} />}
         {demo && (
           <span
             className={styles.demo}
