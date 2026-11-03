@@ -23,6 +23,7 @@ vi.mock('motion/react', async (load) => ({
   useReducedMotion: () => true,
 }));
 beforeEach(() => {
+  localStorage.removeItem('modelloom.workspace-sidebar-width');
   requestLeave.mockImplementation(async (action) => {
     await action();
   });
@@ -30,6 +31,40 @@ beforeEach(() => {
 });
 const back = () => screen.getByRole('button', { name: 'Back' });
 const forward = () => screen.getByRole('button', { name: 'Forward' });
+
+it('shares sidebar width and visibility between Chat and Cluster while keeping Settings fixed', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  expect(screen.queryByRole('button', { name: /sidebar/i })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Chat' }));
+  const handle = () => screen.getByRole('separator', { name: 'Resize sidebar' });
+  expect(handle()).toHaveAttribute('aria-valuenow', '238');
+  fireEvent.keyDown(handle(), { key: 'End' });
+  expect(handle()).toHaveAttribute('aria-valuenow', '468');
+  await user.click(screen.getByRole('button', { name: 'Hide sidebar' }));
+  const collapsedToggle = screen.getByRole('button', { name: 'Show sidebar' });
+  expect(collapsedToggle).toHaveAttribute('aria-expanded', 'false');
+  const collapsedPaths = collapsedToggle.querySelectorAll('svg path');
+  expect(collapsedPaths).toHaveLength(2);
+  for (const path of collapsedPaths) expect(path.getAttribute('d')).toMatch(/^M[\d.]+ /u);
+  expect(screen.getByRole('region', { name: 'ModelLoom workspace' })).toHaveAttribute(
+    'data-sidebar-collapsed',
+    'true',
+  );
+  expect(screen.queryByRole('separator', { name: 'Resize sidebar' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Settings' }));
+  expect(screen.getByRole('complementary', { name: 'Settings navigation' })).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: /show sidebar|hide sidebar/i }),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByRole('separator', { name: 'Resize sidebar' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Cluster' }));
+  await user.click(screen.getByRole('button', { name: 'Show sidebar' }));
+  expect(handle()).toHaveAttribute('aria-valuenow', '468');
+  fireEvent.keyDown(handle(), { key: 'Home' });
+  fireEvent.keyDown(handle(), { key: 'ArrowLeft' });
+  expect(handle()).toHaveAttribute('aria-valuenow', '238');
+});
 
 it('restores settings categories with buttons, keyboard and mouse, and clears abandoned forward history', async () => {
   const user = userEvent.setup();
