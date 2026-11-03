@@ -22,7 +22,7 @@ test('manual placement starts unassigned and validates all selected-model layers
   );
   await expect(page.getByText(/^Planned layers/)).toHaveCount(0);
   await expect(page.getByText('Unassigned', { exact: true })).toHaveCount(5);
-  const run = page.getByRole('button', { name: 'Run model', exact: true });
+  const run = page.getByRole('button', { name: 'Load model', exact: true });
   await run.click();
   await expect(page.getByRole('alert')).toContainText('all 32 sample layers exactly once');
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -53,17 +53,18 @@ test('manual placement starts unassigned and validates all selected-model layers
   await expect(first).toBeDisabled();
   await expect(last).toBeDisabled();
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Stop model' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Unload model' })).toBeVisible();
   await expect(page.getByText('Layers 0 – 31', { exact: true })).toBeVisible();
   await expect(page.getByText('In use', { exact: true })).toHaveCount(1);
-  await page.getByRole('button', { name: 'Stop model' }).click();
+  await page.getByRole('button', { name: 'Unload model' }).click();
   await expect(run).toBeVisible();
   await expect(page.getByText('In use', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Discard changes' })).toHaveCount(0);
   await expect(first).toHaveValue('0');
   await expect(last).toHaveValue('31');
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
-  await page.getByRole('button', { name: 'Reset to default' }).click();
+  await page.getByRole('button', { name: 'Assignment options' }).click();
+  await page.getByRole('menuitem', { name: 'Reset to default' }).click();
   await expect(page.getByText(/^Planned layers/)).toHaveCount(5);
   await expect(page.getByRole('button', { name: 'Cancel loading' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
@@ -76,12 +77,12 @@ test('auto placement is unloaded, loading can be cancelled and completes across 
 }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
-  await page.getByRole('button', { name: 'Stop model' }).click();
+  await page.getByRole('button', { name: 'Unload model' }).click();
   await choose(page, 'Llama 3.1 8B', 'Auto place');
   await expect(page.getByText(/^Planned layers/)).toHaveCount(5);
   await expect(page.getByText('In use', { exact: true })).toHaveCount(0);
   await page.clock.install();
-  await page.getByRole('button', { name: 'Run model' }).click();
+  await page.getByRole('button', { name: 'Load model' }).click();
   await expect(page.getByRole('button', { name: 'Cancel loading' })).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Selected demo model: Llama 3.1 8B' }),
@@ -89,15 +90,15 @@ test('auto placement is unloaded, loading can be cancelled and completes across 
   await page.getByRole('button', { name: 'Cancel loading' }).click();
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await page.clock.runFor(1000);
-  await expect(page.getByRole('button', { name: 'Run model' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Load model' })).toBeVisible();
   await expect(page.getByText('In use', { exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Run model' }).click();
+  await page.getByRole('button', { name: 'Load model' }).click();
   await page.getByRole('button', { name: 'Models', exact: true }).click();
   await page.clock.runFor(1000);
   await page.getByRole('button', { name: 'Actions for Llama 3.1 8B' }).click();
   await expect(page.getByRole('button', { name: 'Remove model entry' })).toBeDisabled();
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Stop model' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Unload model' })).toBeVisible();
   await expect(page.getByText('Layers 24 – 31', { exact: true })).toBeVisible();
 });
 
@@ -158,19 +159,20 @@ test('compact cluster toolbar stays contained without repeating the sidebar head
     modelsWorkspace.x + modelsWorkspace.width - compassBounds.x - compassBounds.width;
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
   const selector = page.getByRole('button', { name: 'Selected demo model: Qwen3.8-27B' });
-  const run = page.getByRole('button', { name: 'Stop model' });
+  const run = page.getByRole('button', { name: 'Unload model' });
   const toggle = page.getByRole('button', { name: 'Cluster panel', exact: true });
-  const capsule = page.getByRole('group', { name: 'Cluster actions', exact: true });
-  await expect(capsule.getByRole('button')).toHaveCount(2);
-  await expect(capsule.getByRole('button', { name: 'Save configuration' })).toBeDisabled();
-  await expect(capsule.getByRole('button', { name: 'Stop model' })).toBeVisible();
-  await expect(capsule.getByRole('button', { name: 'Cluster panel', exact: true })).toHaveCount(0);
+  const actions = page.getByRole('group', { name: 'Cluster actions', exact: true });
+  const capsule = page.getByRole('group', { name: 'Assignment history' });
+  await expect(actions.getByRole('button')).toHaveCount(3);
+  await expect(actions.getByRole('button', { name: 'Save configuration' })).toBeDisabled();
+  await expect(actions.getByRole('button', { name: 'Unload model' })).toBeVisible();
+  await expect(actions.getByRole('button', { name: 'Cluster panel', exact: true })).toHaveCount(1);
   await expect(toggle).toBeVisible();
   await expect(capsule).toHaveCSS('border-radius', '999px');
   await expect(selector).toHaveCSS('font-size', '13px');
   await expect(selector).toHaveCSS('border-width', '0px');
   await expect(selector).toHaveCSS('box-shadow', 'none');
-  await expect(run).toHaveAttribute('title', 'Stop model');
+  await expect(run).toHaveAttribute('title', 'Unload model');
   const header = selector.locator('xpath=ancestor::header');
   await expect(header.getByRole('heading')).toHaveCount(0);
   await expect(header.getByRole('searchbox')).toHaveCount(0);
@@ -179,8 +181,8 @@ test('compact cluster toolbar stays contained without repeating the sidebar head
   for (const font of ['system', 'Arial']) {
     if (font === 'Arial')
       await page.addStyleTag({ content: ':root { font-family: Arial, sans-serif; }' });
-    for (const width of [1280, 1100, 1000]) {
-      await page.setViewportSize({ width, height: width === 1000 ? 620 : 720 });
+    for (const width of [1280, 1100, 900]) {
+      await page.setViewportSize({ width, height: width === 900 ? 620 : 720 });
       const modelBounds = await selector.boundingBox();
       const runBounds = await run.boundingBox();
       const toggleBounds = await toggle.boundingBox();
@@ -211,6 +213,14 @@ test('compact cluster toolbar stays contained without repeating the sidebar head
       );
     }
   }
+  await toggle.click();
+  const options = page.getByRole('button', { name: 'Assignment options' });
+  await options.focus();
+  await options.press('Enter');
+  await expect(page.getByRole('menuitem', { name: 'Reset to default' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(options).toBeFocused();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   const label = selector.locator('span');
   await label.evaluate((element) => {
     element.textContent = 'A very long model name that must never push away the Run icon';
@@ -219,4 +229,22 @@ test('compact cluster toolbar stays contained without repeating the sidebar head
   expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
   await expect(selector.locator('svg')).toBeInViewport();
   await page.screenshot({ path: 'test-results/cluster-model-name-truncation.png' });
+});
+
+test('toolbar overflow resets the draft without loading the model', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Cluster', exact: true }).click();
+  await choose(page, 'Llama 3.1 8B', 'Place manually');
+  const gpu = page.getByRole('button', { name: 'Edit layers for inference-node GPU 0' });
+  await gpu.click();
+  await page.getByRole('textbox', { name: 'First layer for inference-node GPU 0' }).fill('0');
+  await page.getByRole('textbox', { name: 'Last layer for inference-node GPU 0' }).fill('1');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(gpu).toHaveText('0–1');
+  await page.getByRole('button', { name: 'Assignment options' }).click();
+  await page.getByRole('menuitem', { name: 'Reset to default' }).click();
+  await expect(gpu).not.toHaveText('0–1');
+  await expect(page.getByRole('button', { name: 'Load model', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(gpu).toHaveText('0–1');
 });

@@ -45,7 +45,7 @@ test('API exposes four sections while server and credentials stay unavailable', 
   await expect(page.getByText('Qwen3.8-27B (demo)', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Choose in Cluster' }).click();
   await expect(page.getByRole('heading', { name: 'Cluster', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Stop model' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Unload model' })).toBeVisible();
 });
 
 test('example tabs support keyboard selection and copy only their displayed placeholder text', async ({

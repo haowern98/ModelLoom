@@ -94,13 +94,18 @@ test('uses real configuration data and SDK placement options inside the persiste
     const uuid = 'GPU-12345678-1234-1234-1234-123456789abc';
     const actions: string[] = [];
     Reflect.set(window, '__summaryActions', actions);
+    let loadingStage: number | undefined;
+    Reflect.set(window, '__summaryLoading', (stage: number) => {
+      loadingStage = stage;
+    });
     window.modelLoomRuntime = {
       command: () =>
         Promise.resolve({
           enabled: true,
           model: null,
           models: [{ id: `model-${modelId}`, name: 'Qwen', size: '4 GB', blockCount: 64 }],
-          phase: 'stopped',
+          phase: loadingStage === undefined ? 'stopped' : 'loading',
+          loadingStage,
           error: null,
           device: {
             name: 'Local',
@@ -327,4 +332,21 @@ test('uses real configuration data and SDK placement options inside the persiste
   expect(bounds.x).toBeGreaterThanOrEqual(0);
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(900);
   expect(bounds.y + bounds.height).toBeLessThanOrEqual(720);
+  await page.evaluate(() => {
+    (Reflect.get(window, '__summaryLoading') as (stage: number) => void)(1);
+  });
+  const cancel = page.getByRole('button', { name: 'Cancel loading', exact: true });
+  const ring = cancel.locator('circle');
+  await expect(ring).toHaveAttribute('stroke-dasharray', '20 100');
+  const before = await cancel.boundingBox();
+  const iconBefore = await cancel.locator('svg').boundingBox();
+  const square = await cancel.locator('svg > path').last().getAttribute('d');
+  await page.evaluate(() => {
+    (Reflect.get(window, '__summaryLoading') as (stage: number) => void)(4);
+  });
+  await expect(ring).toHaveAttribute('stroke-dasharray', '80 100');
+  expect(await cancel.boundingBox()).toEqual(before);
+  expect(await cancel.locator('svg').boundingBox()).toEqual(iconBefore);
+  expect(await cancel.locator('svg > path').last().getAttribute('d')).toBe(square);
+  await expect(cancel).toHaveAttribute('title', 'Cancel loading · Loading model');
 });

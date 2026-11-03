@@ -217,7 +217,7 @@ test('per-model defaults save for this session, preserve pending edits and reset
   await expect(temperature).toHaveValue('0.65');
   await page.getByRole('textbox', { name: 'System Prompt' }).fill('Pending prompt');
   await page.getByRole('button', { name: 'Set in Cluster' }).click();
-  await expect(page.getByRole('button', { name: 'Stop model' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Unload model' })).toBeVisible();
   await page.getByRole('button', { name: 'Models', exact: true }).click();
   await page.getByRole('button', { name: 'Configure Qwen3.8-27B' }).click();
   await expect(page.getByRole('textbox', { name: 'System Prompt' })).toHaveValue('Pending prompt');

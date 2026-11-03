@@ -215,7 +215,7 @@ test('direct edits expose restart and Undo without saved draft sections', async 
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByRole('spinbutton', { name: 'Last layer for GPU 0' })).toHaveValue('27');
-  await expect(page.getByRole('button', { name: 'Stop model' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Unload model' })).toBeVisible();
 });
 
 test('toasts overlay the screen, close with X and leave placement unchanged', async ({ page }) => {
@@ -472,7 +472,7 @@ test('direct layer edits, restart cancellation and navigation work with the keyb
   await expect(restart).toBeFocused();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Stop model' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Unload model' })).toBeVisible();
   await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
   await expect(page.getByRole('article')).toHaveCount(4);
   await page.getByRole('button', { name: 'Actions for ml-workstation' }).click();
@@ -794,7 +794,7 @@ test('Cluster toolbar uses rounded neutral controls and overlays its panel witho
   const sidebar = page.getByRole('complementary', { name: 'Cluster', exact: true });
   const navigation = sidebar.getByRole('navigation', { name: 'Cluster navigation' });
   const actions = page.getByRole('group', { name: 'Cluster actions' });
-  const run = actions.getByRole('button', { name: /Run model|Stop model/ });
+  const run = actions.getByRole('button', { name: /Load model|Unload model/ });
   const model = page.getByRole('button', { name: /Selected demo model:|Choose model/ });
   const panel = page.getByRole('complementary', { name: 'Cluster panel' });
   await page.mouse.move(0, 0);
