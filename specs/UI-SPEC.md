@@ -1288,3 +1288,52 @@ unified memory shared with the system, never additional dedicated VRAM.
 See [device telemetry](../docs/device-telemetry.md) for source definitions and
 deferred platform validation. Preserve all four hover-add edges,
 the add-device hint, picker, details, rename, and existing removal restrictions.
+
+### Persistent Cluster overview summary (2026-11-03)
+
+The approved `/summary.html` preview replaces the contextual right inspector.
+Use its 300px shell, Segoe UI 13px regular text, 20px content insets, 28px minimum
+rows, 8px section spacing and inset separators. The surface is #262626, primary
+text #e7e7e7 and muted text #afafaf. Use a 16px round radius, or the reference's
+20px superellipse(1.5) corner shape where supported. Position it 72px from the
+canvas main area's top and 24px from its right edge, with bounded vertical scrolling.
+
+Keep Model, Hardware, Speculative workload and Layer assignment in the same
+panel. Model shows the existing library glyph, selected model/status, file size
+and configured context, not maximum supported context or quantization/format.
+Show a different currently running model separately. Hardware uses current canvas
+inventory; dedicated GPU memory and shared unified memory remain distinct.
+
+Speculative workload starts collapsed and expands inline. Its 14px Codex chevron points right and
+remains visible when collapsed; the expanded down chevron appears only on hover
+or keyboard focus. Show proposer method and CPU retrieval separately when both
+exist. Use the OpenAI SDK Select for supported execution placement, preserving
+target-linked placement, unavailable-device warnings and loading/saving locks.
+Scope SDK tokens to this dropdown's portal as well as the panel. Model configuration
+owns the enable setting; changes to placement still require Save and reload.
+
+Selecting a canvas device highlights that card and its matching read-only Layer
+assignment row. Keep Cluster overview visible. Selection never changes layer
+assignments, starts loading or unloads a model. Layer ranges are edited only on
+GPU cards; retain their existing preview, Done/Cancel, Undo/Redo and Save/Run flow.
+Device details opens the existing Devices view, and Rename uses the existing
+name editor in a dialog. Connection information appears as an additional inline
+section without replacing the overview.
+
+Retain edge-hover + controls and the add-device hint. The compact Add device
+picker appears after Layer assignment. Closing or completing it keeps the summary
+open; added PCs remain unassigned. Existing inventory, sharing and runtime guards
+remain authoritative.
+
+Picker Close and Add buttons retain the SDK ghost/outline surfaces without native
+browser borders or fills. Use one neutral SDK focus ring, without a second blue
+outline. Preserve their focus, disabled-state and action behavior.
+
+Use the verified Codex summary motion: hidden opacity 0 and translateX(100%),
+visible opacity 1 and translateX(0%), spring duration 0.3 and bounce 0.01. Clip
+the sliding panel to the main area's rounded bounds. Animate card repositioning
+with the same spring through a separate horizontal camera offset. Opening or
+closing the panel preserves the current zoom and GPU-editor anchoring; explicit
+Fit to view, viewport and device-layout changes retain their normal behavior.
+The exiting panel is inert and hidden from assistive technology. Restore focus
+on dismissal, and honor reduced motion with immediate transitions.
