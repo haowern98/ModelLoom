@@ -17,11 +17,13 @@ const inviteErrors: Record<string, string> = {
 /** Discovery is informational; only an explicit Connect starts existing pairing. */
 export function TailscaleCandidates({
   onInvited,
+  onInviteError,
   outgoing = [],
   onDisconnect,
   disabled = false,
 }: {
   onInvited: (id: string) => void;
+  onInviteError: (message: string, origin: HTMLButtonElement) => void;
   outgoing?: PeerView['outgoing'];
   onDisconnect?: (id: string) => void;
   disabled?: boolean;
@@ -29,7 +31,6 @@ export function TailscaleCandidates({
   const bridge = window.modelLoomNetwork;
   const [view, setView] = useState<NetworkView>();
   const [error, setError] = useState(false);
-  const [inviteError, setInviteError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -76,11 +77,10 @@ export function TailscaleCandidates({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bridge]);
 
-  async function invite(candidate: NonNullable<NetworkView>['candidates'][number]) {
+  async function invite(candidate: NetworkView['candidates'][number], origin: HTMLButtonElement) {
     if (!bridge?.invite || inviting.current) return;
     inviting.current = true;
     setBusy(true);
-    setInviteError(null);
     setNotice(null);
     try {
       const reply = await bridge.invite(candidate.id);
@@ -100,9 +100,10 @@ export function TailscaleCandidates({
           )
         : undefined;
       if (!request)
-        setInviteError(
+        onInviteError(
           (!reply.ok && inviteErrors[reply.error]) ||
             'Could not connect to this PC. Check its sharing and try again.',
+          origin,
         );
       else {
         setError(false);
@@ -110,7 +111,7 @@ export function TailscaleCandidates({
       }
     } catch {
       if (mounted.current)
-        setInviteError('Could not connect to this PC. Check its sharing and try again.');
+        onInviteError('Could not connect to this PC. Check its sharing and try again.', origin);
     } finally {
       inviting.current = false;
       if (mounted.current) setBusy(false);
@@ -133,11 +134,6 @@ export function TailscaleCandidates({
           <Button disabled={busy} onClick={() => void read()}>
             Retry discovery
           </Button>
-        </div>
-      )}
-      {inviteError && (
-        <div className={settings.row} role="alert">
-          <p className={settings.description}>{inviteError}</p>
         </div>
       )}
       {notice && (
@@ -179,9 +175,9 @@ export function TailscaleCandidates({
               onMouseLeave={() => setHovered(null)}
               onFocus={() => setFocused(candidate.id)}
               onBlur={() => setFocused(null)}
-              onClick={() => {
+              onClick={(event) => {
                 if (connected) onDisconnect?.(peer.id);
-                else if (!pending) void invite(candidate);
+                else if (!pending) void invite(candidate, event.currentTarget);
               }}
             >
               {connected
