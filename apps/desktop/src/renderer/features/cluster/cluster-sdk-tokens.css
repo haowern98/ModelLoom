@@ -1,7 +1,7 @@
 /* Generated from OpenAI Apps SDK UI 0.2.2. MIT; see OPENAI-UI-LICENSE.txt.
  * Regenerate: node apps/desktop/scripts/generate-cluster-sdk-tokens.mjs
  */
-@scope ([data-cluster-sdk]) {
+@scope ([data-cluster-sdk], [data-radix-popper-content-wrapper]:has([data-cluster-summary-option])) {
   @layer theme {
     :scope,
     :where([data-theme]) {
@@ -246,6 +246,7 @@
       --alpha-base: #0d0d0d;
     }
     :scope:where([data-theme='dark']),
+    :scope:has([data-cluster-summary-option]),
     :where([data-theme='dark']) {
       --gray-0: #0d0d0d;
       --gray-25: #101010;
@@ -310,6 +311,7 @@
     }
 
     :scope:where([data-theme='dark']),
+    :scope:has([data-cluster-summary-option]),
     :where([data-theme='dark']) {
       --shadow-alpha-100: 0.2;
       --shadow-alpha-200: 0.2;
@@ -321,6 +323,7 @@
 
     @media (resolution >= 150dpi), (resolution >= 1.5dppx) {
       :scope:where([data-theme='dark']),
+      :scope:has([data-cluster-summary-option]),
       :where([data-theme='dark']) {
         --shadow-hairline-width: 0.5px;
         --shadow-hairline-color: rgb(255 255 255 / 12%);
@@ -905,6 +908,7 @@
       --color-surface-elevated-secondary: var(--gray-50);
     }
     :scope:where([data-theme='dark']),
+    :scope:has([data-cluster-summary-option]),
     :where([data-theme='dark']) {
       --color-text-secondary: var(--gray-700);
       --color-text-tertiary: var(--gray-600);
@@ -1212,6 +1216,7 @@
       --switch-thumb-color-disabled: var(--gray-0);
     }
     :scope:where([data-theme='dark']),
+    :scope:has([data-cluster-summary-option]),
     :where([data-theme='dark']) {
       --avatar-image-border-color: var(--alpha-15);
       --input-outline-border-color-hover: var(--alpha-30);

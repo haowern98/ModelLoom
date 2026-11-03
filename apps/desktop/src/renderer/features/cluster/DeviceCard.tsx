@@ -34,6 +34,7 @@ interface DeviceCardProps {
   localReady?: boolean;
   onEdit: (hardwareId: string) => void;
   onDetails: (device: DemoDevice) => void;
+  onSelect?: ((device: DemoDevice) => void) | undefined;
   onRename: (device: DemoDevice) => void;
   selected: boolean;
   showAddHint?: boolean;
@@ -58,6 +59,7 @@ export function DeviceCard({
 
   onEdit,
   onDetails,
+  onSelect = onDetails,
   onRename,
   selected,
   showAddHint = false,
@@ -192,7 +194,7 @@ export function DeviceCard({
           event.target.closest('button, input, a, form, [role=slider], [role=menu]')
         )
           return;
-        onDetails(device);
+        onSelect(device);
       }}
     >
       <button
@@ -248,7 +250,7 @@ export function DeviceCard({
               aria-label={`Select ${device.name}`}
               aria-pressed={selected}
               title={device.name}
-              onClick={() => onDetails(device)}
+              onClick={() => onSelect(device)}
             >
               {device.name}
             </button>

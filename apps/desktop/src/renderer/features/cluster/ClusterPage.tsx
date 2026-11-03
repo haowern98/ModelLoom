@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { Dispatch } from 'react';
+import { AnimatePresence } from 'motion/react';
+import { DeviceNameEditor } from './DeviceNameEditor';
+import summaryStyles from './ClusterPanel.module.css';
 import type { ClusterConfigurations } from './useClusterConfigurations';
 import type { SavedClusterConfiguration } from '../../../shared/cluster-configuration';
 import type { RuntimeView } from '../../../shared/runtime';
@@ -24,7 +27,7 @@ import {
   parseLayerInputs,
   validSampleRange,
 } from '../../mocks/cluster';
-import type { DemoDevice, DemoPlacement, LayerInput, PlacementAction } from '../../mocks/cluster';
+import type { DemoDevice, DemoPlacement, PlacementAction } from '../../mocks/cluster';
 import { DeviceCard } from './DeviceCard';
 import { useCardAllocation } from './useCardAllocation';
 import { ClusterCanvas } from './ClusterCanvas';
@@ -47,6 +50,7 @@ const edgeHintKey = 'modelloom.canvas-edge-add-discovered';
 type Modal =
   | { type: 'placement'; model: DemoModel }
   | { type: 'restart' }
+  | { type: 'rename-device'; device: DemoDevice }
   | { type: 'name' }
   | { type: 'delete'; configuration: SavedClusterConfiguration };
 const configurationErrors: Readonly<Record<string, string>> = {
@@ -133,12 +137,10 @@ export function ClusterPage({
   onModelConfiguration,
 }: ClusterPageProps) {
   const [configurationName, setConfigurationName] = useState('');
-  const [validatedDemoInputs, setValidatedDemoInputs] = useState<readonly LayerInput[] | null>(
-    null,
-  );
   const [view, setView] = useState<ClusterView>('overview');
   const [deviceDetailsTarget, setDeviceDetailsTarget] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const panelId = useId();
   const panelToggle = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLElement>(null);
@@ -168,11 +170,11 @@ export function ClusterPage({
   const reportError = (message: string) => {
     if (message) notify('error', message);
   };
-  useEffect(() => {
-    if (panelOpen) panelRef.current?.focus();
-  }, [panelOpen]);
-  const restoreFocus = useRef<HTMLElement | null>(null);
   const [selection, setSelection] = useState<ClusterSelection>({ type: 'overview' });
+  useEffect(() => {
+    if (panelOpen && selection.type !== 'add') panelRef.current?.focus({ preventScroll: true });
+  }, [panelOpen, selection.type]);
+  const restoreFocus = useRef<HTMLElement | null>(null);
   const closePanel = () => {
     const focusTarget =
       document.activeElement === panelToggle.current ? panelToggle.current : restoreFocus.current;
@@ -189,7 +191,15 @@ export function ClusterPage({
     restoreFocus.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSelection(next);
+    if (next.type === 'device') setSelectedDeviceId(next.device.id);
     setPanelOpen(true);
+  };
+  const dismissPicker = () => {
+    setSelection({ type: 'overview' });
+    queueMicrotask(
+      () =>
+        restoreFocus.current?.isConnected && restoreFocus.current.focus({ preventScroll: true }),
+    );
   };
   const [modal, setModal] = useState<Modal | null>(null);
   const devices = demo || localRuntime ? availableDevices : [];
@@ -288,7 +298,11 @@ export function ClusterPage({
   const inspectDevice = (device: DemoDevice) => {
     setDeviceDetailsTarget(null);
     setView('overview');
-    showPanel({ type: 'device', device });
+    if (canvasDevices.some((item) => item.id === device.id)) showPanel({ type: 'device', device });
+    else {
+      setSelectedDeviceId(device.id);
+      showPanel({ type: 'add' });
+    }
   };
   const pendingRequests = demo
     ? incomingExamples.filter((request) => !joining.decisions[request.id]).length
@@ -485,7 +499,6 @@ export function ClusterPage({
     setModal(null);
   };
   const validate = () => {
-    setValidatedDemoInputs(placement.inputs);
     const proposal = parseLayerInputs(placement.inputs, layerCount);
     if (!proposal || !completeSamplePlacement(proposal, layerCount)) {
       reportError(
@@ -527,7 +540,7 @@ export function ClusterPage({
         view={view}
         onNavigate={navigate}
         devices={devices}
-        selectedDeviceId={selection.type === 'device' ? selection.device.id : undefined}
+        selectedDeviceId={selectedDeviceId ?? undefined}
         onSelect={inspectDevice}
         pendingRequests={pendingRequests}
         local={Boolean(localRuntime)}
@@ -793,7 +806,7 @@ export function ClusterPage({
                 }
                 fitOnMount={!demo}
                 singleDevice={canvasDevices.length === 1}
-                panelId={canvasDevices.length === 1 && panelOpen ? panelId : undefined}
+                panelId={panelOpen ? panelId : undefined}
                 layoutStyle={
                   spatial
                     ? {
@@ -805,6 +818,7 @@ export function ClusterPage({
                     : undefined
                 }
                 onClear={() => {
+                  setSelectedDeviceId(null);
                   setSelection({ type: 'overview' });
                 }}
               >
@@ -876,9 +890,15 @@ export function ClusterPage({
                       loading={cardEditsDisabled}
                       active={canPlace}
                       localReady={false}
-                      onDetails={(device) => showPanel({ type: 'device', device })}
-                      onRename={(device) => showPanel({ type: 'device', device, renaming: true })}
-                      selected={selection.type === 'device' && selection.device.id === device.id}
+                      onSelect={(device) => showPanel({ type: 'device', device })}
+                      onDetails={(device) => {
+                        setSelectedDeviceId(device.id);
+                        setDeviceDetailsTarget(device.id);
+                        setView('devices');
+                        setPanelOpen(false);
+                      }}
+                      onRename={(device) => setModal({ type: 'rename-device', device })}
+                      selected={selectedDeviceId === device.id}
                       showAddHint={canvasDevices.length === 1 && !edgeDiscovered}
                       addEdge={
                         panelOpen &&
@@ -961,178 +981,138 @@ export function ClusterPage({
               targetDeviceId={deviceDetailsTarget ?? undefined}
             />
           )}
-          {panelOpen && (
-            <ClusterPanel
-              id={panelId}
-              demo={demo}
-              local={Boolean(localRuntime)}
-              joining={joining}
-              onJoining={onJoining}
-              onSpeculation={() => showPanel({ type: 'speculation' })}
-              onModelConfiguration={
-                selectedModel && onModelConfiguration
-                  ? () => onModelConfiguration(selectedModel.id.replace(/^model-/u, ''))
-                  : undefined
-              }
-              speculation={{
-                enabled: configurations?.raw?.load.speculation?.enabled ?? false,
-                summary: configurations?.raw?.load.speculation?.enabled
-                  ? [
-                      configurations.raw.load.speculation.proposer?.method.toUpperCase(),
-                      configurations.raw.load.speculation.retrieval ? 'CPU retrieval' : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' + ')
-                  : 'Off',
-                proposer: Boolean(
-                  configurations?.raw?.load.speculation?.enabled &&
-                  configurations.raw.load.speculation.proposer,
-                ),
-                device: configurations?.raw?.proposerDevice ?? 'auto',
-                devices: sharesPlacement
-                  ? []
-                  : [
-                      { value: 'cpu', label: 'This PC CPU' },
-                      ...executableGpus
-                        .filter(
-                          (gpu, index, all) =>
-                            all.findIndex((item) => item.uuid === gpu.uuid) === index,
-                        )
-                        .map((gpu) => {
-                          const device = canvasDevices.find(
-                            (item) =>
-                              item.hardware.some((hardware) => hardware.id === gpu.hardwareId) ||
-                              item.inventory?.gpus?.some(
-                                (hardware) => `local-${hardware.id}` === gpu.hardwareId,
-                              ),
-                          );
-                          const hardware = device?.hardware.find(
-                            (item) => item.id === gpu.hardwareId,
-                          );
-                          return {
-                            value: gpu.uuid,
-                            label: `${device?.name ?? 'This PC'} · ${hardware?.label ?? 'GPU'}`,
-                          };
-                        }),
-                    ],
-                ...(sharesPlacement
-                  ? {
-                      placementNote:
-                        'This head follows the target output placement in this runtime.',
-                    }
-                  : {}),
-                onDevice: (value) => configurations?.setProposerDevice(value),
-              }}
-              selection={currentSelection}
-              devices={canvasDevices}
-              canvasCandidates={devices.filter(
-                (device) =>
-                  device.id !== localDeviceId &&
-                  !canvasDevices.some((placed) => placed.id === device.id),
-              )}
-              onAddDevice={() => navigate('add')}
-              onDeviceDetails={(device) => {
-                setDeviceDetailsTarget(device.id);
-                setView('devices');
-                setPanelOpen(false);
-              }}
-              onAddToCanvas={(device) => {
-                if (loading || activeModel || configurations?.planning || configurations?.saving)
-                  return;
-                const requested =
-                  currentSelection.type === 'add' ? currentSelection.anchor : undefined;
-                const anchor =
-                  requested && positions[requested.deviceId]
-                    ? requested
-                    : canvasDevices[0]
-                      ? { deviceId: canvasDevices[0].id, edge: 'right' as const }
-                      : undefined;
-                if (anchor) {
-                  const next = placeBeside(positions, anchor.deviceId, anchor.edge);
-                  const links = new Map(arrangement.links.map((link) => [link.to, link]));
-                  for (const link of liveArrangement.links) links.set(link.to, link);
-                  links.set(device.id, { from: anchor.deviceId, to: device.id, edge: anchor.edge });
-                  setArrangement({
-                    positions: { ...arrangement.positions, ...positions, [device.id]: next },
-                    links: [...links.values()],
-                  });
+        </div>
+        <div className={summaryStyles.viewport}>
+          <AnimatePresence>
+            {panelOpen && view === 'overview' && (
+              <ClusterPanel
+                id={panelId}
+                local={Boolean(localRuntime)}
+                onModelConfiguration={
+                  selectedModel && onModelConfiguration
+                    ? () => onModelConfiguration(selectedModel.id.replace(/^model-/u, ''))
+                    : undefined
                 }
-                setEdgeDiscovered(true);
-                try {
-                  localStorage.setItem(edgeHintKey, 'true');
-                } catch {
-                  /* Optional presentation preference; session state still dismisses the hint. */
+                speculation={{
+                  enabled: configurations?.raw?.load.speculation?.enabled ?? false,
+                  method: configurations?.raw?.load.speculation?.proposer?.method.toUpperCase(),
+                  retrieval: Boolean(configurations?.raw?.load.speculation?.retrieval),
+                  pendingHint:
+                    (configurations?.raw?.proposerDevice ?? 'auto') !==
+                    (configurations?.saved?.proposerDevice ?? 'auto')
+                      ? 'Save, then reload to apply.'
+                      : configurations?.saved && !selectedIsActive
+                        ? 'Saved · reload to apply.'
+                        : undefined,
+                  proposer: Boolean(
+                    configurations?.raw?.load.speculation?.enabled &&
+                    configurations.raw.load.speculation.proposer,
+                  ),
+                  device: configurations?.raw?.proposerDevice ?? 'auto',
+                  devices: sharesPlacement
+                    ? []
+                    : [
+                        { value: 'cpu', label: 'This PC CPU' },
+                        ...executableGpus
+                          .filter(
+                            (gpu, index, all) =>
+                              all.findIndex((item) => item.uuid === gpu.uuid) === index,
+                          )
+                          .map((gpu) => {
+                            const device = canvasDevices.find(
+                              (item) =>
+                                item.hardware.some((hardware) => hardware.id === gpu.hardwareId) ||
+                                item.inventory?.gpus?.some(
+                                  (hardware) => `local-${hardware.id}` === gpu.hardwareId,
+                                ),
+                            );
+                            const hardware = device?.hardware.find(
+                              (item) => item.id === gpu.hardwareId,
+                            );
+                            return {
+                              value: gpu.uuid,
+                              label: `${device?.name ?? 'This PC'} · ${hardware?.label ?? 'GPU'}`,
+                            };
+                          }),
+                      ],
+                  ...(sharesPlacement
+                    ? {
+                        placementNote:
+                          'This head follows the target output placement in this runtime.',
+                      }
+                    : {}),
+                  onDevice: (value) => configurations?.setProposerDevice(value),
+                }}
+                selectedDeviceId={selectedDeviceId ?? undefined}
+                selection={currentSelection}
+                devices={canvasDevices}
+                canvasCandidates={devices.filter(
+                  (device) =>
+                    device.id !== localDeviceId &&
+                    !canvasDevices.some((placed) => placed.id === device.id),
+                )}
+                onAddDevice={() => navigate('add')}
+                onAddToCanvas={(device) => {
+                  if (loading || activeModel || configurations?.planning || configurations?.saving)
+                    return;
+                  const requested =
+                    currentSelection.type === 'add' ? currentSelection.anchor : undefined;
+                  const anchor =
+                    requested && positions[requested.deviceId]
+                      ? requested
+                      : canvasDevices[0]
+                        ? { deviceId: canvasDevices[0].id, edge: 'right' as const }
+                        : undefined;
+                  if (anchor) {
+                    const next = placeBeside(positions, anchor.deviceId, anchor.edge);
+                    const links = new Map(arrangement.links.map((link) => [link.to, link]));
+                    for (const link of liveArrangement.links) links.set(link.to, link);
+                    links.set(device.id, {
+                      from: anchor.deviceId,
+                      to: device.id,
+                      edge: anchor.edge,
+                    });
+                    setArrangement({
+                      positions: { ...arrangement.positions, ...positions, [device.id]: next },
+                      links: [...links.values()],
+                    });
+                  }
+                  setEdgeDiscovered(true);
+                  try {
+                    localStorage.setItem(edgeHintKey, 'true');
+                  } catch {
+                    /* Optional presentation preference; session state still dismisses the hint. */
+                  }
+                  setRemovedDevices((current) => current.filter((id) => id !== device.id));
+                  dismissPicker();
+                }}
+                activeModel={activeModel}
+                selectedModel={selectedModel}
+                loading={loading}
+                editingDisabled={
+                  loading || Boolean(configurations?.planning || configurations?.saving)
                 }
-                setRemovedDevices((current) => current.filter((id) => id !== device.id));
-                if (currentSelection.type !== 'device') closePanel();
-              }}
-              activeModel={activeModel}
-              selectedModel={selectedModel}
-              loading={loading}
-              editingDisabled={
-                loading || Boolean(configurations?.planning || configurations?.saving)
-              }
-              canvasMutationDisabled={
-                loading ||
-                Boolean(activeModel || configurations?.planning || configurations?.saving)
-              }
-              inputs={editorInputs}
-              layerCount={layerCount}
-              assignmentStates={assignmentStates}
-              canPlace={canPlace}
-              saveIssues={
-                configurations?.issues.map((issue) => ({
-                  ...issue,
-                  hardwareId: executableGpus.find((gpu) => gpu.uuid === issue.uuid)?.hardwareId,
-                })) ??
-                (validatedDemoInputs === placement.inputs
-                  ? placement.inputs
-                      .filter((input) => parseLayerInputs([input], layerCount) === null)
-                      .map((input) => ({ hardwareId: input.hardwareId, field: 'first' }))
-                  : [])
-              }
-              panelRef={panelRef}
-              onClose={closePanel}
-              onOverview={() => setSelection({ type: 'overview' })}
-              onSelect={(device) => showPanel({ type: 'device', device })}
-              onEdit={(input) => {
-                if (
-                  currentSelection.type !== 'device' ||
-                  !canvasDevices.some((device) => device.id === currentSelection.device.id)
-                )
-                  return;
-                if (!configurations) {
-                  dispatch({ type: 'edit', input });
-                  return;
+                canvasMutationDisabled={
+                  loading ||
+                  Boolean(activeModel || configurations?.planning || configurations?.saving)
                 }
-                const gpu = executableGpus.find((item) => item.hardwareId === input.hardwareId);
-                if (!gpu) return;
-                const runs = configurations.raw?.runs ?? [];
-                const next = { uuid: gpu.uuid, first: input.first, last: input.last };
-                configurations.edit(
-                  input.first || input.last
-                    ? runs.some((run) => run.uuid === gpu.uuid)
-                      ? runs.map((run) => (run.uuid === gpu.uuid ? next : run))
-                      : [...runs, next]
-                    : runs.filter((run) => run.uuid !== gpu.uuid),
-                );
-              }}
-              onStartRename={() => {
-                if (currentSelection.type === 'device')
-                  setSelection({ type: 'device', device: currentSelection.device, renaming: true });
-              }}
-              onCancelRename={() => {
-                if (currentSelection.type === 'device')
-                  setSelection({ ...currentSelection, renaming: false });
-              }}
-              onRename={(name) => {
-                if (currentSelection.type !== 'device') return;
-                onRenameDevice(currentSelection.device.id, name);
-                setSelection({ ...currentSelection, renaming: false });
-                notify('success', 'Device renamed');
-              }}
-            />
-          )}
+                ranges={canPlace ? cardEditor.ranges : []}
+                contextLabel={
+                  configurations?.raw
+                    ? configurations.raw.load.defaults.automatic
+                      ? 'Automatic'
+                      : `${configurations.raw.load.defaults.contextLength.toLocaleString('en-US')} tokens`
+                    : demo
+                      ? '8,192 tokens'
+                      : 'Unavailable'
+                }
+                assignmentStates={assignmentStates}
+                panelRef={panelRef}
+                onClose={closePanel}
+                onOverview={dismissPicker}
+              />
+            )}
+          </AnimatePresence>
         </div>
       </div>
       {configurations?.leaveRequested && (
@@ -1147,10 +1127,27 @@ export function ClusterPage({
       )}
       {modal && (
         <Dialog
-          title={modal.type === 'name' ? 'Save configuration' : title}
+          title={
+            modal.type === 'name'
+              ? 'Save configuration'
+              : modal.type === 'rename-device'
+                ? 'Rename device'
+                : title
+          }
           onClose={close}
           {...(modal.type === 'delete' ? { initialFocus: 'cancel' as const } : {})}
         >
+          {modal.type === 'rename-device' && (
+            <DeviceNameEditor
+              device={devices.find((device) => device.id === modal.device.id) ?? modal.device}
+              onCancel={close}
+              onSave={(name) => {
+                onRenameDevice(modal.device.id, name);
+                close();
+                notify('success', 'Device renamed');
+              }}
+            />
+          )}
           {modal.type === 'delete' && (
             <>
               <p>
