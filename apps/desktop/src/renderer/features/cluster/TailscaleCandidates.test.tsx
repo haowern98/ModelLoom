@@ -29,14 +29,21 @@ function setup(view = connected, outgoing: PeerView['outgoing'] = []) {
     },
   };
   const onInvited = vi.fn();
+  const onInviteError = vi.fn();
   const onDisconnect = vi.fn();
   return {
     ...render(
-      <TailscaleCandidates onInvited={onInvited} outgoing={outgoing} onDisconnect={onDisconnect} />,
+      <TailscaleCandidates
+        onInvited={onInvited}
+        onInviteError={onInviteError}
+        outgoing={outgoing}
+        onDisconnect={onDisconnect}
+      />,
     ),
     command,
     invite,
     onInvited,
+    onInviteError,
     onDisconnect,
     unsubscribe,
     notify: async () => {
@@ -107,6 +114,7 @@ it('updates from Connected to Connect when the live peer disconnects and prevent
   f.rerender(
     <TailscaleCandidates
       onInvited={f.onInvited}
+      onInviteError={f.onInviteError}
       outgoing={[{ ...peer, phase: 'disconnected', remoteVerified: false }]}
     />,
   );
@@ -114,6 +122,7 @@ it('updates from Connected to Connect when the live peer disconnects and prevent
   f.rerender(
     <TailscaleCandidates
       onInvited={f.onInvited}
+      onInviteError={f.onInviteError}
       outgoing={[{ ...peer, phase: 'pending', remoteVerified: false }]}
     />,
   );
@@ -201,20 +210,23 @@ it('accepts an already approved reconnection without opening code verification',
 });
 
 it('reports invitation failures without opening verification', async () => {
-  const { invite, onInvited } = setup();
+  const { invite, onInvited, onInviteError } = setup();
   invite.mockResolvedValue({ ok: false, error: 'PEER_UNAVAILABLE' });
   fireEvent.click(await screen.findByRole('button', { name: 'Connect to ptss' }));
-  expect(await screen.findByRole('alert')).toBeTruthy();
+  await waitFor(() => expect(onInviteError).toHaveBeenCalledOnce());
   expect(onInvited).not.toHaveBeenCalled();
 });
 
 it('shows the pairing limit and leaves Connect available for a later retry', async () => {
-  const { invite } = setup();
+  const { invite, onInviteError } = setup();
   invite.mockResolvedValue({ ok: false, error: 'PAIRING_LIMIT' });
   fireEvent.click(await screen.findByRole('button', { name: 'Connect to ptss' }));
-  expect(
-    await screen.findByText('Too many pairing requests. Wait a minute and try again.'),
-  ).toBeTruthy();
+  await waitFor(() =>
+    expect(onInviteError).toHaveBeenCalledWith(
+      'Too many pairing requests. Wait a minute and try again.',
+      screen.getByRole('button', { name: 'Connect to ptss' }),
+    ),
+  );
   expect(screen.getByRole('button', { name: 'Connect to ptss' })).not.toBeDisabled();
 });
 

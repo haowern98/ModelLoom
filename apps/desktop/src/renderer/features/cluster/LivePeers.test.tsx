@@ -688,3 +688,33 @@ it('starts sharing both detected GPUs only after the switch is clicked', async (
     gpuIds: ['one', 'two'],
   });
 });
+
+it('shows a discovered PC connection failure in a dismissible toast above the list', async () => {
+  bridge();
+  window.modelLoomNetwork = {
+    command: vi.fn(async () => ({
+      ok: true as const,
+      view: {
+        state: 'connected' as const,
+        addresses: [],
+        candidates: [{ id: 'ptss', name: 'ptss', fingerprint: remote, address: '100.64.1.3' }],
+      },
+    })),
+    invite: vi.fn(async () => ({ ok: false as const, error: 'PEER_TIMEOUT' as const })),
+    subscribe: () => () => {},
+  };
+  try {
+    const user = userEvent.setup();
+    render(<LivePeerPanel kind="add" />);
+    const connect = await screen.findByRole('button', { name: 'Connect to ptss' });
+    await user.click(connect);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The connection to the other PC timed out.',
+    );
+    await user.click(screen.getByRole('button', { name: 'Dismiss notification' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(connect).toBeEnabled();
+  } finally {
+    delete window.modelLoomNetwork;
+  }
+});
