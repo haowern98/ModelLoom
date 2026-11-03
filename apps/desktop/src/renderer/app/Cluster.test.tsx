@@ -1,20 +1,39 @@
+import type * as MotionReact from 'motion/react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+
+vi.mock('motion/react', async (load) => ({
+  ...(await load<typeof MotionReact>()),
+  useReducedMotion: () => true,
+}));
+
+async function editRange(
+  user: ReturnType<typeof userEvent.setup>,
+  device: string,
+  gpu: string,
+  first: string,
+  last: string,
+) {
+  await user.click(screen.getByRole('button', { name: `Edit layers for ${device} ${gpu}` }));
+  await user.clear(screen.getByRole('textbox', { name: /^First layer for / }));
+  await user.type(screen.getByRole('textbox', { name: /^First layer for / }), first);
+  await user.clear(screen.getByRole('textbox', { name: /^Last layer for / }));
+  await user.type(screen.getByRole('textbox', { name: /^Last layer for / }), last);
+  await user.click(screen.getByRole('button', { name: 'Done' }));
+}
 
 describe('Cluster demo', () => {
   it('renames a device through its actions without changing layer drafts and retains the name across navigation', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
+    await editRange(user, 'inference-node', 'GPU 0', '97', '127');
     await user.click(screen.getByRole('button', { name: 'Select inference-node' }));
-    await user.clear(screen.getByRole('spinbutton', { name: 'First layer for GPU 0' }));
-    await user.type(screen.getByRole('spinbutton', { name: 'First layer for GPU 0' }), '95');
     await user.click(screen.getByRole('button', { name: 'Actions for inference-node' }));
-    await user.click(screen.getByRole('button', { name: 'Rename device' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    const dialog = screen.getByRole('complementary', { name: 'Cluster panel' });
+    await user.click(screen.getByRole('menuitem', { name: 'Rename device' }));
+    const dialog = screen.getByRole('dialog', { name: 'Rename device' });
     const input = within(dialog).getByRole('textbox', { name: 'Device name' });
     expect(input).toHaveValue('inference-node');
     await user.clear(input);
@@ -27,23 +46,19 @@ describe('Cluster demo', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Save name' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('article', { name: 'office-node' })).toBeVisible();
+    expect(screen.getByRole('group', { name: 'Layer assignment for office-node' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
     expect(
-      within(screen.getByRole('complementary', { name: 'Cluster panel' })).getByRole('heading', {
-        name: 'office-node',
-      }),
-    ).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Apply and restart' })).toBeVisible();
-    expect(
-      within(screen.getByRole('article', { name: 'office-node' })).getByText(
-        'Planned layers 95 – 127',
-      ),
-    ).toBeVisible();
+      screen.getByRole('button', { name: 'Edit layers for office-node GPU 0' }),
+    ).toHaveTextContent('97\u2013127');
     await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
     expect(screen.getAllByRole('article')).toHaveLength(4);
     expect(screen.getByRole('article', { name: 'office-node' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Actions for office-node' }));
-    await user.click(screen.getByRole('button', { name: 'Rename device' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Rename device' }));
     await user.clear(screen.getByRole('textbox', { name: 'Device name' }));
     await user.type(screen.getByRole('textbox', { name: 'Device name' }), 'cancelled-name');
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -51,46 +66,27 @@ describe('Cluster demo', () => {
     expect(screen.queryByRole('article', { name: 'cancelled-name' })).not.toBeInTheDocument();
   });
 
-  it('updates edits directly, keeps invalid drafts across panels and restores them through undo and redo', async () => {
+  it('commits inline previews as one undoable edit and keeps selection read-only', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
-    await user.click(screen.getByRole('button', { name: 'Select studio-desktop' }));
-    const last = screen.getByRole('spinbutton', { name: 'Last layer for GPU 0' });
-    await user.clear(last);
-    await user.type(last, '26');
-    await user.click(screen.getByRole('button', { name: 'Apply and restart' }));
-    expect(screen.getByRole('alert')).toHaveTextContent(/cover all 128 sample layers/);
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    await user.clear(screen.getByRole('spinbutton', { name: 'First layer for GPU 1' }));
-    await user.type(screen.getByRole('spinbutton', { name: 'First layer for GPU 1' }), '27');
+    await editRange(user, 'studio-desktop', 'GPU 0', '0', '26');
+    const range = () =>
+      screen.getByRole('button', { name: 'Edit layers for studio-desktop GPU 0' });
+    expect(range()).toHaveTextContent('0\u201326');
     await user.click(screen.getByRole('button', { name: 'Select mac-studio' }));
-    let first = screen.getByRole('spinbutton', {
-      name: 'First layer for Apple Silicon (M2 Ultra)',
-    });
-    await user.clear(first);
-    await user.type(first, '-1');
+    expect(screen.queryByRole('textbox', { name: /^First layer for / })).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Layer assignment for mac-studio' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(range()).toHaveTextContent('0\u201327');
+    await user.click(screen.getByRole('button', { name: 'Redo' }));
+    expect(range()).toHaveTextContent('0\u201326');
     await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
-    await user.click(screen.getByRole('button', { name: 'Select mac-studio' }));
-    expect(
-      screen.getByRole('spinbutton', { name: 'First layer for Apple Silicon (M2 Ultra)' }),
-    ).toHaveValue('-1');
-    expect(
-      screen.getByRole('spinbutton', { name: 'First layer for Apple Silicon (M2 Ultra)' }),
-    ).toHaveAttribute('aria-invalid', 'false');
-    first = screen.getByRole('spinbutton', { name: 'First layer for Apple Silicon (M2 Ultra)' });
-    await user.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(first).toHaveValue('-');
-    await user.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(first).toHaveValue('');
-    await user.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(first).toHaveValue('72');
-    await user.click(screen.getByRole('button', { name: 'Redo' }));
-    await user.click(screen.getByRole('button', { name: 'Redo' }));
-    await user.click(screen.getByRole('button', { name: 'Redo' }));
-    expect(first).toHaveValue('-1');
-    expect(screen.queryByRole('button', { name: 'Discard changes' })).not.toBeInTheDocument();
+    expect(range()).toHaveTextContent('0\u201326');
   });
 
   it('opens with a compact model selector and one demo label, without redundant status rows', async () => {
@@ -108,9 +104,7 @@ describe('Cluster demo', () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Cluster sample summary')).not.toBeInTheDocument();
     expect(
-      within(screen.getByRole('article', { name: 'mac-studio' })).getByText(
-        '192 GB unified memory',
-      ),
+      within(screen.getByRole('article', { name: 'mac-studio' })).getByText('192.0 GiB'),
     ).toBeVisible();
   });
 
@@ -142,16 +136,20 @@ describe('Cluster demo', () => {
     const coordinator = screen.getByRole('button', { name: 'Select studio-desktop' });
     expect(coordinator).toHaveAttribute('aria-pressed', 'false');
     await user.click(screen.getByRole('button', { name: 'Select ml-workstation' }));
-    expect(within(panel).getByRole('heading', { name: 'ml-workstation' })).toBeVisible();
+    expect(
+      within(panel).getByRole('group', { name: 'Layer assignment for ml-workstation' }),
+    ).toHaveAttribute('aria-current', 'true');
     expect(screen.getByRole('button', { name: 'Select ml-workstation' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
     expect(coordinator).toHaveAttribute('aria-pressed', 'false');
     await user.click(coordinator);
-    expect(within(panel).getByRole('heading', { name: 'studio-desktop' })).toBeVisible();
+    expect(
+      within(panel).getByRole('group', { name: 'Layer assignment for studio-desktop' }),
+    ).toHaveAttribute('aria-current', 'true');
     expect(screen.getAllByRole('article')).toHaveLength(4);
-    expect(screen.getAllByText(/^Layers /)).toHaveLength(5);
+    expect(screen.getAllByRole('button', { name: /^Edit layers for / })).toHaveLength(5);
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('complementary', { name: 'Cluster panel' })).not.toBeInTheDocument();
     expect(coordinator).toHaveFocus();
@@ -159,7 +157,7 @@ describe('Cluster demo', () => {
     await user.click(toggle);
     await user.click(toggle);
     expect(toggle).toHaveFocus();
-    expect(screen.getAllByText(/^Layers /)).toHaveLength(5);
+    expect(screen.getAllByRole('button', { name: /^Edit layers for / })).toHaveLength(5);
   });
 
   it('validates before restart, cancels without applying and applies only after simulated loading', async () => {
@@ -167,28 +165,28 @@ describe('Cluster demo', () => {
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
     await user.click(screen.getByRole('button', { name: 'Edit layers for studio-desktop GPU 0' }));
-    const last = screen.getByRole('spinbutton', { name: 'Last layer for GPU 0' });
+    const last = screen.getByRole('textbox', { name: /^Last layer for / });
+    await user.clear(last);
+    await user.type(last, '-');
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/whole/);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await user.clear(last);
     await user.type(last, '25');
-    await user.click(screen.getByRole('button', { name: 'Apply and restart' }));
-    expect(screen.getByRole('alert')).toHaveTextContent(/cover all 128 sample layers/);
-    expect(
-      within(screen.getByRole('complementary', { name: 'Cluster panel' })).queryByText(
-        /cover all 128 sample layers/,
-      ),
-    ).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Dismiss notification' }));
-    await user.clear(screen.getByRole('spinbutton', { name: 'First layer for GPU 1' }));
-    await user.type(screen.getByRole('spinbutton', { name: 'First layer for GPU 1' }), '26');
+    await user.click(screen.getByRole('button', { name: 'Done' }));
     await user.click(screen.getByRole('button', { name: 'Apply and restart' }));
     expect(screen.getByRole('dialog', { name: 'Restart demo model?' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.getByText('Active layers 0 – 27')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for studio-desktop GPU 0' }),
+    ).toHaveTextContent('0\u201325');
     await user.click(screen.getByRole('button', { name: 'Apply and restart' }));
     await user.click(screen.getByRole('button', { name: 'Restart demo' }));
     expect(screen.getByRole('button', { name: 'Cancel loading' })).toBeVisible();
     await screen.findByRole('button', { name: 'Stop model' });
-    expect(screen.getByText('Layers 0 – 25')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for studio-desktop GPU 0' }),
+    ).toHaveTextContent('0\u201325');
     expect(screen.queryByText('Active layers 0 – 27')).not.toBeInTheDocument();
   });
 
@@ -208,7 +206,7 @@ describe('Cluster demo', () => {
     await user.click(screen.getByRole('button', { name: 'Add device near studio-desktop' }));
     expect(
       within(screen.getByRole('complementary', { name: 'Cluster panel' })).getByRole('heading', {
-        name: 'Add to canvas',
+        name: 'Add device',
       }),
     ).toBeVisible();
     expect(screen.getAllByRole('article')).toHaveLength(4);
@@ -223,7 +221,9 @@ describe('Cluster demo', () => {
     await user.click(screen.getByRole('button', { name: 'Stop model' }));
     expect(screen.getByRole('button', { name: 'Run model' })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Select studio-desktop' }));
-    expect(screen.getByRole('spinbutton', { name: 'First layer for GPU 0' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Cluster overview' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Edit layers for studio-desktop GPU 0' }));
+    expect(screen.getByRole('textbox', { name: /^First layer for / })).toBeVisible();
     expect(screen.queryByText('In use')).not.toBeInTheDocument();
   });
 
@@ -241,7 +241,7 @@ describe('Cluster demo', () => {
       'aria-pressed',
       'false',
     );
-    expect(within(panel).getByText(/No latency measurement/)).toBeVisible();
+    expect(within(panel).getByText(/not verified/)).toBeVisible();
   });
 
   it('never shows sample peers in the build with demo data disabled', async () => {
