@@ -6,6 +6,42 @@ import type { RuntimeCommand, RuntimeView } from '../../shared/runtime';
 
 afterEach(() => {
   delete window.modelLoomRuntime;
+  localStorage.removeItem('modelloom.device-display-names');
+});
+
+it('restores a live device display name after reopening without sending any runtime writes', async () => {
+  const user = userEvent.setup();
+  const device: NonNullable<RuntimeView['device']> = {
+    name: 'Original hostname',
+    os: 'Windows',
+    cpuName: 'Test CPU',
+    threads: 8,
+    role: 'Coordinator',
+  };
+  const command = vi.fn<(input: RuntimeCommand) => Promise<RuntimeView>>(async () => ({
+    enabled: true,
+    model: null,
+    phase: 'stopped',
+    error: null,
+    device,
+  }));
+  window.modelLoomRuntime = { command };
+  const first = render(<App />);
+  await user.click(screen.getByRole('button', { name: 'Cluster' }));
+  await user.click(await screen.findByRole('button', { name: 'Actions for Original hostname' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Rename device' }));
+  const input = screen.getByRole('textbox', { name: 'Device name' });
+  await user.clear(input);
+  await user.type(input, 'My laptop');
+  await user.click(screen.getByRole('button', { name: 'Save name' }));
+  expect(await screen.findByRole('article', { name: 'My laptop' })).toBeVisible();
+  first.unmount();
+  device.name = 'Updated hostname';
+  render(<App />);
+  await user.click(screen.getByRole('button', { name: 'Cluster' }));
+  expect(await screen.findByRole('article', { name: 'My laptop' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Inspect My laptop' })).toBeVisible();
+  expect(command.mock.calls.every(([input]) => input.action === 'snapshot')).toBe(true);
 });
 
 it('shows an unloaded local worker before any model import, without requiring GPU details', async () => {

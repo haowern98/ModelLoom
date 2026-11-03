@@ -410,6 +410,7 @@ function Harness({
   bridge: ClusterBridge;
   onRun: (id: string, revision: number) => void;
   twoGpus?: boolean;
+  displayNames,
   blockCount?: number;
   activeCluster?: RuntimeView['activeCluster'];
   models?: readonly (typeof model)[];
@@ -419,6 +420,7 @@ function Harness({
   const configurations = useClusterConfigurations(bridge);
   const [joining, onJoining] = useReducer(transitionDemoJoining, undefined, createDemoJoining);
   return (
+  displayNames?: Readonly<Record<string, string>>;
     <ClusterPage
       demo={false}
       configurations={configurations}
@@ -427,7 +429,7 @@ function Harness({
       devices={[
         {
           id: 'local',
-          name: 'Observed device',
+          name: displayNames?.local ?? 'Observed device',
           role: 'Coordinator',
           os: 'Windows',
           address: 'This device',
@@ -457,7 +459,7 @@ function Harness({
           ? [
               {
                 id: peerId,
-                name: 'Observed worker',
+                name: displayNames?.[peerId] ?? 'Observed worker',
                 role: 'Worker' as const,
                 os: 'Windows',
                 address: 'Connected device',
@@ -606,20 +608,27 @@ it('saves a bottom-edge connection with assignments and restores both after a ne
     });
     view.unmount();
     store.cluster.clearSessionDrafts();
-    view = render(<Harness bridge={bridge} onRun={run} remote />);
+    view = render(
+      <Harness
+        bridge={bridge}
+        onRun={run}
+        remote
+        displayNames={{ local: 'Renamed coordinator', [peerId]: 'Renamed worker' }}
+      />,
+    );
     await user.click(await screen.findByRole('button', { name: 'Bottom pair' }));
-    const worker = await screen.findByRole('article', { name: 'Observed worker' });
-    const local = screen.getByRole('article', { name: 'Observed device' });
+    const worker = await screen.findByRole('article', { name: 'Renamed worker' });
+    const local = screen.getByRole('article', { name: 'Renamed coordinator' });
     expect(local.closest<HTMLElement>('[data-canvas-device]')!.style.gridRow).toBe('1');
     expect(worker.closest<HTMLElement>('[data-canvas-device]')!.style.gridRow).toBe('2');
     expect(
       screen.getByRole('img', { name: 'Canvas layout connections' }).querySelector('path'),
     ).toHaveAttribute('data-to', peerId);
     expect(
-      screen.getByRole('button', { name: 'Edit layers for Observed device GPU' }),
+      screen.getByRole('button', { name: 'Edit layers for Renamed coordinator GPU' }),
     ).toHaveTextContent('0\u20133');
     expect(
-      screen.getByRole('button', { name: 'Edit layers for Observed worker GPU' }),
+      screen.getByRole('button', { name: 'Edit layers for Renamed worker GPU' }),
     ).toHaveTextContent('4\u20137');
     expect(screen.getByRole('button', { name: 'Save configuration' })).toBeDisabled();
     expect(run).not.toHaveBeenCalled();
