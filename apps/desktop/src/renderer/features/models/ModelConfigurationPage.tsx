@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { ArrowLeft, X } from 'lucide-react';
+import { X } from 'lucide-react';
+import { Button as SdkButton } from '@openai/apps-sdk-ui/components/Button';
 import { Button } from '../../components/Button';
+import { ChatNavIcon } from '../../components/ChatNavIcon';
 import { Toast } from '../../components/Toast';
 import type { ToastMessage } from '../../components/Toast';
 import type { DemoModel } from '../../mocks/modelLibrary';
@@ -90,7 +92,7 @@ export function ModelConfigurationPage({
   const { draft, saved } = configuration;
   const formId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
-  const resetFallback = useRef<HTMLButtonElement>(null);
+  const notificationFallback = useRef<HTMLButtonElement>(null);
   const notificationId = useRef(0);
   const [notification, setNotification] = useState<ToastMessage | null>(null);
   const dismissNotification = useCallback(() => setNotification(null), []);
@@ -349,27 +351,34 @@ export function ModelConfigurationPage({
         <Toast
           key={notification.id}
           notification={notification}
-          fallbackRef={resetFallback}
+          fallbackRef={notificationFallback}
           onDismiss={dismissNotification}
         />
       )}
+      <nav className={styles.breadcrumb} aria-label="Breadcrumb">
+        <SdkButton
+          ref={notificationFallback}
+          className={styles.breadcrumbParent ?? ''}
+          color="secondary"
+          variant="ghost"
+          size="sm"
+          pill={false}
+          aria-label="Back to Models"
+          onClick={onBack}
+        >
+          <span>Models</span>
+        </SdkButton>
+        <ChatNavIcon name="chevronRight" width="16" height="16" />
+        <span className={styles.breadcrumbCurrent} aria-current="page" title={model.name}>
+          {model.name}
+        </span>
+      </nav>
       <div className={styles.scroller} data-configuration-scroll>
         <div className={styles.content}>
           <header className={styles.header}>
-            <div>
-              <h1 ref={heading} tabIndex={-1}>
-                Model configuration
-              </h1>
-              <div className={styles.identity}>
-                <span title={model.name}>{model.name}</span>
-                <span className={styles.chip}>GGUF</span>
-                <span className={styles.chip}>{model.quantization}</span>
-              </div>
-            </div>
-            <Button className={styles.back} onClick={onBack}>
-              <ArrowLeft size={16} aria-hidden="true" />
-              Back to Models
-            </Button>
+            <h1 ref={heading} tabIndex={-1}>
+              Model configuration
+            </h1>
           </header>
           <form
             id={formId}
@@ -739,24 +748,19 @@ export function ModelConfigurationPage({
           </form>
         </div>
       </div>
-      <footer
-        ref={(footer) => {
-          resetFallback.current = footer?.querySelector('button') ?? null;
-        }}
-        className={styles.footer}
-        role="group"
-        aria-label="Model configuration actions"
-      >
-        <Button
-          className={styles.reset}
-          onClick={() => patch(structuredClone(live?.resetDefaults ?? createDemoDefaults()))}
-        >
-          Reset defaults
-        </Button>
-        <Button type="submit" form={formId} className={styles.save} disabled={!changed || saving}>
-          Save changes
-        </Button>
-      </footer>
+      {(changed || saving) && (
+        <footer className={styles.footer} role="group" aria-label="Model configuration actions">
+          <Button
+            className={styles.reset}
+            onClick={() => patch(structuredClone(live?.resetDefaults ?? createDemoDefaults()))}
+          >
+            Reset defaults
+          </Button>
+          <Button type="submit" form={formId} className={styles.save} disabled={!changed || saving}>
+            Save changes
+          </Button>
+        </footer>
+      )}
     </div>
   );
 }

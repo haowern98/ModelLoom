@@ -6,6 +6,53 @@
   min-height: 0;
   color: var(--neutral-text);
 }
+.breadcrumb {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 46px;
+  min-width: 0;
+  padding: 0 8px;
+  color: var(--app-color-text-foreground-tertiary, #afafaf);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: calc(1.25 / 0.875);
+}
+.page .breadcrumbParent {
+  flex: 0 1 auto;
+  height: 28px;
+  min-height: 28px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+}
+.page .breadcrumbParent:hover {
+  background: #ffffff1a;
+  color: inherit;
+}
+.page .breadcrumbParent:active {
+  background: #ffffff0d;
+}
+.breadcrumbParent > span,
+.breadcrumbCurrent {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.breadcrumbCurrent {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  align-content: center;
+  color: var(--app-color-text-foreground, #ededed);
+}
 .scroller {
   flex: 1;
   min-height: 0;
@@ -29,22 +76,6 @@
   line-height: var(--line-height-page-title);
   outline: none;
 }
-.identity {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  font-size: var(--font-size-card-title);
-  font-weight: var(--font-weight-medium);
-}
-.identity > span:first-child {
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chip,
 .badge {
   border: 1px solid var(--neutral-border);
   border-radius: 999px;
@@ -52,9 +83,6 @@
   font-size: var(--font-size-metadata);
   font-weight: var(--font-weight-normal);
   color: var(--neutral-muted);
-}
-.chip {
-  background: #303030;
 }
 .section {
   margin-bottom: 36px;
@@ -231,25 +259,14 @@
   font-weight: var(--font-weight-normal);
   color: var(--neutral-muted);
 }
-.page .back,
 .page .utility {
   background: transparent;
   border: 1px solid var(--neutral-border);
   border-radius: 999px;
   color: var(--neutral-text);
 }
-.page .back:hover,
 .page .utility:hover {
   background: #2f2f2f;
-}
-.page .back {
-  gap: 8px;
-  padding: 7px 12px;
-  background: #303030;
-}
-.page .back:hover {
-  background: #383838;
-  border-color: var(--neutral-border);
 }
 .footer {
   display: flex;
