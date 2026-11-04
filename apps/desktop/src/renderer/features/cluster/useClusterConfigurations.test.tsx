@@ -552,6 +552,9 @@ it('saves edits to the existing configuration before switching without creating 
   await act(async () => expect(await result.current.saveAndLeave(null)).toBe(true));
   expect(result.current.selection?.modelId).toBe('b'.repeat(64));
   await act(() => result.current.selectModel(fixture.configuration.modelId));
+  expect(result.current.selection?.configurationId).toBeNull();
+  expect(result.current.raw?.runs).toEqual([]);
+  await act(() => result.current.selectConfiguration(result.current.configurations[0]!));
   expect(result.current.selection?.configurationId).toBe(fixture.configuration.id);
   expect(result.current.raw?.runs[0]?.last).toBe('6');
   expect(result.current.dirty).toBe(false);
