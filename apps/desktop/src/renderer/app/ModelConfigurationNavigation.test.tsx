@@ -61,7 +61,7 @@ it('opens placement for the configured model without loading it or discarding it
   await user.type(screen.getByRole('textbox', { name: 'System Prompt' }), 'Pending instruction');
   await user.click(screen.getByRole('button', { name: 'Set in Cluster' }));
   expect(screen.getByRole('button', { name: 'Selected demo model: Llama 3.1 8B' })).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Run model' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Load model' })).toBeVisible();
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Cancel loading' })).toBeNull();
   await user.click(screen.getByRole('button', { name: 'Models' }));
@@ -138,6 +138,7 @@ it('returns from speculative placement with the physical GPU label rather than i
   render(<App />);
   await user.click(await screen.findByRole('button', { name: 'Configure Target' }));
   await user.click(screen.getByRole('button', { name: 'Set speculative execution in Cluster' }));
+  await user.click(await screen.findByRole('button', { name: 'Speculative workload' }));
   await user.click(await screen.findByRole('button', { name: 'Model configuration' }));
   expect(await screen.findByText('My PC · My GPU')).toBeVisible();
   expect(runtime.mock.calls.every(([command]) => command.action !== 'load')).toBe(true);
