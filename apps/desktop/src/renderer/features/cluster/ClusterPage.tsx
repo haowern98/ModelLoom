@@ -396,8 +396,15 @@ export function ClusterPage({
     selectedModel?.id === activeModel.id &&
     (activeCluster
       ? activeCluster.draftKey
-        ? configurations?.draft?.key === activeCluster.draftKey &&
-          configurations.draft.revision === activeCluster.revision
+        ? (configurations?.draft?.key === activeCluster.draftKey &&
+            configurations.draft.revision === activeCluster.revision) ||
+          Boolean(
+            configurations?.selection &&
+            !configurations.selection.configurationId &&
+            !configurations.draft &&
+            !changed &&
+            activeCluster.draftKey === `model:${configurations.selection.modelId}`,
+          )
         : configurations?.saved?.id === activeCluster.configurationId &&
           configurations.saved.revision === activeCluster.revision
       : !configurations?.selection?.configurationId),
@@ -608,7 +615,9 @@ export function ClusterPage({
                     loading ||
                     Boolean(configurations?.planning || configurations?.pending)
                   }
-                  {...(configurations ? { onClear: configurations.clearSelection } : {})}
+                  {...(configurations
+                    ? { onClear: () => void configurations.clearSelection() }
+                    : {})}
                   onChoose={(model) =>
                     localRuntime
                       ? localRuntime.onChoose(model)
