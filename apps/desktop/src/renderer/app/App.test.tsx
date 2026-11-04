@@ -67,18 +67,13 @@ it('shows an unloaded local worker before any model import, without requiring GP
   const device = within(await screen.findByRole('article', { name: 'own-pc' }));
   expect(device.getByText('Worker')).toBeVisible();
   expect(device.queryByText('Windows · This device')).not.toBeInTheDocument();
-  expect(device.getByText('Actual CPU')).toBeVisible();
+  expect(device.getByText('CPU', { exact: true })).toBeVisible();
   expect(device.queryByText('NVIDIA GPU')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Load model' })).toBeDisabled();
   expect(screen.queryByText('No devices connected')).not.toBeInTheDocument();
   expect(command.mock.calls.every(([input]) => input?.action === 'snapshot')).toBe(true);
   await user.click(device.getByRole('button', { name: 'Actions for own-pc' }));
-  await user.click(screen.getByRole('button', { name: 'Device details' }));
-  await user.click(
-    within(screen.getByRole('complementary', { name: 'Cluster panel' })).getByRole('button', {
-      name: 'Device details',
-    }),
-  );
+  await user.click(screen.getByRole('menuitem', { name: 'Device details' }));
   expect(await screen.findByRole('heading', { name: 'Devices', level: 1 })).toBeVisible();
   const details = within(screen.getByRole('article', { name: 'own-pc' }));
   expect(details.getByRole('heading', { name: 'own-pc', level: 2 })).toHaveFocus();
@@ -138,8 +133,9 @@ it('displays the detected GPU model beside the observed VRAM without loading a m
   await user.click(screen.getByRole('button', { name: 'Cluster' }));
   const device = within(await screen.findByRole('article', { name: 'own-gpu-pc' }));
   expect(device.getByText('NVIDIA GeForce RTX 4060 Ti')).toBeVisible();
-  expect(device.getByText('16.0 GiB dedicated memory')).toBeVisible();
-  expect(device.getByRole('heading', { name: 'GPU' })).toBeVisible();
+  expect(device.getByText('16.0 GiB')).toBeVisible();
+  expect(device.getByRole('region', { name: 'own-gpu-pc GPU' })).toBeVisible();
+  expect(device.getByRole('button', { name: 'Load a model to assign layers' })).toBeDisabled();
   expect(device.queryByText('NVIDIA GPU')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Load model' })).toBeDisabled();
 });
