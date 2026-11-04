@@ -1,8 +1,9 @@
 import { _electron as electron, expect, test } from '@playwright/test';
 import path from 'node:path';
 
-test('packaged demo opens safely, navigates, and exits its owned app', async () => {
+test('packaged demo opens safely, navigates, and exits its owned app', async ({}, testInfo) => {
   const electronApp = await electron.launch({
+    args: [`--user-data-dir=${testInfo.outputPath('profile')}`],
     executablePath: path.resolve(__dirname, '../out/ModelLoom-win32-x64/ModelLoom.exe'),
     env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' },
   });
@@ -114,45 +115,56 @@ test('packaged demo opens safely, navigates, and exits its owned app', async () 
     await expect(sharedGpu).toBeDisabled();
     await clusterPages.getByRole('button', { name: 'Overview', exact: true }).click();
     await expect(window.getByRole('article')).toHaveCount(4);
-    await expect(window.getByText(/^Layers /)).toHaveCount(5);
-    await window.getByRole('button', { name: 'Select studio-desktop' }).click();
-    await window.getByRole('spinbutton', { name: 'Last layer for GPU 0' }).fill('26');
+    await expect(window.getByRole('button', { name: /^Edit layers for / })).toHaveCount(5);
+    const editPrimary = window.getByRole('button', {
+      name: 'Edit layers for studio-desktop GPU 0',
+    });
+    const done = window.getByRole('button', { name: 'Done', exact: true });
+    await editPrimary.click();
+    const first = window.getByRole('textbox', { name: 'First layer for studio-desktop GPU 0' });
+    const last = window.getByRole('textbox', { name: 'Last layer for studio-desktop GPU 0' });
+    await first.fill('');
+    await last.fill('');
+    await done.click();
     await expect(window.getByRole('button', { name: /Keep draft|Save changes/ })).toHaveCount(0);
     await window.getByRole('button', { name: 'Apply and restart' }).click();
     await expect(window.getByRole('alert')).toContainText('cover all 128 sample layers');
     await window.getByRole('button', { name: 'Dismiss notification' }).click();
-    await window.getByRole('spinbutton', { name: 'First layer for GPU 1' }).fill('27');
-    await window.getByRole('button', { name: 'Apply and restart' }).click();
-    await window.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(window.getByText('Active layers 0 – 27')).toBeVisible();
     await window.getByRole('button', { name: 'Undo', exact: true }).click();
+    await editPrimary.click();
+    await last.fill('26');
+    await done.click();
+    await window.getByRole('button', { name: 'Apply and restart' }).click();
+    await window
+      .getByRole('dialog', { name: 'Restart demo model?' })
+      .getByRole('button', { name: 'Cancel', exact: true })
+      .click();
+    await expect(window.getByRole('img', { name: 'GPU in use' })).toHaveCount(5);
     await window.getByRole('button', { name: 'Undo', exact: true }).click();
     await expect(window.getByRole('button', { name: 'Unload model' })).toBeVisible();
-    await window.getByRole('button', { name: 'Cluster panel', exact: true }).click();
     await window.getByRole('button', { name: 'Fit to view', exact: true }).click();
     await window.getByRole('button', { name: 'Actions for ml-workstation' }).click();
-    await window.getByRole('button', { name: 'Rename device' }).click();
-    await expect(window.getByRole('dialog')).toHaveCount(0);
-    const rename = window.getByRole('complementary', { name: 'Cluster panel' });
+    await window.getByRole('menuitem', { name: 'Rename device' }).click();
+    const rename = window.getByRole('dialog', { name: 'Rename device' });
     await expect(rename.getByRole('textbox', { name: 'Device name' })).toBeFocused();
     await rename.getByRole('textbox', { name: 'Device name' }).fill('office-workstation');
     await rename.getByRole('button', { name: 'Save name' }).click();
     await expect(window.getByRole('article', { name: 'office-workstation' })).toBeVisible();
     await expect(window.getByRole('button', { name: 'Save changes' })).toHaveCount(0);
     await window.screenshot({ path: 'test-results/cluster-packaged-windows.png' });
-    await window.getByRole('button', { name: 'Cluster panel', exact: true }).click();
     await window.getByRole('button', { name: 'Selected demo model: Qwen3.8-27B' }).click();
     await window.getByRole('menuitem', { name: /Llama 3.1 8B/ }).click();
     await window.getByRole('button', { name: 'Place manually', exact: true }).click();
-    await window.getByRole('button', { name: 'Edit layers for inference-node GPU 0' }).click();
-    await window.getByRole('spinbutton', { name: 'First layer for GPU 0' }).fill('0');
-    await window.getByRole('spinbutton', { name: 'Last layer for GPU 0' }).fill('31');
+    const range = window.getByRole('button', { name: 'Edit layers for inference-node GPU 0' });
+    await range.click();
+    await window.getByRole('textbox', { name: 'First layer for inference-node GPU 0' }).fill('0');
+    await window.getByRole('textbox', { name: 'Last layer for inference-node GPU 0' }).fill('31');
+    await done.click();
     await window.getByRole('button', { name: 'Load model' }).click();
     await window.getByRole('button', { name: 'Switch and run demo' }).click();
     await expect(window.getByRole('button', { name: 'Cancel loading' })).toBeVisible();
     await expect(window.getByRole('button', { name: 'Unload model' })).toBeVisible();
-    await expect(window.getByText('Layers 0 – 31', { exact: true })).toBeVisible();
-    await window.getByRole('button', { name: 'Cluster panel', exact: true }).click();
+    await expect(range).toHaveText('0–31');
     await navigation.getByRole('button', { name: 'Chat', exact: true }).click();
     await expect(window.getByRole('heading', { name: 'Planning a local setup' })).toBeVisible();
     const divider = await window
@@ -170,9 +182,9 @@ test('packaged demo opens safely, navigates, and exits its owned app', async () 
     const response = await window
       .getByRole('article', { name: 'Assistant response 2' })
       .locator('p')
-      .innerText();
+      .allTextContents();
     const copied = await electronApp.evaluate(({ clipboard }) => clipboard.readText());
-    expect(copied.replace(/\r\n/g, '\n')).toBe(response);
+    expect(copied.replace(/\r\n/g, '\n')).toBe(response.join('\n\n'));
     await window
       .getByRole('textbox', { name: 'Message', exact: true })
       .fill('Native preview draft');
