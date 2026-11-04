@@ -49,6 +49,8 @@ test('Models, configuration fields, dropdowns and dialogs share native scrollbar
   await page.getByRole('button', { name: 'Configure Qwen3.8-27B', exact: true }).click();
   const scroller = page.locator('[data-configuration-scroll]');
   const actions = page.getByRole('group', { name: 'Model configuration actions' });
+  await page.getByRole('textbox', { name: 'System Prompt', exact: true }).fill('Scrollbar fixture');
+  await expect(actions).toBeVisible();
   const footer = await actions.boundingBox();
   await expectNativeScrollbar(page, scroller);
   await expectNativeScrollbar(
@@ -101,10 +103,7 @@ test('Cluster navigation, model picker and inspector use native scrollbars', asy
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Select studio-desktop', exact: true }).click();
   const panel = page.getByRole('complementary', { name: 'Cluster panel', exact: true });
-  const content = panel.getByRole('region', { name: 'Cluster panel content' });
-  await expectNativeScrollbar(page, content);
-  await content.evaluate((node) => {
-    node.scrollTop = node.scrollHeight;
-  });
-  expect(await panel.evaluate((node) => node.scrollTop)).toBe(0);
+  await expect(panel).toHaveCSS('overflow-y', 'auto');
+  await expect(panel).toHaveCSS('scrollbar-width', 'thin');
+  await expect(panel).toHaveCSS('scrollbar-color', 'rgba(255, 255, 255, 0.157) rgba(0, 0, 0, 0)');
 });

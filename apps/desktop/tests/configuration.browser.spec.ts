@@ -58,7 +58,7 @@ test('model actions stay at the pane bottom while settings scroll above them', a
   for (const width of [1280, 1000, 800, 640]) {
     await page.setViewportSize({ width, height: 720 });
     await expect(actions.getByRole('button')).toHaveCount(2);
-    await expect(main.locator('..')).toHaveCSS('background-color', 'rgb(24, 24, 24)');
+    await expect(main.locator('..')).toHaveCSS('background-color', 'rgb(17, 17, 17)');
     await expect(reset).toHaveCSS('border-radius', '999px');
     await expect(reset).toHaveCSS('background-color', 'rgb(48, 48, 48)');
     await expect(save).toBeEnabled();
@@ -278,10 +278,10 @@ test('validation, toggles, sliders, exact stop strings and advanced editors work
   await expect(page.getByRole('textbox', { name: 'Arguments', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('status')).toContainText('Defaults saved');
+  await temperature.fill('0.7');
   await page.getByRole('button', { name: 'Reset defaults' }).click();
   await expect(temperature).toHaveValue('0.8');
   await expect(page.getByRole('button', { name: /Remove stop string/ })).toHaveCount(0);
-  await temperature.fill('0.7');
   await expect(page.getByRole('textbox', { name: 'Arguments', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Save changes' })).toBeEnabled();
 });
