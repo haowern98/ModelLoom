@@ -5,7 +5,6 @@ import { Button as SdkButton } from '@openai/apps-sdk-ui/components/Button';
 import {
   ArrowRotateCcw,
   ArrowRotateCw,
-  DotsHorizontal,
   SidebarRight,
   StopOutline,
 } from '@openai/apps-sdk-ui/components/Icon';
@@ -19,6 +18,7 @@ import type { RuntimeView } from '../../../shared/runtime';
 import { Network } from '@phosphor-icons/react/dist/csr/Network';
 import { ChatGptPlayIcon } from '../../components/ChatGptPlayIcon';
 import { ChatGptHistoryIcon } from '../../components/ChatGptHistoryIcon';
+import { ChatNavIcon } from '../../components/ChatNavIcon';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { Toast } from '../../components/Toast';
@@ -683,7 +683,7 @@ export function ClusterPage({
                     aria-label="Assignment options"
                     title="Assignment options"
                   >
-                    <DotsHorizontal />
+                    <ChatNavIcon name="more" width="16" height="16" data-no-autosize />
                   </SdkButton>
                 </Menu.Trigger>
                 <Menu.Content align="start" minWidth={180}>
