@@ -410,21 +410,21 @@ function Harness({
   models,
   onRunDraft = vi.fn(),
   remote = false,
+  displayNames,
 }: {
   bridge: ClusterBridge;
   onRun: (id: string, revision: number) => void;
   twoGpus?: boolean;
-  displayNames,
   blockCount?: number;
   activeCluster?: RuntimeView['activeCluster'];
   models?: readonly (typeof model)[];
   onRunDraft?: (target: { key: string; revision: number; modelId: string }) => void;
   remote?: boolean;
+  displayNames?: Readonly<Record<string, string>>;
 }) {
   const configurations = useClusterConfigurations(bridge);
   const [joining, onJoining] = useReducer(transitionDemoJoining, undefined, createDemoJoining);
   return (
-  displayNames?: Readonly<Record<string, string>>;
     <ClusterPage
       demo={false}
       configurations={configurations}
@@ -865,6 +865,87 @@ it('applies card previews across local and remote GPUs as one undoable draft edi
     );
   } finally {
     view.unmount();
+    await controller.close();
+    database.close();
+  }
+});
+
+it('shows the loaded draft layers after Discard and return, until the session unloads', async () => {
+  const database = new DatabaseSync(':memory:');
+  const otherId = 'b'.repeat(64);
+  const store = new ModelConfigurationStore(
+    database,
+    () => {},
+    () => true,
+    capabilities,
+    record().load,
+  );
+  const controller = new ClusterController(store, 'window', { cacheK: 'q8_0', cacheV: 'q8_0' });
+  const bridge: ClusterBridge = { command: (input) => controller.command('window', input) };
+  const user = userEvent.setup();
+  let view: ReturnType<typeof render> | undefined;
+  try {
+    for (const modelId of [record().modelId, otherId]) {
+      await store.recordImport(modelId, 123, {
+        modelId,
+        name: 'Fixture',
+        blockCount: 8,
+        file: 'E:\\Models\\fixture.gguf',
+        size: '4 GB',
+        sizeBytes: 4000,
+        modifiedMs: 1,
+        architecture: 'llama',
+        contextLimit: 32768,
+        quantization: 'Q4_K_M',
+        parameters: '4B',
+      });
+    }
+    const draft = store.cluster.writeDraft(`model:${record().modelId}`, null, {
+      modelId: record().modelId,
+      load: { defaults: record().load, cacheK: 'q8_0', cacheV: 'q8_0' },
+      runs: [{ uuid, first: '0', last: '7' }],
+    });
+    const activeCluster = {
+      draftKey: draft.key,
+      configurationId: null,
+      revision: draft.revision,
+      runs: [{ uuid, first: 0, last: 7 }],
+    };
+    const models = [model, { ...model, id: `model-${otherId}`, name: 'Other model' }];
+    const props = { bridge, models, onRun: vi.fn() };
+    view = render(<Harness {...props} activeCluster={activeCluster} />);
+    await user.click(screen.getByRole('button', { name: 'Choose model' }));
+    await user.click(screen.getByRole('menuitem', { name: /Observed model/ }));
+    expect(await screen.findByRole('button', { name: 'Unload model' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Selected local model: Observed model' }));
+    await user.click(screen.getByRole('menuitem', { name: /Other model/ }));
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(store.cluster.readDraft(draft.key)).toBeNull();
+    view.unmount();
+    view = render(<Harness {...props} activeCluster={activeCluster} />);
+    await user.click(screen.getByRole('button', { name: 'Choose model' }));
+    await user.click(screen.getByRole('menuitem', { name: /Observed model/ }));
+    const range = () => screen.getByRole('button', { name: 'Edit layers for Observed device GPU' });
+    expect(range()).toHaveTextContent('0–7');
+    expect(screen.getByRole('button', { name: 'Unload model' })).toBeEnabled();
+    await editCard(user, 'Observed device', 'GPU', '0', '3');
+    expect(range()).toHaveTextContent('0–3');
+    await user.click(screen.getByRole('button', { name: 'Selected local model: Observed model' }));
+    await user.click(screen.getByRole('menuitem', { name: /Other model/ }));
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(range()).toHaveTextContent('Unassigned');
+    expect(screen.getByRole('button', { name: 'Load model' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Selected local model: Other model' }));
+    await user.click(screen.getByRole('menuitem', { name: /Observed model/ }));
+    expect(range()).toHaveTextContent('0–7');
+    expect(screen.getByRole('button', { name: 'Unload model' })).toBeEnabled();
+    view.rerender(<Harness {...props} activeCluster={null} />);
+    expect(range()).toHaveTextContent('Unassigned');
+    expect(screen.queryByRole('button', { name: 'Unload model' })).not.toBeInTheDocument();
+    expect(store.cluster.list()).toHaveLength(0);
+    expect(props.onRun).not.toHaveBeenCalled();
+  } finally {
+    view?.unmount();
     await controller.close();
     database.close();
   }
