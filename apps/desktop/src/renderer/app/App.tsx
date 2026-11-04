@@ -531,6 +531,8 @@ export function App() {
       ) : (
         <SettingsPage
           category={settingsCategory}
+          activeRuntime={runtime.view?.activeRuntime}
+          selectedRuntime={runtime.selectedRuntime}
           onCategory={(settingsCategory) => visit({ settingsCategory })}
           onApi={() => navigate('API')}
           onConnections={() => {

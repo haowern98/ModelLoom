@@ -262,3 +262,24 @@
     padding-inline: 18px;
   }
 }
+
+.runtimePack {
+  padding: 12px 14px;
+  background: var(--settings-group);
+  border: 1px solid var(--neutral-border);
+  border-radius: var(--radius-card);
+}
+
+.runtimePack h3 {
+  color: var(--neutral-text);
+  font-size: var(--font-size-card-title);
+  font-weight: var(--font-weight-medium);
+}
+
+.runtimePack dl {
+  margin-bottom: 0;
+}
+
+.runtimePack dd {
+  overflow-wrap: anywhere;
+}

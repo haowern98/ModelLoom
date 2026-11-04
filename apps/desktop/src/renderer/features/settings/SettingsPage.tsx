@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
+import type { RuntimeInventory, RuntimeView } from '../../../shared/runtime';
 import type { ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Cpu } from '@phosphor-icons/react/dist/csr/Cpu';
@@ -25,7 +26,7 @@ const categories = [
   {
     name: 'Runtime',
     icon: Cpu,
-    keywords: 'installed engines packs updates GGUF llama.cpp log level downloads',
+    keywords: 'installed engines packs updates GGUF llama.cpp',
   },
   { name: 'Storage', icon: Database, keywords: 'model cache folder location limits cleanup' },
   { name: 'Network', icon: Network, keywords: 'LAN Tailscale connectivity API access' },
@@ -34,7 +35,6 @@ const categories = [
 ] as const;
 
 const appearanceUnavailable = 'Appearance changes are not available yet.';
-const runtimeUnavailable = 'Runtime integration is not connected.';
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -153,47 +153,129 @@ function Appearance() {
   );
 }
 
-function Runtime() {
+function runtimeLabel(runtime: NonNullable<RuntimeView['activeRuntime']>) {
+  return `llama.cpp · ${runtime.backend.toUpperCase()} (Windows)`;
+}
+
+function runtimeOption(runtime: NonNullable<RuntimeView['activeRuntime']>) {
+  const build = /^(b\d+)(?:-(dev\d+))?(?:-|$)/u.exec(runtime.version);
+  const version = build ? [build[1], build[2]].filter(Boolean).join(' · ') : runtime.version;
+  return `${runtimeLabel(runtime)} · ${version}`;
+}
+
+function Runtime({
+  activeRuntime,
+  selectedRuntime,
+}: {
+  activeRuntime: RuntimeView['activeRuntime'];
+  selectedRuntime: RuntimeView['selectedRuntime'];
+}) {
   const [manageOpen, setManageOpen] = useState(false);
+  const [inventory, setInventory] = useState<RuntimeInventory | null>(null);
+  const [attempt, retry] = useReducer((value: number) => value + 1, 0);
+  useEffect(() => {
+    const bridge = window.modelLoomRuntime;
+    if (!bridge) return;
+    let current = true;
+    void bridge.command({ action: 'runtime-inventory' }).then(
+      (reply) => {
+        if (current) setInventory(reply.runtimeInventory ?? { status: 'unavailable' });
+      },
+      () => {
+        if (current) setInventory({ status: 'error' });
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [attempt, activeRuntime?.version]);
+
+  const status = inventory?.status ?? (window.modelLoomRuntime ? 'loading' : 'unavailable');
+  const selected = inventory?.status === 'ready' ? inventory.selected : selectedRuntime;
+  const installed = inventory?.status === 'ready' && inventory.installed;
+  const description = {
+    loading: 'Checking installed runtimes…',
+    unavailable: 'Runtime inventory is not connected.',
+    error: 'Could not verify the runtime inventory.',
+    ready: installed ? '1 verified version installed.' : 'No verified runtime installed.',
+  }[status];
+
   return (
     <>
       <Section title="Installed runtimes">
-        <Row
-          label="Runtime packs"
-          description="Installed runtime information is not available yet."
-        >
-          <Button disabled title={runtimeUnavailable}>
+        <Row label="Runtime packs" description={description}>
+          {status === 'error' && (
+            <Button
+              onClick={() => {
+                setInventory(null);
+                retry();
+              }}
+            >
+              Retry
+            </Button>
+          )}
+          <Button disabled title="Runtime updates are unavailable.">
             Check for updates
           </Button>
           <Button onClick={() => setManageOpen(true)}>Manage installed runtimes</Button>
         </Row>
       </Section>
       <Section title="Runtime selection">
-        <Row label="GGUF" description="Choose the engine and version used to load GGUF models.">
-          <PreviewSelect label="GGUF runtime" value="Not connected" reason={runtimeUnavailable} />
-        </Row>
-        <Row label="Active runtime" description="No runtime is connected to this preview.">
-          <span className={styles.muted}>Unavailable</span>
-        </Row>
-      </Section>
-      <Section title="Runtime settings">
-        <Row label="Engine log level" description="Applies after loading or reloading a model.">
-          <PreviewSelect label="Engine log level" value="Info" reason={runtimeUnavailable} />
-        </Row>
         <Row
-          label="Show runtime downloads"
-          description="Include runtime packs in the Downloads panel."
+          label="GGUF"
+          description={
+            selected
+              ? 'This is the only verified runtime available for the next model load.'
+              : 'Runtime used to load GGUF models.'
+          }
         >
-          <PreviewSwitch label="Show runtime downloads" reason={runtimeUnavailable} />
+          <PreviewSelect
+            label="GGUF runtime"
+            value={
+              selected
+                ? runtimeOption(selected)
+                : window.modelLoomRuntime && selectedRuntime === undefined
+                  ? 'Checking…'
+                  : 'Unavailable'
+            }
+            reason={selected ? 'Only one verified runtime is available.' : description}
+          />
+        </Row>
+        <Row label="Active runtime" description="Runtime used by the loaded model.">
+          <span className={styles.muted}>
+            {activeRuntime ? runtimeOption(activeRuntime) : 'No model loaded'}
+          </span>
         </Row>
       </Section>
-      <p className={styles.notice}>Runtime controls become available with runtime integration.</p>
       {manageOpen && (
         <Dialog title="Installed runtimes" onClose={() => setManageOpen(false)}>
-          <p>
-            Runtime inventory is not connected. Installed packs and versions will appear here when
-            runtime integration is available.
-          </p>
+          {selected && installed ? (
+            <section className={styles.runtimePack} aria-label={runtimeLabel(selected)}>
+              <h3>{runtimeLabel(selected)}</h3>
+              <p>
+                {selected.version} · Selected
+                {activeRuntime?.packageId === selected.packageId &&
+                  activeRuntime.version === selected.version &&
+                  ' · In use'}
+              </p>
+              <dl>
+                <div>
+                  <dt>Package</dt>
+                  <dd>{selected.packageId}</dd>
+                </div>
+                <div>
+                  <dt>Build</dt>
+                  <dd>{selected.artifact}</dd>
+                </div>
+                <div>
+                  <dt>Upstream commit</dt>
+                  <dd>{selected.upstreamCommit}</dd>
+                </div>
+              </dl>
+            </section>
+          ) : (
+            <p>{description}</p>
+          )}
           <footer>
             <Button onClick={() => setManageOpen(false)}>Close</Button>
           </footer>
@@ -219,11 +301,15 @@ export function SettingsPage({
   onCategory,
   onApi,
   onConnections,
+  activeRuntime,
+  selectedRuntime,
 }: {
   category: SettingsCategory;
   onCategory: (category: SettingsCategory) => void;
   onApi: () => void;
   onConnections?: () => void;
+  activeRuntime?: RuntimeView['activeRuntime'];
+  selectedRuntime?: RuntimeView['selectedRuntime'];
 }) {
   const [query, setQuery] = useState('');
   const details = useRef<HTMLDivElement>(null);
@@ -258,7 +344,7 @@ export function SettingsPage({
               aria-current={category === item.name ? 'page' : undefined}
               onClick={() => {
                 onCategory(item.name);
-                details.current?.scrollTo({ top: 0 });
+                if (details.current) details.current.scrollTop = 0;
               }}
             >
               {typeof item.icon === 'string' ? (
@@ -290,7 +376,7 @@ export function SettingsPage({
           {category === 'Appearance' ? (
             <Appearance />
           ) : category === 'Runtime' ? (
-            <Runtime />
+            <Runtime activeRuntime={activeRuntime} selectedRuntime={selectedRuntime} />
           ) : category === 'Network' ? (
             <NetworkSettings onApi={onApi} {...(onConnections ? { onConnections } : {})} />
           ) : category === 'Storage' ? (
