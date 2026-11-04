@@ -20,56 +20,60 @@ test('manual placement starts unassigned and validates all selected-model layers
   await expect(page.getByRole('button', { name: 'Selected demo model: Llama 3.1 8B' })).toHaveText(
     'Llama 3.1 8B',
   );
-  await expect(page.getByText(/^Planned layers/)).toHaveCount(0);
   await expect(page.getByText('Unassigned', { exact: true })).toHaveCount(5);
   const run = page.getByRole('button', { name: 'Load model', exact: true });
   await run.click();
   await expect(page.getByRole('alert')).toContainText('all 32 sample layers exactly once');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
-  await page.getByRole('button', { name: 'Edit layers for inference-node GPU 0' }).click();
-  const first = page.getByRole('spinbutton', { name: 'First layer for GPU 0' });
-  const last = page.getByRole('spinbutton', { name: 'Last layer for GPU 0' });
+  const range = page.getByRole('button', { name: 'Edit layers for inference-node GPU 0' });
+  const done = page.getByRole('button', { name: 'Done', exact: true });
+  await range.click();
+  const first = page.getByRole('textbox', { name: 'First layer for inference-node GPU 0' });
+  const last = page.getByRole('textbox', { name: 'Last layer for inference-node GPU 0' });
   await expect(first).toHaveValue('');
   await expect(last).toHaveValue('');
   await first.fill('0');
   await last.fill('30');
+  await done.click();
   await run.click();
   await expect(page.getByRole('alert')).toContainText('all 32 sample layers');
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await expect(page.getByRole('button', { name: /Keep draft|Save changes/ })).toHaveCount(0);
+  await range.click();
   await last.fill('31');
+  await done.click();
   await run.click();
   await expect(page.getByRole('dialog', { name: 'Switch demo model?' })).toContainText(
     'Qwen3.8-27B',
   );
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Switch demo model?' })
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
   await expect(run).toBeFocused();
-  await expect(page.getByText('Active layers 96 – 127')).toBeVisible();
-  await expect(page.getByText('Planned layers 0 – 31')).toBeVisible();
+  await expect(page.getByRole('img', { name: 'GPU in use' })).toHaveCount(5);
+  await expect(range).toHaveText('0–31');
   await run.click();
   await page.getByRole('button', { name: 'Switch and run demo' }).click();
   await expect(page.getByRole('button', { name: 'Cancel loading' })).toBeVisible();
-  await expect(first).toBeDisabled();
-  await expect(last).toBeDisabled();
+  await expect(range).toBeDisabled();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Unload model' })).toBeVisible();
-  await expect(page.getByText('Layers 0 – 31', { exact: true })).toBeVisible();
-  await expect(page.getByText('In use', { exact: true })).toHaveCount(1);
+  await expect(range).toHaveText('0–31');
+  await expect(page.getByRole('img', { name: 'GPU in use' })).toHaveCount(1);
   await page.getByRole('button', { name: 'Unload model' }).click();
   await expect(run).toBeVisible();
-  await expect(page.getByText('In use', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('img', { name: 'GPU in use' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Discard changes' })).toHaveCount(0);
-  await expect(first).toHaveValue('0');
-  await expect(last).toHaveValue('31');
+  await expect(range).toHaveText('0–31');
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await page.getByRole('button', { name: 'Assignment options' }).click();
   await page.getByRole('menuitem', { name: 'Reset to default' }).click();
   await expect(page.getByText(/^Planned layers/)).toHaveCount(5);
   await expect(page.getByRole('button', { name: 'Cancel loading' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(first).toHaveValue('0');
-  await expect(last).toHaveValue('31');
+  await expect(range).toHaveText('0–31');
 });
 
 test('auto placement is unloaded, loading can be cancelled and completes across navigation', async ({
@@ -80,7 +84,7 @@ test('auto placement is unloaded, loading can be cancelled and completes across 
   await page.getByRole('button', { name: 'Unload model' }).click();
   await choose(page, 'Llama 3.1 8B', 'Auto place');
   await expect(page.getByText(/^Planned layers/)).toHaveCount(5);
-  await expect(page.getByText('In use', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('img', { name: 'GPU in use' })).toHaveCount(0);
   await page.clock.install();
   await page.getByRole('button', { name: 'Load model' }).click();
   await expect(page.getByRole('button', { name: 'Cancel loading' })).toBeVisible();
@@ -91,7 +95,7 @@ test('auto placement is unloaded, loading can be cancelled and completes across 
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await page.clock.runFor(1000);
   await expect(page.getByRole('button', { name: 'Load model' })).toBeVisible();
-  await expect(page.getByText('In use', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('img', { name: 'GPU in use' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Load model' }).click();
   await page.getByRole('button', { name: 'Models', exact: true }).click();
   await page.clock.runFor(1000);
@@ -99,7 +103,9 @@ test('auto placement is unloaded, loading can be cancelled and completes across 
   await expect(page.getByRole('button', { name: 'Remove model entry' })).toBeDisabled();
   await page.getByRole('button', { name: 'Cluster', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Unload model' })).toBeVisible();
-  await expect(page.getByText('Layers 24 – 31', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /^Edit layers for / }).filter({ hasText: '24–31' }),
+  ).toBeVisible();
 });
 
 test('model menu supports keyboard choices, cancellation and removed library entries', async ({

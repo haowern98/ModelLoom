@@ -73,9 +73,11 @@ test('unsaved assignments require Save or Discard, with X and Escape preserving 
   await page.getByRole('button', { name: 'Choose model', exact: true }).click();
   await page.getByRole('menuitem', { name: /Qwen/ }).click();
   await page.getByRole('button', { name: /Edit layers for .* GPU/ }).click();
-  const last = page.getByRole('spinbutton', { name: 'Last layer for GPU', exact: true });
-  await page.getByRole('spinbutton', { name: 'First layer for GPU', exact: true }).fill('0');
+  const last = page.getByRole('textbox', { name: 'Last layer for Local GPU', exact: true });
+  await page.getByRole('textbox', { name: 'First layer for Local GPU', exact: true }).fill('0');
   await last.fill('7');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const range = page.getByRole('button', { name: 'Edit layers for Local GPU' });
   await page.getByRole('button', { name: 'Selected local model: Qwen' }).click();
   await page.getByRole('menuitem', { name: /Bonsai/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Unsaved changes' });
@@ -95,20 +97,20 @@ test('unsaved assignments require Save or Discard, with X and Escape preserving 
     expect(x.y).toBeLessThan(box.y + box.height / 2);
   }
   await close.click();
-  await expect(last).toHaveValue('7');
+  await expect(range).toHaveText('0–7');
   await page.getByRole('button', { name: 'Selected local model: Qwen' }).click();
   await page.getByRole('menuitem', { name: /Bonsai/ }).click();
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
-  await expect(last).toHaveValue('7');
+  await expect(range).toHaveText('0–7');
   await page.getByRole('button', { name: 'Selected local model: Qwen' }).click();
   await page.getByRole('menuitem', { name: /Bonsai/ }).click();
   await dialog.getByRole('button', { name: 'Discard changes' }).click();
   await expect(page.getByRole('button', { name: 'Selected local model: Bonsai' })).toBeVisible();
-  await expect(last).toHaveValue('');
+  await expect(range).toHaveText('Unassigned');
   await page.getByRole('button', { name: 'Selected local model: Bonsai' }).click();
   await page.getByRole('menuitem', { name: /Qwen/ }).click();
-  await expect(last).toHaveValue('');
+  await expect(range).toHaveText('Unassigned');
   expect(
     await page.evaluate(() => Reflect.get(window, '__clusterActions') as string[]),
   ).not.toContain('edit');
