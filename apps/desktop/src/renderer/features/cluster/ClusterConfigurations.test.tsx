@@ -1,7 +1,7 @@
 import type * as MotionReact from 'motion/react';
 import { useReducer } from 'react';
 import { DatabaseSync } from 'node:sqlite';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import { ModelConfigurationStore } from '../../../../../../packages/core/src/model-configuration/store';
@@ -30,10 +30,12 @@ async function editCard(
   last: string,
 ) {
   await user.click(screen.getByRole('button', { name: `Edit layers for ${device} ${gpu}` }));
-  await user.clear(screen.getByRole('textbox', { name: /^First layer for / }));
-  await user.type(screen.getByRole('textbox', { name: /^First layer for / }), first);
-  await user.clear(screen.getByRole('textbox', { name: /^Last layer for / }));
-  await user.type(screen.getByRole('textbox', { name: /^Last layer for / }), last);
+  fireEvent.change(screen.getByRole('textbox', { name: /^First layer for / }), {
+    target: { value: first },
+  });
+  fireEvent.change(screen.getByRole('textbox', { name: /^Last layer for / }), {
+    target: { value: last },
+  });
   await user.click(screen.getByRole('button', { name: 'Done' }));
 }
 
@@ -96,7 +98,7 @@ it('confirms unsaved model switches, discards assignments, and plans the next mo
   });
   const onRunDraft = vi.fn();
   const onRun = vi.fn();
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const view = render(
     <Harness
       bridge={{ command }}
@@ -257,7 +259,7 @@ it.each(['edit and save', 'restore and load'] as const)(
       const saved = store.cluster.saveDraft(draft.key, draft.revision, 'Two GPUs');
       if (!saved.ok) throw Error('fixture save failed');
     }
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const run = vi.fn();
     let view = render(<Harness bridge={bridge} onRun={run} twoGpus blockCount={64} />);
     const checkRanges = () => {
@@ -537,7 +539,7 @@ it('reopens a legacy saved placement with connected equal-width live canvas colu
   if (!saved.ok) throw Error('fixture save failed');
   const bridge: ClusterBridge = { command: (input) => controller.command('window', input) };
   const run = vi.fn();
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const view = render(<Harness bridge={bridge} onRun={run} remote />);
   try {
     await user.click(await screen.findByRole('button', { name: 'Restored pair' }));
@@ -583,7 +585,7 @@ it('saves a bottom-edge connection with assignments and restores both after a ne
   });
   const bridge: ClusterBridge = { command: (input) => controller.command('window', input) };
   const run = vi.fn();
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   let view = render(<Harness bridge={bridge} onRun={run} remote />);
   try {
     await user.click(screen.getByRole('button', { name: 'Choose model' }));
@@ -666,7 +668,7 @@ it('uses durable core storage for Save-only validation, named selection and rest
     quantization: 'Q4_K_M',
     parameters: '4B',
   });
-  const user = userEvent.setup(),
+  const user = userEvent.setup({ delay: null }),
     run = vi.fn();
   const first = render(<Harness bridge={bridge} onRun={run} />);
   try {
@@ -775,7 +777,7 @@ it('applies card previews across local and remote GPUs as one undoable draft edi
   const saved = store.cluster.saveDraft(draft.key, draft.revision, 'Card allocation');
   if (!saved.ok) throw Error('fixture save failed');
   const command = vi.fn<ClusterBridge['command']>((input) => controller.command('window', input));
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const view = render(
     <Harness bridge={{ command }} onRun={vi.fn()} twoGpus remote blockCount={64} />,
   );
@@ -882,7 +884,7 @@ it('shows the loaded draft layers after Discard and return, until the session un
   );
   const controller = new ClusterController(store, 'window', { cacheK: 'q8_0', cacheV: 'q8_0' });
   const bridge: ClusterBridge = { command: (input) => controller.command('window', input) };
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   let view: ReturnType<typeof render> | undefined;
   try {
     for (const modelId of [record().modelId, otherId]) {
