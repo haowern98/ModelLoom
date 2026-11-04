@@ -6,8 +6,16 @@ import {
   DEVELOPMENT_BUILD,
   DEVELOPMENT_MEMORY_REPORTS,
 } from '../runtime-package/development-policy.js';
-import { createDevelopmentRuntimeVerifier } from '../runtime-package/verifier.js';
-import { installExpanded, requireInstalledLive } from '../runtime-package/install.js';
+import {
+  createDevelopmentRuntimeVerifier,
+  requireLivePackage,
+} from '../runtime-package/verifier.js';
+import {
+  findInstalledRuntime,
+  installExpanded,
+  requireInstalledLive,
+} from '../runtime-package/install.js';
+import { describeRuntime } from '../runtime-package/inventory.js';
 import type { InstalledPackage } from '../runtime-package/install.js';
 import { inspectGGUF, inspectGGUFHeader } from '../runtime/gguf.js';
 import { LIFECYCLE_POLICY, REMOTE_STARTUP_MS } from '../runtime/contracts.js';
@@ -148,17 +156,30 @@ export function developmentDesktopDependencies(
           };
         }
       : undefined;
+  const installedRoot = path.join(stateBase, 'installed');
+  let verifying:
+    ReturnType<ReturnType<typeof createDevelopmentRuntimeVerifier>['verify']> | undefined;
+  // Inventory reads and model loads share any in-flight verification for the same trusted root.
+  const verifyRuntime = () =>
+    (verifying ??= createDevelopmentRuntimeVerifier()
+      .verify(path.join(base, 'repository'), path.join(stateBase, 'desktop-verification'))
+      .finally(() => {
+        verifying = undefined;
+      }));
+  async function runtimeSelection() {
+    return describeRuntime(requireLivePackage(await verifyRuntime()).inventory);
+  }
+  async function runtimeInventory() {
+    const capability = await verifyRuntime();
+    const { inventory } = requireLivePackage(capability);
+    return {
+      selected: describeRuntime(inventory),
+      installed: Boolean(await findInstalledRuntime(capability, installedRoot)),
+    };
+  }
   const installClusterRuntime = async () => {
     installation ??= (async () => {
-      const capability = await createDevelopmentRuntimeVerifier().verify(
-        path.join(base, 'repository'),
-        path.join(stateBase, 'desktop-verification'),
-      );
-      return installExpanded(
-        capability,
-        path.join(base, 'candidate'),
-        path.join(stateBase, 'installed'),
-      );
+      return installExpanded(await verifyRuntime(), path.join(base, 'candidate'), installedRoot);
     })();
     try {
       const installed = await installation;
@@ -219,6 +240,7 @@ export function developmentDesktopDependencies(
     const native = ownershipBinding(),
       root = native.createDeployment();
     let adapter: ReturnType<typeof realEngineAdapter> | undefined;
+    let preparedRuntime: ReturnType<typeof describeRuntime> | null = null;
     const activityTransports = new WeakMap<object, ReturnType<typeof withPeerActivity>>();
     let localGpuIds: readonly string[] = [];
     let startupMs: number = LIFECYCLE_POLICY.startupMs;
@@ -259,6 +281,7 @@ export function developmentDesktopDependencies(
             return;
           await adapter?.close();
           adapter = undefined;
+          preparedRuntime = null;
           preparedFile = undefined;
           native.privateDirectory(path.resolve(stateBase));
           const installed = await installClusterRuntime();
@@ -315,6 +338,7 @@ export function developmentDesktopDependencies(
             : selectedConfiguration.gpuDevice
               ? [selectedConfiguration.gpuDevice]
               : [];
+          preparedRuntime = describeRuntime(inventory);
           preparedFile = file;
           preparedFingerprint = load?.fingerprint;
           startupMs =
@@ -397,6 +421,7 @@ export function developmentDesktopDependencies(
       );
       return {
         ...host,
+        runtimePackage: () => preparedRuntime,
         prepare,
         prepareCluster: (
           file: string,
@@ -438,6 +463,8 @@ export function developmentDesktopDependencies(
     },
     /** Installed and verifier-accepted inventory only; hardware brands do not imply backend support. */
     runtimeBackends: () => verifiedBackends,
+    runtimeSelection,
+    runtimeInventory,
     enabled: true as const,
     expectedHash: report.modelSha256,
     packageId: 'llama-cuda-development',

@@ -64,14 +64,19 @@ function receipt(capability: VerifiedPackage, directory: string): InstalledPacka
   return result;
 }
 
-async function existingInstallation(
+/** Find an installed copy matching signed metadata, without installing or modifying files. */
+export async function findInstalledRuntime(
   capability: VerifiedPackage,
   root: string,
 ): Promise<InstalledPackage | undefined> {
   const { inventory } = packageEvidence(capability);
   const prefix = `${inventory.packageId}-${inventory.version}-`;
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const stream = await opendir(root);
+  const stream = await opendir(root).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined;
+    throw error;
+  });
+  if (!stream) return undefined;
   let entries = 0;
   for await (const entry of stream) {
     if (++entries > 1024) throw new Error('INVALID_TREE');
@@ -125,7 +130,7 @@ async function installSerialized(
     source = native.sealFiles(inventory.files.map((file) => path.resolve(bundle, file.path)));
     await inspect(bundle, inventory);
     native.privateDirectory(root);
-    const existing = await existingInstallation(capability, root);
+    const existing = await findInstalledRuntime(capability, root);
     if (existing) return existing;
     const space = await statfs(root, { bigint: true });
     const required = inventory.files.reduce((bytes, file) => bytes + BigInt(file.length), 0n);

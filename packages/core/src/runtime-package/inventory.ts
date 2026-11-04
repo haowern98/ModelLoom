@@ -19,6 +19,21 @@ export interface Inventory {
   readonly stop: 'private-console-ctrl-c';
   readonly files: readonly PackageFile[];
 }
+/** Display identity from a verified manifest. This projection grants no launch authority. */
+export function describeRuntime({
+  packageId,
+  version,
+  artifact,
+  platform,
+  arch,
+  backend,
+  upstreamCommit,
+}: Inventory) {
+  return { packageId, version, artifact, platform, arch, backend, upstreamCommit };
+}
+
+export type RuntimePackageDescription = ReturnType<typeof describeRuntime>;
+
 export const METADATA_LIMIT = 1024 * 1024;
 export const PACKAGE_LIMIT = 8 * 1024 ** 3;
 const bad = (): never => {
