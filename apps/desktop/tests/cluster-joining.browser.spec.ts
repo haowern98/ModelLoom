@@ -110,7 +110,7 @@ test('incoming decisions and manual request status stay simulated without changi
   await expect(page.getByLabel(/pending requests?$/)).toHaveCount(0);
   await navigation.getByRole('button', { name: 'Overview', exact: true }).click();
   await expect(page.getByRole('article')).toHaveCount(4);
-  await expect(page.getByText(/^Layers /)).toHaveCount(5);
+  await expect(page.getByRole('button', { name: /^Edit layers for / })).toHaveCount(5);
   await navigation.getByRole('button', { name: /^Connections/u }).click();
   await page.getByRole('tab', { name: 'Add device' }).click();
   const add = page.getByRole('tabpanel', { name: 'Add device', exact: true });
@@ -123,5 +123,5 @@ test('incoming decisions and manual request status stay simulated without changi
   await expect(add.getByRole('button', { name: 'Invite private address' })).toBeEnabled();
   await navigation.getByRole('button', { name: 'Overview', exact: true }).click();
   await expect(page.getByRole('article')).toHaveCount(4);
-  await expect(page.getByText(/^Layers /)).toHaveCount(5);
+  await expect(page.getByRole('button', { name: /^Edit layers for / })).toHaveCount(5);
 });
