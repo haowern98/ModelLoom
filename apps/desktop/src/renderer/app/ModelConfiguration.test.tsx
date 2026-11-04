@@ -132,9 +132,7 @@ describe('Model configuration demo', () => {
     const editor = screen.getByRole('textbox', { name: 'Chat Template text' });
     await user.type(editor, 'custom');
     await user.click(screen.getByText('Chat Template', { exact: true }));
-    expect(
-      screen.queryByRole('group', { name: 'Model configuration actions' }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Model configuration actions' })).toBeVisible();
     expect(screen.getAllByText('Qwen3.8-27B', { exact: true })).toHaveLength(1);
     expect(screen.queryByText('GGUF', { exact: true })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();

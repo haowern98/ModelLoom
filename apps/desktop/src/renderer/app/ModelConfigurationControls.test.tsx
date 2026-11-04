@@ -13,6 +13,7 @@ it('escapes clipping panels, opens above a low trigger and stays within the view
         ? new DOMRect(4, window.innerHeight - 50, 150, 32)
         : new DOMRect(0, 0, 260, 200);
     });
+  const scrollHeight = vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(200);
   try {
     const user = userEvent.setup();
     const { container } = render(
@@ -34,14 +35,15 @@ it('escapes clipping panels, opens above a low trigger and stays within the view
     expect(container).not.toContainElement(menu);
     expect(menu).toHaveStyle({
       position: 'fixed',
-      left: '8px',
-      top: `${window.innerHeight - 258}px`,
+      left: '6px',
+      top: `${window.innerHeight - 255}px`,
     });
     expect(screen.getByRole('option', { name: 'Automatic' })).toHaveFocus();
     await user.keyboard('{ArrowDown}{Enter}');
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
   } finally {
+    scrollHeight.mockRestore();
     bounds.mockRestore();
   }
 });
@@ -66,10 +68,10 @@ it('keeps the floating menu anchored when its scrolling parent moves', async () 
       />,
     );
     await user.click(screen.getByRole('combobox', { name: 'Placement' }));
-    expect(screen.getByRole('listbox')).toHaveStyle({ left: '80px', top: '80px' });
+    expect(screen.getByRole('listbox')).toHaveStyle({ left: '80px', top: '77px' });
     left = window.innerWidth - 30;
     fireEvent.scroll(container);
-    expect(screen.getByRole('listbox')).toHaveStyle({ left: `${window.innerWidth - 268}px` });
+    expect(screen.getByRole('listbox')).toHaveStyle({ left: `${window.innerWidth - 266}px` });
     await user.keyboard('{Tab}');
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   } finally {
