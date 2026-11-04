@@ -1,5 +1,14 @@
 # ChatGPT sidebar icon provenance
 
+The model configuration breadcrumb uses the original
+`chevron-right-lg-light-16` path through `ChatNavIcon.tsx` at 16x16.
+It was read from OpenAI.Codex 26.1027.6604.0's
+`webview/assets/app-shared-845378c6057d.js`. The corresponding
+`toolbar-breadcrumb-459b846cd58e.js` and `plugin-breadcrumbs-d557344a13d5.js`
+establish the ghost parent control, plain current-page label, 4px gap,
+8px label padding, 28px label height and desktop 12px type. The containing
+header uses the shipped 46px toolbar height and 8px inline inset.
+
 The shared chat/configuration row uses the original `trash-light-16` paths through
 ChatGptTrashIcon.tsx. This record was read statically from the installed
 OpenAI.Codex 26.1013.3656.0 package's

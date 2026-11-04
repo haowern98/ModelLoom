@@ -274,6 +274,16 @@ The shared main-page title is 24px; Settings-style section headings are 14px med
 
 Model configuration and API use the same 800px centred column, shared fonts, section/card spacing and outer-scrollbar 40px top/bottom track margins. Chat uses its independently scrolling history/messages. Detailed screen rules below retain all scoped exceptions.
 
+**Model configuration cleanup, 2026-11-04:** Remove the redundant model-name, GGUF and quantization row beneath the page title; retain the model name in the breadcrumb. Show the bottom Reset defaults / Save changes bar only while settings differ from saved values or a save is pending. Restoring saved values or completing a successful save hides the bar; validation and save failures preserve pending edits and the bar. Dismissing a notification restores focus to the persistent Models breadcrumb when its originating control is gone.
+
+**Model configuration breadcrumb revision, 2026-11-04:** Replace the right-hand
+Back to Models pill with Models followed by the current model name in a fixed
+46px page header above the scrolling content. Match Codex's 12px inherited UI
+font, 4px item gaps, 8px header/label inline padding, 28px label height and
+original 16px chevron-right-lg-light-16 artwork. Models is a ghost control using
+the existing return action and focus restoration. Mark the plain, primary-colour
+model name as the current page and truncate long names on one line.
+
 Source anchors: [shell](../apps/desktop/src/renderer/app/AppShell.tsx), [shared tokens](../apps/desktop/src/renderer/styles/global.css), [shared state/routing](../apps/desktop/src/renderer/app/App.tsx), [Models](../apps/desktop/src/renderer/features/models/ModelsPage.tsx), [configuration](../apps/desktop/src/renderer/features/models/ModelConfigurationPage.tsx), [Cluster](../apps/desktop/src/renderer/features/cluster/ClusterPage.tsx), [Chat](../apps/desktop/src/renderer/features/chat/ChatPage.tsx), and [API](../apps/desktop/src/renderer/features/api/ApiPage.tsx). Prior local test evidence and its limits are recorded in [TESTING-SPEC section 10](TESTING-SPEC.md#10-current-evidence).
 
 ## 1. Visual source of truth
