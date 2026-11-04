@@ -907,7 +907,7 @@ it('shows the loaded draft layers after Discard and return, until the session un
     });
     const activeCluster = {
       draftKey: draft.key,
-      configurationId: null,
+      configurationId: draft.key,
       revision: draft.revision,
       runs: [{ uuid, first: 0, last: 7 }],
     };
