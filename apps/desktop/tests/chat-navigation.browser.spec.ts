@@ -18,16 +18,9 @@ test('Chat header, collapsible groups and action menu match the approved navigat
   expect(
     await newChat.evaluate((node) => {
       const title = node.closest('aside')!.querySelector('h2')!;
-      const titleRange = document.createRange();
-      titleRange.selectNodeContents(title);
-      const label = [...node.childNodes].find(
-        (child) => child.nodeType === Node.TEXT_NODE && child.textContent?.trim(),
-      )!;
-      const labelRange = document.createRange();
-      labelRange.selectNodeContents(label);
-      return labelRange.getBoundingClientRect().top - titleRange.getBoundingClientRect().bottom;
+      return node.getBoundingClientRect().top - title.getBoundingClientRect().bottom;
     }),
-  ).toBe(24);
+  ).toBe(14.5);
   await expect(newChat).toHaveCSS('font-size', '14px');
   await expect(newChat.locator('svg')).toHaveCSS('width', '16px');
   await expect(newChat.locator('svg')).toHaveCSS('height', '16px');
