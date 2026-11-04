@@ -7,7 +7,8 @@ import type { PeerReply } from '../shared/peers';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { decodeRuntimeCommand } from '../shared/runtime';
-import type { RuntimeView, RuntimeDevice } from '../shared/runtime';
+import type { RuntimeView, RuntimeDevice, RuntimeInventory } from '../shared/runtime';
+import type { RuntimePackageDescription } from '../../../../packages/core/src/runtime-package/inventory';
 import { decodeChatCommand } from '../shared/chat';
 import type { ChatReply } from '../shared/chat';
 import {
@@ -47,6 +48,7 @@ interface Host {
   cluster?(caller: string, input: unknown): Promise<ClusterReply>;
   api?(caller: string, input: unknown): Promise<ApiOwnerReply>;
   changed?(listener: () => void): () => void;
+  runtimePackage?(): RuntimePackageDescription | null;
   /** Trusted main prepares a verified engine only after model/resource admission. */
   prepare?(file: string): Promise<void>;
   prepareCluster?(
@@ -69,6 +71,8 @@ interface ActivationDependencies {
   expectedHash: string;
   packageId: string;
   clusterArtifact?: string;
+  runtimeSelection?(): Promise<RuntimePackageDescription>;
+  runtimeInventory?(): Promise<{ selected: RuntimePackageDescription; installed: boolean }>;
   planCluster?(
     file: string,
     draft: ClusterDraft,
@@ -172,6 +176,8 @@ const messages: Record<string, string> = {
  */
 export function createRuntimeController(deps: RuntimeDependencies, caller: string = randomUUID()) {
   let view: RuntimeView = { enabled: deps.enabled, model: null, phase: 'stopped', error: null };
+  // Prepare display metadata at startup without checking installed binaries or sampling hardware.
+  const runtimeSelection = deps.enabled ? deps.runtimeSelection?.().catch(() => null) : undefined;
   let file: string | null = null,
     host: Host | undefined;
   let id = 0,
@@ -483,6 +489,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
   const result = () =>
     structuredClone({
       ...view,
+      activeRuntime: view.phase === 'ready' ? (host?.runtimePackage?.() ?? null) : null,
       loadingStage:
         deps.enabled && ['starting', 'loading'].includes(view.phase)
           ? deps.loadingStatus?.stage
@@ -884,6 +891,21 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     async command(input: unknown): Promise<RuntimeView> {
       const command = decodeRuntimeCommand(input);
       if (quitting) return result();
+      if (command.action === 'runtime-selection') {
+        const selectedRuntime = (await runtimeSelection) ?? null;
+        return { ...result(), selectedRuntime };
+      }
+      if (command.action === 'runtime-inventory') {
+        let inventory: RuntimeInventory = { status: 'unavailable' };
+        if (deps.enabled && deps.runtimeInventory) {
+          try {
+            inventory = { status: 'ready', ...(await deps.runtimeInventory()) };
+          } catch {
+            inventory = { status: 'error' };
+          }
+        }
+        return { ...result(), runtimeInventory: inventory };
+      }
       if (command.action === 'memory-decision') {
         if (memoryDecision?.id === command.id) memoryDecision.resolve(command.loadAnyway);
         return result();
