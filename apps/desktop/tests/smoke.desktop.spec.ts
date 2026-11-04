@@ -1,9 +1,9 @@
 import { _electron as electron, expect, test } from '@playwright/test';
 import path from 'node:path';
 
-test('packaged demo opens safely, navigates, and exits its owned app', async ({}, testInfo) => {
+test('packaged demo opens safely, navigates, and exits its owned app', async () => {
   const electronApp = await electron.launch({
-    args: [`--user-data-dir=${testInfo.outputPath('profile')}`],
+    args: [`--user-data-dir=${test.info().outputPath('profile')}`],
     executablePath: path.resolve(__dirname, '../out/ModelLoom-win32-x64/ModelLoom.exe'),
     env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' },
   });

@@ -36,6 +36,8 @@ test('manual placement starts unassigned and validates all selected-model layers
   await first.fill('0');
   await last.fill('30');
   await done.click();
+  await expect(last).toBeHidden();
+  await expect(range).toHaveText('0–30');
   await run.click();
   await expect(page.getByRole('alert')).toContainText('all 32 sample layers');
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
