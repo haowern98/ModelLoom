@@ -17,6 +17,9 @@ import { useClusterConfigurations } from './useClusterConfigurations';
 import { createDemoPlacement } from '../../mocks/cluster';
 import { createDemoLibrary } from '../../mocks/modelLibrary';
 import { createDemoJoining, transitionDemoJoining } from '../../mocks/clusterJoining';
+// These integration scenarios drive the renderer and a real SQLite store in one test.
+vi.setConfig({ testTimeout: 10_000 });
+
 vi.mock('motion/react', async (load) => ({
   ...(await load<typeof MotionReact>()),
   useReducedMotion: () => true,
@@ -684,7 +687,7 @@ it('uses durable core storage for Save-only validation, named selection and rest
     await user.type(screen.getByRole('textbox', { name: 'Configuration name' }), 'Laptop');
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Save$/u }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(screen.getByRole('alert')).toHaveTextContent(
+    expect(await screen.findByRole('alert')).toHaveTextContent(
       'Use whole numbers and cover all model layers exactly once, without gaps or overlaps.',
     );
     await user.click(screen.getByRole('button', { name: 'Dismiss notification' }));
