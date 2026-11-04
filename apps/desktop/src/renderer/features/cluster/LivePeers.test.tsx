@@ -692,15 +692,15 @@ it('starts sharing both detected GPUs only after the switch is clicked', async (
 it('shows a discovered PC connection failure in a dismissible toast above the list', async () => {
   bridge();
   window.modelLoomNetwork = {
-    command: vi.fn(async () => ({
+    command: vi.fn().mockResolvedValue({
       ok: true as const,
       view: {
         state: 'connected' as const,
         addresses: [],
         candidates: [{ id: 'ptss', name: 'ptss', fingerprint: remote, address: '100.64.1.3' }],
       },
-    })),
-    invite: vi.fn(async () => ({ ok: false as const, error: 'PEER_TIMEOUT' as const })),
+    }),
+    invite: vi.fn().mockResolvedValue({ ok: false as const, error: 'PEER_TIMEOUT' as const }),
     subscribe: () => () => {},
   };
   try {

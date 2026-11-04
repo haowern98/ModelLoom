@@ -18,13 +18,13 @@ it('restores a live device display name after reopening without sending any runt
     threads: 8,
     role: 'Coordinator',
   };
-  const command = vi.fn<(input: RuntimeCommand) => Promise<RuntimeView>>(async () => ({
+  const command = vi.fn<(input: RuntimeCommand) => Promise<RuntimeView>>().mockResolvedValue({
     enabled: true,
     model: null,
     phase: 'stopped',
     error: null,
     device,
-  }));
+  });
   window.modelLoomRuntime = { command };
   const first = render(<App />);
   await user.click(screen.getByRole('button', { name: 'Cluster' }));
