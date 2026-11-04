@@ -314,7 +314,7 @@ test('uses real configuration data and SDK placement options inside the persiste
   await expect(page.getByRole('tooltip')).toBeHidden();
   await expect(panel).toBeVisible();
   await connectionContent.scrollIntoViewIfNeeded();
-  await panel.screenshot({ path: '../../.git/connection-summary-panel.png' });
+  await panel.screenshot({ path: test.info().outputPath('connection-summary-panel.png') });
   await connectionToggle.click();
   await expect(connectionContent).toBeHidden();
   await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
