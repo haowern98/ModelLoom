@@ -13,11 +13,15 @@ describe('Model configuration demo', () => {
       '<script>example</script>',
     );
     await user.click(screen.getByRole('button', { name: 'Set in Cluster' }));
-    expect(screen.getByRole('button', { name: 'Stop model' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Unload model' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Configure Llama 3.1 8B' }));
     expect(screen.getByRole('textbox', { name: 'System Prompt' })).toHaveValue('');
-    await user.click(screen.getByRole('button', { name: 'Back to Models' }));
+    const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(breadcrumb.querySelector('[aria-current="page"]')).toHaveTextContent('Llama 3.1 8B');
+    const models = within(breadcrumb).getByRole('button', { name: 'Back to Models' });
+    expect(models).toHaveTextContent('Models');
+    await user.click(models);
     await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));
     expect(screen.getByRole('textbox', { name: 'System Prompt' })).toHaveValue(
       '<script>example</script>',
@@ -59,7 +63,9 @@ describe('Model configuration demo', () => {
     expect(physical).toHaveValue(512);
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
-    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    expect(
+      screen.queryByRole('group', { name: 'Model configuration actions' }),
+    ).not.toBeInTheDocument();
   });
 
   it('preserves disabled manual values and synchronizes numeric controls with sliders', async () => {
@@ -120,16 +126,25 @@ describe('Model configuration demo', () => {
     await user.click(screen.getByRole('button', { name: 'Configure Qwen3.8-27B' }));
     expect(screen.getByRole('combobox', { name: 'Context Overflow' })).toHaveValue('stop');
     await user.click(screen.getByText('Chat Template', { exact: true }));
-    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    expect(
+      screen.queryByRole('group', { name: 'Model configuration actions' }),
+    ).not.toBeInTheDocument();
     const editor = screen.getByRole('textbox', { name: 'Chat Template text' });
     await user.type(editor, 'custom');
     await user.click(screen.getByText('Chat Template', { exact: true }));
+    expect(
+      screen.queryByRole('group', { name: 'Model configuration actions' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByText('Qwen3.8-27B', { exact: true })).toHaveLength(1);
+    expect(screen.queryByText('GGUF', { exact: true })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
     await user.click(screen.getByText('Chat Template', { exact: true }));
     expect(editor).toHaveValue('custom');
     await user.clear(editor);
     expect(editor).toBeVisible();
     expect(screen.getByText('Model default', { exact: true })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    expect(
+      screen.queryByRole('group', { name: 'Model configuration actions' }),
+    ).not.toBeInTheDocument();
   });
 });

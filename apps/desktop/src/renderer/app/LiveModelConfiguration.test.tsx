@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
@@ -84,10 +84,8 @@ it('opens the imported model editor and reports Save only after the core commits
     await screen.findByText('Defaults saved. New requests will use these settings.'),
   ).toBeVisible();
   expect(
-    within(screen.getByRole('group', { name: 'Model configuration actions' })).queryByText(
-      'Defaults saved. New requests will use these settings.',
-    ),
-  ).toBeNull();
+    screen.queryByRole('group', { name: 'Model configuration actions' }),
+  ).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Dismiss notification' }));
   expect(screen.queryByText('Defaults saved. New requests will use these settings.')).toBeNull();
   expect((await store.read(record().modelId)).generation.temperature).toBe(0.2);
@@ -106,6 +104,7 @@ it('retains the pending draft when storage fails and never claims it was saved',
   await user.click(screen.getByRole('button', { name: 'Save changes' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Settings could not be confirmed');
   expect(temperature).toHaveValue(0.3);
+  expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
   expect((await store.read(record().modelId)).generation.temperature).toBe(0.8);
   expect(screen.queryByText('Defaults saved. New requests will use these settings.')).toBeNull();
 });
