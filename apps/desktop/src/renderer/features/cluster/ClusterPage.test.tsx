@@ -1,3 +1,4 @@
+import type * as MotionReact from 'motion/react';
 import { useReducer } from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -7,6 +8,11 @@ import { useClusterConfigurations } from './useClusterConfigurations';
 import { createDemoLibrary } from '../../mocks/modelLibrary';
 import { createDemoPlacement, demoDevices } from '../../mocks/cluster';
 import { createDemoJoining, transitionDemoJoining } from '../../mocks/clusterJoining';
+
+vi.mock('motion/react', async (load) => ({
+  ...(await load<typeof MotionReact>()),
+  useReducedMotion: () => true,
+}));
 
 afterEach(() => localStorage.removeItem('modelloom.canvas-edge-add-discovered'));
 
@@ -44,14 +50,15 @@ it('opens the matching PC section from Device details and restores the selected 
   render(<Cluster />);
   const device = demoDevices[1]!;
   await userEvent.click(screen.getByRole('button', { name: `Inspect ${device.name}` }));
-  await userEvent.click(screen.getByRole('button', { name: 'Device details' }));
+  await userEvent.click(screen.getByRole('button', { name: `Actions for ${device.name}` }));
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Device details' }));
   expect(screen.getByRole('heading', { name: 'Devices' })).toBeVisible();
   const pc = within(screen.getByRole('article', { name: device.name }));
   expect(pc.getByRole('heading', { name: device.name })).toHaveFocus();
   await userEvent.click(screen.getByRole('button', { name: 'Overview' }));
   expect(
     within(screen.getByRole('complementary', { name: 'Cluster panel' })).getByRole('heading', {
-      name: device.name,
+      name: 'Cluster overview',
     }),
   ).toBeVisible();
 });
@@ -81,34 +88,18 @@ it('updates the right-side Requests count and hides it when no requests remain',
   expect(within(navigation).queryByLabelText(/pending requests?/u)).not.toBeInTheDocument();
 });
 
-it('keeps empty layer fields visible and disabled before a model is selected', async () => {
+it('keeps layer controls disabled on the cards and the summary read-only without a model', async () => {
   const user = userEvent.setup();
   render(<Cluster />);
   await user.click(screen.getByRole('button', { name: 'Select studio-desktop' }));
   const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-  expect(within(panel).getByText('Choose a model to assign layers.')).toBeVisible();
-  const fields = within(panel).getAllByRole('spinbutton');
-  expect(fields).toHaveLength(4);
-  for (const gpu of [0, 1]) {
-    for (const boundary of ['First', 'Last']) {
-      const field = within(panel).getByRole('spinbutton', {
-        name: `${boundary} layer for GPU ${gpu}`,
-      });
-      expect(field).toBeVisible();
-      expect(field).toBeDisabled();
-      expect(field).toHaveValue('');
-      expect(field).toHaveAttribute('placeholder', '\u2014');
-      expect(field).not.toHaveAttribute('aria-valuemax');
-      expect(field).not.toHaveAttribute('max', '-1');
-    }
-  }
-  const steppers = within(panel).getAllByRole('button', { name: /^(Increase|Decrease) / });
-  expect(steppers).toHaveLength(8);
-  for (const stepper of steppers) {
-    expect(stepper).toBeVisible();
-    expect(stepper).toBeDisabled();
-  }
-  expect(within(panel).queryByText('Not used for model layers')).not.toBeInTheDocument();
+  expect(within(panel).getByRole('heading', { name: 'Cluster overview' })).toBeVisible();
+  expect(within(panel).queryByRole('spinbutton')).not.toBeInTheDocument();
+  const card = within(screen.getByRole('article', { name: 'studio-desktop' }));
+  expect(card.getAllByRole('button', { name: 'Load a model to assign layers' })).toHaveLength(2);
+  for (const button of card.getAllByRole('button', { name: 'Load a model to assign layers' }))
+    expect(button).toBeDisabled();
+  expect(within(panel).getAllByText('No assignment')).toHaveLength(demoDevices.length);
 });
 
 it('keeps a newly approved peer off the canvas until its PC card is chosen', async () => {
@@ -133,17 +124,17 @@ it('keeps a newly approved peer off the canvas until its PC card is chosen', asy
   expect(screen.queryByRole('article', { name: 'Approved PC' })).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: `Add device near ${local.name}` }));
   const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-  expect(within(panel).getByRole('heading', { name: 'Add to canvas' })).toBeVisible();
-  expect(within(panel).getByText('Choose a PC to add to this canvas.')).toBeVisible();
+  expect(within(panel).getByRole('heading', { name: 'Add device' })).toBeVisible();
+  expect(within(panel).getByRole('heading', { name: 'Cluster overview' })).toBeVisible();
   expect(within(panel).queryByRole('textbox')).not.toBeInTheDocument();
   await user.click(within(panel).getByRole('button', { name: 'Add Approved PC to canvas' }));
   expect(screen.getByRole('article', { name: 'Approved PC' })).toBeVisible();
-  expect(screen.queryByRole('complementary', { name: 'Cluster panel' })).not.toBeInTheDocument();
+  expect(within(panel).getByRole('heading', { name: 'Cluster overview' })).toBeVisible();
   await user.click(screen.getByRole('button', { name: `Actions for ${local.name}` }));
-  expect(screen.queryByRole('button', { name: 'Remove from canvas' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('menuitem', { name: 'Remove from canvas' })).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: `Actions for ${local.name}` }));
   await user.click(screen.getByRole('button', { name: 'Actions for Approved PC' }));
-  await user.click(screen.getByRole('button', { name: 'Remove from canvas' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Remove from canvas' }));
   expect(screen.queryByRole('article', { name: 'Approved PC' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Inspect Approved PC' })).toBeVisible();
   await user.click(screen.getByRole('button', { name: `Add device near ${local.name}` }));
@@ -203,7 +194,7 @@ it.each(['top', 'right', 'bottom', 'left'] as const)(
     expect(localStorage.getItem('modelloom.canvas-edge-add-discovered')).toBe('true');
     expect(screen.queryByText('Hover near an edge to add a device.')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Actions for Approved PC' }));
-    await user.click(screen.getByRole('button', { name: 'Remove from canvas' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Remove from canvas' }));
     expect(screen.queryByText('Hover near an edge to add a device.')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('img', { name: 'Canvas layout connections' }),
@@ -228,42 +219,52 @@ it('disables remote removal while a model is loading or running', async () => {
   const runtime = { loading: false, onChoose: vi.fn(), onRun: vi.fn() };
   const view = render(<ClusterPage {...props} activeModel={undefined} localRuntime={runtime} />);
   await user.click(screen.getByRole('button', { name: 'Actions for ml-workstation' }));
-  expect(screen.getByRole('button', { name: 'Remove from canvas' })).toBeEnabled();
+  expect(screen.getByRole('menuitem', { name: 'Remove from canvas' })).not.toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
   view.rerender(<ClusterPage {...props} activeModel={model} localRuntime={runtime} />);
-  expect(screen.getByRole('button', { name: 'Remove from canvas' })).toBeDisabled();
+  expect(screen.getByRole('menuitem', { name: 'Remove from canvas' })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
   view.rerender(
     <ClusterPage {...props} activeModel={undefined} localRuntime={{ ...runtime, loading: true }} />,
   );
-  expect(screen.getByRole('button', { name: 'Remove from canvas' })).toBeDisabled();
+  expect(screen.getByRole('menuitem', { name: 'Remove from canvas' })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
   view.rerender(<ClusterPage {...props} activeModel={undefined} localRuntime={runtime} />);
-  expect(screen.getByRole('button', { name: 'Remove from canvas' })).toBeEnabled();
+  expect(screen.getByRole('menuitem', { name: 'Remove from canvas' })).not.toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
 });
 
-it('offers device-details navigation and keeps the header back control and outer panel toggle', async () => {
+it('keeps the summary on card selection and preserves device-details navigation through the menu', async () => {
   const user = userEvent.setup();
   render(<Cluster />);
   await user.click(screen.getByRole('button', { name: 'Select studio-desktop' }));
-  let panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-  const title = within(panel).getByRole('heading', { name: 'studio-desktop' });
-  const back = within(panel).getByRole('button', { name: 'Back to cluster overview' });
-  expect(back.closest('header')).toBe(title.closest('header'));
-  expect(back.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(within(panel).getByText('Sample device · Coordinator')).toBeVisible();
+  const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+  expect(within(panel).getByRole('heading', { name: 'Cluster overview' })).toBeVisible();
   expect(
-    within(panel).queryByRole('button', { name: 'Close cluster panel' }),
+    within(panel).queryByRole('button', { name: 'Back to cluster overview' }),
   ).not.toBeInTheDocument();
-  const detailsLink = within(panel).getByRole('button', { name: 'Device details' });
-  detailsLink.focus();
-  expect(detailsLink).toHaveFocus();
-  expect(panel.querySelector('details')).toBeNull();
-  await user.click(back);
-  expect(within(panel).getByRole('heading', { name: 'Cluster overview' })).toBeVisible();
-  const toggle = screen.getByRole('button', { name: 'Cluster panel' });
-  await user.click(toggle);
+  expect(
+    within(panel).getByRole('group', { name: 'Layer assignment for studio-desktop' }),
+  ).toHaveAttribute('aria-current', 'true');
+  await user.click(screen.getByRole('button', { name: 'Actions for studio-desktop' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Device details' }));
+  expect(screen.getByRole('heading', { name: 'Devices' })).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Overview' }));
+  expect(
+    within(screen.getByRole('complementary', { name: 'Cluster panel' })).getByRole('heading', {
+      name: 'Cluster overview',
+    }),
+  ).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
   expect(screen.queryByRole('complementary', { name: 'Cluster panel' })).not.toBeInTheDocument();
-  await user.click(toggle);
-  panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-  expect(within(panel).getByRole('heading', { name: 'Cluster overview' })).toBeVisible();
 });
 
 it('shows a different running model without repeating the selected model when it is ready', async () => {
@@ -275,16 +276,16 @@ it('shows a different running model without repeating the selected model when it
   await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
   let panel = screen.getByRole('complementary', { name: 'Cluster panel' });
   expect(within(panel).getByText(selected.name)).toBeVisible();
-  expect(within(panel).queryByText('Running model')).not.toBeInTheDocument();
+  expect(within(panel).queryByText('Currently running')).not.toBeInTheDocument();
   view.rerender(<Cluster selectedId={selected.id} activeId={other.id} />);
   panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-  expect(within(panel).getByText('Running model')).toBeVisible();
+  expect(within(panel).getByText('Currently running')).toBeVisible();
   expect(within(panel).getByText(other.name)).toBeVisible();
   view.rerender(<Cluster selectedId={selected.id} activeId={selected.id} />);
   panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-  expect(within(panel).getByText(/Ready/)).toBeVisible();
+  expect(within(panel).getByText('Loaded')).toBeVisible();
   expect(within(panel).getAllByText(selected.name)).toHaveLength(1);
-  expect(within(panel).queryByText('Running model')).not.toBeInTheDocument();
+  expect(within(panel).queryByText('Currently running')).not.toBeInTheDocument();
 });
 
 it('navigates distinct Cluster views and retains the canvas across navigation', async () => {
@@ -310,7 +311,9 @@ it('opens a device from the sidebar without a device search field', async () => 
   const sidebar = screen.getByRole('complementary', { name: 'Cluster' });
   await user.click(within(sidebar).getByRole('button', { name: 'Inspect ml-workstation' }));
   const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-  expect(within(panel).getByRole('heading', { name: 'ml-workstation' })).toBeVisible();
+  expect(
+    within(panel).getByRole('group', { name: 'Layer assignment for ml-workstation' }),
+  ).toHaveAttribute('aria-current', 'true');
   expect(within(sidebar).queryByRole('searchbox')).not.toBeInTheDocument();
   expect(screen.getAllByRole('article')).toHaveLength(demoDevices.length);
   expect(screen.getByRole('article', { name: 'mac-studio' })).toBeVisible();
@@ -381,33 +384,27 @@ it('counts only canvas members and shows a pre-add panel for an approved remote 
     />,
   );
   await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
-  let panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-  expect(within(panel).getByText('1 device \u00b7 2 GPUs')).toBeVisible();
+  const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
+  expect(within(panel).getByText('1 device · 2 GPUs')).toBeVisible();
   expect(within(panel).getByText('24.0 GiB')).toBeVisible();
   expect(within(panel).queryByText('Approved PC')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Inspect Approved PC' }));
-  panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-  expect(within(panel).getByRole('heading', { name: 'Approved PC' })).toBeVisible();
-  expect(within(panel).getByRole('button', { name: 'Device details' })).toBeVisible();
-  expect(within(panel).getByText('Add this device to canvas to assign layers.')).toBeVisible();
-  expect(
-    within(panel).queryByRole('heading', { name: 'Layer assignment' }),
-  ).not.toBeInTheDocument();
-  expect(within(panel).queryByRole('spinbutton')).not.toBeInTheDocument();
-  await user.click(within(panel).getByRole('button', { name: 'Add to canvas' }));
-  expect(screen.getByRole('complementary', { name: 'Cluster panel' })).toBe(panel);
-  expect(screen.getByRole('article', { name: 'Approved PC' })).toBeVisible();
+  expect(within(panel).getByRole('region', { name: 'Add device' })).toBeVisible();
   expect(within(panel).getByRole('heading', { name: 'Layer assignment' })).toBeVisible();
-  expect(within(panel).getAllByRole('spinbutton')).toHaveLength(2);
-  await user.click(screen.getByRole('button', { name: 'Actions for Approved PC' }));
-  await user.click(screen.getByRole('button', { name: 'Remove from canvas' }));
-  expect(screen.getByRole('complementary', { name: 'Cluster panel' })).toBe(panel);
-  expect(within(panel).getByRole('button', { name: 'Add to canvas' })).toBeVisible();
-  await user.click(screen.getByRole('button', { name: 'Inspect Approved PC' }));
-  panel = screen.getByRole('complementary', { name: 'Cluster panel' });
-  expect(within(panel).getByText('Add this device to canvas to assign layers.')).toBeVisible();
   expect(within(panel).queryByRole('spinbutton')).not.toBeInTheDocument();
+  await user.click(within(panel).getByRole('button', { name: 'Add Approved PC to canvas' }));
+  expect(screen.getByRole('article', { name: 'Approved PC' })).toBeVisible();
+  expect(
+    within(panel).getByRole('group', { name: 'Layer assignment for Approved PC' }),
+  ).toHaveTextContent('No assignment');
+  expect(within(panel).getByText('2 devices · 3 GPUs')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Actions for Approved PC' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Remove from canvas' }));
+  expect(screen.queryByRole('article', { name: 'Approved PC' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Inspect Approved PC' }));
+  expect(screen.getByRole('button', { name: 'Add Approved PC to canvas' })).toBeVisible();
 });
+
 it('disables adding an inspected remote while loading or running', async () => {
   const user = userEvent.setup();
   const props = {
@@ -427,15 +424,15 @@ it('disables adding an inspected remote while loading or running', async () => {
   const runtime = { loading: false, onChoose: vi.fn(), onRun: vi.fn() };
   const view = render(<ClusterPage {...props} activeModel={undefined} localRuntime={runtime} />);
   await user.click(screen.getByRole('button', { name: 'Inspect Approved PC' }));
-  expect(screen.getByRole('button', { name: 'Add to canvas' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Add Approved PC to canvas' })).toBeEnabled();
   view.rerender(
     <ClusterPage {...props} activeModel={undefined} localRuntime={{ ...runtime, loading: true }} />,
   );
-  expect(screen.getByRole('button', { name: 'Add to canvas' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add Approved PC to canvas' })).toBeDisabled();
   view.rerender(
     <ClusterPage {...props} activeModel={createDemoLibrary().models[0]} localRuntime={runtime} />,
   );
-  expect(screen.getByRole('button', { name: 'Add to canvas' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add Approved PC to canvas' })).toBeDisabled();
 });
 
 function PlanningCluster({ planning }: { planning: boolean }) {
@@ -464,9 +461,9 @@ it('disables adding an inspected remote and picker choice while automatic assign
   const user = userEvent.setup();
   const view = render(<PlanningCluster planning={false} />);
   await user.click(screen.getByRole('button', { name: 'Inspect Approved PC' }));
-  expect(screen.getByRole('button', { name: 'Add to canvas' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Add Approved PC to canvas' })).toBeEnabled();
   view.rerender(<PlanningCluster planning />);
-  expect(screen.getByRole('button', { name: 'Add to canvas' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add Approved PC to canvas' })).toBeDisabled();
   await user.click(screen.getByRole('button', { name: 'Add device near studio-desktop' }));
   expect(screen.getByRole('button', { name: 'Add Approved PC to canvas' })).toBeDisabled();
   expect(screen.queryByRole('article', { name: 'Approved PC' })).not.toBeInTheDocument();

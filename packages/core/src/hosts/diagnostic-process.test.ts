@@ -15,6 +15,14 @@ it('rejects an actual failed command', async () => {
     collectDiagnostic(child("process.stderr.write('failure'); process.exit(1)")),
   ).rejects.toThrow('QUERY_FAILED');
 });
+it('converts bounded input through a captured child without leaving stdin open', async () => {
+  const query = child(
+    "process.stdin.on('data', b => process.stdout.write(b)); process.stdin.resume()",
+  );
+  expect(
+    (await collectDiagnostic(query, undefined, 2000, Buffer.from('plist input'))).toString(),
+  ).toBe('plist input');
+});
 it('bounds combined output including stderr and confirms exit', async () => {
   const query = child("process.stderr.write('x'.repeat(65537)); setInterval(() => {}, 1000)");
   await expect(collectDiagnostic(query)).rejects.toThrow('QUERY_OUTPUT_LIMIT');

@@ -1,0 +1,168 @@
+.markdown {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p {
+  margin: 0 0 1em;
+  white-space: normal;
+}
+.markdown strong {
+  font-weight: var(--font-weight-semibold);
+}
+.markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.4em 0 0.6em;
+  line-height: 1.35;
+  font-weight: var(--font-weight-semibold);
+}
+.markdown h1 {
+  font-size: var(--font-size-page-title);
+}
+.markdown h2 {
+  font-size: var(--font-size-dialog-title);
+}
+.markdown :is(h3, h4, h5, h6) {
+  font-size: var(--font-size-heading);
+}
+.markdown :is(ul, ol) {
+  margin: 0 0 1em;
+  padding-inline-start: 1.6em;
+}
+.markdown :is(ul, ol) :is(ul, ol) {
+  margin-bottom: 0;
+}
+.markdown li {
+  margin: 0.25em 0;
+}
+.markdown li > p {
+  margin-bottom: 0.5em;
+}
+.markdown li:has(> input[type='checkbox']) {
+  list-style: none;
+}
+.markdown input[type='checkbox'] {
+  margin-inline-end: 0.5em;
+}
+.markdown blockquote {
+  margin: 1em 0;
+  padding-inline-start: 1em;
+  border-inline-start: 3px solid var(--neutral-border);
+  color: var(--neutral-muted);
+}
+.markdown hr {
+  margin: 1.5em 0;
+  border: 0;
+  border-top: 1px solid var(--neutral-border);
+}
+.markdown a {
+  color: #78baff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.markdown code {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 0.93em;
+}
+.markdown :not(pre) > code {
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: #ffffff0d;
+}
+.codeBlock {
+  min-width: 0;
+  margin: 1em 0;
+  border: 1px solid var(--neutral-border);
+  border-radius: 12px;
+  background: #181818;
+  overflow: hidden;
+}
+.codeHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #222222;
+  color: var(--neutral-muted);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-control);
+}
+.codeHeader > span:first-child {
+  margin-right: auto;
+  overflow-wrap: anywhere;
+}
+.codeHeader button {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--neutral-text);
+  font: inherit;
+}
+.codeHeader button:hover {
+  background: #ffffff14;
+}
+.markdown pre {
+  max-width: 100%;
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.markdown pre code {
+  font-size: var(--font-size-description);
+  line-height: 1.6;
+  white-space: pre;
+}
+.tableScroll {
+  max-width: 100%;
+  margin: 1em 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.markdown table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: inherit;
+}
+.markdown :is(th, td) {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--neutral-border);
+  text-align: start;
+}
+.markdown th {
+  font-weight: var(--font-weight-semibold);
+}
+.markdown td {
+  min-width: 100px;
+}
+.markdown :global(.hljs-keyword),
+.markdown :global(.hljs-selector-tag),
+.markdown :global(.hljs-literal) {
+  color: #c792ea;
+}
+.markdown :global(.hljs-string),
+.markdown :global(.hljs-attr) {
+  color: #c3e88d;
+}
+.markdown :global(.hljs-number),
+.markdown :global(.hljs-symbol) {
+  color: #f78c6c;
+}
+.markdown :global(.hljs-title),
+.markdown :global(.hljs-built_in) {
+  color: #82aaff;
+}
+.markdown :global(.hljs-comment),
+.markdown :global(.hljs-quote) {
+  color: #8b949e;
+}

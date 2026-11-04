@@ -1,6 +1,8 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { AppShell } from './AppShell';
-import type { Destination } from './navigation';
+import type { Destination, NavigationLocation } from './navigation';
+import { useNavigationHistory } from './useNavigationHistory';
+import type { ClusterView } from '../features/cluster/ClusterSidebar';
 import { ModelsPage } from '../features/models/ModelsPage';
 import { ModelConfigurationPage } from '../features/models/ModelConfigurationPage';
 import { createDemoDefaults } from '../features/models/configuration';
@@ -12,7 +14,6 @@ import { ClusterPage } from '../features/cluster/ClusterPage';
 import { ChatPage } from '../features/chat/ChatPage';
 import { ApiPage } from '../features/api/ApiPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
-import type { SettingsCategory } from '../features/settings/SettingsPage';
 import { createDemoChat, transitionDemoChat } from '../mocks/chat';
 import { createDemoPlacement, demoDevices, transitionDemoPlacement } from '../mocks/cluster';
 import { createDemoJoining, transitionDemoJoining } from '../mocks/clusterJoining';
@@ -25,6 +26,7 @@ import { supportedDeviceGpus } from '../../shared/runtime';
 import { useLiveChat } from '../features/chat/useLiveChat';
 import { usePeerInventory } from '../features/cluster/usePeerInventory';
 import { peerDevices } from '../features/cluster/peer-devices';
+import { readDeviceDisplayNames, saveDeviceDisplayName } from './deviceDisplayNames';
 
 type Modal =
   { type: 'remove' | 'details'; model: DemoModel } | { type: 'info'; title: string; text: string };
@@ -41,12 +43,26 @@ export function App() {
   const [library, dispatch] = useReducer(transitionDemoLibrary, undefined, () =>
     demo ? createDemoLibrary() : { models: [], activeModelId: null },
   );
-  const [destination, setDestination] = useState<Destination>('Models');
-  const [settingsCategory, setSettingsCategory] = useState<SettingsCategory>('Appearance');
+  const navigation = useNavigationHistory();
+  const { destination, settingsCategory, configurationModelId } = navigation.location;
+  const visit = navigation.visit;
+  const replace = navigation.replace;
+  const onClusterNavigation = useCallback(
+    (clusterView: ClusterView, deviceId: string | null) => {
+      visit({ clusterView, deviceId });
+    },
+    [visit],
+  );
   const [connectionsRequest, setConnectionsRequest] = useState(0);
   const [speculativeRequest, setSpeculativeRequest] = useState(0);
   const [chat, dispatchChat] = useReducer(transitionDemoChat, demo, createDemoChat);
   const [deviceNames, setDeviceNames] = useState<Record<string, string>>({});
+  const [liveDeviceNames, setLiveDeviceNames] = useState(readDeviceDisplayNames);
+  const localDisplayName = liveDeviceNames.local ?? localDevice?.name;
+  const connectedDevices = peerDevices(peers).map((device) => ({
+    ...device,
+    name: liveDeviceNames[device.id] ?? device.name,
+  }));
   const [joining, dispatchJoining] = useReducer(
     transitionDemoJoining,
     undefined,
@@ -56,7 +72,6 @@ export function App() {
     createDemoPlacement(demo ? 'qwen' : null),
   );
   const [modal, setModal] = useState<Modal | null>(null);
-  const [configurationModelId, setConfigurationModelId] = useState<string | null>(null);
   const [configurations, setConfigurations] = useState<Record<string, DemoConfiguration>>({});
   const [configurationReplies, setConfigurationReplies] = useState<
     Record<string, Extract<ConfigurationReply, { ok: true }>>
@@ -96,6 +111,17 @@ export function App() {
     (model) => model.id === displayLibrary.activeModelId,
   );
   const [localSelection, setLocalSelection] = useState<string | null>(null);
+  const currentChat = live ? liveChat.chat : chat;
+  const chatDispatch = live ? liveChat.dispatch : dispatchChat;
+  const previousChatId = useRef(currentChat.selectedId);
+  useEffect(() => {
+    const previous = previousChatId.current;
+    previousChatId.current = currentChat.selectedId;
+    if (destination !== 'Chat' || previous === currentChat.selectedId) return;
+    // Initial history hydration is not a second user visit. A new chat is.
+    if (!previous) replace({ chatId: currentChat.selectedId });
+    else visit({ chatId: currentChat.selectedId });
+  }, [currentChat.selectedId, destination, visit, replace]);
 
   useEffect(() => {
     if (destination !== 'Models' || configurationModel || !restoreConfigurationFocus.current)
@@ -109,13 +135,40 @@ export function App() {
 
   const commitNavigation = (next: Destination) => {
     configurationOpen.current++;
-    setConfigurationModelId(null);
-    setDestination(next);
+    visit({
+      destination: next,
+      configurationModelId: null,
+      ...(next === 'Chat' ? { chatId: currentChat.selectedId } : {}),
+    });
   };
   const navigate = (next: Destination) => {
     if (destination === 'Cluster' && next !== 'Cluster')
       void clusterConfigurations.requestLeave(() => commitNavigation(next));
     else commitNavigation(next);
+  };
+  const availableLocation = (location: NavigationLocation) => {
+    if (location.destination === 'Chat' && location.chatId)
+      return currentChat.conversations.some((item) => item.id === location.chatId);
+    if (location.destination === 'Models' && location.configurationModelId)
+      return displayLibrary.models.some((model) => model.id === location.configurationModelId);
+    if (location.destination === 'Cluster' && location.deviceId)
+      return (local ? [{ id: 'local' }, ...connectedDevices] : demoDevices).some(
+        (device) => device.id === location.deviceId,
+      );
+    return true;
+  };
+  const travel = (direction: -1 | 1) => {
+    const target = navigation.target(direction, availableLocation);
+    if (!target) return;
+    const apply = () => {
+      if (!navigation.move(target)) return;
+      configurationOpen.current++;
+      if (target.location.destination === 'Chat' && target.location.chatId)
+        chatDispatch({ type: 'select', id: target.location.chatId });
+    };
+    if (destination === 'Cluster' && target.location.destination !== 'Cluster')
+      void clusterConfigurations.requestLeave(apply);
+    else apply();
   };
 
   useEffect(() => {
@@ -157,7 +210,7 @@ export function App() {
               draft: preserve ? (current[model.id]?.draft ?? saved) : saved,
             },
           }));
-          setConfigurationModelId(model.id);
+          visit({ destination: 'Models', configurationModelId: model.id });
         } catch {
           if (operation === configurationOpen.current)
             setModal({
@@ -174,7 +227,7 @@ export function App() {
       const draft = createDemoDefaults();
       return { ...current, [model.id]: { saved: draft, draft } };
     });
-    setConfigurationModelId(model.id);
+    visit({ destination: 'Models', configurationModelId: model.id });
   };
 
   const [dismissedRuntimeError, setDismissedRuntimeError] = useState<string | null>(null);
@@ -190,7 +243,17 @@ export function App() {
   };
 
   return (
-    <AppShell destination={destination} onNavigate={navigate} demo={demo && !local}>
+    <AppShell
+      destination={destination}
+      onNavigate={navigate}
+      demo={demo && !local}
+      history={{
+        canGoBack: Boolean(navigation.target(-1, availableLocation)),
+        canGoForward: Boolean(navigation.target(1, availableLocation)),
+        onBack: () => travel(-1),
+        onForward: () => travel(1),
+      }}
+    >
       {destination === 'Models' && configurationModel && configuration ? (
         <ModelConfigurationPage
           key={configurationModel.id}
@@ -204,12 +267,12 @@ export function App() {
               return 'Choose an allocation in Cluster';
             const device = allocation.proposerDevice ?? 'auto';
             if (device === 'auto') return 'Automatic';
-            if (device === 'cpu') return `${localDevice?.name ?? 'This PC'} · CPU`;
+            if (device === 'cpu') return `${localDisplayName ?? 'This PC'} · CPU`;
             const localGpu = localDevice?.inventory?.gpus?.find(
               (gpu) => gpu.executionIdentity?.uuid === device,
             );
-            if (localGpu) return `${localDevice?.name ?? 'This PC'} · ${localGpu.name}`;
-            for (const peer of peerDevices(peers)) {
+            if (localGpu) return `${localDisplayName ?? 'This PC'} · ${localGpu.name}`;
+            for (const peer of connectedDevices) {
               const gpu = peer.hardware.find((entry) => entry.id === device);
               if (gpu) return `${peer.name} · ${gpu.name}`;
             }
@@ -267,7 +330,7 @@ export function App() {
           }}
           onBack={() => {
             restoreConfigurationFocus.current = `Configure ${configurationModel.name}`;
-            setConfigurationModelId(null);
+            visit({ configurationModelId: null });
           }}
           onCluster={(section) => {
             if (section === 'speculation') setSpeculativeRequest((value) => value + 1);
@@ -300,6 +363,11 @@ export function App() {
         />
       ) : destination === 'Cluster' ? (
         <ClusterPage
+          navigation={{
+            view: navigation.location.clusterView,
+            deviceId: navigation.location.deviceId,
+            onChange: onClusterNavigation,
+          }}
           speculativeRequest={speculativeRequest}
           onSpeculationOpened={() => setSpeculativeRequest(0)}
           onModelConfiguration={(modelId) => {
@@ -308,7 +376,6 @@ export function App() {
             );
             if (!model || model.speculativeHead) return;
             void clusterConfigurations.requestLeave(() => {
-              commitNavigation('Models');
               openConfiguration(model);
             });
           }}
@@ -328,7 +395,7 @@ export function App() {
                     ? [
                         {
                           id: 'local',
-                          name: localDevice.name,
+                          name: localDisplayName ?? localDevice.name,
                           role: localDevice.role,
                           os: localDevice.os,
                           ...(localDevice.inventory ? { inventory: localDevice.inventory } : {}),
@@ -351,9 +418,11 @@ export function App() {
                                 label: gpus.length > 1 ? `GPU ${index}` : 'GPU',
                                 name: gpu.name,
                                 detail:
-                                  gpu.totalMemoryBytes !== undefined
-                                    ? `${(gpu.totalMemoryBytes / 2 ** 30).toFixed(1)} GiB dedicated memory`
-                                    : 'Dedicated memory unavailable',
+                                  gpu.memoryKind === 'unified'
+                                    ? 'Unified memory shared with the system'
+                                    : gpu.totalMemoryBytes !== undefined
+                                      ? `${(gpu.totalMemoryBytes / 2 ** 30).toFixed(1)} GiB dedicated memory`
+                                      : 'Dedicated memory unavailable',
                                 memoryGb: (gpu.totalMemoryBytes ?? 0) / 2 ** 30,
                                 kind: 'gpu' as const,
                               }),
@@ -362,14 +431,23 @@ export function App() {
                         },
                       ]
                     : []),
-                  ...peerDevices(peers),
+                  ...connectedDevices,
                 ]
               : demoDevices.map((device) => ({
                   ...device,
                   name: deviceNames[device.id] ?? device.name,
                 }))
           }
-          onRenameDevice={(id, name) => setDeviceNames((current) => ({ ...current, [id]: name }))}
+          onRenameDevice={(id, name) => {
+            if (!local) {
+              setDeviceNames((current) => ({ ...current, [id]: name }));
+              return true;
+            }
+            const names = saveDeviceDisplayName(id, name);
+            if (!names) return false;
+            setLiveDeviceNames(names);
+            return true;
+          }}
           activeModel={activeModel}
           models={displayLibrary.models.filter((model) => !model.speculativeHead)}
           placement={
@@ -388,6 +466,7 @@ export function App() {
             ? {
                 localRuntime: {
                   activeCluster: runtime.view?.activeCluster ?? null,
+                  loadingStage: runtime.view?.loadingStage,
                   loading:
                     runtime.loading ||
                     runtime.view?.phase === 'starting' ||
@@ -430,9 +509,15 @@ export function App() {
         />
       ) : destination === 'Chat' ? (
         <ChatPage
+          archived={navigation.location.chatArchived}
+          onArchivedChange={(chatArchived) => visit({ chatArchived })}
+          onConversationSelect={(chatId, chatArchived) => {
+            visit({ chatId, chatArchived });
+            chatDispatch({ type: 'select', id: chatId });
+          }}
           demo={demo && !live}
-          chat={live ? liveChat.chat : chat}
-          dispatch={live ? liveChat.dispatch : dispatchChat}
+          chat={currentChat}
+          dispatch={chatDispatch}
           live={live ? liveChat.controls : undefined}
           activeModel={activeModel}
           onCluster={() => navigate('Cluster')}
@@ -446,7 +531,7 @@ export function App() {
       ) : (
         <SettingsPage
           category={settingsCategory}
-          onCategory={setSettingsCategory}
+          onCategory={(settingsCategory) => visit({ settingsCategory })}
           onApi={() => navigate('API')}
           onConnections={() => {
             setConnectionsRequest((request) => request + 1);

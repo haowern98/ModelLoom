@@ -81,16 +81,16 @@
 }
 .inventory {
   margin: 0;
-  border-radius: 12px;
 }
 .settingsPage .inventory .inventoryRow {
   display: grid;
   grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr);
-  min-height: 40px;
-  padding: 10px 0;
   gap: 8px 24px;
-  font-size: var(--font-size-metadata);
+  font-size: var(--font-size-card-title);
   line-height: var(--line-height-body);
+}
+.inventoryRow dt {
+  font-weight: var(--font-weight-medium);
 }
 .inventoryRow dt,
 .inventoryRow dd {
@@ -99,15 +99,15 @@
 .inventoryRow dd {
   margin: 0;
   color: var(--neutral-muted);
-  font-size: var(--font-size-metadata);
-  line-height: var(--line-height-body);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
   text-align: right;
 }
 .deviceArticle {
-  margin-bottom: 40px;
+  margin-bottom: 36px;
 }
 .deviceHeader {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
   border-radius: 8px;
 }
 .deviceHeader .identity {
@@ -127,13 +127,14 @@
 }
 .deviceStatus {
   color: var(--neutral-muted);
-  font-size: var(--font-size-metadata);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
 }
 .hardwareGroup + .hardwareGroup {
-  margin-top: 20px;
+  margin-top: 36px;
 }
 .hardwareGroup h3 {
-  margin-bottom: 12px;
+  margin-bottom: 14px;
   font-size: var(--font-size-section-heading);
   font-weight: var(--font-weight-medium);
 }

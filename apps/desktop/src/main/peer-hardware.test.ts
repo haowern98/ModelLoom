@@ -27,6 +27,9 @@ it('publishes physical enabled NVIDIA readings and preserves measured zero', () 
       sampledAt: 123,
       availableRamBytes: 0,
       cpuCores: 4,
+      cpuUsagePercent: 12.5,
+      diskReadBytesPerSecond: 0,
+      diskWriteBytesPerSecond: 1024,
       gpus: [
         gpu,
         { ...gpu, enabled: false },
@@ -42,6 +45,9 @@ it('publishes physical enabled NVIDIA readings and preserves measured zero', () 
     sampledAt: 123,
     availableRamBytes: 0,
     cpuCores: 4,
+    cpuUsagePercent: 12.5,
+    diskReadBytesPerSecond: 0,
+    diskWriteBytesPerSecond: 1024,
     gpus: [
       {
         id: gpu.executionIdentity.uuid,

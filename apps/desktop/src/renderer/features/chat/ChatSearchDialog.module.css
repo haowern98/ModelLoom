@@ -1,0 +1,95 @@
+.dialog {
+  width: min(768px, 92vw);
+  height: min(504px, 90vh);
+  max-width: none;
+  max-height: none;
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  padding: 0;
+  border: 1px solid #ffffff14;
+  border-radius: 16px;
+  background: color-mix(in oklab, #111111 65%, transparent);
+  backdrop-filter: blur(24px);
+  color: var(--neutral-text);
+  box-shadow: 0 24px 80px #0006;
+  overflow: hidden;
+}
+.dialog::backdrop {
+  background: #00000033;
+}
+.content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.inputRow {
+  padding: 12px 16px;
+  border-bottom: 1px solid #ffffff14;
+}
+.inputRow input {
+  display: block;
+  width: 100%;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--font-size-heading);
+  line-height: 24px;
+}
+.inputRow input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.inputRow input::placeholder {
+  color: var(--neutral-muted);
+}
+.heading {
+  margin: 0;
+  padding: 12px 16px 6px;
+  font-size: var(--font-size-metadata);
+  line-height: var(--line-height-control);
+  font-weight: var(--font-weight-normal);
+  color: var(--neutral-muted);
+}
+.results {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 4px 8px;
+}
+.result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-control);
+}
+.result > svg {
+  flex-shrink: 0;
+}
+.result > span {
+  min-width: 0;
+}
+.result[aria-selected='true'],
+.result:hover {
+  background: #ffffff14;
+}
+.empty {
+  margin: 0;
+  padding: 16px;
+  font-size: var(--font-size-body);
+  color: var(--neutral-muted);
+}

@@ -97,7 +97,7 @@
   color: var(--neutral-text);
 }
 .panel {
-  margin-left: 24px;
+  margin-left: 12px;
 }
 .columns {
   display: grid;

@@ -4,6 +4,7 @@ import {
   decodeClusterEdit,
   decodeSavedClusterConfiguration,
   decodeConfigurationName,
+  MAX_CLUSTER_GPUS,
 } from './contracts.js';
 import { decodeClusterDevice } from './device-id.js';
 import type {
@@ -141,7 +142,7 @@ export function decodeClusterCommand(input: unknown): ClusterCommand {
     }
     if (a === 'auto-place' && Object.hasOwn(input as object, 'devices')) {
       const v = object(input, ['action', 'key', 'revision', 'devices']);
-      if (!Array.isArray(v.devices) || v.devices.length > 16) return fail();
+      if (!Array.isArray(v.devices) || v.devices.length > MAX_CLUSTER_GPUS) return fail();
       const devices = v.devices.map((device: unknown) => {
         if (typeof device !== 'string') return fail();
         decodeClusterDevice(device);
@@ -174,7 +175,7 @@ export function decodeClusterReply(input: unknown): ClusterReply {
       !Array.isArray(v.configurations) ||
       v.configurations.length > 128 ||
       !Array.isArray(v.issues) ||
-      v.issues.length > 16
+      v.issues.length > MAX_CLUSTER_GPUS * 3 + 3
     )
       return fail();
     const issues: AssignmentIssue[] = v.issues.map((input: unknown) => {

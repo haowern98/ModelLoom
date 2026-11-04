@@ -144,6 +144,7 @@ function usePeers() {
     busy,
     pendingAction,
     sharingError,
+    setNotification,
     run,
     fallback,
     invited,
@@ -336,6 +337,7 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: bool
     busy,
     pendingAction,
     sharingError,
+    setNotification,
     run,
     toast,
     retryNotice,
@@ -647,6 +649,9 @@ export function LivePeerPanel({ kind }: { kind: 'add' | 'share'; expanded?: bool
               disabled={busy || readError || !view}
               onDisconnect={(requestId) => {
                 void run({ action: 'disconnect', id: requestId });
+              }}
+              onInviteError={(message, origin) => {
+                setNotification({ id: Date.now(), kind: 'error', message, origin });
               }}
               onInvited={(requestId) => {
                 setInvited(requestId);

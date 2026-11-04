@@ -1,0 +1,337 @@
+.viewport {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.panel {
+  position: absolute;
+  top: 72px;
+  right: 24px;
+  width: 300px;
+  max-width: calc(100% - 32px);
+  max-height: calc(100% - 96px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 13px;
+  line-height: 20px;
+  color: #e7e7e7;
+  background: #262626;
+  border-radius: 16px;
+  box-shadow:
+    0 0 0 0.5px #ffffff1f,
+    0 3px 7.5px #0000000a,
+    0 0 20px #0000000d;
+  scrollbar-color: #ffffff28 transparent;
+  scrollbar-width: thin;
+}
+@supports (corner-shape: superellipse(1.5)) {
+  .panel {
+    corner-shape: superellipse(1.5);
+    border-radius: 20px;
+  }
+}
+.heading {
+  padding: 0 20px;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+}
+.heading h2,
+.sectionLabel {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
+  color: #afafaf;
+}
+.panel h2:focus {
+  outline: none;
+}
+.section {
+  flex-shrink: 0;
+  position: relative;
+  padding: 0 20px 8px;
+}
+.section::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 20px;
+  right: 20px;
+  height: 0.5px;
+  background: #ffffff14;
+}
+.section:last-child {
+  padding-bottom: 0;
+}
+.section:last-child::after {
+  display: none;
+}
+.sectionLabel {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  padding-bottom: 2px;
+}
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+.sectionToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-left: -3.5px;
+  padding: 2px 4px 2px 3.5px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sectionToggle:focus-visible {
+  outline: 2px solid #78baff;
+  outline-offset: -2px;
+}
+.sectionChevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+  opacity: 1;
+  transition: transform 150ms ease;
+}
+.sectionToggle[aria-expanded='true'] .sectionChevron {
+  transform: rotate(0deg);
+  opacity: 0;
+}
+.sectionToggle:hover .sectionChevron,
+.sectionToggle:focus-visible .sectionChevron {
+  opacity: 1;
+}
+.rows[hidden] {
+  display: none;
+}
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: left;
+}
+button.row {
+  cursor: pointer;
+  isolation: isolate;
+}
+button.row::before {
+  content: '';
+  position: absolute;
+  inset: 0 -8px;
+  border-radius: 4px;
+  z-index: -1;
+}
+button.row:hover::before {
+  background: #ffffff0d;
+}
+button.row:focus-visible {
+  outline: 2px solid #78baff;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.rowLabel {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rowMeta {
+  max-width: 50%;
+  flex-shrink: 0;
+  color: #afafaf;
+  white-space: nowrap;
+}
+.icon {
+  display: flex;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: #cdcdcd;
+}
+.rowChevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: #8f8f8f;
+}
+.modelState {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.runningModel .rowMeta {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.statusDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #67d6a2;
+  border-radius: 50%;
+}
+.spinner {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid #ffffff30;
+  border-top-color: #b7b7b7;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.note,
+.warning {
+  margin: 2px 0 4px;
+  color: #afafaf;
+  font-size: 12px;
+  line-height: 18px;
+}
+.warning {
+  color: #f3a2a2;
+}
+.placement > .placementSelect {
+  max-width: 210px;
+  margin-right: -8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: #afafaf;
+}
+.pickerHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.pickerDevice {
+  justify-content: space-between;
+}
+.pickerDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pickerMeta {
+  color: #afafaf;
+  font-size: 12px;
+}
+.pickerHeading button,
+.pickerDevice button {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.panel {
+  z-index: 5;
+}
+.viewport {
+  z-index: 5;
+}
+.icon > svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+.panel button.sectionToggle,
+.panel button.row {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  font: inherit;
+  border-radius: 4px;
+}
+.panel button.sectionToggle:hover,
+.panel button.row:hover {
+  background: transparent;
+}
+.panel button.sdkButton,
+.panel button.sdkButton:hover {
+  all: revert-layer;
+  /* SDK button surfaces live on ::before; suppress native button chrome. */
+  border: 0;
+  background: transparent;
+  outline: none;
+  --button-ring-color: #afafaf;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+}
+.panel button.sdkButton {
+  cursor: pointer;
+}
+.panel button.sdkButton:disabled {
+  cursor: not-allowed;
+}
+.row {
+  isolation: isolate;
+}
+.assignment[aria-current='true']::before {
+  content: '';
+  position: absolute;
+  inset: 0 -8px;
+  border-radius: 4px;
+  background: #ffffff0d;
+  z-index: -1;
+}
+.assignment .rowMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pickerDetails {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.placementOption {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 13px;
+  line-height: 20px;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 600px) {
+  .panel {
+    top: 64px;
+    right: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sectionChevron {
+    transition: none;
+  }
+  .spinner {
+    animation: none;
+  }
+}

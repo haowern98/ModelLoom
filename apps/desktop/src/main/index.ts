@@ -8,6 +8,7 @@ import {
   clipboard,
   safeStorage,
   shell,
+  nativeTheme,
 } from 'electron';
 import { createDesktopNetwork } from '../../../../packages/core/src/network/desktop';
 import { decodeNetworkCommand, decodeNetworkReply } from '../shared/network';
@@ -16,6 +17,7 @@ import { networkProtection } from './network-protection';
 import { developmentInstance } from './development-launch';
 import { cleanupForQuit } from './quit-cleanup';
 import { createApiManagementHandler } from './api-management';
+import { createModelLoadingStatus } from './model-loading-status';
 import { createRuntimeLogsHandler } from './runtime-logs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -25,7 +27,7 @@ import { runtimePaths } from './runtime-paths';
 import { createRuntimeController } from './runtime-controller';
 import { watchDeviceChanges } from './device-changes';
 import type { RuntimeDependencies } from './runtime-controller';
-import { localDeviceSnapshot } from './local-device';
+import { invalidateDeviceInventory, localDeviceSnapshot } from './local-device';
 import { createCacheHandler } from './tensor-cache';
 import type { developmentDesktopDependencies } from '../../../../packages/core/src/hosts/development-desktop.js';
 import {
@@ -80,6 +82,7 @@ async function createWindow(): Promise<void> {
     openLogin: (url) => shell.openExternal(validateLoginUrl(url)),
   });
   const windowNetwork = network;
+  if (process.platform === 'win32') nativeTheme.themeSource = 'dark';
   const window = new BrowserWindow({
     width: 1280,
     height: 720,
@@ -87,10 +90,11 @@ async function createWindow(): Promise<void> {
     minHeight: 620,
     show: false,
     title: 'ModelLoom',
-    backgroundColor: '#212121',
+    backgroundColor: process.platform === 'win32' ? '#00000000' : '#212121',
+    backgroundMaterial: process.platform === 'win32' ? 'mica' : 'none',
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#212121', symbolColor: '#c7c8d1', height: 44 },
+    titleBarOverlay: { color: '#00000000', symbolColor: '#c7c8d1', height: 44 },
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -131,6 +135,11 @@ async function createWindow(): Promise<void> {
       mkdirSync(logDirectory, { recursive: true });
       const diagnostics = createRuntimeLog(logDirectory);
       runtimeLog = diagnostics;
+      const loadingStatus = createModelLoadingStatus();
+      const writeDiagnostic: typeof diagnostics.write = (source, message) => {
+        if (source === 'runtime') loadingStatus.observe(message);
+        diagnostics.write(source, message);
+      };
       diagnostics.write('app', `logging.started file=${path.join(logDirectory, 'runtime.log')}`);
       const development = createDependencies(
         (entry) => {
@@ -138,7 +147,7 @@ async function createWindow(): Promise<void> {
             serviceName: 'ModelLoom Core',
             stdio: 'pipe',
           });
-          forwardUtilityDiagnostics(child, diagnostics.write);
+          forwardUtilityDiagnostics(child, writeDiagnostic);
           child.on('exit', (code) => diagnostics.write('core', `utility.exit code=${code}`));
           return child;
         },
@@ -153,11 +162,12 @@ async function createWindow(): Promise<void> {
           subscribe: (listener) => windowNetwork.subscribe(listener),
           incoming: (listener) => windowNetwork.setIncoming(listener),
         },
-        diagnostics.write,
+        writeDiagnostic,
       );
       tensorCache = development.tensorCache;
       dependencies = {
         ...development,
+        loadingStatus,
         device: async () => {
           const local = await localDeviceSnapshot();
           const runtimeBackends = development.runtimeBackends?.();
@@ -202,6 +212,7 @@ async function createWindow(): Promise<void> {
     }),
   );
   watchDeviceChanges(window, () => {
+    invalidateDeviceInventory();
     void windowController.deviceChanged().catch(() => {
       console.error('Hardware refresh could not be completed.');
     });

@@ -6,6 +6,42 @@ import type { RuntimeCommand, RuntimeView } from '../../shared/runtime';
 
 afterEach(() => {
   delete window.modelLoomRuntime;
+  localStorage.removeItem('modelloom.device-display-names');
+});
+
+it('restores a live device display name after reopening without sending any runtime writes', async () => {
+  const user = userEvent.setup();
+  const device: NonNullable<RuntimeView['device']> = {
+    name: 'Original hostname',
+    os: 'Windows',
+    cpuName: 'Test CPU',
+    threads: 8,
+    role: 'Coordinator',
+  };
+  const command = vi.fn<(input: RuntimeCommand) => Promise<RuntimeView>>().mockResolvedValue({
+    enabled: true,
+    model: null,
+    phase: 'stopped',
+    error: null,
+    device,
+  });
+  window.modelLoomRuntime = { command };
+  const first = render(<App />);
+  await user.click(screen.getByRole('button', { name: 'Cluster' }));
+  await user.click(await screen.findByRole('button', { name: 'Actions for Original hostname' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Rename device' }));
+  const input = screen.getByRole('textbox', { name: 'Device name' });
+  await user.clear(input);
+  await user.type(input, 'My laptop');
+  await user.click(screen.getByRole('button', { name: 'Save name' }));
+  expect(await screen.findByRole('article', { name: 'My laptop' })).toBeVisible();
+  first.unmount();
+  device.name = 'Updated hostname';
+  render(<App />);
+  await user.click(screen.getByRole('button', { name: 'Cluster' }));
+  expect(await screen.findByRole('article', { name: 'My laptop' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Inspect My laptop' })).toBeVisible();
+  expect(command.mock.calls.every(([input]) => input.action === 'snapshot')).toBe(true);
 });
 
 it('shows an unloaded local worker before any model import, without requiring GPU details', async () => {
@@ -31,18 +67,13 @@ it('shows an unloaded local worker before any model import, without requiring GP
   const device = within(await screen.findByRole('article', { name: 'own-pc' }));
   expect(device.getByText('Worker')).toBeVisible();
   expect(device.queryByText('Windows · This device')).not.toBeInTheDocument();
-  expect(device.getByText('Actual CPU')).toBeVisible();
+  expect(device.getByText('CPU', { exact: true })).toBeVisible();
   expect(device.queryByText('NVIDIA GPU')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Run model' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Load model' })).toBeDisabled();
   expect(screen.queryByText('No devices connected')).not.toBeInTheDocument();
   expect(command.mock.calls.every(([input]) => input?.action === 'snapshot')).toBe(true);
   await user.click(device.getByRole('button', { name: 'Actions for own-pc' }));
-  await user.click(screen.getByRole('button', { name: 'Device details' }));
-  await user.click(
-    within(screen.getByRole('complementary', { name: 'Cluster panel' })).getByRole('button', {
-      name: 'Device details',
-    }),
-  );
+  await user.click(screen.getByRole('menuitem', { name: 'Device details' }));
   expect(await screen.findByRole('heading', { name: 'Devices', level: 1 })).toBeVisible();
   const details = within(screen.getByRole('article', { name: 'own-pc' }));
   expect(details.getByRole('heading', { name: 'own-pc', level: 2 })).toHaveFocus();
@@ -102,10 +133,11 @@ it('displays the detected GPU model beside the observed VRAM without loading a m
   await user.click(screen.getByRole('button', { name: 'Cluster' }));
   const device = within(await screen.findByRole('article', { name: 'own-gpu-pc' }));
   expect(device.getByText('NVIDIA GeForce RTX 4060 Ti')).toBeVisible();
-  expect(device.getByText('16.0 GiB dedicated memory')).toBeVisible();
-  expect(device.getByRole('heading', { name: 'GPU' })).toBeVisible();
+  expect(device.getByText('16.0 GiB')).toBeVisible();
+  expect(device.getByRole('region', { name: 'own-gpu-pc GPU' })).toBeVisible();
+  expect(device.getByRole('button', { name: 'Load a model to assign layers' })).toBeDisabled();
   expect(device.queryByText('NVIDIA GPU')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Run model' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Load model' })).toBeDisabled();
 });
 
 describe('Models milestone', () => {
@@ -168,7 +200,7 @@ describe('Models milestone', () => {
     expect(screen.getByRole('spinbutton', { name: 'Temperature' })).toHaveValue(0.6);
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
     expect(screen.getByRole('button', { name: 'Selected demo model: Qwen3.8-27B' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Stop model' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Unload model' })).toBeVisible();
   });
 
   it('protects active removal until the model is stopped in Cluster', async () => {
@@ -179,7 +211,7 @@ describe('Models milestone', () => {
     expect(screen.queryByRole('button', { name: 'Stop demo model' })).not.toBeInTheDocument();
     await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
-    await user.click(screen.getByRole('button', { name: 'Stop model' }));
+    await user.click(screen.getByRole('button', { name: 'Unload model' }));
     await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Actions for Qwen3.8-27B' }));
     await user.click(screen.getByRole('button', { name: 'Remove model entry' }));

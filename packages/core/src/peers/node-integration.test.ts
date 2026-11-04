@@ -336,6 +336,8 @@ describe('real TLS peer pairing', () => {
       cpuName: 'PTSS CPU',
       threads: 20,
       sampledAt: 1,
+      cpuUsagePercent: 35,
+      diskReadBytesPerSecond: 0,
       gpus: [
         { id: 'gpu-my', name: 'GPU', memoryBytes: 4096, availableMemoryBytes: 3000 },
         { id: 'private-gpu', name: 'Unshared GPU', memoryBytes: 8192 },
@@ -343,6 +345,8 @@ describe('real TLS peer pairing', () => {
     });
     const first = await coordinator.watchInventory(outgoing.id, -1);
     expect(first.hardware?.cpuName).toBe('PTSS CPU');
+    expect(first.hardware?.cpuUsagePercent).toBe(35);
+    expect(first.hardware?.diskReadBytesPerSecond).toBe(0);
     expect(first.hardware?.gpus.map((g) => g.id)).toEqual(['gpu-my']);
     const watch = coordinator.watchInventory(outgoing.id, first.revision);
     await worker.updateHardware({ os: 'Windows', cpuName: 'PTSS CPU', sampledAt: 2, gpus: [] });
@@ -353,6 +357,49 @@ describe('real TLS peer pairing', () => {
     void waiting.catch(() => undefined);
     await worker.stopSharing();
     await expect(waiting).rejects.toThrow();
+  }, 20_000);
+
+  it('keeps older inventory readers and workers connected without new metric fields', async () => {
+    const coordinator = new PeerNode(sg, 'Coordinator', []);
+    const worker = new PeerNode(my, 'Worker', [{ id: 'gpu', name: 'GPU', memoryBytes: 4096 }]);
+    nodes.push(coordinator, worker);
+    const address = await worker.share('127.0.0.1', 0, 0, ['gpu']);
+    const peer = await coordinator.invite(address);
+    await coordinator.verifyCode(
+      peer.id,
+      worker.snapshot().incoming.find((p) => p.id === peer.id)!.pairingCode!,
+    );
+    await worker.approve(peer.id, sg.fingerprint);
+    await worker.updateHardware({
+      os: 'Windows',
+      sampledAt: 1,
+      cpuUsagePercent: 30,
+      gpus: [{ id: 'gpu', name: 'GPU', memoryBytes: 4096, utilizationPercent: 50 }],
+    });
+    const client = coordinator as unknown as {
+      call(id: string, operation: string, data: object): Promise<unknown>;
+    };
+    const original = client.call.bind(coordinator);
+    let unsupported = 0;
+    const spy = vi.spyOn(client, 'call').mockImplementation((id, operation, data) => {
+      if (operation === 'inventory-watch' && Object.hasOwn(data, 'displayMetrics')) {
+        unsupported++;
+        return Promise.reject(Error('INVALID_PEER_MESSAGE'));
+      }
+      return original(id, operation, data);
+    });
+    try {
+      const legacy = await coordinator.watchInventory(peer.id, -1);
+      expect(legacy.hardware).toEqual({
+        os: 'Windows',
+        sampledAt: 1,
+        gpus: [{ id: 'gpu', name: 'GPU', memoryBytes: 4096 }],
+      });
+      await coordinator.watchInventory(peer.id, -1);
+      expect(unsupported).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
   }, 20_000);
 
   it('reserves only still-present shared GPUs and interrupts a worker when that GPU disappears', async () => {

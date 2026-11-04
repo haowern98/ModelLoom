@@ -200,6 +200,7 @@ export interface DemoPlacement {
 export type PlacementAction =
   | { type: 'choose'; modelId: string; mode: 'auto' | 'manual' }
   | { type: 'edit'; input: LayerInput }
+  | { type: 'edit-all'; inputs: readonly LayerInput[] }
   | { type: 'reset'; modelId: string | null }
   | { type: 'run' | 'complete' | 'cancel' | 'stop' | 'discard' | 'undo' | 'redo' | 'auto-place' };
 
@@ -345,6 +346,14 @@ export function transitionDemoPlacement(
         state,
         state.inputs.map((input) =>
           input.hardwareId === action.input.hardwareId ? action.input : input,
+        ),
+      );
+    case 'edit-all':
+      if (state.launch || !state.modelId) return state;
+      return replaceDraft(
+        state,
+        state.inputs.map(
+          (input) => action.inputs.find((next) => next.hardwareId === input.hardwareId) ?? input,
         ),
       );
     case 'auto-place':

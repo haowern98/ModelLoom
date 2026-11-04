@@ -129,10 +129,23 @@ export function DeviceInventory({
               ? gpus.map((gpu, index) => (
                   <Group key={gpu.id} title={gpus.length > 1 ? `GPU ${index}` : 'GPU'}>
                     <Property label="Model" value={gpu.name} />
-                    <Property label="Dedicated memory" value={memory(gpu.totalMemoryBytes)} />
                     <Property
-                      label="Available dedicated memory"
-                      value={memory(gpu.availableMemoryBytes)}
+                      label={
+                        gpu.memoryKind === 'unified' ? 'GPU unified allocation' : 'Dedicated memory'
+                      }
+                      value={memory(
+                        gpu.memoryKind === 'unified' ? gpu.usedMemoryBytes : gpu.totalMemoryBytes,
+                      )}
+                    />
+                    <Property
+                      label={
+                        gpu.memoryKind === 'unified' ? 'Memory type' : 'Available dedicated memory'
+                      }
+                      value={
+                        gpu.memoryKind === 'unified'
+                          ? 'Shared system memory'
+                          : memory(gpu.availableMemoryBytes)
+                      }
                     />
                     <Property label="Driver version" value={gpu.driverVersion} />
                   </Group>
@@ -147,7 +160,7 @@ export function DeviceInventory({
                 ))}
             {gpus?.length === 0 && (
               <Group title="GPU">
-                <Property label="GPU" value="No enabled AMD or NVIDIA GPU detected" />
+                <Property label="GPU" value="No enabled supported GPU detected" />
               </Group>
             )}
           </article>

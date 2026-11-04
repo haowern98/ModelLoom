@@ -5,6 +5,8 @@ import { SERVER_CACHE_POLICY } from '../runtime/preflight.js';
 import { decodeClusterDevice } from './device-id.js';
 import { executionDevices } from '../speculative-decoding/execution.js';
 import type { SpeculativeCompanion } from '../speculative-decoding/assets.js';
+import { MAX_CLUSTER_GPUS } from './contracts.js';
+import { placementThresholds } from './placement.js';
 
 export interface StockClusterReport {
   readonly fingerprint: string;
@@ -63,12 +65,19 @@ export function requireStockClusterProfile(
     load.serverCaches.contextCheckpoints !== SERVER_CACHE_POLICY.contextCheckpoints ||
     !/^[a-f0-9]{64}$/u.test(load.fingerprint) ||
     load.placement.orderedUuids.length < 1 ||
-    load.placement.orderedUuids.length > 2 ||
+    load.placement.orderedUuids.length > MAX_CLUSTER_GPUS ||
+    load.placement.tensorSplit.length !== load.placement.orderedUuids.length ||
+    load.placement.outputUuid !== load.placement.orderedUuids.at(-1) ||
     load.placement.orderedUuids.some((uuid) => !validDevice(uuid)) ||
     new Set(load.placement.orderedUuids.map((uuid) => uuid.toLowerCase())).size !==
       load.placement.orderedUuids.length
   )
     return fail();
+  try {
+    placementThresholds(load.placement.tensorSplit);
+  } catch {
+    return fail();
+  }
   return Object.freeze({
     profileId: 'b11306-four-slot',
     cacheLayers: Object.freeze(Array.from({ length: load.blockCount }, () => 'auto' as const)),

@@ -3,6 +3,7 @@ packages:
   - packages/*
 nodeLinker: hoisted
 overrides:
+  '@openai/apps-sdk-ui>lodash': 4.18.1
   undici@6.29.0: 6.29.1
   undici@7.30.0: 7.30.1
   zod@4.6.5: 4.6.6

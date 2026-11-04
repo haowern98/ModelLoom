@@ -16,10 +16,14 @@ describe('Cluster planning and launch', () => {
     const modal = screen.getByRole('dialog', { name: 'Plan layer placement' });
     await user.click(within(modal).getByRole('button', { name: 'Place manually' }));
     expect(screen.getByRole('button', { name: 'Selected demo model: Llama 3.1 8B' })).toBeVisible();
-    expect(screen.queryByText(/^Planned layers/)).not.toBeInTheDocument();
+    expect(
+      screen
+        .getAllByRole('button', { name: /^Edit layers for / })
+        .every((button) => button.textContent === 'Unassigned'),
+    ).toBe(true);
     expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Keep draft/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Run model' }));
+    await user.click(screen.getByRole('button', { name: 'Load model' }));
     expect(screen.getByRole('alert')).toHaveTextContent(/cover all 32 sample layers exactly once/);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Models' }));
@@ -37,19 +41,28 @@ describe('Cluster planning and launch', () => {
     await user.click(screen.getByRole('menuitem', { name: /Llama 3.1 8B/ }));
     await user.click(screen.getByRole('button', { name: 'Place manually' }));
     await user.click(screen.getByRole('button', { name: 'Edit layers for inference-node GPU 0' }));
-    await user.type(screen.getByRole('spinbutton', { name: 'First layer for GPU 0' }), '0');
-    await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU 0' }), '31');
-    expect(screen.getByText('Planned layers 0 – 31')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Run model' }));
+    await user.clear(screen.getByRole('textbox', { name: /^First layer for / }));
+    await user.type(screen.getByRole('textbox', { name: /^First layer for / }), '0');
+    await user.clear(screen.getByRole('textbox', { name: /^Last layer for / }));
+    await user.type(screen.getByRole('textbox', { name: /^Last layer for / }), '31');
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for inference-node GPU 0' }),
+    ).toHaveTextContent('0\u201331');
+    await user.click(screen.getByRole('button', { name: 'Load model' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.getByText('Planned layers 0 – 31')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Run model' }));
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for inference-node GPU 0' }),
+    ).toHaveTextContent('0\u201331');
+    await user.click(screen.getByRole('button', { name: 'Load model' }));
     await user.click(screen.getByRole('button', { name: 'Switch and run demo' }));
     expect(screen.getByRole('button', { name: 'Cancel loading' })).toBeVisible();
-    await screen.findByRole('button', { name: 'Stop model' });
-    expect(screen.getByText('Layers 0 – 31')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Stop model' }));
-    expect(screen.getByRole('button', { name: 'Run model' })).toBeVisible();
+    await screen.findByRole('button', { name: 'Unload model' });
+    expect(
+      screen.getByRole('button', { name: 'Edit layers for inference-node GPU 0' }),
+    ).toHaveTextContent('0\u201331');
+    await user.click(screen.getByRole('button', { name: 'Unload model' }));
+    expect(screen.getByRole('button', { name: 'Load model' })).toBeVisible();
     expect(screen.queryByText('In use')).not.toBeInTheDocument();
   });
 
@@ -67,7 +80,7 @@ describe('Cluster planning and launch', () => {
     await user.click(screen.getByRole('menuitem', { name: /Llama 3.1 8B/ }));
     await user.click(screen.getByRole('button', { name: 'Auto place' }));
     expect(screen.getAllByText(/^Planned layers/)).toHaveLength(5);
-    await user.click(screen.getByRole('button', { name: 'Run model' }));
+    await user.click(screen.getByRole('button', { name: 'Load model' }));
     await user.click(screen.getByRole('button', { name: 'Switch and run demo' }));
     await user.click(screen.getByRole('button', { name: 'Cancel loading' }));
     await user.click(screen.getByRole('button', { name: 'Models' }));

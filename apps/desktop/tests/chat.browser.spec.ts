@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
     .click();
 });
 
-test('long chat titles fade, reveal a fixed trash button and scroll only during hover or keyboard focus', async ({
+test('long chat titles fade, reveal a fixed action menu and scroll only during hover or keyboard focus', async ({
   page,
 }) => {
   const title =
@@ -41,21 +41,21 @@ test('long chat titles fade, reveal a fixed trash button and scroll only during 
     .click();
   const row = page.locator('[data-conversation-id="long"]'),
     selection = row.getByRole('button', { name: title, exact: true });
-  const trash = row.getByRole('button', { name: `Delete chat: ${title}` });
+  const more = row.getByRole('button', { name: `Chat actions: ${title}` });
   const viewport = selection.locator('span').first(),
     text = viewport.locator('span');
   for (const width of [1280, 1100, 1000]) {
     await page.setViewportSize({ width, height: 720 });
     await page.mouse.move(width - 10, 100);
-    await expect(trash).toHaveCSS('opacity', '0');
+    await expect(more).toBeHidden();
     await expect(viewport).toHaveAttribute('data-overflow', 'true');
     expect(await viewport.evaluate((node) => getComputedStyle(node).maskImage)).toContain(
       'linear-gradient',
     );
     await expect(text).toHaveCSS('animation-name', 'none');
     await row.hover();
-    await expect(trash).toHaveCSS('opacity', '1');
-    const before = await trash.boundingBox();
+    await expect(more).toBeVisible();
+    const before = await more.boundingBox();
     await expect.poll(() => text.evaluate((node) => node.getAnimations().length)).toBe(1);
     await text.evaluate((node) => {
       const animation = node.getAnimations()[0]!;
@@ -65,7 +65,7 @@ test('long chat titles fade, reveal a fixed trash button and scroll only during 
     await expect
       .poll(() => text.evaluate((node) => new DOMMatrix(getComputedStyle(node).transform).m41))
       .toBeLessThan(-10);
-    const after = await trash.boundingBox();
+    const after = await more.boundingBox();
     expect(after?.x).toBe(before?.x);
     expect(after?.y).toBe(before?.y);
     expect((await viewport.boundingBox())!.x + (await viewport.boundingBox())!.width).toBeLessThan(
@@ -76,13 +76,13 @@ test('long chat titles fade, reveal a fixed trash button and scroll only during 
     await expect(text).toHaveCSS('animation-name', 'none');
     await expect(text).toHaveCSS('transform', 'none');
   }
-  await page.getByRole('button', { name: 'Search conversations' }).focus();
-  await page.keyboard.press('Tab');
+  await selection.focus();
   await expect(selection).toBeFocused();
-  await expect(trash).toHaveCSS('opacity', '1');
+  await expect(more).toBeVisible();
   await page.keyboard.press('Tab');
-  await expect(trash).toBeFocused();
+  await expect(more).toBeFocused();
   await page.keyboard.press('Enter');
+  await page.getByRole('menuitem', { name: 'Delete chat' }).press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Delete chat?' });
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -186,19 +186,19 @@ test('conversation selection, search and per-chat drafts survive navigation', as
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
     'My setup draft',
   );
-  await page.getByRole('button', { name: 'Search conversations' }).click();
+  await page.getByRole('button', { name: 'Search chats' }).click();
   const search = page.getByRole('searchbox', { name: 'Search chats' });
   await expect(search).toBeFocused();
   await search.fill('Q4_K_M');
+  const popup = page.getByRole('dialog', { name: 'Search chats' });
+  await expect(popup.getByRole('option')).toHaveCount(1);
   await expect(
-    page
-      .getByRole('navigation', { name: 'Conversation history' })
-      .locator('[data-conversation-id]'),
-  ).toHaveCount(1);
+    page.locator('aside[aria-label="Conversations"] [data-conversation-id]'),
+  ).toHaveCount(4);
   await search.fill('no such conversation');
-  await expect(page.getByText('No matching conversations')).toBeVisible();
+  await expect(popup.getByText('No matching chats')).toBeVisible();
   await search.press('Escape');
-  await expect(page.getByRole('button', { name: 'Search conversations' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Search chats' })).toBeFocused();
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   const draft = page.getByRole('textbox', { name: 'Message', exact: true });
   await expect(draft).toBeFocused();
@@ -213,21 +213,25 @@ test('conversation selection, search and per-chat drafts survive navigation', as
   expect(await page.evaluate(() => Reflect.has(window, 'secret'))).toBe(false);
 });
 
-test('layout matches the three flat surfaces and contains text at supported desktop widths', async ({
+test('layout uses separate workspace surfaces and contains text at supported desktop widths', async ({
   page,
 }) => {
   const sidebar = page.getByRole('complementary', { name: 'Conversations' });
   const chat = page.getByRole('region', { name: 'Chat', exact: true });
   const main = page.getByRole('main');
-  await expect(sidebar).toHaveCSS('background-color', 'rgb(28, 28, 28)');
+  await expect(sidebar).toHaveCSS('background-color', 'rgba(17, 17, 17, 0.65)');
   await expect(sidebar).toHaveCSS('border-right-width', '1px');
   await expect(sidebar).toHaveCSS('border-right-color', 'rgb(48, 48, 51)');
   await expect(sidebar).toHaveCSS('border-top-right-radius', '0px');
-  await expect(chat).toHaveCSS('background-color', 'rgb(24, 24, 24)');
+  await expect(chat).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(chat.locator('header').locator('..')).toHaveCSS(
+    'background-color',
+    'rgb(17, 17, 17)',
+  );
   await expect(main).toHaveCSS('padding', '0px');
   await expect(page.getByRole('region', { name: 'ModelLoom workspace' })).toHaveCSS(
     'border-top-left-radius',
-    '16px',
+    '12px',
   );
   await expect(page.getByRole('complementary')).toHaveCount(2);
   await expect(page.getByText('ChatGPT', { exact: true })).toHaveCount(0);
@@ -257,15 +261,15 @@ test('copy is explicit, unavailable attachments are disclosed and model selectio
   context,
 }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  const text = await page
+  const paragraphs = await page
     .getByRole('article', { name: 'Assistant response 2' })
     .locator('p')
-    .innerText();
+    .allInnerTexts();
   await page.getByRole('button', { name: 'Copy response 2' }).click();
   await expect(page.getByRole('status')).toHaveText('Response copied');
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   // Windows clipboard text uses CRLF; compare the exact content with normalized line endings.
-  expect(copied.replace(/\r\n/g, '\n')).toBe(text);
+  expect(copied.replace(/\r\n/g, '\n')).toBe(paragraphs.join('\n\n'));
   await expect(page.getByRole('button', { name: 'Attachments unavailable' })).toBeDisabled();
   await page
     .getByRole('textbox', { name: 'Message', exact: true })

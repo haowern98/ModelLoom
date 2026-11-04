@@ -2,19 +2,48 @@
   height: 100dvh;
   min-height: 480px;
   display: grid;
-  grid-template-columns: 50px minmax(0, 1fr);
+  grid-template-columns: 52px minmax(0, 1fr);
   grid-template-rows: 44px minmax(0, 1fr);
-  padding-right: 5px;
-  padding-bottom: 5px;
+  padding-right: 4px;
+  padding-bottom: 4px;
   background: var(--chrome);
 }
 .titlebar {
+  position: relative;
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  padding-left: 66px;
+  padding-left: 82px;
   -webkit-app-region: drag;
   user-select: none;
+}
+.titlebar[data-sidebar-toggle='true'] {
+  padding-left: 116px;
+}
+.foreground :is([id='chat-sidebar'], [id='cluster-sidebar']) {
+  visibility: var(--sidebar-visibility, visible);
+  opacity: var(--sidebar-opacity, 1);
+  overflow: clip;
+}
+.foreground[data-sidebar-collapsed='true'] :is([id='chat-sidebar'], [id='cluster-sidebar']) {
+  interactivity: inert;
+}
+.sidebarHandle {
+  position: absolute;
+  inset-block: 0;
+  left: calc(var(--animated-sidebar-width, var(--workspace-sidebar-width)) - 3px);
+  width: 7px;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sidebarHandle:is(:hover, :active, :focus-visible)::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 3px;
+  width: 1px;
+  background: rgb(255 255 255 / 25%);
 }
 .rail {
   --rail-icon: #8b8b8b;
@@ -76,17 +105,17 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border: 1px solid #2b2b31;
-  border-radius: var(--radius-panel);
-  background: var(--surface);
+  outline: 1px solid #2b2b31;
+  outline-offset: -1px;
+  border-radius: var(--workspace-radius);
+  border-bottom-right-radius: var(--workspace-radius-bottom-right);
+  background: var(--workspace-surface);
   box-shadow: -2px 0 6px #0002;
   overflow: hidden;
 }
-.neutralForeground {
-  --surface: #181818;
-}
 .chatForeground {
-  border-color: #303033;
+  outline-color: #303033;
+  background: transparent;
   box-shadow: none;
 }
 .demo {
@@ -104,17 +133,6 @@
 .main:has(> [data-model-configuration]) {
   padding: 0;
   overflow: hidden;
-}
-/* Keep the native scroll strip clear of the workspace's rounded ends. */
-.main::-webkit-scrollbar {
-  width: 10px;
-}
-.main::-webkit-scrollbar-track:vertical {
-  margin-block: 40px;
-}
-.main::-webkit-scrollbar-thumb:vertical {
-  border: 2px solid transparent;
-  background-clip: padding-box;
 }
 @media (max-width: 850px) {
   .main {

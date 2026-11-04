@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import { createModelLoadingStatus } from './model-loading-status';
 import path from 'node:path';
 import * as module from './runtime-controller';
 import type { ModelSource } from '../../../../packages/core/src/model-configuration/model-source';
@@ -1090,3 +1091,35 @@ it.each(['stop', 'quit'] as const)(
     if (action !== 'quit') await f.controller.quit();
   },
 );
+
+it('publishes app-observed loading stages during an outstanding load and clears them after readiness', async () => {
+  const status = createModelLoadingStatus();
+  const { controller, host } = setup(true, { loadingStatus: status });
+  await controller.command({ action: 'import' });
+  const imported = await controller.command({ action: 'snapshot' });
+  let finish!: () => void;
+  let phase = 'stopped';
+  host.command.mockImplementation((text: string) => {
+    const action = (JSON.parse(text) as { action: string }).action;
+    if (action === 'load') {
+      phase = 'loading';
+      status.observe('load.begin model=test.gguf context=128 slots=1 speculation=off');
+      return new Promise((resolve) => {
+        finish = () => {
+          phase = 'ready';
+          resolve({ snapshot: { phase, fault: null } });
+        };
+      });
+    }
+    if (action === 'stop') phase = 'stopped';
+    return Promise.resolve({ snapshot: { phase, fault: null } });
+  });
+  const pending = controller.command({ action: 'load', modelId: imported.model!.id });
+  await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+  expect((await controller.command({ action: 'snapshot' })).loadingStage).toBe(1);
+  status.observe('native.captured pid=123');
+  expect((await controller.command({ action: 'snapshot' })).loadingStage).toBe(4);
+  finish();
+  expect((await pending).loadingStage).toBeUndefined();
+  await controller.quit();
+});

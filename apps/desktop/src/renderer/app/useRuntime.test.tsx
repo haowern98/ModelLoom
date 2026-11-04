@@ -63,21 +63,47 @@ it('polls memory warnings during a pending load without replacing its final resu
   act(() => {
     pending = hook.result.current.run({ action: 'load', modelId: 'model-123' });
   });
-  snapshot = { ...base, phase: 'loading', memoryWarning: { id: 'first' } };
+  snapshot = {
+    ...base,
+    phase: 'loading',
+    loadingStage: 1,
+    device: {
+      name: 'Coordinator',
+      os: 'Windows',
+      cpuName: 'CPU',
+      threads: 8,
+      role: 'Coordinator',
+      inventory: { sampledAt: 1000, cpuUsagePercent: 23 },
+    },
+    memoryWarning: { id: 'first' },
+  };
   await waitFor(() => expect(hook.result.current.view?.memoryWarning?.id).toBe('first'));
   expect(hook.result.current.view?.phase).toBe('loading');
+  expect(hook.result.current.view?.loadingStage).toBe(1);
+  expect(hook.result.current.view?.device?.inventory?.cpuUsagePercent).toBe(23);
   expect(hook.result.current.loading).toBe(true);
   let answer!: Promise<void>;
   act(() => {
     answer = hook.result.current.answerMemory('first', false);
   });
-  snapshot = { ...snapshot, memoryWarning: { id: 'second' } };
+  snapshot = {
+    ...snapshot,
+    loadingStage: 4,
+    device: {
+      ...snapshot.device!,
+      inventory: { sampledAt: 18000, cpuUsagePercent: 47 },
+    },
+    memoryWarning: { id: 'second' },
+  };
   await waitFor(() => expect(hook.result.current.view?.memoryWarning?.id).toBe('second'));
   await act(async () => {
     finishAnswer({ ...base, memoryWarning: null });
     await answer;
   });
   expect(hook.result.current.view?.memoryWarning?.id).toBe('second');
+  expect(hook.result.current.view?.loadingStage).toBe(4);
+  expect(hook.result.current.view?.device?.inventory?.sampledAt).toBe(18000);
+  expect(hook.result.current.view?.device?.inventory?.cpuUsagePercent).toBe(47);
   expect(hook.result.current.loading).toBe(true);
   await act(async () => {
     finishLoad({ ...base, phase: 'ready', memoryWarning: null });

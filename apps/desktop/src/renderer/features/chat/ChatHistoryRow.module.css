@@ -1,0 +1,160 @@
+.row {
+  position: relative;
+  min-width: 0;
+  border-radius: 10px;
+  color: var(--neutral-text);
+}
+.row + .row {
+  margin-top: 1px;
+}
+.row:hover,
+.row:focus-within,
+.row[data-selected],
+.row[data-menu-open] {
+  background: #ffffff14;
+}
+.select {
+  width: 100%;
+  min-height: 30px;
+  display: block;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-control);
+}
+.select > span {
+  margin-right: 20px;
+  --text-fade-truncate-distance: 16px;
+}
+.select > span[data-overflow='true'] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+}
+.row:hover .select > span[data-overflow='true'] > span,
+.row:focus-within .select > span[data-overflow='true'] > span {
+  animation: revealChatTitle calc(var(--line-duration) / 2) linear infinite alternate;
+}
+@keyframes revealChatTitle {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--line-scroll));
+  }
+}
+
+.indicator {
+  position: absolute;
+  right: 8px;
+  top: 7px;
+  display: flex;
+  color: var(--neutral-muted);
+  pointer-events: none;
+}
+.spinner {
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin: 2px;
+  border: 1.5px solid #ffffff26;
+  border-top-color: #ababab;
+  border-right-color: #ababab;
+  border-radius: 50%;
+  animation: spin 850ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.actions {
+  display: flex;
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  visibility: hidden;
+}
+.actions button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--neutral-muted);
+}
+.actions button:hover {
+  color: var(--neutral-text);
+  background: #ffffff14;
+}
+.row:hover .actions,
+.row:focus-within .actions,
+.row[data-menu-open] .actions {
+  visibility: visible;
+}
+.row:hover .indicator,
+.row:focus-within .indicator,
+.row[data-menu-open] .indicator {
+  visibility: hidden;
+}
+.row:hover .select > span,
+.row:focus-within .select > span,
+.row[data-menu-open] .select > span {
+  margin-right: 72px;
+}
+.menu {
+  z-index: 200;
+  width: 180px;
+  padding: 4px;
+  border: 1px solid #ffffff14;
+  border-radius: 16px;
+  background: #262626f5;
+  backdrop-filter: blur(16px);
+  color: var(--neutral-text);
+  box-shadow: 0 8px 24px #0005;
+  overflow-y: auto;
+}
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-size: 13px;
+}
+.menu button:hover,
+.menu button:focus-visible {
+  background: #ffffff14;
+}
+.menu button:last-child {
+  border-top: 1px solid #ffffff14;
+  margin-top: 4px;
+}
+@media (hover: none) {
+  .actions {
+    visibility: visible;
+  }
+  .indicator {
+    right: 80px;
+  }
+  .select > span {
+    margin-right: 92px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2s;
+  }
+}

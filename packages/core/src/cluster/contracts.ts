@@ -5,6 +5,9 @@ import type { LoadDefaults, AdvancedPreferences } from '../model-configuration/c
 import { decodeClusterCanvasLayout } from './canvas-layout.js';
 import type { ClusterCanvasLayout } from './canvas-layout.js';
 
+/** Same bounded device set accepted by the cluster planning command. */
+export const MAX_CLUSTER_GPUS = 16;
+
 export interface RawGpuRun {
   readonly uuid: string;
   readonly first: string;
@@ -151,7 +154,7 @@ export function decodeCapturedClusterLoad(input: unknown): CapturedClusterLoad {
   });
 }
 function rawRuns(input: unknown): readonly RawGpuRun[] {
-  if (!Array.isArray(input) || input.length > 2) return invalid();
+  if (!Array.isArray(input) || input.length > MAX_CLUSTER_GPUS) return invalid();
   const result = input.map((item: unknown) => {
     const v = object(item, ['uuid', 'first', 'last']);
     return Object.freeze({
@@ -230,7 +233,8 @@ export function decodeSavedClusterConfiguration(input: unknown): SavedClusterCon
     ...canvasKeys(input),
     ...proposerKeys(input),
   ]);
-  if (!Array.isArray(v.runs) || v.runs.length < 1 || v.runs.length > 2) return invalid();
+  if (!Array.isArray(v.runs) || v.runs.length < 1 || v.runs.length > MAX_CLUSTER_GPUS)
+    return invalid();
   const blockCount = integer(v.blockCount, 1, 2147483647);
   const runs = v.runs.map((item: unknown) => {
     const r = object(item, ['uuid', 'first', 'last']);

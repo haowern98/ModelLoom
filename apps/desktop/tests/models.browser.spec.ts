@@ -35,7 +35,7 @@ test('Models toolbar has two neutral icon actions and no view toggle', async ({ 
       .boundingBox();
     const nameColumn = await page.getByText('Name', { exact: true }).boundingBox();
     if (!heading || !nameColumn) throw new Error('Models heading or Name column missing');
-    expect(nameColumn.x).toBeCloseTo(heading.x + 12, 1);
+    expect(nameColumn.x).toBeCloseTo(heading.x, 1);
     const firstModel = await page
       .getByRole('heading', { name: 'Qwen3.8-27B', exact: true })
       .boundingBox();

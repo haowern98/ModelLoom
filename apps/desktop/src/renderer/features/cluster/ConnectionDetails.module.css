@@ -1,43 +1,72 @@
 .details {
   display: grid;
-  margin-top: 12px;
-  gap: 14px;
-  font-size: var(--font-size-metadata);
-  line-height: var(--line-height-body);
-}
-.details section + section {
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
+  gap: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
 }
 .details h3 {
   margin: 0;
-  font-size: var(--font-size-section-heading);
-  font-weight: var(--font-weight-medium);
-}
-.details p {
-  margin: 4px 0 0;
-  overflow-wrap: anywhere;
-  color: var(--muted);
-  font-size: var(--font-size-metadata);
-  line-height: var(--line-height-body);
+  padding: 4px 0;
+  color: #afafaf;
+  font: inherit;
 }
 .details dl {
-  margin: 8px 0 0;
+  display: grid;
+  gap: 2px;
+  margin: 0;
 }
 .details dl div {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  margin-top: 6px;
-  font-size: var(--font-size-metadata);
+  align-items: baseline;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 0;
 }
 .details dt {
-  color: var(--muted);
+  min-width: 0;
+  color: #afafaf;
 }
 .details dd {
   margin: 0;
+  max-width: 60%;
+  color: #e7e7e7;
   text-align: right;
+  overflow-wrap: anywhere;
 }
-.note {
-  padding: 0;
+.infoLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.details button.infoButton,
+.details button.infoButton:hover {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: #afafaf;
+  cursor: help;
+  vertical-align: middle;
+}
+.details button.infoButton:hover {
+  color: #e7e7e7;
+}
+.details button.infoButton:focus-visible {
+  outline: 1px solid #afafaf;
+  outline-offset: 1px;
+}
+.tooltip {
+  z-index: 30;
+  font-family: 'Segoe UI', sans-serif;
+  color: var(--color-text);
 }

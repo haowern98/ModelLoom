@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { CaretDown as ChevronDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import type { DemoModel } from '../../mocks/modelLibrary';
 import styles from './ClusterPage.module.css';
+import { useDropdownPosition } from '../../components/useDropdownPosition';
 
 /** Library selection plans a model only; the caller opens placement choices before committing. */
 export function ClusterModelPicker({
@@ -10,6 +11,7 @@ export function ClusterModelPicker({
   activeModelId,
   disabled,
   onChoose,
+  onClear,
   local = false,
 }: {
   models: readonly DemoModel[];
@@ -17,15 +19,23 @@ export function ClusterModelPicker({
   activeModelId: string | undefined;
   disabled: boolean;
   onChoose: (model: DemoModel) => void;
+  onClear?: () => void;
   local?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const position = useDropdownPosition(open, trigger, menu, models);
   const menuId = useId();
+  const positioned = position.visibility !== 'hidden';
+  useEffect(() => {
+    if (open && positioned && anchor.current?.contains(document.activeElement)) {
+      anchor.current.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    }
+  }, [open, positioned]);
   useEffect(() => {
     if (!open) return;
-    anchor.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
     const outside = (event: PointerEvent) => {
       if (event.target instanceof Node && !anchor.current?.contains(event.target)) setOpen(false);
     };
@@ -88,7 +98,31 @@ export function ClusterModelPicker({
         <ChevronDown size={14} aria-hidden="true" />
       </button>
       {open && (
-        <div id={menuId} role="menu" aria-label="Model library" className={styles.modelMenu}>
+        <div
+          ref={menu}
+          id={menuId}
+          role="menu"
+          aria-label="Model library"
+          className={styles.modelMenu}
+          style={position}
+        >
+          {onClear && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                aria-current={selectedModel ? undefined : 'true'}
+                className={styles.modelOption}
+                onClick={() => {
+                  close();
+                  if (selectedModel) onClear();
+                }}
+              >
+                No model
+              </button>
+              <div role="separator" className={styles.modelMenuDivider} />
+            </>
+          )}
           {models.map((model) => (
             <button
               key={model.id}

@@ -249,7 +249,7 @@ export function ApiPage({ activeModel, demo, onCluster }: ApiPageProps) {
                   className={styles.icon}
                   disabled={!status?.keyPresent || busy}
                   aria-label="Copy API key"
-                  title={keyUnavailable}
+                  title={status?.keyPresent ? 'Copy API key' : keyUnavailable}
                   onClick={() => void command('copyKey')}
                 >
                   <Copy size={16} aria-hidden="true" />

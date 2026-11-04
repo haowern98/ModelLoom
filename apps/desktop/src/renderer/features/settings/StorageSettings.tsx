@@ -10,8 +10,9 @@ import styles from './SettingsPage.module.css';
 export function StorageSettings() {
   const bridge = window.modelLoomCache;
   const [view, setView] = useState<CacheView>();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(Boolean(bridge));
   const [error, setError] = useState('');
+  const [validationError, setValidationError] = useState('');
   const [limit, setLimit] = useState('10');
   const [reserve, setReserve] = useState('5');
   const pending = useRef(false);
@@ -34,6 +35,7 @@ export function StorageSettings() {
       setView(reply.view);
       setLimit(String(reply.view.settings.limitGiB));
       setReserve(String(reply.view.settings.reserveGiB));
+      setValidationError('');
       setError(
         reply.view.error === 'CACHE_BUSY'
           ? 'The cache is in use. Try again shortly.'
@@ -73,16 +75,20 @@ export function StorageSettings() {
         (value) => Number.isSafeInteger(value) && value >= 1 && value <= 1048576,
       )
     ) {
-      setError('Enter a whole number from 1 to 1,048,576 GiB.');
+      setValidationError('Enter a whole number from 1 to 1,048,576 GiB.');
       return;
     }
+    setValidationError('');
     if (maximum !== view?.settings.limitGiB || free !== view.settings.reserveGiB)
       update({ limitGiB: maximum, reserveGiB: free });
   };
+  const loading = busy && !view;
   const used = view?.usedBytes;
   const usage =
     used === undefined
-      ? 'Loading…'
+      ? loading
+        ? 'Loading…'
+        : 'Usage unavailable'
       : used === null
         ? 'Usage unavailable'
         : `${used ? (used / 2 ** 30).toFixed(2) + ' GiB' : '0 B'} of ${view!.settings.limitGiB} GiB used`;
@@ -105,7 +111,7 @@ export function StorageSettings() {
         </Row>
         <Row label="Cache location" description="Choose where cached tensors are stored.">
           <span className={styles.cachePath} title={view?.settings.location}>
-            {view?.settings.location ?? 'Loading…'}
+            {view?.settings.location ?? (loading ? 'Loading…' : 'Unavailable')}
           </span>
           <Button disabled={disabled} onClick={() => void command({ action: 'choose-location' })}>
             Browse
@@ -189,12 +195,17 @@ export function StorageSettings() {
         Changes apply to the next model load. Cached files can be recreated. Original model files
         are never removed.
       </p>
-      {error && (
+      {(validationError || error) && (
         <div className={styles.pending} role="alert">
-          <p className={styles.description}>{error}</p>
-          <Button disabled={busy} onClick={() => void command({ action: 'read' })}>
-            Retry
-          </Button>
+          {validationError && <p className={styles.description}>{validationError}</p>}
+          {error && (
+            <>
+              <p className={styles.description}>{error}</p>
+              <Button disabled={busy} onClick={() => void command({ action: 'read' })}>
+                Retry
+              </Button>
+            </>
+          )}
         </div>
       )}
       {!bridge && <p className={styles.notice}>Tensor caching is not available in this build.</p>}

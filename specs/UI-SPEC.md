@@ -1,10 +1,233 @@
 # ModelLoom UI specification
 
 **Status:** Approved screen compositions retained; Windows development local Chat/runtime and later Chat refinements implemented, other production integrations pending
-**Updated:** 2026-10-10
+**Updated:** 2026-11-01
 **Related:** [product](PRODUCT-SPEC.md), [integration](INTEGRATION-SPEC.md), [security](SECURITY-SPEC.md)
 
 Runtime behavior follows [ADR-0002](decisions/0002-lm-studio-runtime-direction.md): LM Studio GUI/core/runtime direction, accepted grouped llama-server, independent upgrades, ordinary engine-crash isolation, and desktop-owned shutdown. The [runtime process screenshot](references/runtime/README.md) is lifecycle/presentation evidence, not an additional UI-screen design.
+
+**Approved Codex frame revision, 2026-10-31:** The user's PROCEED adopts the
+inspected Codex Windows frame dimensions and surface treatment across Chat,
+Cluster, Models, API and Settings. Use a 52px icon rail and 238px contextual
+navigation panel, preserving the combined 290px sidebar. Keep 20px rail icons,
+36px buttons and 8px gaps; the wider rail gives 8px horizontal button insets.
+Right and bottom workspace gaps are 4px. Exposed workspace corners use 12px
+rounding except the bottom-right corner, which uses 4px. Keep this frame rounding
+separate from existing card, dialog and composer radii.
+
+On Windows, use the native Mica backdrop with transparent window chrome and rail.
+Contextual navigation uses `rgba(17, 17, 17, 0.65)` over that backdrop, with
+transparent ancestors; main content uses opaque `#111111`. Mica is an operating
+system material, not a fixed sampled hex colour. Other platforms retain the
+existing opaque native window fallback. Preserve the 44px title bar, typography,
+page compositions, selection states and controls. This revision supersedes the
+earlier 50px rail, 240px contextual panels, solid chrome/sidebar/main backgrounds,
+5px outer gaps and 16px outer frame rounding described below. It does not change
+the internal card colours or authorize additional icon replacements.
+
+**Approved title-bar history revision, 2026-11-04:** Add global Back and Forward
+in the existing 44px title bar. The inspected Codex Windows controls use 28px
+square hit areas, 16px arrow glyphs, 6px corner radii and a 6px gap, starting at
+6px left and 4px top. Keep them outside the draggable region. Hover and disabled
+states must not change their geometry. Tooltips show Back/Forward and Ctrl+[/Ctrl+].
+Support those shortcuts and mouse Back/Forward buttons. Restore visited chats,
+settings categories, Cluster views/device details and model configuration pages;
+keep existing drafts and Cluster departure confirmation. New navigation clears
+forward history, and deleted targets are skipped. Assignment Undo/Redo remains
+separate. This revision does not add panel resizing or a sidebar toggle.
+
+**Approved sidebar revision, 2026-11-04:** Chat and Cluster share a resizable
+navigation panel, starting at 238px and capped at 468px. The 52px icon rail
+stays visible when the panel collapses. Place the sidebar toggle 6px after
+Forward and restore the saved width when reopening. Drag the panel divider
+or use its arrow keys, Home and End to resize. The toggle animates the width
+and opacity with a 300ms spring (bounce 0.1). Reduced motion makes the toggle
+instant, and the divider follows the pointer directly. On narrow windows, cap the
+maximum width to leave 240px of main content where possible. Settings keeps
+its fixed 238px navigation panel. Settings, Models and API omit the toggle
+and resize handle.
+
+**Live device display names:** Rename device saves a local display alias for
+the coordinator or peer in the desktop profile. The alias survives restart,
+configuration changes and reconnects with the same device identity. Canvas
+positions and links still resolve by device ID, and assignments resolve by GPU
+UUID. Demo aliases last for the current app session.
+
+**Approved Settings scrollbar revision, 2026-11-01:** The user's PROCEED adopts
+Codex's native Chromium scrollbar treatment for Settings categories and details
+only. Use `scrollbar-width: thin`, a transparent track and
+`rgba(252, 252, 252, 0.084)` idle thumb colour, changing to
+`rgba(252, 252, 252, 0.156)` while the scrolling pane is hovered or active.
+Retain Chromium's native thumb hover/press contrast adjustment. Remove Settings'
+fixed WebKit scrollbar width, thumb border and 40px top/bottom track margins;
+the details scroller spans the pane's full height inside the existing rounded
+workspace clipping. Native arrow buttons and end spacing remain Chromium-owned.
+Reserve a stable details scrollbar gutter without changing content padding,
+independent scrolling or keyboard access to the final controls. Other screens'
+scrollbars retain their existing treatment. This supersedes Settings' earlier
+10px strip, 6px painted thumb and 40px track-margin rules below.
+
+**Approved app-wide scrollbar revision, 2026-11-01:** The subsequent PROCEED
+extends the same native thin scrollbars and idle/hover colours to every scroll
+area through shared CSS, including Chat history/transcript/composer, Models and
+model configuration, API pages/code/logs, Cluster navigation/model picker/inspector,
+dropdowns and overflowing dialogs or multiline fields. Remove all fixed WebKit
+scrollbar width, colour, radius and track-margin overrides. Keep each container's
+existing scrolling, clipping and overscroll containment. The Cluster inspector
+retains its fixed padded frame, stable gutter and centred body content; hovering
+the panel padding also brightens its thumb. Its thumb is now visible at idle,
+replacing the earlier transparent-idle and `#626262` hover-only treatment. Model
+configuration actions remain outside their scroller. This supersedes the
+Settings-only scope above and the older scrollbar exceptions below.
+
+**Approved dropdown scrollbar revision, 2026-11-01:** Apply the inspected Codex
+standard menu's 4px padding and 16px corners to the Cluster model picker and the
+shared configuration dropdowns: Context Overflow, Method, Companion, CPU suffix
+retrieval, Execution device, This PC's address and When cache is full. Retain the
+shared native thin scrollbar colours and Chromium-owned track ends. Replace the
+380px/60vh caps with the available space above or below the trigger, bounded by
+the viewport minus 16px, using a 5px trigger gap and 6px collision clearance.
+Reposition on resize or surrounding scrolling; keyboard navigation must scroll
+the focused option into view. Short lists show no scrollbar unless they overflow.
+This does not add scrolling to the Chat composer's model popup.
+
+The reference is the default menu surface in Codex Windows package
+`OpenAI.Codex_26.1023.6621.0_x64`, inspected statically with REA. Specialized
+Codex picker/fade variants can differ; this revision adopts its standard menu.
+
+**Approved Devices consistency revision, 2026-11-01:** The user approved the
+Devices mockup that adopts Connections' card and row treatment. Hardware cards
+inherit the shared 16px rounding and 16px horizontal padding; rows inherit the
+56px minimum height and 14px vertical padding. Use 14px medium-weight property
+labels and muted 13px values, keeping the existing right-aligned value column
+and narrow-screen stacking. Use 14px heading-to-card gaps, 36px between hardware
+sections and 24px between the device identity and its first section. Keep device
+names, role badges, reported hardware facts, unavailable states, navigation and
+the existing content column unchanged. This supersedes the older compact
+Devices row sizing and 12px hardware-card rounding.
+
+**Approved Chat navigation revision, 2026-11-01:** Use the inspected Codex
+navigation treatment with a Chat header and search action, followed by a separate
+New chat row. No notification button or Projects controls are included. Pinned
+chats appear first; unpinned chats retain Today when needed, Yesterday and Older
+groups. Section buttons reveal a chevron on hover or keyboard focus and toggle
+their group's contents. Use Codex's traced C6 disclosure SVG (20×21 viewBox),
+rendered at 14×14px with its original 0.6 currentColor stroke. Expanded groups
+reveal it on hover/focus; collapsed groups retain the visible, right-facing
+chevron. Keep the 238px contextual panel, native history scrollbar
+and a fixed Archived chats entry outside the history scroller.
+
+Use the packaged Codex compose, search, pin/unpin, archive, ellipsis and chevron
+artwork. The user's subsequent correction matches Configurations typography:
+14px regular (400) chat titles and 14px semibold (600) section headings. The
+subsequent spacing correction also adopts Cluster's 18px/500 title with a
+14px top and 18px left inset, 6px outer row insets, 6px vertical/12px horizontal
+row padding, 18px row line height and 18px following-section margins. Section
+heading padding is 0px top, 12px horizontally and 6px bottom. The title, section
+headings and chat names share the same 18px left text inset. New chat and the
+fixed archive footer use the same horizontal insets and 14px text. The subsequent
+REA-verified New chat correction uses the original 16px compose artwork in a
+30px row with 14px text and 5px vertical padding, retaining Cluster alignment.
+The New chat wrapper has 14.5px top padding so its text bounds begin exactly
+24px below the Chat title text bounds in the shared system-font layout. Chat rows
+retain 30px minimum height, 10px selection rounding and a 16px title fade. Hover or focus reveals ellipsis,
+pin/unpin and archive controls. The ellipsis menu contains only Pin/Unpin,
+Archive and Delete chat; archived rows substitute Unarchive. Deletion retains
+the existing confirmation and safe cancellation. Archived chats remain readable
+and restorable through the footer entry. Pin/archive actions never cancel a
+response or change the globally active model.
+
+The subsequent chat-title hover correction starts movement immediately when the
+pointer enters any part of the row, including its padding and action area.
+Keyboard focus within the row also reveals overflowing titles. Use a linear
+out-and-back animation with no initial hold or delay and half the shared line
+duration (minimum two seconds per leg, reaching 60 CSS px/s for longer titles).
+Leaving the row resets the text; short titles stay still and reduced motion
+disables animation. The subsequent Configurations correction applies the same
+timing and whole-row hover trigger to saved configuration names in Cluster.
+
+Real chat pin/archive flags are stored in protected history schema 6 through
+validated boolean commands and survive restart. Renderer-only demo flags survive
+page navigation in the existing app state. Row spinners reflect active
+conversation summaries and pending Send preparation, including background chats;
+leaving Chat does not stop polling or reset generation. Completion, cancellation
+and failure remove the spinner. Hover actions temporarily replace its visible
+slot without changing generation state. This supersedes the older direct-delete
+Chat row controls and combined New chat/search header.
+
+**Approved Chat Markdown rendering, 2026-11-01:** Render assistant answers and
+expanded thinking as safe Markdown with headings, emphasis, nested lists,
+blockquotes, inline/fenced code, task lists, links and tables. Keep user prompts
+literal. Fenced code has a language label, syntax highlighting for supported
+languages, explicit Copy code feedback and contained horizontal scrolling;
+unknown languages remain readable plain code. Tables scroll independently at
+narrow window sizes. Reparse streamed content as it grows, including open code
+fences, without changing the stored answer or raw Copy response contents.
+
+Use pinned react-markdown, remark-gfm and rehype-highlight dependencies. HTML
+stays escaped text, not active elements. Do not enable raw HTML, executable
+previews, remote images, scripts or new Electron permissions. Only absolute
+HTTP/HTTPS URLs without credentials become links, with noopener/noreferrer;
+existing desktop navigation restrictions remain in force. Images display their
+alt text without fetching resources. This milestone does not add math, diagram
+execution, attachments or external-link IPC.
+
+The user's correction hides only the successful Complete status and removes
+only the brain glyph beside thinking. Keep the thinking label, duration,
+chevron and expansion. All other statuses, including Stopped and errors, retain
+their existing text and behavior. The complete response action footer (Copy,
+Retry, generation speed, prompt processing speed and acceptance rate), its
+icons, styling, handlers and positions relative to one another stay unchanged.
+This supersedes section 6's earlier plain-text-rendering milestone only.
+
+**Approved Chat search popup, 2026-11-01:** Replace the inline Chat sidebar
+search field completely. The header search button uses the original Codex
+magnifying-glass-lg-light-16 artwork at 16×16px in its existing 32px target.
+Clicking it opens a native modal with an autofocused Search chats input and
+one Chats results section. Omit the All/Actions/Chats tabs, Tab hint, Quick
+actions, New chat/Open folder commands and project labels.
+
+Use the inspected command-menu proportions: up to 768px wide, capped at 92vw,
+16px corners, a surface at 65% opacity and 24px backdrop blur. The adapted header
+and list occupy up to 504px total, capped at 90vh. Results use original 16px
+chat-bubble artwork, neutral selection highlights and contained vertical
+scrolling. Show recent saved chats for an empty query; filter titles and saved
+message text, including archived conversations, when typing. Search results
+never filter the sidebar or alter drafts, selection or generation until opened.
+Opening an archived result also reveals its archived sidebar group.
+
+Arrow keys/Home/End select results; Enter opens the selected chat and dismisses
+the modal. Escape or an outside click cancels. Keep Tab focus inside the modal,
+restore focus to the search trigger on dismissal and clear the saved-message
+search query when closing. Retain the current stored-message search
+implementation and its debounced updates. No new IPC or model operation is added.
+
+**Approved Chat composer revision, 2026-11-01:** Replace the fixed-height message
+field with content-based sizing: grow and shrink with typed, pasted or restored
+drafts, starting at 44px and scrolling internally after 25dvh. Keep a 20px line
+height, the existing 14px message font, 24px composer corners, 10px top/side and
+8px bottom surface padding, 18px total input inset and a 4px input/footer gap.
+Remove the inner textarea focus outline; indicate keyboard focus on the outer
+composer border. Keep the existing model selector, attachments and Send/Stop
+controls, stored drafts, generation state and protected response footer.
+
+Offer Expand/Collapse for drafts with a newline or at least five lines of
+content. Use Codex's original 20px paired-arrow artwork in a 32px target at the
+input's upper-right, with text clearance. Expanded mode occupies available
+conversation space, bounded by the viewport minus the 44px title bar and 128px
+clearance; retain internal scrolling and reachable bottom controls. Collapse
+returns to content-based sizing. Both actions retain the draft, selection and
+editor focus. A different conversation starts compact. Enter sends normally;
+in expanded mode Enter inserts a line and Ctrl/Cmd+Enter sends, retaining Shift
+and IME safeguards. Respect reduced motion.
+
+Reference: static REA inspection of the installed Codex Windows
+`OpenAI.Codex_26.1023.6621.0_x64` composer functions A1n, T1n, x4r and S4r.
+Scoped parent evidence:
+`ev_ad22ed099c058ad3c3e03b56e31429e45822f298bc53f388f1346d15f92f528d`.
+This establishes packaged implementation details, not live pixel parity or
+feature availability in every Codex configuration. ModelLoom uses Chromium's
+native textarea content sizing to reproduce that behavior.
 
 **Cluster configuration implementation, 2026-10-16:** Auto place produces a
 reviewable draft using fresh resources and the verified stock estimator, preferring
@@ -51,6 +274,16 @@ The shared main-page title is 24px; Settings-style section headings are 14px med
 
 Model configuration and API use the same 800px centred column, shared fonts, section/card spacing and outer-scrollbar 40px top/bottom track margins. Chat uses its independently scrolling history/messages. Detailed screen rules below retain all scoped exceptions.
 
+**Model configuration cleanup, 2026-11-04:** Remove the redundant model-name, GGUF and quantization row beneath the page title; retain the model name in the breadcrumb. Show the bottom Reset defaults / Save changes bar only while settings differ from saved values or a save is pending. Restoring saved values or completing a successful save hides the bar; validation and save failures preserve pending edits and the bar. Dismissing a notification restores focus to the persistent Models breadcrumb when its originating control is gone.
+
+**Model configuration breadcrumb revision, 2026-11-04:** Replace the right-hand
+Back to Models pill with Models followed by the current model name in a fixed
+46px page header above the scrolling content. Match Codex's 12px inherited UI
+font, 4px item gaps, 8px header/label inline padding, 28px label height and
+original 16px chevron-right-lg-light-16 artwork. Models is a ghost control using
+the existing return action and focus restoration. Mark the plain, primary-colour
+model name as the current page and truncate long names on one line.
+
 Source anchors: [shell](../apps/desktop/src/renderer/app/AppShell.tsx), [shared tokens](../apps/desktop/src/renderer/styles/global.css), [shared state/routing](../apps/desktop/src/renderer/app/App.tsx), [Models](../apps/desktop/src/renderer/features/models/ModelsPage.tsx), [configuration](../apps/desktop/src/renderer/features/models/ModelConfigurationPage.tsx), [Cluster](../apps/desktop/src/renderer/features/cluster/ClusterPage.tsx), [Chat](../apps/desktop/src/renderer/features/chat/ChatPage.tsx), and [API](../apps/desktop/src/renderer/features/api/ApiPage.tsx). Prior local test evidence and its limits are recorded in [TESTING-SPEC section 10](TESTING-SPEC.md#10-current-evidence).
 
 ## 1. Visual source of truth
@@ -76,6 +309,8 @@ The user's later comparison makes the ChatGPT app the proportion reference for t
 **Rail simplification, 2026-10-18:** Remove the Downloads, WW profile and More buttons, including the More menu. Keep Home/Chat, Cluster, Models and API at their existing top positions. Move Settings to the former WW profile centre at the bottom, retaining its 20px icon, 36px button, selection state and keyboard focus. Other shell geometry and screen content stay unchanged. This supersedes the lower controls and More behavior described in earlier rail revisions.
 
 **Rail icon and spacing revision, 2026-10-15:** Home and Models use the installed OpenAI desktop package's actual hollow/filled Home and Books paths; More uses its three-dot artwork in both closed and open states. The user chose to retain the existing Phosphor Network, HardDrives and GearSix hollow/filled pairs for Cluster, API and Settings. Selected destinations use filled artwork in white; unselected destinations use hollow artwork in muted grey. Retain 20px icon boxes, 36px buttons, the charcoal selected/open background and visible keyboard focus. Use a uniform 8px gap between the top buttons with no extra margin after Home, giving 44px between centres. This matches the packaged desktop rail's `gap-2`, `.25rem` spacing token and `2.25rem` buttons at the default 16px root. See [asset provenance](../docs/CHATGPT-ICONS.md). This supersedes earlier glyph, stroke and spacing rules for the top rail only; the lower download/profile controls and overflow-menu entry remain unchanged.
+
+**Rail icon revision, 2026-10-31:** Replace Cluster's Phosphor Network with the installed Codex `circle-grid-2x2-connect-light-24`, API's HardDrives with `terminal-light-20`, and Settings' GearSix with `gear-light-20`, using their exact static paths through ChatGptRailIcon.tsx. Cluster retains its original 24x24 viewBox scaled to 20px CSS; API and Settings retain their original 20x20 viewBoxes. All three retain the same artwork selected and unselected, inheriting white `#ffffff` when selected and muted grey `#8b8b8b` at rest; retain the charcoal selected background, existing buttons, spacing and keyboard focus. Do not fabricate filled variants. This supersedes the earlier Phosphor glyph and hollow/filled rules for these three rail destinations only. Home and Books artwork remain unchanged. See [asset provenance and distribution limitations](../docs/CHATGPT-ICONS.md).
 
 The user's subsequent sidebar revision standardizes the main navigation icons (Home, Cluster, Models, API, Storage, Metrics, Settings and overflow) to **20px CSS boxes with 1.75 strokes**, preserving their existing glyphs, positions, 36px button areas and 11px corner radius. Unselected navigation buttons are transparent with muted `#8b8b8b` icons; enabled hover and selected/open controls use rounded `#2f2f2f` shading and white `#ffffff` icons. Selected navigation has no blue border, tinted surface or glow. Keyboard focus remains distinct through a neutral `#ababab` outline and does not select a destination. Home now opens Chat and uses the same hover/selected rules as the other enabled destinations. Keep unavailable controls disabled with their existing accessible explanation and muted treatment; this styling revision does not enable unfinished destinations. Overflow uses a neutral `#262626` menu with a subtle `#383838` border and contains Chat only; API is a direct rail destination. The separate bottom download/profile controls and 16px overflow-menu glyphs retain their existing sizes and treatments. These are approved ModelLoom review targets, not measured ChatGPT computed styles or a claim of exact screenshot parity.
 
@@ -490,7 +725,7 @@ group vertically centered against the combined heading and description, matching
 the supplied Plugins header reference. Preserve the shared typography, button
 styling, content-column width and networking availability behavior.
 
-- U13 (P3, P8): The 2026-10-17 revision keeps acknowledged raw drafts and makes named Save optional. Put Configurations below Your devices. Keep icon-only Save beside Play, with Save configuration tooltip and accessible name. First Save requests a name and subsequent Saves update it. Play with empty assignments opens Auto place / Place manually, with the top-right X for dismissal. Assignment choices only prepare layers; the same Play button loads prepared assignments. The 2026-10-18 explicit-save revision supersedes draft retention when switching. Switching models or saved configurations, or leaving Cluster, shows Unsaved changes when assignments differ from the saved baseline. Provide exactly Save changes and Discard changes as the dialog actions, with a top-right X; X or Escape stays with edits intact. A new configuration includes its name field. Save switches only after successful persistence and updates an existing saved configuration in place. Discard clears a never-saved assignment or restores the last saved ranges, clearing Undo/Redo. Failed Save or Discard stays with recoverable feedback. Manual edits and Undo/Redo stay in memory, with no automatic draft writes. Only explicit Save, Auto place or Run synchronizes the owner session draft. Explicitly saved configurations survive restart. Undo to empty restores the assignment-choice popup. Preserve raw text and clear old validation errors on edits. Keep Stop/Cancel reachable while another selection is dirty; confirm interruption before replacing a session.
+- U13 (P3, P8): The 2026-10-17 revision keeps acknowledged raw drafts and makes named Save optional. Put Configurations below Your devices. Keep icon-only Save beside Play, with Save configuration tooltip and accessible name. First Save requests a name and subsequent Saves update it. Play with empty assignments opens Auto place / Place manually, with the top-right X for dismissal. Assignment choices only prepare layers; the same Play button loads prepared assignments. The 2026-10-18 explicit-save revision supersedes draft retention when switching. Switching models or saved configurations, or leaving Cluster, shows Unsaved changes when assignments differ from the saved baseline. Choosing a different model from the toolbar opens that model’s independent draft with no saved configuration selected. Open saved configurations from their sidebar rows. Provide exactly Save changes and Discard changes as the dialog actions, with a top-right X; X or Escape stays with edits intact. A new configuration includes its name field. Save switches only after successful persistence and updates an existing saved configuration in place. Discard clears a never-saved assignment or restores the last saved ranges, clearing Undo/Redo. Failed Save or Discard stays with recoverable feedback. Manual edits and Undo/Redo stay in memory, with no automatic draft writes. Only explicit Save, Auto place or Run synchronizes the owner session draft. Explicitly saved configurations survive restart. Undo to empty restores the assignment-choice popup. Preserve raw text and clear old validation errors on edits. Keep Stop/Cancel reachable while another selection is dirty; confirm interruption before replacing a session.
 - U14 (P4, P6): A required worker disconnect interrupts affected generation. Mark the peer and model/session appropriately and provide reconnect/restart/removal choices consistent with actual recovery policy.
 - U15 (P3): Configuration rows share the chat-row layout, font, rounded selection, measured truncation/fade and hover scrolling. Reveal the original OpenAI trash-light-16 icon on hover or keyboard focus, reserving its fixed control width. Reset scrolling on leave and respect reduced motion. Trash opens the shared confirmation dialog. Confirmed deletion removes only that saved configuration and its own draft, retaining model settings, other drafts/configurations and any already running session. Deletion is unavailable during loading or planning. Failed deletion preserves the row and edits.
 
@@ -606,6 +841,20 @@ Hold the left mouse button and drag empty canvas to pan; clicks on cards and con
 The user's 2026-10-05 PROCEED replaces the bottom-left text hint with a fixed floating canvas-control bar, following the supplied Image-tools bar's padding and corner proportions. Use a flat `#2c2c2c` rounded rectangle with 12px corner radius, 8px vertical and 12px horizontal padding, 16px between control groups, and 8px icon-to-label spacing. Retain shared 13px control text, 16px icons and muted `#ababab` content; use 24px inner controls for a 40px bar height, transparent idle controls, `#383838` hover shading and visible keyboard focus. These are ModelLoom CSS targets derived from the screenshot, not inspected ChatGPT CSS. Keep the bar 16px inside the canvas's left and bottom edges, outside the transformed diagram and below the inspector. The subsequent approved refinement removes the redundant Pan button. Order the controls as zoom out, current percentage, zoom in, and Fit to view. Dragging empty canvas and arrow-key panning on the focused canvas remain available without switching modes. Zoom buttons share the keyboard zoom behaviour and 25–200% bounds, disabling at each limit. Fit to view and keyboard 0 share fitting, with clearance above the bar. Clicking, dragging or scrolling over the bar does not pan or zoom the diagram. Preserve the screen-reader gesture instructions and existing canvas, card and inspector interactions.
 
 The user's subsequent colour/outline fix makes the Cluster content and its surrounding workspace padding one continuous `#181818` surface, with neutral `#212121` window chrome/navigation surround. Set the Cluster surface at its workspace container so the parent padding cannot expose the former `#111215` background. The canvas never draws a focus outline, including during mouse clicks, dragging, programmatic focus, or keyboard focus. It remains keyboard focusable and operable; individual buttons and inputs retain their focus indicators. This explicit canvas exception supersedes the general focus-outline rule only for the canvas region.
+
+### Approved Cluster canvas dot grid, 2026-11-01
+
+The overview uses a neutral dot grid across its full content background, including
+behind the fixed floating top and zoom controls. Solid cards and controls cover
+the dots; the navigation sidebar, Devices and Connections remain plain. Clip the
+grid at the existing workspace boundary and preserve all layout and interactions.
+
+Use Amoeba's 20 CSS px base spacing at ModelLoom's 100% zoom, with `#383838` dots
+of 1px radius fading to transparent at 1.2px over the existing workspace surface.
+The user rejected the initial 9.2px spacing as too dense at 100% zoom.
+Scale the spacing with ModelLoom's zoom and anchor its origin to the same pan
+coordinates as the cards; keep dot radius fixed. This background is decorative
+and adds no pointer targets or accessibility announcements.
 
 ### Approved model planning and Run revision, 2026-10-04
 
@@ -1012,3 +1261,140 @@ Idle bandwidth is labelled Last measured bandwidth, distinct from live traffic.
 Unavailable observations retain historical values with explicit labels; unsupported
 older reporters remain usable. Do not fabricate a direct measured connection
 between two remote worker cards merely because a placement line joins them.
+
+### Inline cluster device cards (2026-11-02)
+
+Use the approved OpenAI Apps SDK UI 0.2.2 card preview: a 520px maximum card,
+device heading and role badge, compact metrics, and darker GPU sections. SDK
+tokens and control resets stay inside the card. Preserve the reference's 16px
+SDK scale without changing the app's 14px root. The dark theme must apply to
+the card scope root, including the role badge and all button states.
+
+The 2026-11-03 polish uses a 19px outer radius, 18px left/right insets,
+17px bottom inset and 14px between GPU sections. Device and GPU usage stats use
+13px text at 100% canvas zoom. Single-device canvases and spatial grid columns
+use the same 520px card width. Height remains content-driven so inline editors
+and additional GPUs can expand downward.
+First / Last inputs retain their normal borders without the blue focus outline;
+their dimensions, placement, automatic focus and editing behaviour stay unchanged.
+Show a small green dot immediately after each GPU name only while that GPU
+has a confirmed active runtime assignment. Replace the separate In use / Active
+layers row with this dot. Saved or draft ranges alone never show it; manual
+unload, runtime failure and cleared active assignments remove it. Keep the dot
+visible between generations while the model remains loaded.
+The device actions menu uses 14px regular text at 100% zoom and stays inside
+the canvas transform, scaling its text, spacing and width with the device card.
+It remains anchored to the ellipsis button and supports keyboard navigation,
+Escape, outside dismissal and focus restoration.
+
+Show each GPU's actual contiguous interval on the full 0 through N-1 layer
+axis. Its single knob changes the ending layer while preserving the start;
+following GPU assignments update as a cluster-wide preview in layer order,
+including other PCs. An interval starting at zero reaches the track's left edge.
+Sliders and valid First/Last field edits use the same redistribution. Keep later
+existing boundaries where possible; extend or consume following ranges as the
+edited endpoint moves. Share any remaining tail evenly among previously empty
+following GPUs, so an initially unassigned second GPU receives the remainder.
+Retain the edit's original allocation boundaries until Done or Cancel, allowing
+a boundary moved back to restore GPUs temporarily consumed by the preview.
+Manual starts that overlap earlier ranges retain overlap feedback.
+The outlined pencil/range control opens First/Last fields. Slider changes also
+open those fields, with Cancel and Done; sliders remain usable while editing.
+Cancel or Escape restores the whole preview, and Done applies every range in
+one undoable in-memory draft edit. Explicit Save and Run keep their existing
+meaning. Changing model/inventory invalidates a stale preview. Keep overlap and
+unassigned-layer feedback, and prevent Save/Run from bypassing an unfinished preview.
+
+Opening or closing the inline editor preserves the current canvas position and
+zoom. Its card grows downward, moving subsequent GPU sections down. Keep normal
+re-centering for initial loading, viewport/panel resizing, device layout changes,
+and explicit Fit to view. Use the OpenAI SDK Animate fade and easing with an
+intrinsic height transition that remains correct inside a zoomed canvas: 200ms
+expansion and 160ms collapse, with a 160ms fade. Reduced-motion mode skips these
+effects. Moving focus into the editor or back to its trigger must not scroll the canvas.
+
+Before a model is selected, retain each card's layer area with zero assigned
+layers, a zero-only scale, and a disabled slider at zero. Dim its heading, count,
+scale and range controls while preserving the slider track and thumb colours.
+The disabled range button reads "Load a model to assign layers". Remove the
+separate card-level Choose-model footer. Selecting a model restores ordinary
+pre-run layer editing; it does not require a running model. Keep the inline
+editor's Done/Save hint. Display measured CPU/GPU utilization, memory usage,
+and physical-disk read/write rates when their platform collectors provide them.
+Missing or stale readings remain unavailable. Apple GPU allocations are labelled
+unified memory shared with the system, never additional dedicated VRAM.
+See [device telemetry](../docs/device-telemetry.md) for source definitions and
+deferred platform validation. Preserve all four hover-add edges,
+the add-device hint, picker, details, rename, and existing removal restrictions.
+
+### Persistent Cluster overview summary (2026-11-03)
+
+The approved `/summary.html` preview replaces the contextual right inspector.
+Use its 300px shell, Segoe UI 13px regular text, 20px content insets, 28px minimum
+rows, 8px section spacing and inset separators. The surface is #262626, primary
+text #e7e7e7 and muted text #afafaf. Use a 16px round radius, or the reference's
+20px superellipse(1.5) corner shape where supported. Position it 72px from the
+canvas main area's top and 24px from its right edge, with bounded vertical scrolling.
+
+Keep Model, Hardware, Speculative workload and Layer assignment in the same
+panel. Model shows the existing library glyph, selected model/status, file size
+and configured context, not maximum supported context or quantization/format.
+Show a different currently running model separately. Hardware uses current canvas
+inventory; dedicated GPU memory and shared unified memory remain distinct.
+
+Speculative workload starts collapsed and expands inline. Its 14px Codex chevron points right and
+remains visible when collapsed; the expanded down chevron appears only on hover
+or keyboard focus. Show proposer method and CPU retrieval separately when both
+exist. Use the OpenAI SDK Select for supported execution placement, preserving
+target-linked placement, unavailable-device warnings and loading/saving locks.
+Scope SDK tokens to this dropdown's portal as well as the panel. Model configuration
+owns the enable setting; changes to placement still require Save and reload.
+
+Selecting a canvas device highlights that card and its matching read-only Layer
+assignment row. Keep Cluster overview visible. Selection never changes layer
+assignments, starts loading or unloads a model. Layer ranges are edited only on
+GPU cards; retain their existing preview, Done/Cancel, Undo/Redo and Save/Run flow.
+Device details opens the existing Devices view, and Rename uses the existing
+name editor in a dialog. Connection information appears as an additional inline
+section without replacing the overview.
+
+Connection details starts collapsed and shares Speculative workload's exact
+14px chevron and hover/focus behavior. Inside it, use aligned From/To, network,
+path, status and latency rows, followed by transfer rates. Keep all measurements,
+historical labels and direction explanations. Use 13px regular rows, 12px muted
+notes and 8px between groups, without internal divider lines or bold Devices/
+Connection subheadings. The separator above the whole section remains.
+
+Latency (including Last latency) and Bandwidth/Live transfer rate have 14px SDK
+InfoCircle glyphs beside their labels. Use the SDK Tooltip with scoped dark
+tokens for explanations instead of paragraphs below these rows. Preserve the
+bandwidth context for active, measured, testing, unsupported and unavailable
+states. Tooltips open on hover or keyboard focus; Escape dismisses the tooltip
+without closing Cluster overview. Measurements and polling remain unchanged.
+
+Retain edge-hover + controls and the add-device hint. The compact Add device
+picker appears after Layer assignment. Closing or completing it keeps the summary
+open; added PCs remain unassigned. Existing inventory, sharing and runtime guards
+remain authoritative.
+
+Picker Close and Add buttons retain the SDK ghost/outline surfaces without native
+browser borders or fills. Use one neutral SDK focus ring, without a second blue
+outline. Preserve their focus, disabled-state and action behavior.
+
+Use the verified Codex summary motion: hidden opacity 0 and translateX(100%),
+visible opacity 1 and translateX(0%), spring duration 0.3 and bounce 0.01. Clip
+the sliding panel to the main area's rounded bounds. Animate card repositioning
+with the same spring through a separate horizontal camera offset. Opening or
+closing the panel preserves the current zoom and GPU-editor anchoring; explicit
+Fit to view, viewport and device-layout changes retain their normal behavior.
+The exiting panel is inert and hidden from assistive technology. Restore focus
+on dismissal, and honor reduced motion with immediate transitions.
+
+### Cluster overview toolbar
+
+Put the model chooser first, followed by grouped Undo and Redo and an Assignment
+options menu containing Reset to default. Align Save, the labeled runtime action,
+and the panel toggle on the right. Load model is the primary action. The same
+runtime control shows Cancel loading, Unload model, or Apply and restart as
+appropriate. Reset edits the assignment draft; it does not load a model. Keep the
+existing action guards and panel and canvas transitions.

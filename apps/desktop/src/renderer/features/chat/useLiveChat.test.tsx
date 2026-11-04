@@ -74,8 +74,9 @@ async function fixture(
   };
   return { core, history, work, cancellations: () => cancellations };
 }
-function Harness({ ready = true }: { ready?: boolean }) {
+function Harness({ ready = true, visible = true }: { ready?: boolean; visible?: boolean }) {
   const live = useLiveChat(true, ready);
+  if (!visible) return <p>Another page</p>;
   return (
     <ChatPage
       demo={false}
@@ -87,6 +88,75 @@ function Harness({ ready = true }: { ready?: boolean }) {
     />
   );
 }
+it('retains pinned and archived chats and tracks background generation across page navigation', async () => {
+  const f = await fixture(),
+    user = userEvent.setup();
+  const view = render(<Harness />);
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+  await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Keep generating');
+  await user.click(screen.getByRole('button', { name: 'Send message' }));
+  await waitFor(() => expect(f.work).toHaveLength(1));
+  expect(await screen.findByRole('img', { name: 'Generating: Keep generating' })).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Pin chat: Keep generating' }));
+  await waitFor(() => expect(screen.getByRole('region', { name: 'Pinned' })).toBeVisible());
+  view.rerender(<Harness visible={false} />);
+  view.rerender(<Harness />);
+  expect(await screen.findByRole('img', { name: 'Generating: Keep generating' })).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Archive chat: Keep generating' }));
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Keep generating' })).not.toBeInTheDocument(),
+  );
+  expect(f.cancellations()).toBe(0);
+  await user.click(screen.getByRole('button', { name: 'Archived chats' }));
+  expect(await screen.findByRole('img', { name: 'Generating: Keep generating' })).toBeVisible();
+  view.unmount();
+  render(<Harness />);
+  await screen.findByText('Saved on this device');
+  await user.click(screen.getByRole('button', { name: 'Archived chats' }));
+  expect(await screen.findByRole('img', { name: 'Generating: Keep generating' })).toBeVisible();
+  f.work[0]!.settle({ status: 'completed', reason: 'STOP' });
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('img', { name: 'Generating: Keep generating' }),
+    ).not.toBeInTheDocument(),
+  );
+  await user.click(screen.getByRole('button', { name: 'Unarchive chat: Keep generating' }));
+  await user.click(screen.getByRole('button', { name: 'Back to chats' }));
+  expect(await screen.findByRole('region', { name: 'Pinned' })).toBeVisible();
+  expect(f.work).toHaveLength(1);
+  await f.core.close();
+});
+it.each([
+  { status: 'cancelled', reason: 'USER_CANCELLED' },
+  { status: 'failed', reason: 'EXECUTION_FAILED' },
+] as const)(
+  'removes the background spinner after $status while another page is open',
+  async (outcome) => {
+    const f = await fixture(),
+      user = userEvent.setup();
+    const view = render(<Harness />);
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Background response');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => expect(f.work).toHaveLength(1));
+    expect(
+      await screen.findByRole('img', { name: 'Generating: Background response' }),
+    ).toBeVisible();
+    view.rerender(<Harness visible={false} />);
+    f.work[0]!.settle(outcome);
+    await waitFor(async () =>
+      expect((await f.history.listConversations())[0]?.generating).toBe(false),
+    );
+    view.rerender(<Harness />);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('img', { name: 'Generating: Background response' }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(f.work).toHaveLength(1);
+    await f.core.close();
+  },
+);
 it('Stop aborts prompt preparation without creating a turn or starting generation', async () => {
   let counting: AbortSignal | undefined;
   const f = await fixture((_messages, signal) => {
@@ -125,18 +195,19 @@ it('searches saved messages before opening their conversation, including after r
   await f.work[0]!.progress({ type: 'text', text: 'A hidden CAFÉ reference' });
   await f.work[0]!.progress({ type: 'terminal', outcome: { status: 'completed', reason: 'STOP' } });
   f.work[0]!.settle({ status: 'completed', reason: 'STOP' });
-  await screen.findByText('Complete');
+  await waitFor(() => expect(screen.queryByText('Generating…')).not.toBeInTheDocument());
+  expect(screen.queryByText('Complete')).not.toBeInTheDocument();
   await user.click(screen.getAllByRole('button', { name: 'New chat' })[0]!);
   await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(''));
   const { cleanup } = await import('@testing-library/react');
   cleanup();
   render(<Harness ready={false} />);
   await screen.findByText('Saved on this device');
-  await user.click(screen.getByRole('button', { name: 'Search conversations' }));
+  await user.click(screen.getByRole('button', { name: 'Search chats' }));
   await user.type(screen.getByRole('searchbox', { name: 'Search chats' }), 'café');
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Ordinary title' })).toBeVisible());
+  await waitFor(() => expect(screen.getByRole('option', { name: 'Ordinary title' })).toBeVisible());
   expect(screen.queryByText('A hidden CAFÉ reference')).toBeNull();
-  await user.click(screen.getByRole('button', { name: 'Ordinary title' }));
+  await user.click(screen.getByRole('option', { name: 'Ordinary title' }));
   expect(await screen.findByText('A hidden CAFÉ reference')).toBeVisible();
   await f.core.close();
 });
@@ -187,11 +258,13 @@ it('confirms deletion, stops the chosen active response and opens an empty chat'
   await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Delete this response');
   await user.click(screen.getByRole('button', { name: 'Send message' }));
   await waitFor(() => expect(f.work).toHaveLength(1));
-  await user.click(screen.getByRole('button', { name: 'Delete chat: Delete this response' }));
+  await user.click(screen.getByRole('button', { name: 'Chat actions: Delete this response' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Delete chat' }));
   expect(screen.getByRole('dialog', { name: 'Delete chat?' })).toBeVisible();
   await user.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(f.cancellations()).toBe(0);
-  await user.click(screen.getByRole('button', { name: 'Delete chat: Delete this response' }));
+  await user.click(screen.getByRole('button', { name: 'Chat actions: Delete this response' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Delete chat' }));
   await user.click(screen.getByRole('button', { name: 'Delete' }));
   await waitFor(() => expect(f.cancellations()).toBe(1));
   await waitFor(() => expect(screen.getByRole('heading', { name: 'New chat' })).toBeVisible());
@@ -217,7 +290,8 @@ it('retains the selected saved chat and draft if deletion fails', async () => {
   await waitFor(() =>
     expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Saved draft'),
   );
-  await user.click(screen.getByRole('button', { name: 'Delete chat: New chat' }));
+  await user.click(screen.getByRole('button', { name: 'Chat actions: New chat' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Delete chat' }));
   await user.click(screen.getByRole('button', { name: 'Delete' }));
   await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Could not delete'));
   expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Saved draft');
@@ -236,7 +310,8 @@ it('deletes during prompt preparation without sending or losing an unrelated dra
   await user.click(screen.getByRole('button', { name: 'Send message' }));
   await screen.findByText('Preparing response…');
   const deleted = (await f.history.listConversations())[0]!.id;
-  await user.click(screen.getAllByRole('button', { name: 'Delete chat: New chat' })[0]!);
+  await user.click(screen.getAllByRole('button', { name: 'Chat actions: New chat' })[0]!);
+  await user.click(screen.getByRole('menuitem', { name: 'Delete chat' }));
   await user.click(screen.getByRole('button', { name: 'Delete' }));
   await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Chat deleted'));
   expect(f.work).toHaveLength(0);
@@ -472,7 +547,8 @@ it('retries a stopped attempt without duplicating its user turn or losing partia
   await f.work[1]!.progress({ type: 'text', text: 'Second answer' });
   await f.work[1]!.progress({ type: 'terminal', outcome: { status: 'completed', reason: 'STOP' } });
   f.work[1]!.settle({ status: 'completed', reason: 'STOP' });
-  expect(await screen.findByText('Complete')).toBeVisible();
+  await waitFor(() => expect(screen.queryByText('Generating…')).not.toBeInTheDocument());
+  expect(screen.queryByText('Complete')).not.toBeInTheDocument();
   expect(screen.getByText('First partial')).toBeVisible();
   expect(screen.getByText('Second answer')).toBeVisible();
   const summaries = await f.history.listConversations();

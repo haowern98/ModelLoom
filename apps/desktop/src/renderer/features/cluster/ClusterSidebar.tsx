@@ -46,7 +46,7 @@ export function ClusterSidebar({
   ];
 
   return (
-    <aside className={styles.sidebar} aria-labelledby="cluster-heading">
+    <aside id="cluster-sidebar" className={styles.sidebar} aria-labelledby="cluster-heading">
       <header className={styles.header}>
         <h1 id="cluster-heading">Cluster</h1>
       </header>

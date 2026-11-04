@@ -7,7 +7,7 @@ import type { Destination } from './navigation';
 const destinations: Destination[] = ['Chat', 'Cluster', 'Models', 'API', 'Settings'];
 
 it.each(destinations)(
-  'switches %s between outline and filled artwork without changing navigation',
+  'preserves %s artwork and navigation when selection changes',
   async (destination) => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
@@ -30,7 +30,9 @@ it.each(destinations)(
       </AppShell>,
     );
     expect(button).toHaveAttribute('aria-current', 'page');
-    expect(button.querySelector('svg')?.innerHTML).not.toBe(outline);
+    if (destination === 'Chat' || destination === 'Models')
+      expect(button.querySelector('svg')?.innerHTML).not.toBe(outline);
+    else expect(button.querySelector('svg')?.innerHTML).toBe(outline);
     expect(button.querySelector('svg')).toHaveAttribute('width', '20');
     expect(button.querySelector('svg')).toHaveAttribute('height', '20');
     expect(button.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');

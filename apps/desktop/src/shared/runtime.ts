@@ -42,6 +42,11 @@ export interface DeviceGpu {
   enabled?: boolean;
   totalMemoryBytes?: number;
   availableMemoryBytes?: number;
+  /** Display telemetry only; not runtime admission or allocatable capacity. */
+  utilizationPercent?: number;
+  usedMemoryBytes?: number;
+  memoryKind?: 'dedicated' | 'unified';
+  vendor?: 'apple' | 'intel';
   /** Physical identity from trusted NVIDIA telemetry, never inferred from a display name. */
   executionIdentity?: { vendor: 'nvidia'; uuid: string; pciBus: string } | null;
 }
@@ -51,6 +56,9 @@ export interface DeviceInventory {
   usableRamBytes?: number;
   availableRamBytes?: number;
   cpuCores?: number;
+  cpuUsagePercent?: number;
+  diskReadBytesPerSecond?: number;
+  diskWriteBytesPerSecond?: number;
   gpus?: readonly DeviceGpu[];
   runtimeBackends?: readonly string[];
   sampledAt: number;
@@ -58,7 +66,12 @@ export interface DeviceInventory {
 /** Shared display policy; hardware presence is not runtime admission authority. */
 export function supportedDeviceGpus(gpus: readonly DeviceGpu[]): readonly DeviceGpu[] {
   return gpus.filter(
-    (gpu) => (gpu.pciVendorId === '10de' || gpu.pciVendorId === '1002') && gpu.enabled !== false,
+    (gpu) =>
+      (gpu.pciVendorId === '10de' ||
+        gpu.pciVendorId === '1002' ||
+        gpu.vendor === 'apple' ||
+        gpu.vendor === 'intel') &&
+      gpu.enabled !== false,
   );
 }
 export interface RuntimeView {
@@ -66,6 +79,8 @@ export interface RuntimeView {
   model: RuntimeModel | null;
   phase: 'stopped' | 'starting' | 'loading' | 'ready' | 'stopping' | 'failed';
   error: string | null;
+  /** Observed startup stage, not a tensor byte percentage. */
+  loadingStage?: number | undefined;
   device?: RuntimeDevice;
   models?: readonly RuntimeModel[];
   indexing?: string | null;

@@ -154,10 +154,10 @@ test('settings keeps centred readable content and independent scrolling at suppo
       const left = bounds.x - detailBounds.x;
       const right = detailBounds.x + scrollWidth - bounds.x - bounds.width;
       expect(Math.abs(left - right)).toBeLessThanOrEqual(1);
-      await expect(panel).toHaveCSS('width', '240px');
-      await expect(panel).toHaveCSS('background-color', 'rgb(28, 28, 28)');
+      await expect(panel).toHaveCSS('width', '238px');
+      await expect(panel).toHaveCSS('background-color', 'rgba(17, 17, 17, 0.65)');
       await expect(panel).toHaveCSS('border-top-right-radius', '0px');
-      await expect(detail).toHaveCSS('background-color', 'rgb(24, 24, 24)');
+      await expect(detail).toHaveCSS('background-color', 'rgb(17, 17, 17)');
       await expect(panel.getByRole('button', { name: 'Appearance', exact: true })).toBeInViewport();
       await expect(panel.getByRole('button', { name: 'Appearance', exact: true })).toHaveCSS(
         'font-size',
@@ -175,5 +175,59 @@ test('settings keeps centred readable content and independent scrolling at suppo
       });
       await page.screenshot({ path: `test-results/settings-${font}-${width}.png` });
     }
+  }
+});
+
+test('Settings uses native thin scrollbars across the full pane height', async ({ page }) => {
+  const detail = page.getByRole('region', { name: 'Settings details' });
+  const categories = page.getByRole('navigation', { name: 'Settings categories' });
+  const workspace = page.getByRole('region', { name: 'ModelLoom workspace' });
+  for (const width of [1280, 1000]) {
+    await page.setViewportSize({ width, height: 620 });
+    await detail.evaluate((node) => {
+      node.scrollTop = 0;
+    });
+    await page.mouse.move(20, 20);
+    for (const scroller of [categories, detail]) {
+      await expect(scroller).toHaveCSS('scrollbar-width', 'thin');
+      // Chromium serializes scrollbar alpha at 8-bit precision.
+      await expect(scroller).toHaveCSS(
+        'scrollbar-color',
+        'rgba(252, 252, 252, 0.082) rgba(0, 0, 0, 0)',
+      );
+      expect(
+        await scroller.evaluate((node) => {
+          const track = getComputedStyle(node, '::-webkit-scrollbar-track');
+          return [track.marginTop, track.marginBottom];
+        }),
+      ).toEqual(['0px', '0px']);
+      await scroller.hover();
+      await expect(scroller).toHaveCSS(
+        'scrollbar-color',
+        'rgba(252, 252, 252, 0.157) rgba(0, 0, 0, 0)',
+      );
+      await page.mouse.move(20, 20);
+    }
+    const frame = (await workspace.boundingBox())!;
+    const pane = (await detail.boundingBox())!;
+    expect(pane.y).toBe(frame.y);
+    expect(pane.y + pane.height).toBe(frame.y + frame.height);
+    await expect(detail).toHaveCSS('scrollbar-gutter', 'stable');
+    await expect(detail).toHaveCSS('padding-top', '44px');
+    await expect(detail).toHaveCSS('padding-bottom', '32px');
+    expect(await detail.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+    await detail.focus();
+    await page.keyboard.press('End');
+    await expect(page.getByRole('switch', { name: 'Contextual help' })).toBeInViewport();
+    await expect
+      .poll(() =>
+        detail.evaluate((node) => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop)),
+      )
+      .toBeLessThanOrEqual(1);
+    await page.screenshot({ path: test.info().outputPath(`settings-scroll-bottom-${width}.png`) });
+    await page.keyboard.press('Home');
+    await expect.poll(() => detail.evaluate((node) => node.scrollTop)).toBe(0);
+    await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeInViewport();
+    await page.screenshot({ path: test.info().outputPath(`settings-scroll-top-${width}.png`) });
   }
 });

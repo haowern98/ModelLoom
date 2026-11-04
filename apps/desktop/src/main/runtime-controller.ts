@@ -1,3 +1,4 @@
+import type { ModelLoadingStatus } from './model-loading-status';
 import { randomUUID } from 'node:crypto';
 import { toPeerHardware } from './peer-hardware';
 import type { PeerHardware } from '../../../../packages/core/src/peers/hardware';
@@ -59,6 +60,7 @@ interface Host {
 /** Trusted main dependencies; none of these capabilities are renderer inputs. */
 interface ActivationDependencies {
   enabled: true;
+  loadingStatus?: ModelLoadingStatus;
   peers?(input: unknown): Promise<PeerReply>;
   updatePeerHardware?(hardware: PeerHardware): Promise<void>;
   subscribePeers?(listener: (reply: PeerReply) => void): () => void;
@@ -449,7 +451,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
   }
   const observeDevice = async () => {
     if (deviceCleanupFailed) throw new Error('QUERY_CLEANUP_FAILED');
-    if (!deps.device || quitting || (view.device && Date.now() - deviceObservedAt < 10000)) return;
+    if (!deps.device || quitting || (view.device && Date.now() - deviceObservedAt < 2000)) return;
     const generation = deviceGeneration;
     deviceProbe ??= Promise.resolve()
       .then(() => (quitting ? undefined : deps.device!()))
@@ -478,7 +480,14 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     // A notification during the scan invalidates its result, without overlapping native queries.
     if (!quitting && generation !== deviceGeneration) await observeDevice();
   };
-  const result = () => structuredClone(view);
+  const result = () =>
+    structuredClone({
+      ...view,
+      loadingStage:
+        deps.enabled && ['starting', 'loading'].includes(view.phase)
+          ? deps.loadingStatus?.stage
+          : undefined,
+    });
   const send = async (
     action: string,
     selection?: Record<string, string>,
@@ -1143,6 +1152,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           loadingEpoch = operation;
           await send('stop');
           if (operation !== epoch || quitting) return result();
+          deps.loadingStatus?.begin();
           view = { ...view, phase: 'starting', error: null };
           if (clusterCleanupFailed) throw Error('CLEANUP_FAILED');
           enginePreparation = host.prepareCluster(
@@ -1197,6 +1207,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           if (!model || model.unavailable) throw new Error('MODEL_FILE_UNAVAILABLE');
           const operation = ++epoch;
           loadingEpoch = operation;
+          deps.loadingStatus?.begin();
           view = { ...view, model, phase: 'starting', error: null };
           file = source.file;
           await selectHistoryOwner(source);

@@ -83,7 +83,7 @@ test('relocated packaged development imports and loads the approved runtime', as
     await window.getByRole('button', { name: 'Cluster', exact: true }).click();
     await window.getByRole('button', { name: 'Choose model', exact: true }).click();
     await window.getByRole('menuitem', { name: /Bonsai 27B/ }).click();
-    await window.getByRole('button', { name: 'Run model', exact: true }).click();
+    await window.getByRole('button', { name: 'Load model', exact: true }).click();
     await expect(
       window
         .getByText('Local model ready', { exact: true })

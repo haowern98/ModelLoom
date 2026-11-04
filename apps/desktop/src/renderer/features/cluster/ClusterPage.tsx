@@ -1,16 +1,24 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { Dispatch } from 'react';
+import { AnimatePresence } from 'motion/react';
+import { Button as SdkButton } from '@openai/apps-sdk-ui/components/Button';
+import {
+  ArrowRotateCcw,
+  ArrowRotateCw,
+  SidebarRight,
+  StopOutline,
+} from '@openai/apps-sdk-ui/components/Icon';
+import { Menu } from '@openai/apps-sdk-ui/components/Menu';
+import { ModelLoadingIcon } from './ModelLoadingIcon';
+import { DeviceNameEditor } from './DeviceNameEditor';
+import summaryStyles from './ClusterPanel.module.css';
 import type { ClusterConfigurations } from './useClusterConfigurations';
 import type { SavedClusterConfiguration } from '../../../shared/cluster-configuration';
 import type { RuntimeView } from '../../../shared/runtime';
-import { FloppyDisk } from '@phosphor-icons/react/dist/csr/FloppyDisk';
 import { Network } from '@phosphor-icons/react/dist/csr/Network';
-import { SidebarSimple } from '@phosphor-icons/react/dist/csr/SidebarSimple';
 import { ChatGptPlayIcon } from '../../components/ChatGptPlayIcon';
 import { ChatGptHistoryIcon } from '../../components/ChatGptHistoryIcon';
-import { Stop as Square } from '@phosphor-icons/react/dist/csr/Stop';
-import { ArrowClockwise as RotateCw } from '@phosphor-icons/react/dist/csr/ArrowClockwise';
-import { Spinner as LoaderCircle } from '@phosphor-icons/react/dist/csr/Spinner';
+import { ChatNavIcon } from '../../components/ChatNavIcon';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { Toast } from '../../components/Toast';
@@ -24,8 +32,9 @@ import {
   parseLayerInputs,
   validSampleRange,
 } from '../../mocks/cluster';
-import type { DemoDevice, DemoPlacement, LayerInput, PlacementAction } from '../../mocks/cluster';
+import type { DemoDevice, DemoPlacement, PlacementAction } from '../../mocks/cluster';
 import { DeviceCard } from './DeviceCard';
+import { useCardAllocation } from './useCardAllocation';
 import { ClusterCanvas } from './ClusterCanvas';
 import { ClusterPanel } from './ClusterPanel';
 import { ClusterModelPicker } from './ClusterModelPicker';
@@ -46,6 +55,7 @@ const edgeHintKey = 'modelloom.canvas-edge-add-discovered';
 type Modal =
   | { type: 'placement'; model: DemoModel }
   | { type: 'restart' }
+  | { type: 'rename-device'; device: DemoDevice }
   | { type: 'name' }
   | { type: 'delete'; configuration: SavedClusterConfiguration };
 const configurationErrors: Readonly<Record<string, string>> = {
@@ -85,6 +95,11 @@ const configurationErrors: Readonly<Record<string, string>> = {
 };
 
 interface ClusterPageProps extends JoiningProps {
+  navigation?: {
+    view: ClusterView;
+    deviceId: string | null;
+    onChange: (view: ClusterView, deviceId: string | null) => void;
+  };
   speculativeRequest?: number;
   onSpeculationOpened?: () => void;
   onModelConfiguration?: (modelId: string) => void;
@@ -94,7 +109,7 @@ interface ClusterPageProps extends JoiningProps {
   pendingPeerRequests?: number;
   configurations?: ClusterConfigurations;
   devices: readonly DemoDevice[];
-  onRenameDevice: (id: string, name: string) => void;
+  onRenameDevice: (id: string, name: string) => boolean | void;
   activeModel: DemoModel | undefined;
   models: readonly DemoModel[];
   placement: DemoPlacement;
@@ -102,6 +117,7 @@ interface ClusterPageProps extends JoiningProps {
   onStop: () => void;
   localRuntime?: {
     loading: boolean;
+    loadingStage?: number | undefined;
     activeCluster?: RuntimeView['activeCluster'];
     onChoose(model: DemoModel): void;
     onRun(): void;
@@ -112,6 +128,7 @@ interface ClusterPageProps extends JoiningProps {
 
 /** Cluster presentation delegates local runtime actions; networking previews remain session-only. */
 export function ClusterPage({
+  navigation,
   demo,
   joining,
   onJoining,
@@ -132,15 +149,25 @@ export function ClusterPage({
   onModelConfiguration,
 }: ClusterPageProps) {
   const [configurationName, setConfigurationName] = useState('');
-  const [validatedDemoInputs, setValidatedDemoInputs] = useState<readonly LayerInput[] | null>(
-    null,
+  const [localNavigation, setLocalNavigation] = useState<{
+    view: ClusterView;
+    deviceId: string | null;
+  }>({ view: 'overview', deviceId: null });
+  const { view, deviceId: deviceDetailsTarget } = navigation ?? localNavigation;
+  const onNavigationChange = navigation?.onChange;
+  const setRoute = useCallback(
+    (view: ClusterView, deviceId: string | null = null) => {
+      if (onNavigationChange) onNavigationChange(view, deviceId);
+      else setLocalNavigation({ view, deviceId });
+    },
+    [onNavigationChange],
   );
-  const [view, setView] = useState<ClusterView>('overview');
-  const [deviceDetailsTarget, setDeviceDetailsTarget] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const panelId = useId();
   const panelToggle = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLElement>(null);
+  const canvasBackground = useRef<HTMLDivElement>(null);
   const [notification, setNotification] = useState<ToastMessage | null>(null);
   const notificationId = useRef(0);
   const dismissNotification = useCallback(() => setNotification(null), []);
@@ -166,11 +193,11 @@ export function ClusterPage({
   const reportError = (message: string) => {
     if (message) notify('error', message);
   };
-  useEffect(() => {
-    if (panelOpen) panelRef.current?.focus();
-  }, [panelOpen]);
-  const restoreFocus = useRef<HTMLElement | null>(null);
   const [selection, setSelection] = useState<ClusterSelection>({ type: 'overview' });
+  useEffect(() => {
+    if (panelOpen && selection.type !== 'add') panelRef.current?.focus({ preventScroll: true });
+  }, [panelOpen, selection.type]);
+  const restoreFocus = useRef<HTMLElement | null>(null);
   const closePanel = () => {
     const focusTarget =
       document.activeElement === panelToggle.current ? panelToggle.current : restoreFocus.current;
@@ -187,7 +214,15 @@ export function ClusterPage({
     restoreFocus.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSelection(next);
+    if (next.type === 'device') setSelectedDeviceId(next.device.id);
     setPanelOpen(true);
+  };
+  const dismissPicker = () => {
+    setSelection({ type: 'overview' });
+    queueMicrotask(
+      () =>
+        restoreFocus.current?.isConnected && restoreFocus.current.focus({ preventScroll: true }),
+    );
   };
   const [modal, setModal] = useState<Modal | null>(null);
   const devices = demo || localRuntime ? availableDevices : [];
@@ -233,17 +268,15 @@ export function ClusterPage({
   );
   const navigate = useCallback(
     (next: ClusterView) => {
-      setView(next);
+      setRoute(next);
       if (next === 'overview' && deviceDetailsTarget) {
-        setDeviceDetailsTarget(null);
         setPanelOpen(true);
         return;
       }
-      setDeviceDetailsTarget(null);
       setPanelOpen(false);
       setSelection({ type: 'overview' });
     },
-    [deviceDetailsTarget],
+    [deviceDetailsTarget, setRoute],
   );
   useEffect(() => {
     if (!connectionsRequest) return;
@@ -262,7 +295,7 @@ export function ClusterPage({
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
-      setView('overview');
+      setRoute('overview');
       setSelection({ type: 'speculation' });
       setPanelOpen(true);
       onSpeculationOpened?.();
@@ -270,7 +303,7 @@ export function ClusterPage({
     return () => {
       cancelled = true;
     };
-  }, [speculativeRequest, onSpeculationOpened]);
+  }, [speculativeRequest, onSpeculationOpened, setRoute]);
   const liveArrangement = demo ? arrangement : restoreCanvas(canvasDevices, arrangement);
   const positions = demo
     ? canvasPositions(canvasDevices, arrangement.positions)
@@ -284,9 +317,12 @@ export function ClusterPage({
     (link) => positions[link.from] && positions[link.to],
   );
   const inspectDevice = (device: DemoDevice) => {
-    setDeviceDetailsTarget(null);
-    setView('overview');
-    showPanel({ type: 'device', device });
+    setRoute('overview');
+    if (canvasDevices.some((item) => item.id === device.id)) showPanel({ type: 'device', device });
+    else {
+      setSelectedDeviceId(device.id);
+      showPanel({ type: 'add' });
+    }
   };
   const pendingRequests = demo
     ? incomingExamples.filter((request) => !joining.decisions[request.id]).length
@@ -305,8 +341,8 @@ export function ClusterPage({
       canvasDevices.some((device) => device.id === link.to),
   );
   const selectedModel = models.find((model) =>
-    configurations?.selection
-      ? model.id.replace(/^model-/u, '') === configurations.selection.modelId
+    configurations
+      ? model.id.replace(/^model-/u, '') === configurations.selection?.modelId
       : model.id === placement.modelId,
   );
   const executableGpus = canvasDevices.flatMap((device) => [
@@ -360,8 +396,15 @@ export function ClusterPage({
     selectedModel?.id === activeModel.id &&
     (activeCluster
       ? activeCluster.draftKey
-        ? configurations?.draft?.key === activeCluster.draftKey &&
-          configurations.draft.revision === activeCluster.revision
+        ? (configurations?.draft?.key === activeCluster.draftKey &&
+            configurations.draft.revision === activeCluster.revision) ||
+          Boolean(
+            configurations?.selection &&
+            !configurations.selection.configurationId &&
+            !configurations.draft &&
+            !changed &&
+            activeCluster.draftKey === `model:${configurations.selection.modelId}`,
+          )
         : configurations?.saved?.id === activeCluster.configurationId &&
           configurations.saved.revision === activeCluster.revision
       : !configurations?.selection?.configurationId),
@@ -374,6 +417,62 @@ export function ClusterPage({
     : activeModel
       ? placement.applied
       : [];
+  const editableIds = canvasDevices.flatMap((device) =>
+    device.hardware
+      .filter(
+        (hardware) =>
+          hardware.kind !== 'cpu' &&
+          (demo || executableGpus.some((gpu) => gpu.hardwareId === hardware.id)),
+      )
+      .map((hardware) => hardware.id),
+  );
+  const cardBaseRanges = selectedIsActive && !changed && activeCluster ? appliedRanges : ranges;
+  const cardEditsDisabled =
+    !canPlace || loading || Boolean(configurations?.pending || configurations?.planning);
+  const cardContext = JSON.stringify([
+    selectedModel?.id,
+    configurations?.selection,
+    configurations?.raw,
+    editorInputs,
+    appliedRanges,
+    editableIds,
+    layerCount,
+  ]);
+  const cardEditor = useCardAllocation({
+    ranges: cardBaseRanges,
+    ids: editableIds,
+    total: layerCount,
+    context: cardContext,
+    disabled: cardEditsDisabled,
+    commit: (next) => {
+      if (!configurations) {
+        dispatch({
+          type: 'edit-all',
+          inputs: editableIds.map((hardwareId) => {
+            const range = next.find((range) => range.hardwareId === hardwareId);
+            return {
+              hardwareId,
+              first: range ? String(range.first) : '',
+              last: range ? String(range.last) : '',
+            };
+          }),
+        });
+        return;
+      }
+      const editable = executableGpus.filter((gpu) => editableIds.includes(gpu.hardwareId));
+      configurations.edit([
+        ...(configurations.raw?.runs ?? []).filter(
+          (run) => !editable.some((gpu) => gpu.uuid === run.uuid),
+        ),
+        ...next.flatMap((range) => {
+          const gpu = editable.find((gpu) => gpu.hardwareId === range.hardwareId);
+          return gpu
+            ? [{ uuid: gpu.uuid, first: String(range.first), last: String(range.last) }]
+            : [];
+        }),
+      ]);
+    },
+  });
   const runCurrentAllocation = async () => {
     if (!configurations || !localRuntime) return;
     if (configurations.saved && !configurations.dirty) {
@@ -409,25 +508,19 @@ export function ClusterPage({
               ? 'Draft'
               : 'No assignment';
   }
+  const canUnloadWithoutSelection = Boolean(localRuntime && activeModel && !selectedModel);
+  const canUnload = selectedIsActive || canUnloadWithoutSelection;
   const runAction = loading
     ? 'Cancel loading'
     : selectedIsActive && changed && !configurations
       ? 'Apply and restart'
-      : selectedIsActive
-        ? 'Stop model'
-        : 'Run model';
-  const RunIcon = loading
-    ? LoaderCircle
-    : selectedIsActive && changed && !configurations
-      ? RotateCw
-      : selectedIsActive
-        ? Square
-        : null;
+      : canUnload
+        ? 'Unload model'
+        : 'Load model';
   const close = () => {
     setModal(null);
   };
   const validate = () => {
-    setValidatedDemoInputs(placement.inputs);
     const proposal = parseLayerInputs(placement.inputs, layerCount);
     if (!proposal || !completeSamplePlacement(proposal, layerCount)) {
       reportError(
@@ -459,7 +552,14 @@ export function ClusterPage({
       className={styles.page}
       aria-labelledby="cluster-heading"
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && panelOpen && !modal && !configurations?.leaveRequested) {
+        if (
+          !event.defaultPrevented &&
+          !(event.target instanceof Element && event.target.closest('[role="menu"]')) &&
+          event.key === 'Escape' &&
+          panelOpen &&
+          !modal &&
+          !configurations?.leaveRequested
+        ) {
           event.stopPropagation();
           closePanel();
         }
@@ -469,7 +569,7 @@ export function ClusterPage({
         view={view}
         onNavigate={navigate}
         devices={devices}
-        selectedDeviceId={selection.type === 'device' ? selection.device.id : undefined}
+        selectedDeviceId={selectedDeviceId ?? undefined}
         onSelect={inspectDevice}
         pendingRequests={pendingRequests}
         local={Boolean(localRuntime)}
@@ -479,7 +579,7 @@ export function ClusterPage({
           const configuration = configurations?.configurations.find((item) => item.id === id);
           if (configuration) {
             void configurations?.selectConfiguration(configuration);
-            setView('overview');
+            setRoute('overview');
           }
         }}
         deletingDisabled={loading || Boolean(configurations?.pending || configurations?.planning)}
@@ -488,7 +588,10 @@ export function ClusterPage({
           if (configuration) setModal({ type: 'delete', configuration });
         }}
       />
-      <div className={`${styles.main} ${view !== 'overview' ? styles.detailsMain : ''}`}>
+      <div
+        ref={canvasBackground}
+        className={`${styles.main} ${view !== 'overview' ? styles.detailsMain : ''}`}
+      >
         {notification && (
           <Toast
             key={notification.id}
@@ -498,19 +601,43 @@ export function ClusterPage({
           />
         )}
         <div hidden={view !== 'overview'}>
-          <header className={styles.header}>
+          <header className={styles.header} data-cluster-sdk="" data-theme="dark">
             <div className={styles.heading}>
-              <div
-                className={`${styles.actionCapsule} ${styles.historyCapsule}`}
-                role="group"
-                aria-label="Assignment history"
-              >
-                <button
+              <div className={styles.modelPickerSlot}>
+                <ClusterModelPicker
+                  local={Boolean(localRuntime)}
+                  models={models}
+                  selectedModel={selectedModel}
+                  activeModelId={activeModel?.id}
+                  disabled={
+                    cardEditor.editing ||
+                    (!demo && !localRuntime) ||
+                    loading ||
+                    Boolean(configurations?.planning || configurations?.pending)
+                  }
+                  {...(configurations
+                    ? { onClear: () => void configurations.clearSelection() }
+                    : {})}
+                  onChoose={(model) =>
+                    localRuntime
+                      ? localRuntime.onChoose(model)
+                      : setModal({ type: 'placement', model })
+                  }
+                />
+              </div>
+              <div className={styles.historyCapsule} role="group" aria-label="Assignment history">
+                <SdkButton
                   type="button"
-                  className={styles.runIcon}
+                  className={styles.sdkButton ?? ''}
+                  size="md"
+                  color="secondary"
+                  variant="ghost"
+                  pill
+                  uniform
                   aria-label="Undo"
                   title="Undo"
                   disabled={
+                    cardEditor.editing ||
                     loading ||
                     !canPlace ||
                     !(configurations ? configurations.canUndo : placement.past.length)
@@ -519,14 +646,20 @@ export function ClusterPage({
                     configurations ? configurations.undo() : dispatch({ type: 'undo' })
                   }
                 >
-                  <ChatGptHistoryIcon kind="undo" />
-                </button>
-                <button
+                  <ArrowRotateCcw />
+                </SdkButton>
+                <SdkButton
                   type="button"
-                  className={styles.runIcon}
+                  className={styles.sdkButton ?? ''}
+                  size="md"
+                  color="secondary"
+                  variant="ghost"
+                  pill
+                  uniform
                   aria-label="Redo"
                   title="Redo"
                   disabled={
+                    cardEditor.editing ||
                     loading ||
                     !canPlace ||
                     !(configurations ? configurations.canRedo : placement.future.length)
@@ -535,152 +668,181 @@ export function ClusterPage({
                     configurations ? configurations.redo() : dispatch({ type: 'redo' })
                   }
                 >
-                  <ChatGptHistoryIcon kind="redo" />
-                </button>
-                <span className={styles.historyDivider} aria-hidden="true" />
-                <button
-                  type="button"
-                  className={styles.runIcon}
-                  aria-label="Reset to default"
-                  title="Reset to default"
-                  disabled={
-                    !canPlace ||
-                    !changed ||
-                    loading ||
-                    Boolean(configurations?.planning || configurations?.pending)
-                  }
-                  onClick={() => {
-                    if (configurations)
-                      void configurations.autoPlace([
-                        ...new Set(executableGpus.map((gpu) => gpu.uuid)),
-                      ]);
-                    else dispatch({ type: 'auto-place' });
-                  }}
-                >
-                  <ChatGptHistoryIcon kind="reset" />
-                </button>
+                  <ArrowRotateCw />
+                </SdkButton>
               </div>
-              <ClusterModelPicker
-                local={Boolean(localRuntime)}
-                models={models}
-                selectedModel={selectedModel}
-                activeModelId={activeModel?.id}
-                disabled={
-                  (!demo && !localRuntime) ||
-                  loading ||
-                  Boolean(configurations?.planning || configurations?.pending)
-                }
-                onChoose={(model) =>
-                  localRuntime
-                    ? localRuntime.onChoose(model)
-                    : setModal({ type: 'placement', model })
-                }
-              />
-              <div className={styles.actionCapsule} role="group" aria-label="Cluster actions">
-                {configurations?.planning && (
-                  <button
-                    type="button"
-                    className={styles.runIcon}
-                    aria-label="Cancel planning"
-                    title="Cancel planning"
-                    onClick={() => {
-                      void configurations.cancelPlanning();
+              <Menu>
+                <Menu.Trigger>
+                  <SdkButton
+                    className={styles.sdkButton ?? ''}
+                    color="secondary"
+                    variant="soft"
+                    size="md"
+                    pill
+                    uniform
+                    aria-label="Assignment options"
+                    title="Assignment options"
+                  >
+                    <ChatNavIcon name="more" width="16" height="16" data-no-autosize />
+                  </SdkButton>
+                </Menu.Trigger>
+                <Menu.Content align="start" minWidth={180}>
+                  <Menu.Item
+                    disabled={
+                      cardEditor.editing ||
+                      !canPlace ||
+                      !changed ||
+                      loading ||
+                      Boolean(configurations?.planning || configurations?.pending)
+                    }
+                    onSelect={() => {
+                      if (configurations)
+                        void configurations.autoPlace([
+                          ...new Set(executableGpus.map((gpu) => gpu.uuid)),
+                        ]);
+                      else dispatch({ type: 'auto-place' });
                     }}
                   >
-                    <Square size={16} aria-hidden="true" />
-                  </button>
-                )}
-                {configurations && activeModel && !selectedIsActive && (
-                  <button
-                    type="button"
-                    className={styles.runIcon}
-                    aria-label="Stop model"
-                    title="Stop model"
-                    onClick={onStop}
-                  >
-                    <Square size={16} aria-hidden="true" />
-                  </button>
-                )}
-                <button
+                    <ChatGptHistoryIcon kind="reset" />
+                    <span data-cluster-toolbar-option="">Reset to default</span>
+                  </Menu.Item>
+                </Menu.Content>
+              </Menu>
+            </div>
+            <div className={styles.toolbarActions} role="group" aria-label="Cluster actions">
+              {configurations?.planning && (
+                <SdkButton
                   type="button"
-                  className={styles.runIcon}
-                  aria-label="Save configuration"
-                  title="Save configuration"
-                  disabled={
-                    !configurations?.dirty ||
-                    loading ||
-                    configurations.planning ||
-                    configurations.pending
-                  }
+                  className={styles.sdkButton ?? ''}
+                  size="md"
+                  color="secondary"
+                  variant="soft"
+                  pill
+                  uniform
+                  aria-label="Cancel planning"
+                  title="Cancel planning"
                   onClick={() => {
-                    if (!configurations) return;
-                    if (configurations.saved)
-                      void configurations.save(null).then((saved) => {
-                        if (!saved && devices[0]) showPanel({ type: 'device', device: devices[0] });
-                      });
-                    else {
-                      setConfigurationName('');
-                      setModal({ type: 'name' });
-                    }
+                    void configurations.cancelPlanning();
                   }}
                 >
-                  <FloppyDisk size={16} aria-hidden="true" />
-                </button>
-                <button
+                  <StopOutline />
+                </SdkButton>
+              )}
+              {configurations && activeModel && !selectedIsActive && (
+                <SdkButton
                   type="button"
-                  className={styles.runIcon}
-                  aria-label={runAction}
-                  title={`${runAction}${loading && !localRuntime ? ' · simulated loading' : ''}`}
-                  disabled={
-                    (!demo && !localRuntime) ||
-                    (!loading &&
-                      (!selectedModel ||
-                        !devices.length ||
-                        Boolean(
-                          configurations &&
-                          (!configurations.raw ||
-                            configurations.pending ||
-                            configurations.planning),
-                        )))
+                  className={styles.sdkButton ?? ''}
+                  size="md"
+                  color="secondary"
+                  variant="soft"
+                  pill
+                  uniform
+                  aria-label="Stop model"
+                  title="Stop model"
+                  onClick={onStop}
+                >
+                  <StopOutline />
+                </SdkButton>
+              )}
+              <SdkButton
+                type="button"
+                className={styles.sdkButton ?? ''}
+                size="md"
+                color="secondary"
+                variant="soft"
+                pill
+                aria-label="Save configuration"
+                title={
+                  cardEditor.editing
+                    ? 'Finish the layer preview with Done or Cancel first.'
+                    : 'Save configuration'
+                }
+                disabled={
+                  cardEditor.editing ||
+                  !configurations?.dirty ||
+                  loading ||
+                  configurations.planning ||
+                  configurations.pending
+                }
+                onClick={() => {
+                  if (!configurations) return;
+                  if (configurations.saved)
+                    void configurations.save(null).then((saved) => {
+                      if (!saved && devices[0]) showPanel({ type: 'device', device: devices[0] });
+                    });
+                  else {
+                    setConfigurationName('');
+                    setModal({ type: 'name' });
                   }
-                  onClick={() => {
-                    if (configurations && localRuntime) {
-                      if (loading || selectedIsActive) {
-                        onStop();
-                        return;
-                      }
-                      if (!configurations.hasAssignments && selectedModel) {
-                        setModal({ type: 'placement', model: selectedModel });
-                        return;
-                      }
-                      if (activeModel) {
-                        setModal({ type: 'restart' });
-                        return;
-                      }
-                      void runCurrentAllocation();
-                      return;
-                    }
-                    if (localRuntime) {
-                      if (loading || selectedIsActive) onStop();
-                      else localRuntime.onRun();
-                      return;
-                    }
-                    if (loading) {
-                      dispatch({ type: 'cancel' });
-                      notify('information', 'Demo loading cancelled · previous session unchanged');
-                    } else if (selectedIsActive && !changed) {
+                }}
+              >
+                Save
+              </SdkButton>
+              <SdkButton
+                type="button"
+                className={`${styles.sdkButton} ${styles.runtimeAction}`}
+                size="md"
+                color={loading || runAction === 'Unload model' ? 'secondary' : 'primary'}
+                variant={loading || runAction === 'Unload model' ? 'soft' : 'solid'}
+                pill
+                aria-label={runAction}
+                title={
+                  loading && localRuntime
+                    ? `Cancel loading · ${['Preparing allocation', 'Validating model', 'Memory check passed', 'Starting engine', 'Loading model'][Math.min(4, Math.max(0, localRuntime.loadingStage ?? 0))]}`
+                    : `${runAction}${loading ? ' · simulated loading' : ''}`
+                }
+                disabled={
+                  (cardEditor.editing && !loading && !selectedIsActive) ||
+                  (!demo && !localRuntime) ||
+                  (!loading &&
+                    !canUnloadWithoutSelection &&
+                    (!selectedModel ||
+                      !devices.length ||
+                      Boolean(
+                        configurations &&
+                        (!configurations.raw || configurations.pending || configurations.planning),
+                      )))
+                }
+                onClick={() => {
+                  if (configurations && localRuntime) {
+                    if (loading || canUnload) {
                       onStop();
-                      notify('information', 'Demo model stopped · no process was running');
-                    } else run();
-                  }}
-                >
-                  {RunIcon ? (
-                    <RunIcon size={16} weight="regular" aria-hidden="true" />
-                  ) : (
-                    <ChatGptPlayIcon />
-                  )}
-                </button>
-              </div>
+                      return;
+                    }
+                    if (!configurations.hasAssignments && selectedModel) {
+                      setModal({ type: 'placement', model: selectedModel });
+                      return;
+                    }
+                    if (activeModel) {
+                      setModal({ type: 'restart' });
+                      return;
+                    }
+                    void runCurrentAllocation();
+                    return;
+                  }
+                  if (localRuntime) {
+                    if (loading || canUnload) onStop();
+                    else localRuntime.onRun();
+                    return;
+                  }
+                  if (loading) {
+                    dispatch({ type: 'cancel' });
+                    notify('information', 'Demo loading cancelled · previous session unchanged');
+                  } else if (selectedIsActive && !changed) {
+                    onStop();
+                    notify('information', 'Demo model stopped · no process was running');
+                  } else run();
+                }}
+              >
+                {loading ? (
+                  <ModelLoadingIcon stage={localRuntime?.loadingStage ?? 0} />
+                ) : runAction === 'Unload model' ? (
+                  <StopOutline />
+                ) : (
+                  <ChatGptPlayIcon />
+                )}
+                {runAction}
+              </SdkButton>
               <span className={styles.srOnly} aria-live="polite">
                 {loading
                   ? localRuntime
@@ -692,28 +854,34 @@ export function ClusterPage({
                       : 'Demo model ready'
                     : 'Selected model not loaded'}
               </span>
+              <SdkButton
+                type="button"
+                ref={panelToggle}
+                className={styles.sdkButton ?? ''}
+                color="secondary"
+                variant="soft"
+                size="md"
+                pill
+                uniform
+                aria-label="Cluster panel"
+                aria-expanded={panelOpen}
+                aria-controls={panelId}
+                title={panelOpen ? 'Hide details' : 'Show details'}
+                onClick={() => {
+                  if (panelOpen) closePanel();
+                  else showPanel(selection);
+                }}
+              >
+                <SidebarRight />
+              </SdkButton>
             </div>
-            <button
-              type="button"
-              ref={panelToggle}
-              className={styles.panelToggle}
-              aria-label="Cluster panel"
-              aria-expanded={panelOpen}
-              aria-controls={panelId}
-              title={panelOpen ? 'Hide details' : 'Show details'}
-              onClick={() => {
-                if (panelOpen) closePanel();
-                else showPanel(selection);
-              }}
-            >
-              <SidebarSimple size={16} aria-hidden="true" />
-            </button>
           </header>
         </div>
         <div className={styles.workspace}>
           <div className={styles.overview} hidden={view !== 'overview'}>
             {canvasDevices.length ? (
               <ClusterCanvas
+                backgroundRef={canvasBackground}
                 key={
                   configurations?.selection?.configurationId ??
                   configurations?.selection?.modelId ??
@@ -721,18 +889,19 @@ export function ClusterPage({
                 }
                 fitOnMount={!demo}
                 singleDevice={canvasDevices.length === 1}
-                panelId={canvasDevices.length === 1 && panelOpen ? panelId : undefined}
+                panelId={panelOpen ? panelId : undefined}
                 layoutStyle={
                   spatial
                     ? {
-                        width: columns * 498 + (columns - 1) * 96,
-                        gridTemplateColumns: `repeat(${columns}, minmax(0, 498px))`,
+                        width: columns * 520 + (columns - 1) * 96,
+                        gridTemplateColumns: `repeat(${columns}, minmax(0, 520px))`,
                         gap: 96,
                         minHeight: 0,
                       }
                     : undefined
                 }
                 onClear={() => {
+                  setSelectedDeviceId(null);
                   setSelection({ type: 'overview' });
                 }}
               >
@@ -793,19 +962,25 @@ export function ClusterPage({
                   >
                     <DeviceCard
                       device={device}
-                      ranges={
-                        selectedIsActive && !changed && activeCluster ? appliedRanges : ranges
-                      }
+                      ranges={cardEditor.ranges}
+                      allocation={cardEditor.allocation}
+                      editableIds={editableIds}
                       appliedRanges={appliedRanges}
                       layerCount={layerCount}
+                      modelSelected={Boolean(selectedModel)}
                       proposed={!selectedIsActive || changed || loading}
                       savedAssignment={Boolean(configurations?.saved && !changed)}
-                      loading={loading}
+                      loading={cardEditsDisabled}
                       active={canPlace}
                       localReady={false}
-                      onDetails={(device) => showPanel({ type: 'device', device })}
-                      onRename={(device) => showPanel({ type: 'device', device, renaming: true })}
-                      selected={selection.type === 'device' && selection.device.id === device.id}
+                      onSelect={(device) => showPanel({ type: 'device', device })}
+                      onDetails={(device) => {
+                        setSelectedDeviceId(device.id);
+                        setRoute('devices', device.id);
+                        setPanelOpen(false);
+                      }}
+                      onRename={(device) => setModal({ type: 'rename-device', device })}
+                      selected={selectedDeviceId === device.id}
                       showAddHint={canvasDevices.length === 1 && !edgeDiscovered}
                       addEdge={
                         panelOpen &&
@@ -888,178 +1063,138 @@ export function ClusterPage({
               targetDeviceId={deviceDetailsTarget ?? undefined}
             />
           )}
-          {panelOpen && (
-            <ClusterPanel
-              id={panelId}
-              demo={demo}
-              local={Boolean(localRuntime)}
-              joining={joining}
-              onJoining={onJoining}
-              onSpeculation={() => showPanel({ type: 'speculation' })}
-              onModelConfiguration={
-                selectedModel && onModelConfiguration
-                  ? () => onModelConfiguration(selectedModel.id.replace(/^model-/u, ''))
-                  : undefined
-              }
-              speculation={{
-                enabled: configurations?.raw?.load.speculation?.enabled ?? false,
-                summary: configurations?.raw?.load.speculation?.enabled
-                  ? [
-                      configurations.raw.load.speculation.proposer?.method.toUpperCase(),
-                      configurations.raw.load.speculation.retrieval ? 'CPU retrieval' : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' + ')
-                  : 'Off',
-                proposer: Boolean(
-                  configurations?.raw?.load.speculation?.enabled &&
-                  configurations.raw.load.speculation.proposer,
-                ),
-                device: configurations?.raw?.proposerDevice ?? 'auto',
-                devices: sharesPlacement
-                  ? []
-                  : [
-                      { value: 'cpu', label: 'This PC CPU' },
-                      ...executableGpus
-                        .filter(
-                          (gpu, index, all) =>
-                            all.findIndex((item) => item.uuid === gpu.uuid) === index,
-                        )
-                        .map((gpu) => {
-                          const device = canvasDevices.find(
-                            (item) =>
-                              item.hardware.some((hardware) => hardware.id === gpu.hardwareId) ||
-                              item.inventory?.gpus?.some(
-                                (hardware) => `local-${hardware.id}` === gpu.hardwareId,
-                              ),
-                          );
-                          const hardware = device?.hardware.find(
-                            (item) => item.id === gpu.hardwareId,
-                          );
-                          return {
-                            value: gpu.uuid,
-                            label: `${device?.name ?? 'This PC'} · ${hardware?.label ?? 'GPU'}`,
-                          };
-                        }),
-                    ],
-                ...(sharesPlacement
-                  ? {
-                      placementNote:
-                        'This head follows the target output placement in this runtime.',
-                    }
-                  : {}),
-                onDevice: (value) => configurations?.setProposerDevice(value),
-              }}
-              selection={currentSelection}
-              devices={canvasDevices}
-              canvasCandidates={devices.filter(
-                (device) =>
-                  device.id !== localDeviceId &&
-                  !canvasDevices.some((placed) => placed.id === device.id),
-              )}
-              onAddDevice={() => navigate('add')}
-              onDeviceDetails={(device) => {
-                setDeviceDetailsTarget(device.id);
-                setView('devices');
-                setPanelOpen(false);
-              }}
-              onAddToCanvas={(device) => {
-                if (loading || activeModel || configurations?.planning || configurations?.saving)
-                  return;
-                const requested =
-                  currentSelection.type === 'add' ? currentSelection.anchor : undefined;
-                const anchor =
-                  requested && positions[requested.deviceId]
-                    ? requested
-                    : canvasDevices[0]
-                      ? { deviceId: canvasDevices[0].id, edge: 'right' as const }
-                      : undefined;
-                if (anchor) {
-                  const next = placeBeside(positions, anchor.deviceId, anchor.edge);
-                  const links = new Map(arrangement.links.map((link) => [link.to, link]));
-                  for (const link of liveArrangement.links) links.set(link.to, link);
-                  links.set(device.id, { from: anchor.deviceId, to: device.id, edge: anchor.edge });
-                  setArrangement({
-                    positions: { ...arrangement.positions, ...positions, [device.id]: next },
-                    links: [...links.values()],
-                  });
+        </div>
+        <div className={summaryStyles.viewport}>
+          <AnimatePresence>
+            {panelOpen && view === 'overview' && (
+              <ClusterPanel
+                id={panelId}
+                local={Boolean(localRuntime)}
+                onModelConfiguration={
+                  selectedModel && onModelConfiguration
+                    ? () => onModelConfiguration(selectedModel.id.replace(/^model-/u, ''))
+                    : undefined
                 }
-                setEdgeDiscovered(true);
-                try {
-                  localStorage.setItem(edgeHintKey, 'true');
-                } catch {
-                  /* Optional presentation preference; session state still dismisses the hint. */
+                speculation={{
+                  enabled: configurations?.raw?.load.speculation?.enabled ?? false,
+                  method: configurations?.raw?.load.speculation?.proposer?.method.toUpperCase(),
+                  retrieval: Boolean(configurations?.raw?.load.speculation?.retrieval),
+                  pendingHint:
+                    (configurations?.raw?.proposerDevice ?? 'auto') !==
+                    (configurations?.saved?.proposerDevice ?? 'auto')
+                      ? 'Save, then reload to apply.'
+                      : configurations?.saved && !selectedIsActive
+                        ? 'Saved · reload to apply.'
+                        : undefined,
+                  proposer: Boolean(
+                    configurations?.raw?.load.speculation?.enabled &&
+                    configurations.raw.load.speculation.proposer,
+                  ),
+                  device: configurations?.raw?.proposerDevice ?? 'auto',
+                  devices: sharesPlacement
+                    ? []
+                    : [
+                        { value: 'cpu', label: 'This PC CPU' },
+                        ...executableGpus
+                          .filter(
+                            (gpu, index, all) =>
+                              all.findIndex((item) => item.uuid === gpu.uuid) === index,
+                          )
+                          .map((gpu) => {
+                            const device = canvasDevices.find(
+                              (item) =>
+                                item.hardware.some((hardware) => hardware.id === gpu.hardwareId) ||
+                                item.inventory?.gpus?.some(
+                                  (hardware) => `local-${hardware.id}` === gpu.hardwareId,
+                                ),
+                            );
+                            const hardware = device?.hardware.find(
+                              (item) => item.id === gpu.hardwareId,
+                            );
+                            return {
+                              value: gpu.uuid,
+                              label: `${device?.name ?? 'This PC'} · ${hardware?.label ?? 'GPU'}`,
+                            };
+                          }),
+                      ],
+                  ...(sharesPlacement
+                    ? {
+                        placementNote:
+                          'This head follows the target output placement in this runtime.',
+                      }
+                    : {}),
+                  onDevice: (value) => configurations?.setProposerDevice(value),
+                }}
+                selectedDeviceId={selectedDeviceId ?? undefined}
+                selection={currentSelection}
+                devices={canvasDevices}
+                canvasCandidates={devices.filter(
+                  (device) =>
+                    device.id !== localDeviceId &&
+                    !canvasDevices.some((placed) => placed.id === device.id),
+                )}
+                onAddDevice={() => navigate('add')}
+                onAddToCanvas={(device) => {
+                  if (loading || activeModel || configurations?.planning || configurations?.saving)
+                    return;
+                  const requested =
+                    currentSelection.type === 'add' ? currentSelection.anchor : undefined;
+                  const anchor =
+                    requested && positions[requested.deviceId]
+                      ? requested
+                      : canvasDevices[0]
+                        ? { deviceId: canvasDevices[0].id, edge: 'right' as const }
+                        : undefined;
+                  if (anchor) {
+                    const next = placeBeside(positions, anchor.deviceId, anchor.edge);
+                    const links = new Map(arrangement.links.map((link) => [link.to, link]));
+                    for (const link of liveArrangement.links) links.set(link.to, link);
+                    links.set(device.id, {
+                      from: anchor.deviceId,
+                      to: device.id,
+                      edge: anchor.edge,
+                    });
+                    setArrangement({
+                      positions: { ...arrangement.positions, ...positions, [device.id]: next },
+                      links: [...links.values()],
+                    });
+                  }
+                  setEdgeDiscovered(true);
+                  try {
+                    localStorage.setItem(edgeHintKey, 'true');
+                  } catch {
+                    /* Optional presentation preference; session state still dismisses the hint. */
+                  }
+                  setRemovedDevices((current) => current.filter((id) => id !== device.id));
+                  dismissPicker();
+                }}
+                activeModel={activeModel}
+                selectedModel={selectedModel}
+                loading={loading}
+                editingDisabled={
+                  loading || Boolean(configurations?.planning || configurations?.saving)
                 }
-                setRemovedDevices((current) => current.filter((id) => id !== device.id));
-                if (currentSelection.type !== 'device') closePanel();
-              }}
-              activeModel={activeModel}
-              selectedModel={selectedModel}
-              loading={loading}
-              editingDisabled={
-                loading || Boolean(configurations?.planning || configurations?.saving)
-              }
-              canvasMutationDisabled={
-                loading ||
-                Boolean(activeModel || configurations?.planning || configurations?.saving)
-              }
-              inputs={editorInputs}
-              layerCount={layerCount}
-              assignmentStates={assignmentStates}
-              canPlace={canPlace}
-              saveIssues={
-                configurations?.issues.map((issue) => ({
-                  ...issue,
-                  hardwareId: executableGpus.find((gpu) => gpu.uuid === issue.uuid)?.hardwareId,
-                })) ??
-                (validatedDemoInputs === placement.inputs
-                  ? placement.inputs
-                      .filter((input) => parseLayerInputs([input], layerCount) === null)
-                      .map((input) => ({ hardwareId: input.hardwareId, field: 'first' }))
-                  : [])
-              }
-              panelRef={panelRef}
-              onClose={closePanel}
-              onOverview={() => setSelection({ type: 'overview' })}
-              onSelect={(device) => showPanel({ type: 'device', device })}
-              onEdit={(input) => {
-                if (
-                  currentSelection.type !== 'device' ||
-                  !canvasDevices.some((device) => device.id === currentSelection.device.id)
-                )
-                  return;
-                if (!configurations) {
-                  dispatch({ type: 'edit', input });
-                  return;
+                canvasMutationDisabled={
+                  loading ||
+                  Boolean(activeModel || configurations?.planning || configurations?.saving)
                 }
-                const gpu = executableGpus.find((item) => item.hardwareId === input.hardwareId);
-                if (!gpu) return;
-                const runs = configurations.raw?.runs ?? [];
-                const next = { uuid: gpu.uuid, first: input.first, last: input.last };
-                configurations.edit(
-                  input.first || input.last
-                    ? runs.some((run) => run.uuid === gpu.uuid)
-                      ? runs.map((run) => (run.uuid === gpu.uuid ? next : run))
-                      : [...runs, next]
-                    : runs.filter((run) => run.uuid !== gpu.uuid),
-                );
-              }}
-              onStartRename={() => {
-                if (currentSelection.type === 'device')
-                  setSelection({ type: 'device', device: currentSelection.device, renaming: true });
-              }}
-              onCancelRename={() => {
-                if (currentSelection.type === 'device')
-                  setSelection({ ...currentSelection, renaming: false });
-              }}
-              onRename={(name) => {
-                if (currentSelection.type !== 'device') return;
-                onRenameDevice(currentSelection.device.id, name);
-                setSelection({ ...currentSelection, renaming: false });
-                notify('success', 'Device renamed');
-              }}
-            />
-          )}
+                ranges={canPlace ? cardEditor.ranges : []}
+                contextLabel={
+                  configurations?.raw
+                    ? configurations.raw.load.defaults.automatic
+                      ? 'Automatic'
+                      : `${configurations.raw.load.defaults.contextLength.toLocaleString('en-US')} tokens`
+                    : demo
+                      ? '8,192 tokens'
+                      : 'Unavailable'
+                }
+                assignmentStates={assignmentStates}
+                panelRef={panelRef}
+                onClose={closePanel}
+                onOverview={dismissPicker}
+              />
+            )}
+          </AnimatePresence>
         </div>
       </div>
       {configurations?.leaveRequested && (
@@ -1074,10 +1209,30 @@ export function ClusterPage({
       )}
       {modal && (
         <Dialog
-          title={modal.type === 'name' ? 'Save configuration' : title}
+          title={
+            modal.type === 'name'
+              ? 'Save configuration'
+              : modal.type === 'rename-device'
+                ? 'Rename device'
+                : title
+          }
           onClose={close}
           {...(modal.type === 'delete' ? { initialFocus: 'cancel' as const } : {})}
         >
+          {modal.type === 'rename-device' && (
+            <DeviceNameEditor
+              device={devices.find((device) => device.id === modal.device.id) ?? modal.device}
+              onCancel={close}
+              onSave={(name) => {
+                if (onRenameDevice(modal.device.id, name) === false) {
+                  notify('error', 'Could not save the device name. Try again.');
+                  return;
+                }
+                close();
+                notify('success', 'Device renamed');
+              }}
+            />
+          )}
           {modal.type === 'delete' && (
             <>
               <p>

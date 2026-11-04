@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
@@ -30,7 +30,7 @@ describe('Cluster joining demo', () => {
     expect(screen.getByRole('button', { name: 'Invitation pending for office-pc' })).toBeDisabled();
     await overview(user);
     expect(screen.getAllByRole('article')).toHaveLength(4);
-    expect(screen.getAllByText(/^Layers /)).toHaveLength(5);
+    expect(screen.getAllByRole('button', { name: /^Edit layers for / })).toHaveLength(5);
     await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
     await chooseConnection(user, 'Add device');
@@ -57,7 +57,7 @@ describe('Cluster joining demo', () => {
     await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
     const panel = screen.getByRole('complementary', { name: 'Cluster panel' });
     expect(within(panel).queryByText('Participation requests')).not.toBeInTheDocument();
-    expect(within(panel).getByText('4 devices · 5 GPUs')).toBeVisible();
+    await waitFor(() => expect(within(panel).getByText('4 devices · 5 GPUs')).toBeVisible());
     await user.keyboard('{Escape}');
     const navigation = within(screen.getByRole('navigation', { name: 'Cluster navigation' }));
     await user.click(navigation.getByRole('button', { name: /^Connections/u }));
@@ -77,7 +77,7 @@ describe('Cluster joining demo', () => {
     expect(screen.queryByLabelText(/pending requests?$/)).not.toBeInTheDocument();
     expect(within(requests).getByText('Declined · demo')).toBeVisible();
     await overview(user);
-    expect(screen.getAllByText(/^Layers /)).toHaveLength(5);
+    expect(screen.getAllByRole('button', { name: /^Edit layers for / })).toHaveLength(5);
     await user.click(screen.getByRole('button', { name: 'Cluster panel' }));
     expect(screen.queryByRole('button', { name: /Approve invitation/ })).not.toBeInTheDocument();
   });

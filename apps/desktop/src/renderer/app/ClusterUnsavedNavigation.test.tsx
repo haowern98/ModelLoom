@@ -79,13 +79,18 @@ it('guards leaving Cluster, preserves edits on X or failed Save, and restores em
     await user.click(screen.getByRole('button', { name: 'Choose model' }));
     await user.click(screen.getByRole('menuitem', { name: /Qwen/ }));
     await user.click(screen.getByRole('button', { name: /Edit layers for .* GPU/ }));
-    await user.type(screen.getByRole('spinbutton', { name: 'First layer for GPU' }), '0');
-    await user.type(screen.getByRole('spinbutton', { name: 'Last layer for GPU' }), '3');
+    await user.clear(screen.getByRole('textbox', { name: /^First layer for / }));
+    await user.type(screen.getByRole('textbox', { name: /^First layer for / }), '0');
+    await user.clear(screen.getByRole('textbox', { name: /^Last layer for / }));
+    await user.type(screen.getByRole('textbox', { name: /^Last layer for / }), '3');
+    await user.click(screen.getByRole('button', { name: 'Done' }));
     expect(database.prepare('SELECT COUNT(*) AS n FROM cluster_drafts').get()?.n).toBe(0);
     await user.click(screen.getByRole('button', { name: 'Models' }));
     expect(screen.getByRole('dialog', { name: 'Unsaved changes' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Close dialog' }));
-    expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue('3');
+    expect(screen.getByRole('button', { name: /Edit layers for .* GPU/ })).toHaveTextContent(
+      '0\u20133',
+    );
     await user.click(screen.getByRole('button', { name: 'Models' }));
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(
@@ -98,7 +103,7 @@ it('guards leaving Cluster, preserves edits on X or failed Save, and restores em
     await user.click(screen.getByRole('button', { name: 'Cluster' }));
     await user.click(screen.getByRole('button', { name: /Edit layers for .* GPU/ }));
     await waitFor(() =>
-      expect(screen.getByRole('spinbutton', { name: 'Last layer for GPU' })).toHaveValue(''),
+      expect(screen.getByRole('textbox', { name: /^Last layer for / })).toHaveValue(''),
     );
     expect(database.prepare('SELECT COUNT(*) AS n FROM cluster_drafts').get()?.n).toBe(0);
   } finally {
