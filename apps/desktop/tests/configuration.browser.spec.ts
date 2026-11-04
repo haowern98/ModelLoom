@@ -1,17 +1,16 @@
 import { expect, test } from '@playwright/test';
 
-test('successful saves use the green popup without moving the footer buttons', async ({ page }) => {
+test('successful saves hide the action bar and show the green popup', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Configure Qwen3.8-27B' }).click();
   const actions = page.getByRole('group', { name: 'Model configuration actions' });
-  const reset = actions.getByRole('button', { name: 'Reset defaults', exact: true });
   const save = actions.getByRole('button', { name: 'Save changes', exact: true });
   const temperature = page.getByRole('spinbutton', { name: 'Temperature', exact: true });
+  await expect(actions).toHaveCount(0);
   await page.clock.install();
   for (const width of [1280, 640]) {
     await page.setViewportSize({ width, height: 720 });
     await temperature.fill(width === 1280 ? '0.6' : '0.7');
-    const before = { reset: await reset.boundingBox(), save: await save.boundingBox() };
     await save.click();
     const status = page.getByRole('status');
     await expect(status).toHaveText('Defaults saved for this demo session.');
@@ -19,7 +18,7 @@ test('successful saves use the green popup without moving the footer buttons', a
     const popup = status.locator('..');
     await expect(popup).toHaveCSS('background-color', 'rgb(8, 35, 18)');
     await expect(page.getByRole('button', { name: 'Dismiss notification' })).toBeVisible();
-    expect({ reset: await reset.boundingBox(), save: await save.boundingBox() }).toEqual(before);
+    await expect(actions).toHaveCount(0);
     const paneBounds = (await page.locator('main').boundingBox())!;
     const popupBounds = (await popup.boundingBox())!;
     expect(popupBounds.y - paneBounds.y).toBe(24);
@@ -41,7 +40,7 @@ test('successful saves use the green popup without moving the footer buttons', a
   await expect(page.getByRole('status')).toBeVisible();
   await close.click();
   await expect(page.getByRole('status')).toHaveCount(0);
-  await expect(reset).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Back to Models' })).toBeFocused();
 });
 
 test('model actions stay at the pane bottom while settings scroll above them', async ({ page }) => {
@@ -52,13 +51,17 @@ test('model actions stay at the pane bottom while settings scroll above them', a
   const scroll = page.locator('[data-configuration-scroll]');
   const reset = actions.getByRole('button', { name: 'Reset defaults', exact: true });
   const save = actions.getByRole('button', { name: 'Save changes', exact: true });
+  await expect(actions).toHaveCount(0);
+  await page
+    .getByRole('textbox', { name: 'System Prompt', exact: true })
+    .fill('Pending instructions');
   for (const width of [1280, 1000, 800, 640]) {
     await page.setViewportSize({ width, height: 720 });
     await expect(actions.getByRole('button')).toHaveCount(2);
     await expect(main.locator('..')).toHaveCSS('background-color', 'rgb(24, 24, 24)');
     await expect(reset).toHaveCSS('border-radius', '999px');
     await expect(reset).toHaveCSS('background-color', 'rgb(48, 48, 48)');
-    await expect(save).toBeDisabled();
+    await expect(save).toBeEnabled();
     const paneBounds = (await main.boundingBox())!;
     const barBounds = (await actions.boundingBox())!;
     expect(barBounds.x).toBe(paneBounds.x);
@@ -89,7 +92,7 @@ test('model actions stay at the pane bottom while settings scroll above them', a
   await expect(page.getByText('Pending changes', { exact: true })).toHaveCount(0);
   await reset.click();
   await expect(prompt).toHaveValue('');
-  await expect(save).toBeDisabled();
+  await expect(actions).toHaveCount(0);
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.screenshot({ path: 'E:/ModelLoom-Project/plans/model-fixed-actions.png' });
 });
@@ -278,6 +281,7 @@ test('validation, toggles, sliders, exact stop strings and advanced editors work
   await page.getByRole('button', { name: 'Reset defaults' }).click();
   await expect(temperature).toHaveValue('0.8');
   await expect(page.getByRole('button', { name: /Remove stop string/ })).toHaveCount(0);
+  await temperature.fill('0.7');
   await expect(page.getByRole('textbox', { name: 'Arguments', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Save changes' })).toBeEnabled();
 });
