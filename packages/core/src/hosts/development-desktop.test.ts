@@ -12,6 +12,7 @@ const startup = vi.hoisted(() => ({
   close: vi.fn(),
   verify: vi.fn(),
   install: vi.fn(),
+  findInstalled: vi.fn(),
   adapter: vi.fn(),
   setRuntimeBusy: vi.fn(() => Promise.resolve()),
   closePeers: vi.fn(() => Promise.resolve()),
@@ -77,11 +78,23 @@ vi.mock('./windows-ownership.js', () => ({
     return done() ? Promise.resolve() : Promise.reject(new Error('CLEANUP_FAILED'));
   },
 }));
+const runtimeDescription = {
+  packageId: 'llama-cuda-development',
+  version: 'b11306-dev14',
+  artifact: 'b11306-cuda12.4-msvc14.44-dev1',
+  platform: 'win32',
+  arch: 'x64',
+  backend: 'cuda',
+  upstreamCommit: '4f31296a907d73f3409f720429bcf31111615d77',
+} as const;
+
 vi.mock('../runtime-package/verifier.js', () => ({
   createDevelopmentRuntimeVerifier: () => ({ verify: startup.verify }),
+  requireLivePackage: () => ({ inventory: runtimeDescription }),
 }));
 vi.mock('../runtime-package/install.js', () => ({
   installExpanded: startup.install,
+  findInstalledRuntime: startup.findInstalled,
   requireInstalledLive: () => ({ backend: 'cuda', version: 'observed-version' }),
 }));
 vi.mock('./real-engine.js', () => ({ realEngineAdapter: startup.adapter }));
@@ -509,4 +522,19 @@ it('rejects first use of a retained chat transport after peer Quit begins', asyn
     await fixture.host.close();
     await fixture.dependencies.closePeers();
   }
+});
+
+it('reads the approved runtime and checks for an existing verified install without installing', async () => {
+  const deps = developmentDesktopDependencies(vi.fn(), 'bootstrap', undefined, undefined, 'state');
+  const capability = { packageId: 'llama-cuda-development' };
+  startup.verify.mockResolvedValueOnce(capability).mockResolvedValueOnce(capability);
+  await expect(deps.runtimeSelection()).resolves.toEqual(runtimeDescription);
+  expect(startup.findInstalled).not.toHaveBeenCalled();
+  startup.findInstalled.mockResolvedValueOnce(undefined);
+  await expect(deps.runtimeInventory()).resolves.toEqual({
+    selected: runtimeDescription,
+    installed: false,
+  });
+  expect(startup.findInstalled).toHaveBeenCalledWith(capability, path.join('state', 'installed'));
+  expect(startup.install).not.toHaveBeenCalled();
 });

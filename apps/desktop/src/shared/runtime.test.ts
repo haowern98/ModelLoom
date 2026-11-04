@@ -49,3 +49,11 @@ it.each([
 ])('rejects privileged fields or malformed data at the renderer boundary: %j', (value) => {
   expect(() => decode(value)).toThrow('INVALID_CONTROL');
 });
+
+it.each(['runtime-selection', 'runtime-inventory'])(
+  'admits %s reads without accepting a package path or mutation',
+  (action) => {
+    expect(decode({ action })).toEqual({ action });
+    expect(() => decode({ action, path: 'E:/runtime' })).toThrow('INVALID_CONTROL');
+  },
+);
