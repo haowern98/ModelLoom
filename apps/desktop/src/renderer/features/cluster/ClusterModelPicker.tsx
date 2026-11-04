@@ -28,9 +28,14 @@ export function ClusterModelPicker({
   const menu = useRef<HTMLDivElement>(null);
   const position = useDropdownPosition(open, trigger, menu, models);
   const menuId = useId();
+  const positioned = position.visibility !== 'hidden';
+  useEffect(() => {
+    if (open && positioned && anchor.current?.contains(document.activeElement)) {
+      anchor.current.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    }
+  }, [open, positioned]);
   useEffect(() => {
     if (!open) return;
-    anchor.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
     const outside = (event: PointerEvent) => {
       if (event.target instanceof Node && !anchor.current?.contains(event.target)) setOpen(false);
     };
