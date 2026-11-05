@@ -81,6 +81,8 @@ export function DeviceCard({
     observedAt - device.inventory.sampledAt >= -5000
       ? device.inventory
       : undefined;
+  const cpuName = device.hardware.find((hardware) => hardware.kind === 'cpu')?.name;
+  const totalRam = device.inventory?.usableRamBytes ?? device.inventory?.installedRamBytes;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const menuActionSelected = useRef(false);
@@ -322,26 +324,37 @@ export function DeviceCard({
           </DropdownMenu.Root>
         </div>
       </header>
-      <div className={card.deviceMetrics}>
-        <span title="Host CPU utilization between recent samples. A dash means unavailable or stale.">
-          CPU <b>{percentage(inventory?.cpuUsagePercent)}</b>
-        </span>
-        <span title="System memory from the latest sample. A dash means unavailable or stale.">
-          RAM{' '}
-          <b>
-            {memoryReading(
-              inventory?.usableRamBytes ?? inventory?.installedRamBytes,
-              inventory?.availableRamBytes,
-            )}
-          </b>
-        </span>
-        <span title="Read/write activity across physical disks, in bytes per second.">
-          <Storage width={18} height={18} aria-hidden="true" />R{' '}
-          {byteRate(inventory?.diskReadBytesPerSecond)} · W{' '}
-          {byteRate(inventory?.diskWriteBytesPerSecond)}
-        </span>
-      </div>
-      <div className={styles.hardware}>
+      <div className={`${styles.hardware} ${card.hardware}`}>
+        <section className={card.hardwareTile} aria-label={`${device.name} CPU`}>
+          <div className={card.meta}>
+            <span>CPU</span>
+            <span>
+              {totalRam === undefined
+                ? 'Memory unavailable'
+                : `${(totalRam / 2 ** 30).toFixed(1)} GiB`}
+            </span>
+          </div>
+          <h3>{cpuName ?? 'Processor unavailable'}</h3>
+          <div className={card.metrics}>
+            <span title="Host CPU utilization between recent samples. A dash means unavailable or stale.">
+              <span className={card.cpuMetricIcon} aria-hidden="true">
+                <span>CPU</span>
+                <Speed width={18} height={18} />
+              </span>
+              <b aria-label={`CPU utilization: ${percentage(inventory?.cpuUsagePercent)}`}>
+                {percentage(inventory?.cpuUsagePercent)}
+              </b>
+            </span>
+            <span title="System memory from the latest sample. A dash means unavailable or stale.">
+              RAM{' '}
+              <b>{memoryReading(inventory ? totalRam : undefined, inventory?.availableRamBytes)}</b>
+            </span>
+            <span title="Read/write activity across physical disks, in bytes per second.">
+              <Storage width={18} height={18} aria-hidden="true" />
+              {`R ${byteRate(inventory?.diskReadBytesPerSecond)} · W ${byteRate(inventory?.diskWriteBytesPerSecond)}`}
+            </span>
+          </div>
+        </section>
         {device.hardware
           .filter((hardware) => hardware.kind !== 'cpu')
           .map((hardware) => {
@@ -367,7 +380,7 @@ export function DeviceCard({
               (editableIds !== undefined && !editableIds.includes(hardware.id));
             return (
               <section
-                className={card.gpu}
+                className={card.hardwareTile}
                 key={hardware.id}
                 aria-label={`${device.name} ${hardware.label}`}
               >
@@ -392,7 +405,7 @@ export function DeviceCard({
                     />
                   )}
                 </h3>
-                <div className={card.gpuMetrics}>
+                <div className={card.metrics}>
                   <span title="GPU utilization from its driver. A dash means unavailable or stale.">
                     <Speed width={18} height={18} aria-hidden="true" />
                     {percentage(gpu?.utilizationPercent)}
