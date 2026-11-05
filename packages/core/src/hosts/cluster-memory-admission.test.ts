@@ -1,8 +1,15 @@
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vitest';
 import { resolveClusterLoad } from '../cluster/effective-load.js';
 import { createStockClusterReport } from '../cluster/stock-profile.js';
 import { record } from '../model-configuration/test-fixtures.js';
+import { parseInventory } from '../runtime-package/inventory.js';
+
+const inventories = JSON.parse(
+  readFileSync(new URL('../../tests/vulkan-inventories.json', import.meta.url), 'utf8'),
+) as { vulkan: unknown };
+const vulkan = parseInventory(inventories.vulkan);
 
 const state = vi.hoisted(() => ({
   discover: vi.fn(),
@@ -13,6 +20,7 @@ const state = vi.hoisted(() => ({
   ready: vi.fn(),
   lost: undefined as (() => void) | undefined,
   forced: vi.fn(),
+  vulkan: false,
 }));
 vi.mock('./peer-relays.js', () => ({
   createPeerRelays: (
@@ -32,15 +40,18 @@ vi.mock('../runtime-package/development-policy.js', () => ({
 }));
 vi.mock('../runtime-package/install.js', () => ({
   installedRealm: () => 'development',
-  requireInstalledLive: () => ({
-    upstreamCommit: '4f31296a907d73f3409f720429bcf31111615d77',
-    artifact: 'b11306-cuda12.4-msvc14.44-dev1',
-    backend: 'cuda',
-    packageId: 'llama-cuda-development',
-    minimumDriver: '551.78',
-    helper: 'helper.exe',
-    entrypoint: 'llama-server.exe',
-  }),
+  requireInstalledLive: () =>
+    state.vulkan
+      ? vulkan
+      : {
+          upstreamCommit: '4f31296a907d73f3409f720429bcf31111615d77',
+          artifact: 'b11306-cuda12.4-msvc14.44-dev1',
+          backend: 'cuda',
+          packageId: 'llama-cuda-development',
+          minimumDriver: '551.78',
+          helper: 'helper.exe',
+          entrypoint: 'llama-server.exe',
+        },
   revalidateInstalled: () => Promise.resolve({ release: state.release }),
 }));
 vi.mock('../runtime/gguf.js', () => ({
@@ -59,6 +70,7 @@ vi.mock('./windows-ownership.js', () => ({
     sealFiles: () => ({}),
     releaseFiles: () => {},
     privateDirectory: () => {},
+    availableMemory: () => 32 * 2 ** 30,
     launchCudaPlanConsole: state.launch,
     captureServer: () => {},
     ownedListener: () => true,
@@ -101,6 +113,7 @@ afterEach(() => {
   state.launch.mockReset();
   state.lost = undefined;
   state.release.mockReset();
+  state.vulkan = false;
 });
 function fixture(
   confirmMemory: () => Promise<boolean>,
@@ -122,7 +135,7 @@ function fixture(
       },
       runs: [{ uuid, first: 0, last: 63 }],
     },
-    'b11306-cuda12.4-msvc14.44-dev1',
+    state.vulkan ? vulkan.artifact : 'b11306-cuda12.4-msvc14.44-dev1',
   );
   const budget = createStockClusterReport(load, {
     fingerprint: load.fingerprint,
@@ -142,7 +155,10 @@ function fixture(
     temperature: 0.8,
   };
   const adapter = realEngineAdapter(
-    { packageId: 'llama-cuda-development', directory: path.resolve('out/test-memory-runtime') },
+    {
+      packageId: state.vulkan ? 'llama-vulkan-development' : 'llama-cuda-development',
+      directory: path.resolve('out/test-memory-runtime'),
+    },
     'model.gguf',
     config,
     9999,
@@ -167,11 +183,26 @@ function fixture(
     deploymentId: 'd',
     sessionId: 's',
     operationId: 'o',
-    packageId: 'llama-cuda-development',
+    packageId: state.vulkan ? 'llama-vulkan-development' : 'llama-cuda-development',
     modelId: load.modelSha256,
   };
   return { adapter, snapshot, selection };
 }
+it('checks fresh GPU resources before launching a qualified Vulkan load', async () => {
+  state.vulkan = true;
+  const f = fixture(() => Promise.resolve(false));
+  state.discover.mockResolvedValue({ ...f.snapshot, ram: 32 * 2 ** 30 });
+  state.launch.mockReturnValue({});
+  try {
+    const engine = await f.adapter.launch(f.selection, new AbortController().signal);
+    expect(state.discover).toHaveBeenCalledOnce();
+    expect(state.launch).toHaveBeenCalledOnce();
+    await engine.forceStop();
+    await engine.exited;
+  } finally {
+    await f.adapter.close();
+  }
+});
 it('warns about a shortage discovered at final creation and rechecks before admitted launch', async () => {
   const confirm = vi.fn(() => Promise.resolve(true));
   const f = fixture(confirm);
