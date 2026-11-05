@@ -5,6 +5,7 @@ export interface RuntimePathInputs {
   development: boolean;
   resources: string;
   workspaceCore: string;
+  pairedBuild?: boolean;
   localData: string;
   home: string;
 }
@@ -15,17 +16,24 @@ export function runtimePaths(input: RuntimePathInputs): {
   bootstrap: string;
   state: string;
   profile: string;
+  runtimes?: string;
   chromium?: string;
 } | null {
   if (input.packaged && !input.development) return null;
   const join = (...parts: string[]) => path.win32.join(...parts);
   if (!input.packaged) {
-    const bootstrap = join(input.workspaceCore, 'out/activation/b11306');
+    const bootstrap = join(
+      input.workspaceCore,
+      'out/activation',
+      input.pairedBuild ? 'b11307' : 'b11306',
+    );
+    const profile = join(input.home, '.modelloom');
     return {
       core: input.workspaceCore,
       bootstrap,
       state: bootstrap,
-      profile: join(input.home, '.modelloom'),
+      profile,
+      runtimes: join(profile, 'runtimes'),
     };
   }
   if (!path.win32.isAbsolute(input.localData)) throw new Error('INVALID_APPLICATION_DATA');
