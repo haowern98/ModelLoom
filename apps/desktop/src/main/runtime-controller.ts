@@ -413,7 +413,8 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     if (quitting) return;
     const previousHost = host;
     // The model picker may already have bound a draft to a different owner than the last loaded model.
-    const source = sources.get(`model-${hostModelId}`) ?? (view.model && sources.get(view.model.id));
+    const source =
+      sources.get(`model-${hostModelId}`) ?? (view.model && sources.get(view.model.id));
     const activated = await deps.activateRuntime();
     if (!activated || quitting) return;
     if (host) {
@@ -1013,8 +1014,14 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
         if (command.action === 'snapshot') {
           // Keep a rejected admission visible until an explicit stop/retry. A stopped core
           // has no knowledge of main's preflight failure and must not erase that evidence.
-          if (host && view.phase !== 'failed') await send('snapshot');
-          await observeModelUse();
+          // Poll only between owner replacements, never while the previous owner shuts down.
+          const reading = historySelection.then(async () => {
+            if (quitting) return;
+            if (host && view.phase !== 'failed') await send('snapshot');
+            await observeModelUse();
+          });
+          historySelection = reading.catch(() => undefined);
+          await reading;
         } else if (command.action === 'remove') {
           if (
             importing ||

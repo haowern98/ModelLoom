@@ -42,7 +42,8 @@ import type { UtilityFork } from './desktop.js';
 import { createDesktopPeerHost } from '../peers/desktop.js';
 import type { DesktopPeerHost } from '../peers/desktop.js';
 import type { PeerOverlay } from '../peers/overlay.js';
-import type { PeerReply } from '../peers/wire.js';
+import { decodePeerCommand } from '../peers/wire.js';
+import type { PeerCommand, PeerReply } from '../peers/wire.js';
 import { decodePeerHardware } from '../peers/hardware.js';
 import type { PeerHardware } from '../peers/hardware.js';
 import { decodeClusterDevice, qualifyPeerGpu } from '../cluster/device-id.js';
@@ -140,6 +141,16 @@ export function developmentDesktopDependencies(
   let peerHardware: PeerHardware | undefined;
   const peerListeners = new Set<(reply: PeerReply) => void>();
   let peersClosed = false;
+  let sharing: Extract<PeerCommand, { action: 'share' }> | undefined;
+  let peerChanges = Promise.resolve();
+  function changePeerOwner<T>(operation: () => Promise<T>): Promise<T> {
+    const next = peerChanges.then(operation);
+    peerChanges = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
   const getPeerHost = () => {
     if (!applicationData || !caller || peersClosed) throw new Error('NOT_READY');
     if (!peerHost) {
@@ -151,8 +162,7 @@ export function developmentDesktopDependencies(
       let verificationState: string | undefined;
       if (base !== initialBase) {
         // The verifier can create its own directory only after its ancestors exist.
-        const verificationParent =
-          stateBase === initialBase ? path.join(base, 'peers') : peerState;
+        const verificationParent = stateBase === initialBase ? path.join(base, 'peers') : peerState;
         native.privateDirectory(path.resolve(verificationParent));
         const verificationRoot = path.join(verificationParent, 'peer-verification');
         if (stateBase !== initialBase) native.privateDirectory(path.resolve(verificationRoot));
@@ -301,20 +311,28 @@ export function developmentDesktopDependencies(
     inventoryIndex = undefined;
     return describeRuntime(requireLivePackage(capability).inventory);
   }
-  async function activateRuntime() {
+  function activateRuntime() {
+    return changePeerOwner(replaceRuntime);
+  }
+  async function replaceRuntime() {
+    if (peersClosed) throw Error('NOT_READY');
     if (activeBuild === selectedBuild) return null;
     const capability = await verifyChoice(selectedBuild);
     const inventory = requireLivePackage(capability).inventory;
+    const hadPeerHost = !!peerHost;
+    let resumeSharing: typeof sharing;
     if (peerHost) {
       const peer = await peerHost;
       const reply = await peer.command(caller!, { action: 'read' });
       if (!reply.ok) throw Error(reply.error);
+      if (reply.view.sharing && sharing)
+        resumeSharing = { ...sharing, gpuIds: [...reply.view.sharedGpuIds] };
       // Hold every local GPU until the old peer owner exits; an active worker keeps its build.
       if (reply.view.gpus.length) await peer.reserveLocal(reply.view.gpus.map((gpu) => gpu.id));
       await peer.close();
     }
     peerHost = undefined;
-    peersClosed = false;
+    if (peersClosed) throw Error('NOT_READY');
     pairedBuild = selectedBuild === 'b11307';
     base = runtimeChoices![selectedBuild];
     activeBuild = selectedBuild;
@@ -324,6 +342,13 @@ export function developmentDesktopDependencies(
     installation = undefined;
     verifying = undefined;
     verifiedBackends = undefined;
+    if (hadPeerHost) {
+      const peer = await getPeerHost();
+      if (resumeSharing) {
+        const reply = await peer.command(caller!, resumeSharing);
+        if (!reply.ok) throw Error(reply.error);
+      }
+    }
     return describeRuntime(inventory);
   }
   type IndexedRuntime = {
@@ -659,6 +684,14 @@ export function developmentDesktopDependencies(
     },
     async peers(input: unknown): Promise<PeerReply> {
       if (!applicationData || !caller || peersClosed) return { ok: false, error: 'NOT_READY' };
+      const command = decodePeerCommand(input);
+      if (command.action === 'share' || command.action === 'stop-sharing')
+        return changePeerOwner(async () => {
+          if (peersClosed) return { ok: false, error: 'NOT_READY' };
+          const reply = await (await getPeerHost()).command(caller, command);
+          if (reply.ok) sharing = command.action === 'share' ? command : undefined;
+          return reply;
+        });
       return (await getPeerHost()).command(caller, input);
     },
     async beginPeerQuit(): Promise<void> {
