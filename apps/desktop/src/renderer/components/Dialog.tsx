@@ -9,11 +9,13 @@ export function Dialog({
   onClose,
   children,
   initialFocus,
+  className = '',
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   initialFocus?: 'cancel';
+  className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
@@ -37,7 +39,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
-      className={styles.dialog}
+      className={`${styles.dialog} ${className}`}
       aria-labelledby={id}
       onCancel={(event) => {
         event.preventDefault();

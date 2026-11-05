@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Check } from '@openai/apps-sdk-ui/components/Icon';
 import { CaretUp } from '@phosphor-icons/react/dist/csr/CaretUp';
 import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import styles from './ConfigurationControls.module.css';
@@ -18,11 +19,15 @@ export function ConfigurationSelect({
   options,
   disabled = false,
   onChange,
+  markSelected = false,
+  className = '',
 }: {
   id: string;
   label: string;
   value: string;
-  options: readonly { value: string; label: string; disabled?: boolean }[];
+  options: readonly { value: string; label: string; detail?: string; disabled?: boolean }[];
+  markSelected?: boolean;
+  className?: string;
   disabled?: boolean;
   onChange?: (value: string) => void;
 }) {
@@ -32,6 +37,7 @@ export function ConfigurationSelect({
   const menu = useRef<HTMLDivElement>(null);
   const position = useDropdownPosition(open, trigger, menu, options);
   const menuId = useId();
+  const selectedOption = options.find((option) => option.value === value);
   useEffect(() => {
     if (!open) return;
     const selected = menu.current?.querySelector<HTMLButtonElement>(
@@ -58,7 +64,7 @@ export function ConfigurationSelect({
   return (
     <div
       ref={anchor}
-      className={styles.select}
+      className={`${styles.select} ${className}`}
       onBlur={(event) => {
         if (
           !event.currentTarget.contains(event.relatedTarget) &&
@@ -109,7 +115,10 @@ export function ConfigurationSelect({
         value={value}
         onClick={() => setOpen(!open)}
       >
-        <span>{options.find((option) => option.value === value)?.label}</span>
+        <span>{selectedOption?.label}</span>
+        {selectedOption?.detail && (
+          <small className={styles.selectDetail}>{selectedOption.detail}</small>
+        )}
         <CaretDown size={14} aria-hidden="true" />
       </button>
       {open &&
@@ -136,7 +145,13 @@ export function ConfigurationSelect({
                   close();
                 }}
               >
+                {markSelected && (
+                  <span className={styles.selectMark} aria-hidden="true">
+                    {option.value === value && <Check width={14} height={14} />}
+                  </span>
+                )}
                 {option.label}
+                {option.detail && <small className={styles.selectDetail}>{option.detail}</small>}
               </button>
             ))}
           </div>,
