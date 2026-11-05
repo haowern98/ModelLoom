@@ -11,7 +11,7 @@ export interface Inventory {
   readonly artifact: string;
   readonly platform: 'win32';
   readonly arch: 'x64';
-  readonly backend: 'cpu' | 'cuda';
+  readonly backend: 'cpu' | 'cuda' | 'vulkan';
   readonly minimumDriver: string | null;
   readonly protocol: 1;
   readonly entrypoint: string;
@@ -98,7 +98,7 @@ export function parseInventory(value: unknown): Inventory {
     v.arch !== 'x64' ||
     v.protocol !== 1 ||
     v.stop !== 'private-console-ctrl-c' ||
-    !['cpu', 'cuda'].includes(String(v.backend)) ||
+    !['cpu', 'cuda', 'vulkan'].includes(String(v.backend)) ||
     typeof v.upstreamCommit !== 'string' ||
     !/^[a-f0-9]{40}$/u.test(v.upstreamCommit) ||
     (v.backend === 'cpu'
@@ -146,7 +146,7 @@ export function parseInventory(value: unknown): Inventory {
     artifact: id(v.artifact),
     platform: 'win32',
     arch: 'x64',
-    backend: v.backend as 'cpu' | 'cuda',
+    backend: v.backend as Inventory['backend'],
     minimumDriver: v.minimumDriver as string | null,
     protocol: 1,
     entrypoint,
