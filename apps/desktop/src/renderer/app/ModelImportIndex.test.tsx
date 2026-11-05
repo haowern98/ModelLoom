@@ -86,7 +86,7 @@ it('restores the library after remount without loading and flags a missing model
     error: null,
   };
   const command = vi.fn((request: RuntimeCommand) => {
-    expect(request.action).toBe('snapshot');
+    expect(['snapshot', 'runtime-selection']).toContain(request.action);
     return Promise.resolve(view);
   });
   window.modelLoomRuntime = { command };
@@ -101,5 +101,9 @@ it('restores the library after remount without loading and flags a missing model
   expect(missing.getByText('File unavailable. Re-import this model.')).toBeVisible();
   expect(missing.getByRole('button', { name: 'Configure Missing model' })).toBeDisabled();
   await waitFor(() => expect(command).toHaveBeenCalled());
-  expect(command.mock.calls.every(([value]) => value.action === 'snapshot')).toBe(true);
+  expect(command).toHaveBeenCalledWith({ action: 'runtime-selection' });
+  expect(command).toHaveBeenCalledWith({ action: 'snapshot' });
+  expect(
+    command.mock.calls.every(([value]) => ['snapshot', 'runtime-selection'].includes(value.action)),
+  ).toBe(true);
 });
