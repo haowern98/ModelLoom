@@ -1,3 +1,4 @@
+import { localGpuBackend } from '../runtime-package/development-vulkan.js';
 import type { ClusterEffectiveLoad } from './effective-load.js';
 import { clusterDeviceNames } from './device-id.js';
 import { executionDevices, nativeMethods } from '../speculative-decoding/execution.js';
@@ -80,7 +81,7 @@ export function parseClusterEstimate(
     speculation = Object.freeze(value) as unknown as SpeculativeEstimateQualification;
   }
   const ids = executionDevices(load);
-  const expected = [...clusterDeviceNames(ids), 'Host'];
+  const expected = [...clusterDeviceNames(ids, localGpuBackend(load.artifact)), 'Host'];
   if (rows.length !== expected.length) return fail();
   if (speculation) {
     const byName = new Map(rows.map((row) => [row.trim().split(/\s+/u)[0], row]));
@@ -89,7 +90,7 @@ export function parseClusterEstimate(
     rows.splice(0, rows.length, ...expected.map((name) => byName.get(name)!));
   }
   const parsed = rows.map((row, i) => {
-    const m = /^\s*((?:CUDA|RPC)\d+|Host)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/u.exec(row);
+    const m = /^\s*((?:CUDA|Vulkan|RPC)\d+|Host)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/u.exec(row);
     if (!m || m[1] !== expected[i]) return fail();
     const values = m.slice(2).map((v) => (Number(v) + 1) * 1048576);
     if (values.some((v) => !Number.isSafeInteger(v) || v < 1048576)) return fail();

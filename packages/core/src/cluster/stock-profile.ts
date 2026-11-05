@@ -1,3 +1,4 @@
+import { VULKAN_DEVELOPMENT } from '../runtime-package/development-vulkan.js';
 import type { ClusterEffectiveLoad } from './effective-load.js';
 import type { CandidateEstimate, EstimateParts } from './estimate.js';
 import type { ResourceSnapshot } from '../runtime/gpu-resources.js';
@@ -6,6 +7,10 @@ import { decodeClusterDevice } from './device-id.js';
 import { executionDevices } from '../speculative-decoding/execution.js';
 import type { SpeculativeCompanion } from '../speculative-decoding/assets.js';
 import { MAX_CLUSTER_GPUS } from './contracts.js';
+import {
+  B11307_DEVELOPMENT,
+  isQualifiedDevelopmentB11307Load,
+} from '../runtime-package/development-b11307.js';
 import { placementThresholds } from './placement.js';
 
 export interface StockClusterReport {
@@ -38,7 +43,9 @@ export function requireStockClusterProfile(
 ): Pick<StockClusterReport, 'profileId' | 'cacheLayers'> {
   if (
     load.version !== 1 ||
-    load.artifact !== 'b11306-cuda12.4-msvc14.44-dev1' ||
+    (load.artifact !== 'b11306-cuda12.4-msvc14.44-dev1' &&
+      !(load.artifact === VULKAN_DEVELOPMENT.artifact && !load.speculation?.enabled) &&
+      !isQualifiedDevelopmentB11307Load(load)) ||
     !/^[a-f0-9]{64}$/u.test(load.modelSha256) ||
     !Number.isSafeInteger(load.blockCount) ||
     load.blockCount < 1 ||
@@ -181,6 +188,8 @@ export function checkStockClusterResources(
     snapshot.ram < 0
   )
     return result('NEEDS_RESOURCE_EVIDENCE');
+  const [driverMajor, driverMinor] =
+    load.artifact === B11307_DEVELOPMENT.artifact ? [610, 47] : [551, 78];
   let sharedMemoryBytes = 0;
   for (const budget of report.devices) {
     const matches = snapshot.gpus.filter(
@@ -199,7 +208,7 @@ export function checkStockClusterResources(
     )
       return result('NEEDS_RESOURCE_EVIDENCE');
     const driver = gpu.driver.split('.').map(Number);
-    if (driver[0]! < 551 || (driver[0] === 551 && driver[1]! < 78))
+    if (driver[0]! < driverMajor || (driver[0] === driverMajor && driver[1]! < driverMinor))
       return result('INCOMPATIBLE_DRIVER');
     if (gpu.mig === 'Enabled') return result('INSUFFICIENT_RESOURCES');
     if (gpu.free < budget.bytes) sharedMemoryBytes += budget.bytes;

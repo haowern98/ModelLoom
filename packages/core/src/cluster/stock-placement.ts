@@ -1,3 +1,4 @@
+import { localGpuBackend } from '../runtime-package/development-vulkan.js';
 import type { ClusterEffectiveLoad } from './effective-load.js';
 import { clusterDeviceNames, decodeClusterDevice } from './device-id.js';
 import { MAX_CLUSTER_GPUS } from './contracts.js';
@@ -53,7 +54,7 @@ export function verifyStockPlacement(
   const executed = cacheLayers.findIndex((k) => k === 'none');
   const executionCount = executed < 0 ? n : executed;
   if (executionCount < 1 || cacheLayers.slice(executionCount).some((k) => k !== 'none')) fail();
-  const names = clusterDeviceNames(ids);
+  const names = clusterDeviceNames(ids, localGpuBackend(load.artifact));
   let thresholds: readonly number[];
   try {
     thresholds = placementThresholds(load.placement.tensorSplit);
@@ -98,7 +99,7 @@ export function verifyStockPlacement(
     let m: RegExpExecArray | null;
     if (line.includes('llama_prepare_model_devices: using device')) {
       m =
-        /llama_prepare_model_devices: using device ((?:CUDA|RPC)\d+) \(([^\r\n]*)\) \(([^()]+)\) - \d+ MiB free\s*$/u.exec(
+        /llama_prepare_model_devices: using device ((?:CUDA|Vulkan|RPC)\d+) \(([^\r\n]*)\) \(([^()]+)\) - \d+ MiB free\s*$/u.exec(
           line,
         );
       if (!m) fail();
@@ -123,7 +124,7 @@ export function verifyStockPlacement(
         !(
           names.every((name) => name.startsWith('RPC'))
             ? /done_getting_tensors: tensor 'token_embd\.weight' \([A-Za-z0-9_]+\) \(and 0 others\) cannot be used with preferred buffer type CPU_REPACK, using CPU instead\s*$/u
-            : /done_getting_tensors: tensor 'token_embd\.weight' \([A-Za-z0-9_]+\) \(and 0 others\) cannot be used with preferred buffer type CUDA_Host, using CPU instead\s*$/u
+            : /done_getting_tensors: tensor 'token_embd\.weight' \([A-Za-z0-9_]+\) \(and 0 others\) cannot be used with preferred buffer type (?:CUDA_Host|Vulkan_Host), using CPU instead\s*$/u
         ).test(line)
       )
         fail();
@@ -155,12 +156,12 @@ export function verifyStockPlacement(
       cache[kind].set(i, d);
     } else if (
       (m =
-        /(?:load_tensors:|llama_kv_cache:|llama_memory_recurrent:)\s+((?:CUDA|RPC)\d+(?:\[127\.0\.0\.1:\d+\])?) (model|KV|RS) buffer size =\s+(\d+(?:\.\d+)?) MiB\s*$/u.exec(
+        /(?:load_tensors:|llama_kv_cache:|llama_memory_recurrent:)\s+((?:CUDA|Vulkan|RPC)\d+(?:\[127\.0\.0\.1:\d+\])?) (model|KV|RS) buffer size =\s+(\d+(?:\.\d+)?) MiB\s*$/u.exec(
           line,
         ))
     ) {
       if (!(Number(m[3]) > 0)) fail();
-      const bufferDevice = /^((?:CUDA|RPC)\d+)(?:\[([^\]]+)\])?$/u.exec(m[1]!);
+      const bufferDevice = /^((?:CUDA|Vulkan|RPC)\d+)(?:\[([^\]]+)\])?$/u.exec(m[1]!);
       if (!bufferDevice) fail();
       const bufferIndex = device(bufferDevice![1]!);
       if (
