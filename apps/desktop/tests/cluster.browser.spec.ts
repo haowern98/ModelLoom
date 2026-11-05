@@ -528,7 +528,7 @@ test('keyboard pan, bounded zoom and fit work without zooming layer inputs', asy
   await canvas.focus();
   await page.keyboard.press('ArrowRight');
   expect((await card.boundingBox())?.x).toBeCloseTo(original.x + 40, 1);
-  for (let index = 0; index < 12; index++) await page.keyboard.press('+');
+  for (let index = 0; index < 24; index++) await page.keyboard.press('+');
   expect((await card.boundingBox())?.width).toBeCloseTo(unscaledWidth * 2, 1);
   await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toBeDisabled();
   for (let index = 0; index < 24; index++) await page.keyboard.press('-');
@@ -631,8 +631,15 @@ test('one device stays centered on resize and beside the details panel without c
   await page.setViewportSize({ width: 1600, height: 900 });
   await centered();
   await page.getByRole('button', { name: 'Fit to view' }).click();
-  await expect(zoom).toHaveText('96%');
+  await expect
+    .poll(async () => Number.parseInt((await zoom.textContent()) ?? '', 10))
+    .toBeLessThan(100);
   await centered();
+  const fittedCard = await card.boundingBox();
+  const viewport = await canvas.boundingBox();
+  if (!fittedCard || !viewport) throw new Error('Canvas or device card is missing');
+  expect(fittedCard.y).toBeGreaterThanOrEqual(viewport.y);
+  expect(fittedCard.y + fittedCard.height).toBeLessThanOrEqual(viewport.y + viewport.height);
   await page.getByRole('button', { name: 'Cluster panel', exact: true }).click();
   await page.setViewportSize({ width: 1000, height: 620 });
   await page.getByRole('button', { name: 'Fit to view' }).click();
