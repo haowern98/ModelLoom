@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import path from 'node:path';
 import { createRuntimeController } from './runtime-controller';
+import type { RuntimeDependencies } from './runtime-controller';
 import type {
   ClusterDraft,
   SavedClusterConfiguration,
@@ -197,7 +198,13 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
-function setup(popup = false) {
+function setup(
+  popup = false,
+  runtimes?: Pick<
+    Extract<RuntimeDependencies, { enabled: true }>,
+    'runtimeSelection' | 'selectRuntime' | 'activateRuntime'
+  >,
+) {
   const events: string[] = [];
   let saved: SavedClusterConfiguration = {
     id: configId,
@@ -312,6 +319,7 @@ function setup(popup = false) {
     ),
     createHost: vi.fn(() => Promise.resolve(host)),
     createHistoryHost: vi.fn(() => Promise.resolve(host)),
+    ...runtimes,
   };
   const { confirmSharedMemory: _unused, ...popupDeps } = deps;
   void _unused;
@@ -345,6 +353,57 @@ function setup(popup = false) {
     },
   };
 }
+
+it.each(['draft', 'saved'] as const)(
+  'switches runtimes after unloading a %s Cluster load',
+  async (mode) => {
+    const cuda: Awaited<
+      ReturnType<NonNullable<Extract<RuntimeDependencies, { enabled: true }>['runtimeSelection']>>
+    > = {
+      packageId: 'package',
+      artifact: 'b11306-cuda12.4-msvc14.44-dev1',
+      version: 'b11306',
+      backend: 'cuda',
+      platform: 'win32',
+      arch: 'x64',
+      upstreamCommit: 'a'.repeat(40),
+    };
+    const vulkan = {
+      ...cuda,
+      packageId: 'vulkan',
+      artifact: 'vulkan-build',
+      backend: 'vulkan' as const,
+    };
+    let selected = cuda;
+    const activateRuntime = vi.fn(() => Promise.resolve(selected));
+    const f = setup(false, {
+      runtimeSelection: () => Promise.resolve(selected),
+      selectRuntime: () => Promise.resolve((selected = vulkan)),
+      activateRuntime,
+    });
+    try {
+      await f.initialize();
+      const load = () =>
+        mode === 'saved'
+          ? f.run()
+          : f.controller.command({
+              action: 'load',
+              modelId: `model-${modelId}`,
+              draft: { key: f.draft().key, revision: f.draft().revision },
+            });
+      expect(await load()).toMatchObject({ phase: 'ready', error: null });
+      expect(await f.controller.command({ action: 'stop' })).toMatchObject({ phase: 'stopped' });
+      await f.controller.command({ action: 'select-runtime', build: 'b11306-vulkan' });
+      expect(await load()).toMatchObject({ phase: 'ready', error: null });
+      expect(activateRuntime).toHaveBeenCalledOnce();
+      expect(f.host.command).toHaveBeenLastCalledWith(
+        expect.stringContaining('"packageId":"vulkan"'),
+      );
+    } finally {
+      await f.controller.quit();
+    }
+  },
+);
 
 it('allows deleting saved intent without stopping an already ready model', async () => {
   const f = setup();

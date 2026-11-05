@@ -3,6 +3,7 @@ import type { RuntimeCommand, RuntimeView } from '../../shared/runtime';
 /** Public snapshots include persisted library metadata and transient indexing progress. */
 export function useRuntime() {
   const [view, setView] = useState<RuntimeView | null>(null);
+  const [selectedRuntime, setSelectedRuntime] = useState<RuntimeView['selectedRuntime']>();
   const [loading, setLoading] = useState(false);
   const generation = useRef(0),
     busy = useRef(false),
@@ -12,6 +13,14 @@ export function useRuntime() {
     if (!bridge) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
+    void bridge.command({ action: 'runtime-selection' }).then(
+      (next) => {
+        if (alive) setSelectedRuntime(next.selectedRuntime ?? null);
+      },
+      () => {
+        if (alive) setSelectedRuntime(null);
+      },
+    );
     const poll = async () => {
       const current = generation.current;
       try {
@@ -94,5 +103,5 @@ export function useRuntime() {
       /* Keep the warning open so the user can retry their decision. */
     }
   }
-  return { view, loading, run, answerMemory };
+  return { view, selectedRuntime, loading, run, answerMemory };
 }

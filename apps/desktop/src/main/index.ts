@@ -43,11 +43,14 @@ let network: ReturnType<typeof createDesktopNetwork> | undefined;
 let quitting = false,
   quitConfirmed = false;
 
+const workspaceCore = path.resolve(__dirname, '../../../../packages/core');
+const pairedBuild = false;
 const locations = runtimePaths({
   packaged: app.isPackaged,
   development: PACKAGED_DEVELOPMENT,
   resources: process.resourcesPath,
-  workspaceCore: path.resolve(__dirname, '../../../../packages/core'),
+  workspaceCore,
+  pairedBuild,
   localData: process.env.LOCALAPPDATA ?? '',
   home: app.getPath('home'),
 });
@@ -163,6 +166,8 @@ async function createWindow(): Promise<void> {
           incoming: (listener) => windowNetwork.setIncoming(listener),
         },
         writeDiagnostic,
+        locations.runtimes,
+        pairedBuild,
       );
       tensorCache = development.tensorCache;
       dependencies = {

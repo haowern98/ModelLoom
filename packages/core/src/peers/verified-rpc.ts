@@ -1,7 +1,15 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { InstalledPackage } from '../runtime-package/install.js';
-import { requireInstalledLive, revalidateInstalled } from '../runtime-package/install.js';
+import { DEVELOPMENT_BUILD } from '../runtime-package/development-policy.js';
+import { isDevelopmentB11307Inventory } from '../runtime-package/development-b11307.js';
+import { isDevelopmentVulkanInventory } from '../runtime-package/development-vulkan.js';
+import { VULKAN_RPC_FILES } from './resources.js';
+import {
+  installedRealm,
+  requireInstalledLive,
+  revalidateInstalled,
+} from '../runtime-package/install.js';
 import type { OwnedPeerRpc, PeerRpcBackend } from './rpc.js';
 import {
   ConfirmedNetworkSetupFailure,
@@ -107,10 +115,23 @@ export class VerifiedRpcBackend implements PeerRpcBackend {
     const installed = await this.installation();
     const inventory = requireInstalledLive(installed);
     if (
-      inventory.backend !== 'cuda' ||
+      (inventory.backend !== 'cuda' &&
+        !(
+          DEVELOPMENT_BUILD &&
+          installedRealm(installed) === 'development' &&
+          isDevelopmentVulkanInventory(inventory)
+        )) ||
       inventory.protocol !== 1 ||
-      inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77' ||
-      workerFiles.some((name) => !inventory.files.some((file) => file.path === name))
+      (inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77' &&
+        !(
+          DEVELOPMENT_BUILD &&
+          installedRealm(installed) === 'development' &&
+          isDevelopmentB11307Inventory(inventory)
+        )) ||
+      (inventory.backend === 'vulkan'
+        ? ['ModelLoom-peer-host.exe', ...VULKAN_RPC_FILES]
+        : workerFiles
+      ).some((name) => !inventory.files.some((file) => file.path === name))
     )
       throw new Error('RPC_PACKAGE_REQUIRED');
     const files = await revalidateInstalled(installed);
@@ -138,6 +159,7 @@ export class VerifiedRpcBackend implements PeerRpcBackend {
               arguments: [
                 '-HelperImage',
                 path.join(installed.directory, 'ModelLoom-peer-host.exe'),
+                ...(inventory.backend === 'vulkan' ? ['-Backend', 'vulkan'] : []),
               ],
             },
             [gpu],

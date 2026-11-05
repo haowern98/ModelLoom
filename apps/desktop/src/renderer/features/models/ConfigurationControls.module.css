@@ -145,3 +145,14 @@
   cursor: default;
   background: transparent;
 }
+
+.selectDetail {
+  margin-inline-start: auto;
+  color: var(--neutral-muted);
+  font: inherit;
+  white-space: nowrap;
+}
+.selectMark {
+  width: 1em;
+  flex: none;
+}

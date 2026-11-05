@@ -122,7 +122,7 @@ test('settings preview exposes disabled controls and an honest runtime inventory
     .getByRole('button', { name: 'Runtime', exact: true })
     .click();
   await expect(page.getByRole('button', { name: 'Check for updates' })).toBeDisabled();
-  await expect(page.getByRole('combobox', { name: 'GGUF runtime' })).toBeDisabled();
+  await expect(page.getByRole('combobox', { name: 'GGUF runtime' })).toHaveCount(0);
   const manage = page.getByRole('button', { name: 'Manage installed runtimes' });
   await manage.click();
   const dialog = page.getByRole('dialog', { name: 'Installed runtimes' });

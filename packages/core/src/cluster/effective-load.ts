@@ -1,4 +1,5 @@
 import { nativeContextSize } from '../runtime/context.js';
+import { localGpuBackend } from '../runtime-package/development-vulkan.js';
 import { createHash } from 'node:crypto';
 import { decodeSavedClusterConfiguration } from './contracts.js';
 import type { SavedClusterConfiguration, CompiledPlacement } from './contracts.js';
@@ -101,7 +102,7 @@ export function clusterLoadArguments(load: ClusterEffectiveLoad): readonly strin
     '--n-gpu-layers',
     String(load.blockCount + 1),
     '--device',
-    clusterDeviceNames(load.placement.orderedUuids).join(','),
+    clusterDeviceNames(load.placement.orderedUuids, localGpuBackend(load.artifact)).join(','),
     '--split-mode',
     load.placement.orderedUuids.length === 1 ? 'none' : 'layer',
     '--main-gpu',

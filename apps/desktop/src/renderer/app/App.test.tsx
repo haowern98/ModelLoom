@@ -41,7 +41,9 @@ it('restores a live device display name after reopening without sending any runt
   await user.click(screen.getByRole('button', { name: 'Cluster' }));
   expect(await screen.findByRole('article', { name: 'My laptop' })).toBeVisible();
   expect(screen.getByRole('button', { name: 'Inspect My laptop' })).toBeVisible();
-  expect(command.mock.calls.every(([input]) => input.action === 'snapshot')).toBe(true);
+  expect(
+    command.mock.calls.every(([input]) => ['snapshot', 'runtime-selection'].includes(input.action)),
+  ).toBe(true);
 });
 
 it('shows an unloaded local worker before any model import, without requiring GPU details', async () => {
@@ -71,7 +73,11 @@ it('shows an unloaded local worker before any model import, without requiring GP
   expect(device.queryByText('NVIDIA GPU')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Load model' })).toBeDisabled();
   expect(screen.queryByText('No devices connected')).not.toBeInTheDocument();
-  expect(command.mock.calls.every(([input]) => input?.action === 'snapshot')).toBe(true);
+  expect(
+    command.mock.calls.every(
+      ([input]) => input && ['snapshot', 'runtime-selection'].includes(input.action),
+    ),
+  ).toBe(true);
   await user.click(device.getByRole('button', { name: 'Actions for own-pc' }));
   await user.click(screen.getByRole('menuitem', { name: 'Device details' }));
   expect(await screen.findByRole('heading', { name: 'Devices', level: 1 })).toBeVisible();
@@ -240,4 +246,52 @@ describe('Models milestone', () => {
     expect(screen.getByRole('dialog', { name: 'GGUF import' })).toBeVisible();
     expect(screen.getByText(/No file is imported in this demo/)).toBeVisible();
   });
+});
+
+it('shows the selected build while the installed runtime files are still being checked', async () => {
+  const selected = {
+    packageId: 'llama-cuda-development',
+    version: 'b11306-dev14-speculation-tensor-cache-v1',
+    artifact: 'b11306-cuda12.4-msvc14.44-dev1',
+    platform: 'win32',
+    arch: 'x64',
+    backend: 'cuda',
+    upstreamCommit: '4f31296a907d73f3409f720429bcf31111615d77',
+  } as const;
+  const view: RuntimeView = {
+    enabled: true,
+    model: null,
+    phase: 'ready',
+    error: null,
+    activeRuntime: { ...selected, version: 'b11306-dev12-tensor-cache-v1' },
+  };
+  let finishInventory!: (reply: RuntimeView) => void;
+  const inventory = new Promise<RuntimeView>((resolve) => {
+    finishInventory = resolve;
+  });
+  window.modelLoomRuntime = {
+    command: async (input) => {
+      if (input.action === 'runtime-inventory') return inventory;
+      if (input.action === 'runtime-selection') return { ...view, selectedRuntime: selected };
+      return view;
+    },
+  };
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(screen.getByRole('button', { name: /^Settings$/ }));
+  await user.click(screen.getByRole('button', { name: /^Runtime$/ }));
+  expect(screen.getByText('Checking installed runtimes…')).toBeVisible();
+  expect(screen.queryByRole('combobox', { name: 'GGUF runtime' })).not.toBeInTheDocument();
+  expect(screen.getByText('llama.cpp · CUDA (Windows) · b11306 · dev14')).toBeVisible();
+  expect(screen.getByText('llama.cpp · CUDA (Windows) · b11306 · dev12')).toBeVisible();
+  finishInventory({ ...view, runtimeInventory: { status: 'ready', selected, installed: true } });
+  expect(await screen.findByText('1 verified version installed.')).toBeVisible();
+  expect(screen.queryByText('Engine log level')).not.toBeInTheDocument();
+  expect(screen.queryByText('Show runtime downloads')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Manage installed runtimes' }));
+  const dialog = screen.getByRole('dialog', { name: 'Installed runtimes' });
+  expect(within(dialog).getByRole('heading', { name: 'llama.cpp · CUDA' })).toBeVisible();
+  expect(within(dialog).getByText('b11306 · dev14')).toBeVisible();
+  expect(within(dialog).getByText('Selected')).toBeVisible();
+  expect(dialog).not.toHaveTextContent('In use');
 });

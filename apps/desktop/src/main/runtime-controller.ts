@@ -7,7 +7,13 @@ import type { PeerReply } from '../shared/peers';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { decodeRuntimeCommand } from '../shared/runtime';
-import type { RuntimeView, RuntimeDevice } from '../shared/runtime';
+import type {
+  RuntimeView,
+  RuntimeDevice,
+  RuntimeInventory,
+  RuntimeBuildId,
+} from '../shared/runtime';
+import type { RuntimePackageDescription } from '../../../../packages/core/src/runtime-package/inventory';
 import { decodeChatCommand } from '../shared/chat';
 import type { ChatReply } from '../shared/chat';
 import {
@@ -40,13 +46,14 @@ import type { SpeculativeDefaults } from '../../../../packages/core/src/speculat
 import type { SpeculativeCompanion } from '../../../../packages/core/src/speculative-decoding/assets';
 interface Host {
   peers?(caller: string, input: unknown): Promise<PeerReply>;
-  command(text: string): Promise<Record<string, unknown>>;
+  command(text: string, retainClusterDrafts?: boolean): Promise<Record<string, unknown>>;
   close(): Promise<void>;
   chat?(caller: string, input: unknown): Promise<ChatReply>;
   configuration?(caller: string, input: unknown): Promise<ConfigurationReply>;
   cluster?(caller: string, input: unknown): Promise<ClusterReply>;
   api?(caller: string, input: unknown): Promise<ApiOwnerReply>;
   changed?(listener: () => void): () => void;
+  runtimePackage?(): RuntimePackageDescription | null;
   /** Trusted main prepares a verified engine only after model/resource admission. */
   prepare?(file: string): Promise<void>;
   prepareCluster?(
@@ -69,6 +76,14 @@ interface ActivationDependencies {
   expectedHash: string;
   packageId: string;
   clusterArtifact?: string;
+  runtimeSelection?(): Promise<RuntimePackageDescription>;
+  runtimeInventory?(): Promise<{
+    selected: RuntimePackageDescription;
+    installed: boolean;
+    choices?: readonly { id: RuntimeBuildId; build: RuntimePackageDescription }[];
+  }>;
+  selectRuntime?(build: RuntimeBuildId): Promise<RuntimePackageDescription>;
+  activateRuntime?(): Promise<RuntimePackageDescription | null>;
   planCluster?(
     file: string,
     draft: ClusterDraft,
@@ -99,7 +114,7 @@ interface ActivationDependencies {
   confirmSharedMemory?(): Promise<boolean>;
   createHost(file: string): Promise<Host>;
   /** Model-independent utility/history startup; retains the same owner across model loads. */
-  createHistoryHost?(source?: ModelSource): Promise<Host>;
+  createHistoryHost?(source?: ModelSource, resumeClusterDrafts?: boolean): Promise<Host>;
   planModel?(
     file: string,
     record: ModelConfigurationRecord,
@@ -172,6 +187,8 @@ const messages: Record<string, string> = {
  */
 export function createRuntimeController(deps: RuntimeDependencies, caller: string = randomUUID()) {
   let view: RuntimeView = { enabled: deps.enabled, model: null, phase: 'stopped', error: null };
+  // Prepare display metadata at startup without checking installed binaries or sampling hardware.
+  let runtimeSelection = deps.enabled ? deps.runtimeSelection?.().catch(() => null) : undefined;
   let file: string | null = null,
     host: Host | undefined;
   let id = 0,
@@ -367,6 +384,62 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     }
     hostModelId = source.modelId;
   }
+  function applyRuntimeSelection() {
+    if (!deps.enabled || !deps.activateRuntime) return Promise.resolve();
+    const selection = historySelection.then(replaceRuntimeOwner);
+    historySelection = selection.catch(() => undefined);
+    return selection;
+  }
+  async function replaceRuntimeOwner() {
+    if (!deps.enabled || !deps.activateRuntime) return;
+    const selected = await deps.runtimeSelection?.();
+    if (
+      !selected ||
+      (selected.packageId === deps.packageId && selected.artifact === deps.clusterArtifact)
+    )
+      return;
+    if (
+      view.restoring ||
+      importing ||
+      runningConfiguration ||
+      planning ||
+      clusterLoading ||
+      clusterCleanupFailed ||
+      !['stopped', 'failed'].includes(view.phase)
+    )
+      throw Error('BUSY');
+    if (preparation) await preparation;
+    if (enginePreparation) await enginePreparation.catch(() => undefined);
+    if (quitting) return;
+    const previousHost = host;
+    // The model picker may already have bound a draft to a different owner than the last loaded model.
+    const source =
+      sources.get(`model-${hostModelId}`) ?? (view.model && sources.get(view.model.id));
+    const activated = await deps.activateRuntime();
+    if (!activated || quitting) return;
+    if (host) {
+      unsubscribe?.();
+      await host.command(JSON.stringify({ id: ++id, action: 'quit' }), true);
+      await host.close();
+      host = undefined;
+      preparation = undefined;
+      hostModelId = '';
+      enginePreparation = undefined;
+    }
+    deps.packageId = activated.packageId;
+    deps.clusterArtifact = activated.artifact;
+    if (!quitting && deps.createHistoryHost) {
+      const creating = deps.createHistoryHost(source ?? undefined, previousHost !== undefined);
+      preparation = creating;
+      try {
+        host = observeChat(await creating);
+        hostModelId = source?.modelId ?? '';
+      } catch (error) {
+        if (preparation === creating) preparation = undefined;
+        throw error;
+      }
+    }
+  }
   if (deps.enabled && deps.createHistoryHost) {
     view = { ...view, restoring: true, models: [] };
     preparation = Promise.resolve()
@@ -483,6 +556,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
   const result = () =>
     structuredClone({
       ...view,
+      activeRuntime: view.phase === 'ready' ? (host?.runtimePackage?.() ?? null) : null,
       loadingStage:
         deps.enabled && ['starting', 'loading'].includes(view.phase)
           ? deps.loadingStatus?.stage
@@ -884,6 +958,47 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     async command(input: unknown): Promise<RuntimeView> {
       const command = decodeRuntimeCommand(input);
       if (quitting) return result();
+      if (command.action === 'select-runtime') {
+        if (!deps.enabled || !deps.selectRuntime) throw Error('NOT_READY');
+        const selected = await deps.selectRuntime(command.build);
+        runtimeSelection = Promise.resolve(selected);
+        if (
+          !view.restoring &&
+          !importing &&
+          !planning &&
+          !clusterLoading &&
+          ['stopped', 'failed'].includes(view.phase)
+        ) {
+          try {
+            await applyRuntimeSelection();
+          } catch (error) {
+            // A remote model can still own this PC's GPUs; retain its package until it stops.
+            if (!(error instanceof Error && error.message === 'GPU_BUSY')) throw error;
+          }
+        }
+        return {
+          ...result(),
+          selectedRuntime: selected,
+          runtimeInventory: deps.runtimeInventory
+            ? { status: 'ready', ...(await deps.runtimeInventory()) }
+            : { status: 'unavailable' },
+        };
+      }
+      if (command.action === 'runtime-selection') {
+        const selectedRuntime = (await runtimeSelection) ?? null;
+        return { ...result(), selectedRuntime };
+      }
+      if (command.action === 'runtime-inventory') {
+        let inventory: RuntimeInventory = { status: 'unavailable' };
+        if (deps.enabled && deps.runtimeInventory) {
+          try {
+            inventory = { status: 'ready', ...(await deps.runtimeInventory()) };
+          } catch {
+            inventory = { status: 'error' };
+          }
+        }
+        return { ...result(), runtimeInventory: inventory };
+      }
       if (command.action === 'memory-decision') {
         if (memoryDecision?.id === command.id) memoryDecision.resolve(command.loadAnyway);
         return result();
@@ -893,13 +1008,20 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       if (command.action === 'snapshot') await observeDevice();
       if (!deps.enabled || quitting) return result();
       let loadingEpoch: number | undefined;
+      let ownedClusterLoad: AbortController | undefined;
       let ownsConfigurationRun = false;
       try {
         if (command.action === 'snapshot') {
           // Keep a rejected admission visible until an explicit stop/retry. A stopped core
           // has no knowledge of main's preflight failure and must not erase that evidence.
-          if (host && view.phase !== 'failed') await send('snapshot');
-          await observeModelUse();
+          // Poll only between owner replacements, never while the previous owner shuts down.
+          const reading = historySelection.then(async () => {
+            if (quitting) return;
+            if (host && view.phase !== 'failed') await send('snapshot');
+            await observeModelUse();
+          });
+          historySelection = reading.catch(() => undefined);
+          await reading;
         } else if (command.action === 'remove') {
           if (
             importing ||
@@ -1039,6 +1161,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
             view = { ...view, indexing: null };
           }
         } else if (command.action === 'run-configuration') {
+          await applyRuntimeSelection();
           if (runningConfiguration || importing) throw Error('BUSY');
           runningConfiguration = true;
           ownsConfigurationRun = true;
@@ -1092,6 +1215,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           const abort = new AbortController();
           clusterLoading?.abort();
           clusterLoading = abort;
+          ownedClusterLoad = abort;
           const saved = restored.configuration;
           selectedPeerRuns = saved.runs;
           let confirmed = false,
@@ -1195,6 +1319,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
           if (host) await send('stop');
           else view = { ...view, phase: 'stopped', error: null };
         } else if (command.action === 'load') {
+          await applyRuntimeSelection();
           planning?.abort();
           clusterLoading?.abort();
           await clusterTail;
@@ -1249,6 +1374,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
             if ((deps.planModel || command.draft) && deps.preflightCluster && host.prepareCluster) {
               const abort = new AbortController();
               clusterLoading = abort;
+              ownedClusterLoad = abort;
               const selectedFile = file;
               const readDraft = async () => {
                 if (!command.draft || !host?.cluster || !source.blockCount)
@@ -1435,6 +1561,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
               : 'The runtime operation failed.',
         };
       } finally {
+        if (ownedClusterLoad && clusterLoading === ownedClusterLoad) clusterLoading = undefined;
         if (ownsConfigurationRun) runningConfiguration = false;
         if (
           (command.action === 'load' || command.action === 'run-configuration') &&
@@ -1461,6 +1588,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
         // A pending picker owns no model handles; only selected-file indexing must settle.
         await Promise.allSettled([
           restoration,
+          historySelection,
           removalPreparation,
           view.indexing ? importPreparation : undefined,
         ]);

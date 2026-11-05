@@ -64,20 +64,46 @@ function receipt(capability: VerifiedPackage, directory: string): InstalledPacka
   return result;
 }
 
-async function existingInstallation(
+async function* installationDirectories(
   capability: VerifiedPackage,
   root: string,
-): Promise<InstalledPackage | undefined> {
+): AsyncGenerator<string> {
   const { inventory } = packageEvidence(capability);
   const prefix = `${inventory.packageId}-${inventory.version}-`;
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const stream = await opendir(root);
+  const stream = await opendir(root).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined;
+    throw error;
+  });
+  if (!stream) return;
   let entries = 0;
   for await (const entry of stream) {
     if (++entries > 1024) throw new Error('INVALID_TREE');
     if (!entry.isDirectory() || !entry.name.startsWith(prefix)) continue;
     if (!uuid.test(entry.name.slice(prefix.length))) continue;
-    const result = receipt(capability, path.join(root, entry.name));
+    yield path.join(root, entry.name);
+  }
+}
+
+/** Display-only presence against signed metadata. This grants no authority to use the files. */
+export async function hasRuntimeInstallation(
+  capability: VerifiedPackage,
+  root: string,
+): Promise<boolean> {
+  for await (const directory of installationDirectories(capability, root)) {
+    void directory;
+    return true;
+  }
+  return false;
+}
+
+/** Find an installed copy matching signed metadata, without installing or modifying files. */
+export async function findInstalledRuntime(
+  capability: VerifiedPackage,
+  root: string,
+): Promise<InstalledPackage | undefined> {
+  for await (const directory of installationDirectories(capability, root)) {
+    const result = receipt(capability, directory);
     try {
       // A directory name is only a hint. Current signed inventory and native locks grant reuse.
       const lock = await revalidateInstalled(result);
@@ -88,6 +114,24 @@ async function existingInstallation(
     }
   }
   return undefined;
+}
+
+/** Prefer the profile store, retaining only a verified legacy copy when migration runs out of space. */
+export async function installInRuntimeStore(
+  capability: VerifiedPackage,
+  bundle: string,
+  root: string,
+  legacyRoot?: string,
+): Promise<InstalledPackage> {
+  try {
+    return await installExpanded(capability, bundle, root);
+  } catch (error) {
+    if (legacyRoot && error instanceof Error && error.message === 'INSUFFICIENT_DISK_SPACE') {
+      const legacy = await findInstalledRuntime(capability, legacyRoot);
+      if (legacy) return legacy;
+    }
+    throw error;
+  }
 }
 
 /** Expanded bootstrap only. Reuse requires fresh verification against this caller's capability. */
@@ -125,7 +169,7 @@ async function installSerialized(
     source = native.sealFiles(inventory.files.map((file) => path.resolve(bundle, file.path)));
     await inspect(bundle, inventory);
     native.privateDirectory(root);
-    const existing = await existingInstallation(capability, root);
+    const existing = await findInstalledRuntime(capability, root);
     if (existing) return existing;
     const space = await statfs(root, { bigint: true });
     const required = inventory.files.reduce((bytes, file) => bytes + BigInt(file.length), 0n);

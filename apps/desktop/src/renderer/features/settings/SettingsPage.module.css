@@ -262,3 +262,153 @@
     padding-inline: 18px;
   }
 }
+
+dialog.runtimeDialog {
+  width: min(608px, calc(100vw - 40px));
+  max-height: calc(100dvh - 40px);
+  overflow: hidden;
+}
+
+.runtimeDialog > header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--neutral-border);
+}
+
+.runtimeDialog > div {
+  max-height: calc(100dvh - 136px);
+  overflow-y: auto;
+}
+
+.runtimePacks {
+  display: grid;
+  gap: 12px;
+}
+
+.runtimePack {
+  padding: 0 14px;
+  background: var(--settings-group);
+  border: 1px solid var(--neutral-border);
+  border-radius: var(--radius-card);
+}
+
+.runtimePackRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding-block: 11px;
+}
+
+.runtimePackRow + .runtimePackRow {
+  border-top: 1px solid var(--neutral-border);
+}
+
+.runtimePack h3,
+.runtimePack h4 {
+  margin: 0;
+  color: var(--neutral-text);
+  font-size: var(--font-size-card-title);
+  font-weight: var(--font-weight-medium);
+}
+
+.runtimePack h4 {
+  font-weight: var(--font-weight-normal);
+}
+
+.runtimeBadges {
+  display: flex;
+  gap: 6px;
+}
+
+.runtimeBadges span {
+  border-radius: 999px;
+  padding: 1px 8px;
+  color: var(--neutral-text);
+  background: #343434;
+  font-size: var(--font-size-metadata);
+}
+
+.runtimeUpdateStatus {
+  padding-bottom: 12px;
+  color: var(--neutral-muted);
+  font-size: var(--font-size-description);
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.runtimeSelect,
+.runtimeOption {
+  font-family: inherit;
+  font-size: var(--font-size-description);
+  font-weight: var(--font-weight-normal);
+}
+
+.runtimeSelect {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--neutral-border);
+  border-radius: 10px;
+  background: #262626;
+  color: var(--neutral-text);
+  line-height: 20px;
+}
+
+.runtimePicker {
+  width: 100%;
+  min-width: 0;
+}
+
+.runtimeRow {
+  flex-wrap: nowrap;
+}
+
+.runtimeRow > div:first-child {
+  flex: 1 1 200px;
+}
+
+.runtimeRow > .controls {
+  flex: 0 1 340px;
+  min-width: 0;
+}
+
+.runtimeSelect:hover:not([aria-disabled='true']) {
+  background: #303030;
+}
+
+.runtimeSelect::before {
+  box-shadow: none;
+}
+
+.runtimeSelect input[aria-hidden='true'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  pointer-events: none;
+}
+
+.runtimeSelect[aria-disabled='true'] {
+  opacity: 0.65;
+}
+
+.runtimeOption {
+  line-height: 20px;
+}
+
+.runtimeOption [data-runtime-option] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

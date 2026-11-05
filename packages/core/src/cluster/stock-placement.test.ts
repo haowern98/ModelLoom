@@ -53,6 +53,19 @@ const log = [
   '',
 ].join('\n');
 describe('stock allocation observations', () => {
+  it('verifies Vulkan ordinals against the selected physical PCI devices', () => {
+    const vulkanLoad = { ...load, artifact: 'b11306-vulkan-msvc14.44-dev1' };
+    const vulkanLog = log.replaceAll('CUDA', 'Vulkan');
+    expect(verifyStockPlacement(vulkanLog, vulkanLoad, physical, caches).blocks).toHaveLength(4);
+    expect(() =>
+      verifyStockPlacement(
+        vulkanLog.replace('0000:01:00.0', '0000:03:00.0'),
+        vulkanLoad,
+        physical,
+        caches,
+      ),
+    ).toThrow('PLACEMENT_MISMATCH');
+  });
   it('binds remote allocation rows to the owned gateway and qualified peer GPU', () => {
     const remote = `peer:${'a'.repeat(64)}:${uuids[1]}`;
     const distributed = {

@@ -1,6 +1,11 @@
+import type { RuntimePackageDescription } from '../../../../packages/core/src/runtime-package/inventory';
+
 /** Narrow, data-only renderer contract. No paths, configuration, process IDs or credentials. */
+export type RuntimeBuildId = 'b11306' | 'b11307' | 'b11306-vulkan';
+
 export type RuntimeCommand =
-  | { action: 'import' | 'snapshot' | 'stop' }
+  | { action: 'import' | 'snapshot' | 'stop' | 'runtime-selection' | 'runtime-inventory' }
+  | { action: 'select-runtime'; build: RuntimeBuildId }
   | { action: 'remove'; modelId: string }
   | { action: 'load'; modelId: string; draft?: { key: string; revision: number } }
   | { action: 'run-configuration'; configurationId: string; revision: number }
@@ -74,7 +79,19 @@ export function supportedDeviceGpus(gpus: readonly DeviceGpu[]): readonly Device
       gpu.enabled !== false,
   );
 }
+export type RuntimeInventory =
+  | {
+      status: 'ready';
+      selected: RuntimePackageDescription;
+      installed: boolean;
+      choices?: readonly { id: RuntimeBuildId; build: RuntimePackageDescription }[];
+    }
+  | { status: 'unavailable' | 'error' };
+
 export interface RuntimeView {
+  runtimeInventory?: RuntimeInventory;
+  selectedRuntime?: RuntimePackageDescription | null;
+  activeRuntime?: RuntimePackageDescription | null;
   enabled: boolean;
   model: RuntimeModel | null;
   phase: 'stopped' | 'starting' | 'loading' | 'ready' | 'stopping' | 'failed';
@@ -165,8 +182,18 @@ export function decodeRuntimeCommand(value: unknown): RuntimeCommand {
     };
   }
   if (
+    record.action === 'select-runtime' &&
+    Object.keys(record).length === 2 &&
+    (record.build === 'b11306' || record.build === 'b11307' || record.build === 'b11306-vulkan')
+  )
+    return { action: 'select-runtime', build: record.build };
+  if (
     Object.keys(record).length === 1 &&
-    (record.action === 'import' || record.action === 'snapshot' || record.action === 'stop')
+    (record.action === 'import' ||
+      record.action === 'snapshot' ||
+      record.action === 'stop' ||
+      record.action === 'runtime-selection' ||
+      record.action === 'runtime-inventory')
   )
     return { action: record.action };
   throw new Error('INVALID_CONTROL');

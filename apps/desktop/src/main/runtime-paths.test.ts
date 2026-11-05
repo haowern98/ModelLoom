@@ -80,11 +80,23 @@ it('resolves all packaged development inputs from resources and isolates writabl
   });
 });
 
-it('preserves the existing Forge profile and activation location', () => {
+it('puts installed runtimes under the existing Forge profile', () => {
   expect(runtimePaths({ ...input, packaged: false })).toEqual({
     core: 'E:\\checkout\\packages\\core',
     bootstrap: 'E:\\checkout\\packages\\core\\out\\activation\\b11306',
     state: 'E:\\checkout\\packages\\core\\out\\activation\\b11306',
     profile: 'C:\\Users\\tester\\.modelloom',
+    runtimes: 'C:\\Users\\tester\\.modelloom\\runtimes',
   });
+});
+
+it('selects the staged b11307 bootstrap only for the source app', () => {
+  expect(runtimePaths({ ...input, packaged: false, pairedBuild: true })).toMatchObject({
+    bootstrap: 'E:\\checkout\\packages\\core\\out\\activation\\b11307',
+    profile: 'C:\\Users\\tester\\.modelloom',
+    runtimes: 'C:\\Users\\tester\\.modelloom\\runtimes',
+  });
+  expect(runtimePaths({ ...input, development: true, pairedBuild: true })).toEqual(
+    runtimePaths({ ...input, development: true }),
+  );
 });

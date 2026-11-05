@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$HelperImage, [string]$SharingAddress)
+param([Parameter(Mandatory=$true)][string]$HelperImage, [string]$SharingAddress, [ValidateSet('cuda','vulkan')][string]$Backend = 'cuda')
 $ErrorActionPreference = 'Stop'
 $probeExe = [IO.Path]::GetFullPath($HelperImage)
 if ([IO.Path]::GetFileName($probeExe) -cne 'ModelLoom-peer-host.exe') { throw 'Invalid peer helper' }
@@ -13,9 +13,9 @@ if ($networkMode) {
 if (-not $networkMode) {
 $runtimeDirectory = [IO.Path]::GetDirectoryName($probeExe)
 $users = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-545')
-foreach ($name in @('ggml-rpc-server.exe', 'ggml.dll', 'ggml-base.dll', 'ggml-cpu-x64.dll',
-    'ggml-cuda.dll', 'ggml-rpc.dll', 'cublas64_12.dll', 'cublasLt64_12.dll', 'cudart64_12.dll',
-    'libomp.dll', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+$backendFiles = if ($Backend -eq 'vulkan') { @('ggml-vulkan.dll') } else { @('ggml-cuda.dll', 'cublas64_12.dll', 'cublasLt64_12.dll', 'cudart64_12.dll') }
+foreach ($name in (@('ggml-rpc-server.exe', 'ggml.dll', 'ggml-base.dll', 'ggml-cpu-x64.dll',
+    'ggml-rpc.dll', 'libomp.dll', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') + $backendFiles)) {
     $file = Join-Path $runtimeDirectory $name
     $acl = [IO.File]::GetAccessControl($file, [Security.AccessControl.AccessControlSections]::Access)
     $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($users,

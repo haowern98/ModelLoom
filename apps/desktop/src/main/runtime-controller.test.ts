@@ -1123,3 +1123,93 @@ it('publishes app-observed loading stages during an outstanding load and clears 
   expect((await pending).loadingStage).toBeUndefined();
   await controller.quit();
 });
+
+it('keeps the loaded engine running after choosing a runtime and activates it on the next load', async () => {
+  const baseline = {
+    packageId: 'package',
+    version: 'b11306',
+    artifact: 'baseline',
+    backend: 'cuda',
+    platform: 'win32',
+    architecture: 'x64',
+    upstreamCommit: 'a'.repeat(40),
+  };
+  const newer = { ...baseline, packageId: 'next-package', version: 'b11307', artifact: 'next' };
+  let selected = baseline;
+  const activateRuntime = vi.fn(() => Promise.resolve(selected));
+  const selectRuntime = vi.fn(() => {
+    selected = newer;
+    return Promise.resolve(selected);
+  });
+  const { controller, host } = setup(true, {
+    clusterArtifact: baseline.artifact,
+    runtimeSelection: () => Promise.resolve(selected),
+    runtimeInventory: () =>
+      Promise.resolve({
+        selected,
+        installed: true,
+        choices: [
+          { id: 'b11306', build: baseline },
+          { id: 'b11307', build: newer },
+        ],
+      }),
+    selectRuntime,
+    activateRuntime,
+  });
+  await controller.command({ action: 'import' });
+  const imported = await controller.command({ action: 'snapshot' });
+  if (!imported.model) throw Error('Expected imported model');
+  await controller.command({ action: 'load', modelId: imported.model.id });
+  const commands = host.command.mock.calls.length;
+  const changed = await controller.command({ action: 'select-runtime', build: 'b11307' });
+  expect(changed.phase).toBe('ready');
+  expect(changed.selectedRuntime).toEqual(newer);
+  expect(selectRuntime).toHaveBeenCalledWith('b11307');
+  expect(activateRuntime).not.toHaveBeenCalled();
+  expect(host.command).toHaveBeenCalledTimes(commands);
+  await controller.command({ action: 'stop' });
+  await controller.command({ action: 'load', modelId: imported.model.id });
+  expect(activateRuntime).toHaveBeenCalledOnce();
+  expect(host.close).toHaveBeenCalledOnce();
+  expect(host.command).toHaveBeenCalledWith(expect.stringContaining('"action":"quit"'), true);
+  await controller.quit();
+});
+
+it('waits for a runtime owner replacement before polling its snapshot', async () => {
+  let finish!: () => void;
+  const replacement = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  let closing = false;
+  const baseline = { packageId: 'package', artifact: 'baseline' };
+  const changed = { packageId: 'next-package', artifact: 'next' };
+  let selected = baseline;
+  const { controller, host } = setup(true, {
+    clusterArtifact: baseline.artifact,
+    runtimeSelection: () => Promise.resolve(selected),
+    selectRuntime: () => Promise.resolve((selected = changed)),
+    activateRuntime: () => Promise.resolve(changed),
+  });
+  await controller.command({ action: 'import' });
+  const imported = await controller.command({ action: 'snapshot' });
+  await controller.command({ action: 'load', modelId: imported.model!.id });
+  await controller.command({ action: 'stop' });
+  const original = host.command.getMockImplementation()!;
+  host.command.mockImplementation((input) => {
+    if (closing) return Promise.reject(Error('START_FAILED'));
+    return original(input);
+  });
+  host.close.mockImplementation(async () => {
+    closing = true;
+    await replacement;
+    closing = false;
+  });
+  const switching = controller.command({ action: 'select-runtime', build: 'b11306-vulkan' });
+  await vi.waitFor(() => expect(host.close).toHaveBeenCalledOnce());
+  const polling = controller.command({ action: 'snapshot' });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  finish();
+  expect((await switching).error).toBeNull();
+  expect((await polling).error).toBeNull();
+  await controller.quit();
+});

@@ -17,7 +17,7 @@ export const SERVER_CACHE_POLICY = Object.freeze({ promptCacheMiB: 768, contextC
 export interface PlannerReport {
   readonly modelSha256: string;
   readonly artifact: string;
-  readonly backend: 'cpu' | 'cuda';
+  readonly backend: 'cpu' | 'cuda' | 'vulkan';
   readonly configuration: RuntimeConfiguration;
   readonly contextLimit: number;
   readonly weights: { readonly ram: number; readonly vram: number };
@@ -50,7 +50,7 @@ import { isDeepStrictEqual } from 'node:util';
 export function checkResources(
   configuration: RuntimeConfiguration,
   artifact: string,
-  backend: 'cpu' | 'cuda',
+  backend: 'cpu' | 'cuda' | 'vulkan',
   report: PlannerReport | undefined,
   available: { ram: number; vram: number },
 ): Preflight {

@@ -169,7 +169,11 @@ int probe_rpc(Pipe &pipe, bool crashOwner = false, bool instance = false,
   probe_launch(
       worker,
       std::wstring(cuda
+#ifdef MODELLOOM_VULKAN_HOST
+                       ? L"--host 127.0.0.1 --device Vulkan0 --threads 1 --port "
+#else
                        ? L"--host 127.0.0.1 --device CUDA0 --threads 1 --port "
+#endif
                        : L"--host 127.0.0.1 --device CPU --threads 1 --port ") +
           std::to_wstring(port),
       {unused.value, logs.write.value}, containment.job.value, true, true,

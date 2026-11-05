@@ -2,6 +2,7 @@ import { build } from 'vite';
 import { Buffer } from 'node:buffer';
 import { _electron as electron, expect } from '@playwright/test';
 import path from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath, URL } from 'node:url';
 /* global window -- Used only inside Playwright's isolated renderer evaluation callbacks. */
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -66,9 +67,7 @@ async function ownedServer() {
   );
   const process = JSON.parse(stdout);
   if (
-    !process.ExecutablePath.startsWith(
-      path.join(root, 'packages/core/out/activation/b11306/installed').replaceAll('/', '\\'),
-    ) ||
+    !process.ExecutablePath.startsWith(path.join(homedir(), '.modelloom', 'runtimes') + path.sep) ||
     !process.CommandLine.includes(model.replaceAll('/', '\\')) ||
     Date.parse(process.CreationDate) < began
   )

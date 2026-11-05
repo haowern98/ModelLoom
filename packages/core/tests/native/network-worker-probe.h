@@ -337,7 +337,12 @@ void probe_launch(ProbeChild &child, const std::wstring &arguments,
               40 ||
           !probe_valid_gpu_uuid(uuid))
         throw Failure{"worker-gpu-uuid", ERROR_INVALID_PARAMETER};
+#ifdef MODELLOOM_VULKAN_HOST
+      values.push_back(L"GGML_VK_VISIBLE_DEVICES=" + modelloom::vulkan_devices(uuid));
+      values.push_back(L"VK_LOADER_LAYERS_DISABLE=~implicit~");
+#else
       values.push_back(L"CUDA_VISIBLE_DEVICES=" + std::wstring(uuid));
+#endif
     }
     std::sort(values.begin(), values.end());
     for (const auto &value : values) {

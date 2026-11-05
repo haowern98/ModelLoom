@@ -1,7 +1,17 @@
 import path from 'node:path';
+import { isDevelopmentVulkanInventory } from '../runtime-package/development-vulkan.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { InstalledPackage } from '../runtime-package/install.js';
-import { requireInstalledLive, revalidateInstalled } from '../runtime-package/install.js';
+import { DEVELOPMENT_BUILD } from '../runtime-package/development-policy.js';
+import {
+  isDevelopmentB11307Inventory,
+  isQualifiedDevelopmentB11307Load,
+} from '../runtime-package/development-b11307.js';
+import {
+  installedRealm,
+  requireInstalledLive,
+  revalidateInstalled,
+} from '../runtime-package/install.js';
 import { inspectGGUF } from '../runtime/gguf.js';
 import type { GGUFInfo } from '../runtime/gguf.js';
 import { ownershipBinding, confirmExit } from './windows-ownership.js';
@@ -88,8 +98,19 @@ export async function runPlacementEstimator(
     throw Error('NEEDS_SPECULATIVE_EVIDENCE');
   if (
     inventory.artifact !== load.artifact ||
-    inventory.backend !== 'cuda' ||
-    inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77' ||
+    (inventory.backend !== 'cuda' &&
+      !(
+        DEVELOPMENT_BUILD &&
+        installedRealm(installed) === 'development' &&
+        isDevelopmentVulkanInventory(inventory)
+      )) ||
+    (inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77' &&
+      !(
+        DEVELOPMENT_BUILD &&
+        installedRealm(installed) === 'development' &&
+        isDevelopmentB11307Inventory(inventory) &&
+        isQualifiedDevelopmentB11307Load(load)
+      )) ||
     !inventory.files.some(
       (f) =>
         f.path ===

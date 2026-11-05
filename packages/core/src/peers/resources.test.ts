@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   decodePeerResources,
   peerRuntimeId,
@@ -8,6 +9,72 @@ import {
 } from './resources.js';
 import { inventory } from '../../tests/inventory-fixture.js';
 import type { Inventory } from '../runtime-package/inventory.js';
+import {
+  VULKAN_DEVELOPMENT,
+  isDevelopmentVulkanInventory,
+} from '../runtime-package/development-vulkan.js';
+import { parseInventory } from '../runtime-package/inventory.js';
+
+it('accepts the exact paired CUDA/Vulkan payloads in both coordinator directions', () => {
+  const fixture = JSON.parse(
+    readFileSync(new URL('../../tests/vulkan-inventories.json', import.meta.url), 'utf8'),
+  ) as { cuda: unknown; cudaPeer: unknown; vulkan: unknown };
+  const cuda = parseInventory(fixture.cuda);
+  const peer = parseInventory(fixture.cudaPeer);
+  const vulkan = parseInventory(fixture.vulkan);
+  expect(isDevelopmentVulkanInventory(vulkan)).toBe(true);
+  const local = {
+    runtimeId: peerRuntimeId(peer),
+    clientRuntimeId: rpcClientRuntimeId(cuda),
+    ram: 8192,
+    gpus: [],
+  };
+  const remote = {
+    runtimeId: peerRuntimeId(vulkan),
+    clientRuntimeId: rpcClientRuntimeId(vulkan),
+    ram: 8192,
+    gpus: [],
+  };
+  expect(() => requireCompatibleRpcRuntime(cuda, local, remote)).not.toThrow();
+  expect(() => requireCompatibleRpcRuntime(vulkan, remote, local)).not.toThrow();
+  expect(() =>
+    peerRuntimeId({
+      ...vulkan,
+      files: vulkan.files.map((file) =>
+        file.path === 'ggml-rpc.dll' ? { ...file, sha256: '0'.repeat(64) } : file,
+      ),
+    }),
+  ).toThrow('RPC_PACKAGE_REQUIRED');
+});
+
+it('allows only the qualified CUDA/Vulkan payload pair and rejects an altered client', () => {
+  const coordinator = {
+    ...inventory,
+    backend: 'cuda',
+    artifact: 'b11306-cuda12.4-msvc14.44-dev1',
+    upstreamCommit: VULKAN_DEVELOPMENT.upstreamCommit,
+    files: RPC_RUNTIME_FILES.filter((name) => name !== 'ggml-rpc-server.exe').map((path) => ({
+      path,
+      length: 1,
+      sha256: 'a'.repeat(64),
+    })),
+  } as Inventory;
+  const local = {
+    runtimeId: '6b1e4eecd5fba9b281da51fb5b85b92c0a41ff9df5258134723e12ad47d2721b',
+    clientRuntimeId: rpcClientRuntimeId(coordinator),
+    ram: 8192,
+    gpus: [],
+  };
+  const remote = {
+    ...local,
+    runtimeId: '654df43c276228dcee97eb1a3b80fdc992d3b7b326a12b0e22137a3b917af1fa',
+    clientRuntimeId: 'a175ea49398005d12cb0737a794d7c7a06b53d35009e7359f431ebda46e98c32',
+  };
+  // A matching peer label cannot qualify a coordinator whose payload differs.
+  expect(() => requireCompatibleRpcRuntime(coordinator, local, remote)).toThrow(
+    'INCOMPATIBLE_RUNTIME',
+  );
+});
 
 it('binds runtime compatibility to the full required stock payload', () => {
   const signed: Inventory = {

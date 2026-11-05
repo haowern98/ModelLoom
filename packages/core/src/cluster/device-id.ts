@@ -18,10 +18,13 @@ export function qualifyPeerGpu(fingerprint: string, uuid: string): string {
 }
 /** Ordinals follow the owner's explicit local visibility and RPC endpoint order.
  * This does not authorize or open an endpoint; the peer owner must supply it. */
-export function clusterDeviceNames(ids: readonly string[]): readonly string[] {
+export function clusterDeviceNames(
+  ids: readonly string[],
+  backend: 'CUDA' | 'Vulkan' = 'CUDA',
+): readonly string[] {
   let cuda = 0,
     rpc = 0;
   return ids.map((id) =>
-    decodeClusterDevice(id).kind === 'local' ? `CUDA${cuda++}` : `RPC${rpc++}`,
+    decodeClusterDevice(id).kind === 'local' ? `${backend}${cuda++}` : `RPC${rpc++}`,
   );
 }

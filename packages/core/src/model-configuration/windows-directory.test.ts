@@ -184,6 +184,50 @@ it('clears unsaved model and named-placement edits on close while preserving exp
   }
 });
 
+it('retains the exact draft revision for a same-session owner handoff', () => {
+  const value = trustedHistoryRoot(root());
+  const modelId = record().modelId;
+  const openStore = (resumeClusterDrafts = false) =>
+    openModelConfigurationStore(
+      value,
+      () => true,
+      capabilities,
+      record().load,
+      undefined,
+      resumeClusterDrafts,
+    );
+  const first = openStore();
+  const key = `model:${modelId}`;
+  const edit = {
+    modelId,
+    load: { defaults: record().load, cacheK: 'q8_0' as const, cacheV: 'q8_0' as const },
+    runs: [{ uuid: 'GPU-12345678-1234-1234-1234-123456789abc', first: '0', last: '63' }],
+  };
+  const draft = (() => {
+    try {
+      const initial = first.store.cluster.writeDraft(key, null, edit);
+      return first.store.cluster.writeDraft(key, initial.revision, edit);
+    } finally {
+      first.close(true);
+    }
+  })();
+  const second = openStore(true);
+  try {
+    expect(second.store.cluster.readDraft(key)).toEqual(draft);
+    expect(() => second.store.cluster.writeDraft(key, draft.revision - 1, edit)).toThrow(
+      'STALE_CONFIGURATION',
+    );
+  } finally {
+    second.close();
+  }
+  const next = openStore();
+  try {
+    expect(next.store.cluster.readDraft(key)).toBeNull();
+  } finally {
+    next.close();
+  }
+});
+
 it('does not restore leftover drafts from a previous interrupted session', () => {
   const value = root(),
     guard = open(value);

@@ -19,7 +19,14 @@ import path from 'node:path';
 import { repository } from '../../tests/package-repository.js';
 import { inventory } from '../../tests/inventory-fixture.js';
 import { createFixtureVerifier } from './verifier.js';
-import { installExpanded, revalidateInstalled, requireInstalledLive } from './install.js';
+import {
+  installExpanded,
+  installInRuntimeStore,
+  hasRuntimeInstallation,
+  findInstalledRuntime,
+  revalidateInstalled,
+  requireInstalledLive,
+} from './install.js';
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof FsPromises>();
   return {
@@ -67,6 +74,33 @@ async function setup() {
   const capability = await createFixtureVerifier(signed.root).verify(repo, path.join(dir, 'state'));
   return { dir, bundle, root, capability, repo, signed };
 }
+it('lists an installation without granting reuse authority or hashing its payload', async () => {
+  const { capability, bundle, root } = await setup();
+  const installed = await installExpanded(capability, bundle, root);
+  await writeFile(path.join(installed.directory, 'llama-server.exe'), 'bad');
+  await expect(hasRuntimeInstallation(capability, root)).resolves.toBe(true);
+  await expect(findInstalledRuntime(capability, root)).resolves.toBeUndefined();
+  await expect(revalidateInstalled(installed)).rejects.toThrow('INSTALL_FAILED');
+  await rm(installed.directory, { recursive: true });
+  await expect(hasRuntimeInstallation(capability, root)).resolves.toBe(false);
+});
+
+it('ignores malformed installation names and directory links in the display index', async () => {
+  const { capability, root, bundle } = await setup();
+  const { packageEvidence } = await import('./verifier.js');
+  const manifest = packageEvidence(capability).inventory;
+  await mkdir(root);
+  await mkdir(path.join(root, `${manifest.packageId}-${manifest.version}-not-an-id`));
+  await symlink(
+    bundle,
+    path.join(
+      root,
+      `${manifest.packageId}-${manifest.version}-11111111-1111-4111-8111-111111111111`,
+    ),
+    'junction',
+  );
+  await expect(hasRuntimeInstallation(capability, root)).resolves.toBe(false);
+});
 it('reuses a verified installation with a fresh receipt and freshly verified capability', async () => {
   const { capability, bundle, root, dir, repo, signed } = await setup();
   const first = await installExpanded(capability, bundle, root);
@@ -138,6 +172,21 @@ it('reuses a verified installation even when no free disk space remains', async 
   expect(second.directory).toBe(first.directory);
   expect(await readdir(root)).toHaveLength(1);
   expect(copyFile).not.toHaveBeenCalled();
+});
+
+it('uses a verified legacy copy on a full profile drive and migrates when space is available', async () => {
+  const { capability, bundle, root, dir } = await setup();
+  const profile = path.join(dir, 'profile-runtimes');
+  const legacy = await installExpanded(capability, bundle, root);
+  const disk = await actualFs.statfs(bundle);
+  vi.mocked(statfs).mockResolvedValueOnce({ ...disk, bavail: 0 });
+  const fallback = await installInRuntimeStore(capability, bundle, profile, root);
+  expect(fallback.directory).toBe(legacy.directory);
+  expect(await readdir(profile)).toEqual([]);
+
+  const migrated = await installInRuntimeStore(capability, bundle, profile, root);
+  expect(path.dirname(migrated.directory)).toBe(profile);
+  expect(await readdir(root)).toEqual([path.basename(legacy.directory)]);
 });
 it('removes only its partial candidate when copying runs out of disk space', async () => {
   const { capability, bundle, root } = await setup();

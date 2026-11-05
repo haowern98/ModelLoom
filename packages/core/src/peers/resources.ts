@@ -1,4 +1,9 @@
 import { createHash } from 'node:crypto';
+import {
+  isDevelopmentVulkanInventory,
+  VULKAN_RPC_IDENTITIES,
+} from '../runtime-package/development-vulkan.js';
+import { isDevelopmentB11307Inventory } from '../runtime-package/development-b11307.js';
 import type { Inventory } from '../runtime-package/inventory.js';
 import type { GpuResource } from '../runtime/gpu-resources.js';
 import { exact } from '../hosts/control.js';
@@ -18,6 +23,13 @@ export const RPC_RUNTIME_FILES = [
   'vcruntime140.dll',
   'vcruntime140_1.dll',
 ] as const;
+export const VULKAN_RPC_FILES: readonly string[] = [
+  ...RPC_RUNTIME_FILES.filter(
+    (name) =>
+      !['ggml-cuda.dll', 'cublas64_12.dll', 'cublasLt64_12.dll', 'cudart64_12.dll'].includes(name),
+  ),
+  'ggml-vulkan.dll',
+];
 export interface PeerResources {
   readonly runtimeId: string;
   readonly clientRuntimeId?: string;
@@ -27,7 +39,10 @@ export interface PeerResources {
 /** Includes the exact stock executable and all worker dependencies, independently
  * of a helper rebuild or metadata renewal. Neither build labels nor HELLO suffice. */
 export function peerRuntimeId(inventory: Inventory): string {
-  return runtimeFilesId(inventory, RPC_RUNTIME_FILES);
+  return runtimeFilesId(
+    inventory,
+    inventory.backend === 'vulkan' ? VULKAN_RPC_FILES : RPC_RUNTIME_FILES,
+  );
 }
 
 /** The coordinator does not contain the worker executable. Compare every shared
@@ -35,7 +50,9 @@ export function peerRuntimeId(inventory: Inventory): string {
 export function rpcClientRuntimeId(inventory: Inventory): string {
   return runtimeFilesId(
     inventory,
-    RPC_RUNTIME_FILES.filter((name) => name !== 'ggml-rpc-server.exe'),
+    (inventory.backend === 'vulkan' ? VULKAN_RPC_FILES : RPC_RUNTIME_FILES).filter(
+      (name) => name !== 'ggml-rpc-server.exe',
+    ),
   );
 }
 
@@ -47,8 +64,9 @@ function runtimeFilesId(inventory: Inventory, names: readonly string[]): string 
   });
   if (
     inventory.protocol !== 1 ||
-    inventory.backend !== 'cuda' ||
-    inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77'
+    (inventory.backend !== 'cuda' && !isDevelopmentVulkanInventory(inventory)) ||
+    (inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77' &&
+      !isDevelopmentB11307Inventory(inventory))
   )
     throw Error('RPC_PACKAGE_REQUIRED');
   return createHash('sha256')
@@ -65,12 +83,26 @@ export function requireCompatibleRpcRuntime(
   local: PeerResources,
   remote: PeerResources,
 ): void {
+  const known = (report: PeerResources) =>
+    Object.values(VULKAN_RPC_IDENTITIES).find(
+      (identity) =>
+        identity.worker === report.runtimeId && identity.client === report.clientRuntimeId,
+    );
+  if (
+    local.runtimeId !== remote.runtimeId &&
+    known(local) &&
+    known(remote) &&
+    local.clientRuntimeId === rpcClientRuntimeId(coordinator)
+  )
+    return;
   if (
     local.runtimeId !== remote.runtimeId ||
     local.clientRuntimeId !== remote.clientRuntimeId ||
     (local.clientRuntimeId !== undefined &&
       local.clientRuntimeId !== rpcClientRuntimeId(coordinator)) ||
-    (coordinator.version.endsWith('-tensor-cache-v1') && local.clientRuntimeId === undefined)
+    ((coordinator.version.endsWith('-tensor-cache-v1') ||
+      isDevelopmentB11307Inventory(coordinator)) &&
+      local.clientRuntimeId === undefined)
   )
     throw Error('INCOMPATIBLE_RUNTIME');
 }

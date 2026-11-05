@@ -1,3 +1,5 @@
+import { isDevelopmentB11307Provenance } from '../runtime-package/development-b11307.js';
+import { VULKAN_DEVELOPMENT } from '../runtime-package/development-vulkan.js';
 import type { Provenance } from '../history/store.js';
 import type { LoadDefaults, RuntimeSettingCapabilities } from './contracts.js';
 
@@ -9,10 +11,18 @@ export function createConfigurationProfile(
   load: LoadDefaults;
   capabilities: RuntimeSettingCapabilities;
 } {
-  if (provenance.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77')
+  const qualifiedDevelopmentBuild =
+    isDevelopmentB11307Provenance(provenance) ||
+    (provenance.packageId === VULKAN_DEVELOPMENT.packageId &&
+      provenance.upstreamCommit === VULKAN_DEVELOPMENT.upstreamCommit);
+  if (
+    provenance.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77' &&
+    !qualifiedDevelopmentBuild
+  )
     throw Error('UNSUPPORTED_RUNTIME');
   const cfg = provenance.configuration;
-  if (provenance.packageId !== 'llama-cuda-development') throw Error('NEEDS_RESOURCE_EVIDENCE');
+  if (provenance.packageId !== 'llama-cuda-development' && !qualifiedDevelopmentBuild)
+    throw Error('NEEDS_RESOURCE_EVIDENCE');
   return Object.freeze({
     load: Object.freeze({
       automatic: false,

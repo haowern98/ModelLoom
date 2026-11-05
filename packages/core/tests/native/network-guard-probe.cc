@@ -19,6 +19,9 @@
 #include <fwpmu.h>
 #include <iphlpapi.h>
 #include <sddl.h>
+#ifdef MODELLOOM_VULKAN_HOST
+#include "../../native/vulkan-selection.h"
+#endif
 
 namespace {
 struct Failure {
