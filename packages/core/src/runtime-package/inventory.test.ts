@@ -2,6 +2,12 @@ import { expect, it } from 'vitest';
 import { parseInventory } from './inventory.js';
 
 import { inventory } from '../../tests/inventory-fixture.js';
+it('accepts an explicitly declared Vulkan inventory, not an unknown GPU backend', () => {
+  expect(parseInventory({ ...inventory, backend: 'vulkan', minimumDriver: '551.78' }).backend).toBe(
+    'vulkan',
+  );
+  expect(() => parseInventory({ ...inventory, backend: 'metal' })).toThrow('INVALID_INVENTORY');
+});
 it('accepts a complete supported signed inventory without retaining caller mutation', () => {
   const input = structuredClone(inventory);
   const parsed = parseInventory(input);

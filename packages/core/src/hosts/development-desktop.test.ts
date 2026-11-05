@@ -1,18 +1,24 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import path from 'node:path';
+import { mkdir, mkdtemp, readFile, rm, utimes } from 'node:fs/promises';
+import os from 'node:os';
 import { developmentDesktopDependencies } from './development-desktop.js';
 import type * as DevelopmentPolicy from '../runtime-package/development-policy.js';
 import type { DesktopDeployment } from './desktop.js';
 import { discoverResources } from './resource-probe.js';
 import type { ClusterDraft } from '../cluster/contracts.js';
 import { createDesktopPeerHost } from '../peers/desktop.js';
+import { describeRuntime, parseInventory } from '../runtime-package/inventory.js';
+import type { Inventory } from '../runtime-package/inventory.js';
 
 const startup = vi.hoisted(() => ({
   admit: vi.fn(),
   close: vi.fn(),
   verify: vi.fn(),
+  evidence: vi.fn<(capability: unknown) => { inventory: Inventory } | undefined>(),
   install: vi.fn(),
   findInstalled: vi.fn(),
+  hasInstalled: vi.fn(),
   adapter: vi.fn(),
   setRuntimeBusy: vi.fn(() => Promise.resolve()),
   closePeers: vi.fn(() => Promise.resolve()),
@@ -39,6 +45,7 @@ vi.mock('../peers/desktop.js', () => ({
         Promise.resolve({
           ok: true,
           view: {
+            gpus: [],
             outgoing: [
               {
                 phase: 'approved',
@@ -90,11 +97,13 @@ const runtimeDescription = {
 
 vi.mock('../runtime-package/verifier.js', () => ({
   createDevelopmentRuntimeVerifier: () => ({ verify: startup.verify }),
-  requireLivePackage: () => ({ inventory: runtimeDescription }),
+  requireLivePackage: (capability: unknown) =>
+    startup.evidence(capability) ?? { inventory: runtimeDescription },
 }));
 vi.mock('../runtime-package/install.js', () => ({
-  installExpanded: startup.install,
+  installInRuntimeStore: startup.install,
   findInstalledRuntime: startup.findInstalled,
+  hasRuntimeInstallation: startup.hasInstalled,
   requireInstalledLive: () => ({ backend: 'cuda', version: 'observed-version' }),
 }));
 vi.mock('./real-engine.js', () => ({ realEngineAdapter: startup.adapter }));
@@ -129,10 +138,25 @@ vi.mock('./resource-probe.js', () => ({
 beforeEach(() => vi.clearAllMocks());
 
 it('initializes peer directory permissions once while concurrent reads reuse the host', async () => {
-  const deps = developmentDesktopDependencies(vi.fn(), 'bootstrap', 'profile', 'window', 'state');
+  const fork = vi.fn();
+  const runtimeStore = path.resolve('profile/runtimes');
+  const deps = developmentDesktopDependencies(
+    fork,
+    'bootstrap',
+    'profile',
+    'window',
+    'state',
+    undefined,
+    undefined,
+    runtimeStore,
+  );
   await Promise.all(Array.from({ length: 8 }, () => deps.peers({ action: 'read' })));
   await deps.peers({ action: 'read' });
-  expect(createDesktopPeerHost).toHaveBeenCalledTimes(1);
+  expect(createDesktopPeerHost).toHaveBeenCalledExactlyOnceWith(fork, 'profile', 'window', {
+    bootstrap: path.join('bootstrap', 'peers'),
+    state: path.join('state', 'peers'),
+    runtimeStore,
+  });
   expect(startup.privateDirectory).toHaveBeenCalledTimes(1);
   expect(startup.privateDirectory).toHaveBeenCalledWith(path.resolve('state'));
   expect(startup.privateDirectory.mock.invocationCallOrder[0]).toBeLessThan(
@@ -191,6 +215,7 @@ it.each([
 it('keeps writable verification and installations outside bundled bootstrap assets', async () => {
   const bootstrap = path.resolve('fixture-package/bootstrap');
   const state = path.resolve('fixture-runtime');
+  const runtimeStore = path.resolve('fixture-profile/runtimes');
   const deps = developmentDesktopDependencies(
     () => {
       throw new Error('UNEXPECTED_FORK');
@@ -199,6 +224,9 @@ it('keeps writable verification and installations outside bundled bootstrap asse
     path.resolve('fixture-profile'),
     'window',
     state,
+    undefined,
+    undefined,
+    runtimeStore,
   );
   startup.verify.mockResolvedValueOnce('verified');
   startup.install.mockRejectedValueOnce(new Error('INSTALL_FAILED'));
@@ -211,9 +239,84 @@ it('keeps writable verification and installations outside bundled bootstrap asse
   expect(startup.install).toHaveBeenCalledWith(
     'verified',
     path.join(bootstrap, 'candidate'),
+    runtimeStore,
     path.join(state, 'installed'),
   );
   await host.close();
+});
+
+it('prepares Vulkan with its own verification history after using CUDA', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'modelloom-runtime-switch-'));
+  try {
+    const cuda = path.join(root, 'b11306');
+    const vulkan = path.join(root, 'b11306-vulkan');
+    const fixture = JSON.parse(
+      await readFile(new URL('../../tests/vulkan-inventories.json', import.meta.url), 'utf8'),
+    ) as { vulkan: unknown };
+    const vulkanInventory = parseInventory(fixture.vulkan);
+    const vulkanState = path.join(cuda, 'runtime-selection', 'b11306-vulkan');
+    const deps = developmentDesktopDependencies(
+      vi.fn(),
+      cuda,
+      root,
+      'window',
+      cuda,
+      undefined,
+      undefined,
+      path.join(root, 'runtimes'),
+    );
+    // CUDA has already established a higher metadata version in its launch cache.
+    const verify = (repository: string, state: string) => {
+      if (repository === path.join(vulkan, 'repository') && state !== vulkanState)
+        return Promise.reject(Error('PACKAGE_VERIFICATION_FAILED'));
+      return Promise.resolve(repository);
+    };
+    const prepare = async () => {
+      const host = await deps.createHistoryHost();
+      try {
+        startup.install.mockRejectedValueOnce(Error('INSTALL_REACHED'));
+        await expect(host.prepare('approved.gguf')).rejects.toThrow('INSTALL_REACHED');
+      } finally {
+        await host.close();
+      }
+    };
+    await startup.verify.withImplementation(verify, async () => {
+      await startup.evidence.withImplementation(
+        (repository) =>
+          repository === path.join(vulkan, 'repository')
+            ? { inventory: vulkanInventory }
+            : undefined,
+        async () => {
+          await prepare();
+          await deps.selectRuntime('b11306-vulkan');
+          await expect(deps.activateRuntime()).resolves.toEqual(describeRuntime(vulkanInventory));
+          await prepare();
+          await deps.peers({ action: 'read' });
+          expect(startup.privateDirectory).toHaveBeenCalledWith(path.join(vulkan, 'peers'));
+          expect(createDesktopPeerHost).toHaveBeenLastCalledWith(
+            expect.any(Function),
+            root,
+            'window',
+            expect.objectContaining({
+              bootstrap: vulkan,
+              state: path.join(cuda, 'peers'),
+              verificationState: path.join(vulkan, 'peers', 'peer-verification'),
+            }),
+          );
+          await deps.selectRuntime('b11306');
+          await deps.activateRuntime();
+          await prepare();
+          expect(startup.verify).toHaveBeenLastCalledWith(
+            path.join(cuda, 'repository'),
+            path.join(cuda, 'desktop-verification'),
+          );
+        },
+      );
+    });
+    await deps.closePeers();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 it('preflights desktop Chat against four slots rather than the older one-slot report', async () => {
@@ -364,6 +467,7 @@ it('binds the admitted engine after verification and closes it with the history 
     'verified-capability',
     expect.any(String),
     expect.any(String),
+    undefined,
   );
   expect(startup.adapter).toHaveBeenCalledWith(
     installed,
@@ -524,17 +628,53 @@ it('rejects first use of a retained chat transport after peer Quit begins', asyn
   }
 });
 
-it('reads the approved runtime and checks for an existing verified install without installing', async () => {
+it('reads the approved runtime without hashing installed payloads or installing', async () => {
   const deps = developmentDesktopDependencies(vi.fn(), 'bootstrap', undefined, undefined, 'state');
   const capability = { packageId: 'llama-cuda-development' };
   startup.verify.mockResolvedValueOnce(capability).mockResolvedValueOnce(capability);
   await expect(deps.runtimeSelection()).resolves.toEqual(runtimeDescription);
   expect(startup.findInstalled).not.toHaveBeenCalled();
-  startup.findInstalled.mockResolvedValueOnce(undefined);
+  startup.hasInstalled.mockResolvedValueOnce(false);
   await expect(deps.runtimeInventory()).resolves.toEqual({
     selected: runtimeDescription,
     installed: false,
   });
-  expect(startup.findInstalled).toHaveBeenCalledWith(capability, path.join('state', 'installed'));
+  expect(startup.hasInstalled).toHaveBeenCalledWith(capability, path.join('state', 'installed'));
+  expect(startup.findInstalled).not.toHaveBeenCalled();
   expect(startup.install).not.toHaveBeenCalled();
+});
+
+it('shares the installed runtime index across concurrent reads and settings revisits', async () => {
+  const deps = developmentDesktopDependencies(vi.fn(), 'bootstrap', undefined, undefined, 'state');
+  startup.verify.mockResolvedValue({ packageId: 'llama-cuda-development' });
+  startup.hasInstalled.mockResolvedValue(true);
+  const results = await Promise.all([deps.runtimeInventory(), deps.runtimeInventory()]);
+  expect(results[0]).toEqual({ selected: runtimeDescription, installed: true });
+  expect(results[1]).toEqual(results[0]);
+  await deps.runtimeInventory();
+  expect(startup.verify).toHaveBeenCalledTimes(1);
+  expect(startup.hasInstalled).toHaveBeenCalledTimes(1);
+  expect(startup.findInstalled).not.toHaveBeenCalled();
+  expect(startup.install).not.toHaveBeenCalled();
+});
+
+it('refreshes the display index after installation or removal changes its directory', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'modelloom-inventory-'));
+  try {
+    const deps = developmentDesktopDependencies(vi.fn(), 'bootstrap', undefined, undefined, root);
+    startup.verify.mockResolvedValue({ packageId: 'llama-cuda-development' });
+    startup.hasInstalled.mockResolvedValue(false);
+    expect((await deps.runtimeInventory()).installed).toBe(false);
+    await mkdir(path.join(root, 'installed'));
+    startup.hasInstalled.mockResolvedValue(true);
+    expect((await deps.runtimeInventory()).installed).toBe(true);
+    const changed = new Date(Date.now() + 2000);
+    await utimes(path.join(root, 'installed'), changed, changed);
+    startup.hasInstalled.mockResolvedValue(false);
+    expect((await deps.runtimeInventory()).installed).toBe(false);
+    expect(startup.hasInstalled).toHaveBeenCalledTimes(3);
+    expect(startup.findInstalled).not.toHaveBeenCalled();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
