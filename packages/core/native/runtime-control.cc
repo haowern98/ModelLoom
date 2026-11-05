@@ -3,6 +3,9 @@
 #include <string>
 #include <vector>
 #include <windows.h>
+#ifdef MODELLOOM_VULKAN_HOST
+#include "vulkan-selection.h"
+#endif
 
 namespace {
 BOOL WINAPI survive(DWORD event) { return event == CTRL_C_EVENT; }
@@ -42,6 +45,20 @@ int wmain(int argc, wchar_t **argv) {
       IsWindowVisible(GetConsoleWindow()) ||
       !SetConsoleCtrlHandler(survive, TRUE))
     return 2;
+#ifdef MODELLOOM_VULKAN_HOST
+  try {
+    wchar_t selected[1024]{};
+    const DWORD length = GetEnvironmentVariableW(L"CUDA_VISIBLE_DEVICES", selected, 1024);
+    // A remote-only plan has no local GPU reservation. The pinned Vulkan parser
+    // treats a nonnumeric visibility list as zero visible local devices.
+    const auto visible = length ? modelloom::vulkan_devices(selected) : L"none";
+    if (length >= 1024 || !SetEnvironmentVariableW(L"GGML_VK_VISIBLE_DEVICES", visible.c_str()) ||
+        !SetEnvironmentVariableW(L"VK_LOADER_LAYERS_DISABLE", L"~implicit~")) return 2;
+  } catch (const std::exception &error) {
+    std::fprintf(stderr, "%s\n", error.what());
+    return 2;
+  }
+#endif
   // A normal handler, not SetConsoleCtrlHandler(NULL, TRUE), keeps the child's
   // Ctrl+C enabled.
   std::wstring command = quote(argv[1]);
