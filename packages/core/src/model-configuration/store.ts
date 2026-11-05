@@ -61,7 +61,7 @@ export interface ProtectedApiCredential {
   readonly protectedKey: Buffer;
 }
 
-/** Open the separate retained configuration database. Close SQLite before releasing identities. */
+/** Open the guarded configuration database. Trusted owner handoffs retain drafts within this app session. */
 export function openModelConfigurationStore(
   root: TrustedHistoryRoot,
   knownModel: (modelId: string) => boolean,
@@ -71,7 +71,8 @@ export function openModelConfigurationStore(
     cacheK: 'q8_0',
     cacheV: 'q8_0',
   },
-): { store: ModelConfigurationStore; close(): void } {
+  resumeClusterDrafts = false,
+): { store: ModelConfigurationStore; close(retainClusterDrafts?: boolean): void } {
   const guard = openConfigurationDirectory(root);
   let database: DatabaseSync | undefined;
   try {
@@ -86,16 +87,16 @@ export function openModelConfigurationStore(
     );
     if (database.prepare('PRAGMA journal_mode').get()?.journal_mode !== 'persist')
       return configurationUnavailable();
-    store.cluster.clearSessionDrafts();
+    if (!resumeClusterDrafts) store.cluster.clearSessionDrafts();
     const opened = database;
     let closed = false;
     return {
       store,
-      close() {
+      close(retainClusterDrafts = false) {
         if (!closed) {
           closed = true;
           try {
-            store.cluster.clearSessionDrafts();
+            if (!retainClusterDrafts) store.cluster.clearSessionDrafts();
           } finally {
             try {
               opened.close();

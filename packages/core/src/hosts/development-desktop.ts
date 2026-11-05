@@ -1,5 +1,10 @@
+import {
+  VULKAN_DEVELOPMENT,
+  isDevelopmentVulkanInventory,
+} from '../runtime-package/development-vulkan.js';
 import path from 'node:path';
-import { lstat } from 'node:fs/promises';
+import { lstat, writeFile, rename, unlink } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import {
@@ -11,10 +16,17 @@ import {
   requireLivePackage,
 } from '../runtime-package/verifier.js';
 import {
-  findInstalledRuntime,
-  installExpanded,
+  hasRuntimeInstallation,
+  installInRuntimeStore,
   requireInstalledLive,
 } from '../runtime-package/install.js';
+import {
+  B11307_DEVELOPMENT,
+  B11307_WORKER_FIRST_LAYER,
+  isDevelopmentB11307Device,
+  isDevelopmentB11307Inventory,
+  isQualifiedDevelopmentB11307Load,
+} from '../runtime-package/development-b11307.js';
 import { describeRuntime } from '../runtime-package/inventory.js';
 import type { InstalledPackage } from '../runtime-package/install.js';
 import { inspectGGUF, inspectGGUFHeader } from '../runtime/gguf.js';
@@ -53,6 +65,8 @@ import { requireCompatibleRpcRuntime } from '../peers/resources.js';
 import { executionDevices } from '../speculative-decoding/execution.js';
 import type { SpeculativeCompanion } from '../speculative-decoding/assets.js';
 import type { RuntimeDiagnostic } from './runtime-diagnostics.js';
+type RuntimeBuildId = 'b11306' | 'b11307' | 'b11306-vulkan';
+
 /** Explicit Windows development deployment. Trusted main selects fixed build assets and state;
  * renderer commands cannot choose a repository, verifier, report, executable or arguments.
  * Ordinary builds keep the development verifier closed. Production packaging is separate.
@@ -65,11 +79,54 @@ export function developmentDesktopDependencies(
   stateBase: string = base,
   overlay?: PeerOverlay,
   diagnostic?: RuntimeDiagnostic,
+  runtimeStore?: string,
+  pairedBuild = false,
 ) {
   const report = DEVELOPMENT_MEMORY_REPORTS.find((entry) => entry.configuration.slots === 4);
   if (!DEVELOPMENT_BUILD || !report) throw new Error('DEVELOPMENT_BUILD_REQUIRED');
   const configuration = report.configuration,
     modelSha256 = report.modelSha256;
+  const initialBase = base;
+  const runtimeChoices = runtimeStore
+    ? {
+        b11306: pairedBuild ? path.join(path.dirname(initialBase), 'b11306') : initialBase,
+        b11307: pairedBuild ? initialBase : path.join(path.dirname(initialBase), 'b11307'),
+        'b11306-vulkan': path.join(path.dirname(initialBase), 'b11306-vulkan'),
+      }
+    : undefined;
+  const choiceFile =
+    applicationData && runtimeChoices
+      ? path.join(applicationData, 'runtime-choice.json')
+      : undefined;
+  let selectedBuild: RuntimeBuildId = pairedBuild ? 'b11307' : 'b11306';
+  if (choiceFile) {
+    try {
+      const choice: unknown = JSON.parse(readFileSync(choiceFile, 'utf8'));
+      if (choice === 'b11306' || choice === 'b11307' || choice === 'b11306-vulkan')
+        selectedBuild = choice;
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT'))
+        diagnostic?.('app', 'runtime.preference-unavailable');
+    }
+    pairedBuild = selectedBuild === 'b11307';
+    base = runtimeChoices![selectedBuild];
+  }
+  let activeBuild = selectedBuild;
+  let artifact =
+    selectedBuild === 'b11306-vulkan'
+      ? VULKAN_DEVELOPMENT.artifact
+      : pairedBuild
+        ? B11307_DEVELOPMENT.artifact
+        : report.artifact;
+  let packageId =
+    selectedBuild === 'b11306-vulkan'
+      ? VULKAN_DEVELOPMENT.packageId
+      : pairedBuild
+        ? B11307_DEVELOPMENT.packageId
+        : 'llama-cuda-development';
+  let upstreamCommit = pairedBuild
+    ? B11307_DEVELOPMENT.upstreamCommit
+    : '4f31296a907d73f3409f720429bcf31111615d77';
   const deploymentId = `desktop-development-${randomUUID()}`;
   const tensorCache = createTensorCacheSettings(
     path.join(stateBase, 'tensor-cache-settings.json'),
@@ -88,10 +145,25 @@ export function developmentDesktopDependencies(
     if (!peerHost) {
       // Applying inheritable ACLs is synchronous. Set them before creating the
       // owned host, rather than blocking the GUI on every telemetry/state read.
-      ownershipBinding().privateDirectory(path.resolve(stateBase));
+      const native = ownershipBinding();
+      native.privateDirectory(path.resolve(stateBase));
+      const peerState = path.join(stateBase, 'peers');
+      let verificationState: string | undefined;
+      if (base !== initialBase) {
+        // The verifier can create its own directory only after its ancestors exist.
+        const verificationParent =
+          stateBase === initialBase ? path.join(base, 'peers') : peerState;
+        native.privateDirectory(path.resolve(verificationParent));
+        const verificationRoot = path.join(verificationParent, 'peer-verification');
+        if (stateBase !== initialBase) native.privateDirectory(path.resolve(verificationRoot));
+        verificationState =
+          stateBase === initialBase ? verificationRoot : path.join(verificationRoot, activeBuild);
+      }
       peerHost = createDesktopPeerHost(fork, applicationData, caller, {
-        bootstrap: path.join(base, 'peers'),
-        state: path.join(stateBase, 'peers'),
+        bootstrap: pairedBuild || activeBuild === 'b11306-vulkan' ? base : path.join(base, 'peers'),
+        state: peerState,
+        ...(verificationState ? { verificationState } : {}),
+        ...(runtimeStore ? { runtimeStore } : {}),
       })
         .then(async (host) => {
           if (overlay) host.attachOverlay?.(overlay);
@@ -156,31 +228,170 @@ export function developmentDesktopDependencies(
           };
         }
       : undefined;
-  const installedRoot = path.join(stateBase, 'installed');
+  const legacyRoot = path.join(stateBase, 'installed');
+  const installedRoot = runtimeStore ?? legacyRoot;
   let verifying:
     ReturnType<ReturnType<typeof createDevelopmentRuntimeVerifier>['verify']> | undefined;
-  // Inventory reads and model loads share any in-flight verification for the same trusted root.
-  const verifyRuntime = () =>
-    (verifying ??= createDevelopmentRuntimeVerifier()
+  // Switched repositories have independent metadata versions. Reuse their existing picker history.
+  function verifyRuntime() {
+    if (base !== initialBase) return verifyChoice(activeBuild);
+    return (verifying ??= createDevelopmentRuntimeVerifier()
       .verify(path.join(base, 'repository'), path.join(stateBase, 'desktop-verification'))
+      .then((capability) => {
+        if (
+          (pairedBuild &&
+            !isDevelopmentB11307Inventory(requireLivePackage(capability).inventory)) ||
+          (activeBuild === 'b11306-vulkan' &&
+            !isDevelopmentVulkanInventory(requireLivePackage(capability).inventory))
+        )
+          throw Error('UNSUPPORTED_RUNTIME');
+        return capability;
+      })
       .finally(() => {
         verifying = undefined;
       }));
-  async function runtimeSelection() {
-    return describeRuntime(requireLivePackage(await verifyRuntime()).inventory);
   }
+  const choiceVerification = new Map<RuntimeBuildId, NonNullable<typeof verifying>>();
+  function verifyChoice(build: RuntimeBuildId) {
+    if (!runtimeChoices) return Promise.reject(Error('UNSUPPORTED_RUNTIME'));
+    const pending = choiceVerification.get(build);
+    if (pending) return pending;
+    ownershipBinding().privateDirectory(path.resolve(stateBase, 'runtime-selection'));
+    const verification = createDevelopmentRuntimeVerifier()
+      .verify(
+        path.join(runtimeChoices[build], 'repository'),
+        path.join(stateBase, 'runtime-selection', build),
+      )
+      .then((capability) => {
+        const inventory = requireLivePackage(capability).inventory;
+        if (
+          build === 'b11307'
+            ? !isDevelopmentB11307Inventory(inventory)
+            : build === 'b11306-vulkan'
+              ? !isDevelopmentVulkanInventory(inventory)
+              : inventory.packageId !== 'llama-cuda-development' ||
+                inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77' ||
+                inventory.artifact !== report!.artifact
+        )
+          throw Error('UNSUPPORTED_RUNTIME');
+        return capability;
+      })
+      .finally(() => {
+        choiceVerification.delete(build);
+      });
+    choiceVerification.set(build, verification);
+    return verification;
+  }
+  async function runtimeSelection() {
+    const capability = runtimeChoices ? await verifyChoice(selectedBuild) : await verifyRuntime();
+    return describeRuntime(requireLivePackage(capability).inventory);
+  }
+  async function selectRuntime(build: RuntimeBuildId) {
+    const capability = await verifyChoice(build);
+    if (!choiceFile) throw Error('UNSUPPORTED_RUNTIME');
+    const temporary = choiceFile + '.' + randomUUID() + '.tmp';
+    ownershipBinding().privateDirectory(path.dirname(choiceFile));
+    try {
+      await writeFile(temporary, JSON.stringify(build), { flag: 'wx' });
+      await rename(temporary, choiceFile);
+    } finally {
+      await unlink(temporary).catch(() => undefined);
+    }
+    selectedBuild = build;
+    inventoryIndex = undefined;
+    return describeRuntime(requireLivePackage(capability).inventory);
+  }
+  async function activateRuntime() {
+    if (activeBuild === selectedBuild) return null;
+    const capability = await verifyChoice(selectedBuild);
+    const inventory = requireLivePackage(capability).inventory;
+    if (peerHost) {
+      const peer = await peerHost;
+      const reply = await peer.command(caller!, { action: 'read' });
+      if (!reply.ok) throw Error(reply.error);
+      // Hold every local GPU until the old peer owner exits; an active worker keeps its build.
+      if (reply.view.gpus.length) await peer.reserveLocal(reply.view.gpus.map((gpu) => gpu.id));
+      await peer.close();
+    }
+    peerHost = undefined;
+    peersClosed = false;
+    pairedBuild = selectedBuild === 'b11307';
+    base = runtimeChoices![selectedBuild];
+    activeBuild = selectedBuild;
+    artifact = inventory.artifact;
+    packageId = inventory.packageId;
+    upstreamCommit = inventory.upstreamCommit;
+    installation = undefined;
+    verifying = undefined;
+    verifiedBackends = undefined;
+    return describeRuntime(inventory);
+  }
+  type IndexedRuntime = {
+    id: RuntimeBuildId;
+    capability: Awaited<ReturnType<typeof verifyRuntime>>;
+    installed: boolean;
+  };
+  let inventoryIndex: Promise<readonly IndexedRuntime[]> | undefined;
+  let inventoryStamp: string | undefined;
   async function runtimeInventory() {
-    const capability = await verifyRuntime();
-    const { inventory } = requireLivePackage(capability);
-    return {
-      selected: describeRuntime(inventory),
-      installed: Boolean(await findInstalledRuntime(capability, installedRoot)),
-    };
+    const stat = await lstat(installedRoot).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+      return undefined;
+    });
+    const stamp = stat ? `${stat.ino}:${stat.mtimeMs}:${stat.ctimeMs}` : 'missing';
+    if (stamp !== inventoryStamp) {
+      inventoryStamp = stamp;
+      inventoryIndex = undefined;
+    }
+    // The index caches display metadata only. Activation, estimation and launch still reverify.
+    inventoryIndex ??= Promise.all(
+      (runtimeChoices ? (['b11307', 'b11306', 'b11306-vulkan'] as const) : [selectedBuild]).map(
+        async (id): Promise<IndexedRuntime | undefined> => {
+          try {
+            const capability = runtimeChoices ? await verifyChoice(id) : await verifyRuntime();
+            return {
+              id,
+              capability,
+              installed: await hasRuntimeInstallation(capability, installedRoot),
+            };
+          } catch {
+            diagnostic?.('app', 'runtime.choice-unavailable build=' + id);
+            return undefined;
+          }
+        },
+      ),
+    ).then((rows) => rows.filter((row): row is IndexedRuntime => row !== undefined));
+    const rows = await inventoryIndex;
+    try {
+      const selected = rows.find((row) => row.id === selectedBuild);
+      if (!selected) throw Error('UNSUPPORTED_RUNTIME');
+      const choices = rows
+        .filter((row) => row.installed)
+        .map((row) => ({
+          id: row.id,
+          build: describeRuntime(requireLivePackage(row.capability).inventory),
+        }));
+      return {
+        selected: describeRuntime(requireLivePackage(selected.capability).inventory),
+        installed: selected.installed,
+        ...(runtimeChoices ? { choices } : {}),
+      };
+    } catch (error) {
+      // Expired metadata or a failed read is retried, never retained as usable authority.
+      inventoryIndex = undefined;
+      throw error;
+    }
   }
   const installClusterRuntime = async () => {
-    installation ??= (async () => {
-      return installExpanded(await verifyRuntime(), path.join(base, 'candidate'), installedRoot);
-    })();
+    const candidate = path.join(base, 'candidate');
+    installation ??= verifyRuntime().then((capability) =>
+      installInRuntimeStore(
+        capability,
+        candidate,
+        installedRoot,
+        runtimeStore ? legacyRoot : undefined,
+      ),
+    );
     try {
       const installed = await installation;
       requireInstalledLive(installed);
@@ -197,7 +408,7 @@ export function developmentDesktopDependencies(
     signal: AbortSignal,
     companion?: SpeculativeCompanion,
   ) {
-    const load = resolveClusterLoad(saved, report!.artifact);
+    const load = resolveClusterLoad(saved, artifact);
     requireStockClusterProfile(load);
     const installed = await installClusterRuntime();
     return withPlacementModel(file, async (info, inspection) => {
@@ -229,7 +440,7 @@ export function developmentDesktopDependencies(
    * The engine adapter is prepared only by trusted main after import/resource admission.
    * Both owners close on core failure or Quit; no synthetic engine is supplied at startup.
    */
-  async function createHistoryHost(source?: ModelSource) {
+  async function createHistoryHost(source?: ModelSource, resumeClusterDrafts = false) {
     const selectedConfiguration = source
       ? {
           ...configuration,
@@ -276,7 +487,7 @@ export function developmentDesktopDependencies(
         .catch(() => undefined)
         .then(async () => {
           if (closed) throw new Error('CORE_EXITED');
-          const load = selected ? resolveClusterLoad(selected, report!.artifact) : undefined;
+          const load = selected ? resolveClusterLoad(selected, artifact) : undefined;
           if (!selected && adapter && preparedFile === file && preparedFingerprint === undefined)
             return;
           await adapter?.close();
@@ -403,9 +614,10 @@ export function developmentDesktopDependencies(
                 chatSetup: {
                   applicationData,
                   caller,
+                  ...(resumeClusterDrafts ? { resumeClusterDrafts } : {}),
                   provenance: {
-                    packageId: 'llama-cuda-development',
-                    upstreamCommit: '4f31296a907d73f3409f720429bcf31111615d77',
+                    packageId,
+                    upstreamCommit,
                     configuration: selectedConfiguration,
                   },
                 },
@@ -415,7 +627,7 @@ export function developmentDesktopDependencies(
         deploymentId,
         {
           deploymentId,
-          packageId: 'llama-cuda-development',
+          packageId,
           modelId: source?.modelId ?? modelSha256,
         },
       );
@@ -465,10 +677,12 @@ export function developmentDesktopDependencies(
     runtimeBackends: () => verifiedBackends,
     runtimeSelection,
     runtimeInventory,
+    selectRuntime,
+    activateRuntime,
     enabled: true as const,
     expectedHash: report.modelSha256,
-    packageId: 'llama-cuda-development',
-    clusterArtifact: report.artifact,
+    packageId,
+    clusterArtifact: artifact,
     async planCluster(
       file: string,
       draft: ClusterDraft,
@@ -497,7 +711,10 @@ export function developmentDesktopDependencies(
               )
             : []
         )
-          .filter((id) => !devices || devices.includes(id))
+          .filter(
+            (id) =>
+              (!devices || devices.includes(id)) && (!pairedBuild || isDevelopmentB11307Device(id)),
+          )
           .slice(0, MAX_CLUSTER_GPUS);
         const snapshot = remoteIds.length ? await clusterResources(remoteIds, signal) : local;
         const ids =
@@ -505,6 +722,7 @@ export function developmentDesktopDependencies(
             ?.filter(
               (g) =>
                 (!devices || devices.includes(g.uuid)) &&
+                (!pairedBuild || isDevelopmentB11307Device(g.uuid)) &&
                 g.total !== null &&
                 g.free !== null &&
                 g.mig !== 'Enabled',
@@ -515,8 +733,9 @@ export function developmentDesktopDependencies(
         let overflow: { runs: readonly GpuRun[]; pressure: number } | undefined;
         const ordered = [...ids].sort();
         const free = ordered.map((uuid) => snapshot.gpus!.find((g) => g.uuid === uuid)!.free!);
-        const preferredCut =
-          free.length === 2
+        const preferredCut = pairedBuild
+          ? B11307_WORKER_FIRST_LAYER
+          : free.length === 2
             ? Math.max(
                 1,
                 Math.min(
@@ -540,7 +759,8 @@ export function developmentDesktopDependencies(
               runs,
               ...(draft.proposerDevice ? { proposerDevice: draft.proposerDevice } : {}),
             };
-            const load = resolveClusterLoad(saved, report.artifact);
+            const load = resolveClusterLoad(saved, artifact);
+            if (pairedBuild && !isQualifiedDevelopmentB11307Load(load)) return null;
             requireStockClusterProfile(load);
             const budget = createStockClusterReport(
               load,
@@ -657,12 +877,9 @@ export function developmentDesktopDependencies(
     ) {
       const budget = await estimateCluster(file, saved, signal, companion);
       const admission = checkStockClusterResources(
-        resolveClusterLoad(saved, report.artifact),
+        resolveClusterLoad(saved, artifact),
         budget,
-        await clusterResources(
-          executionDevices(resolveClusterLoad(saved, report.artifact)),
-          signal,
-        ),
+        await clusterResources(executionDevices(resolveClusterLoad(saved, artifact)), signal),
         allowSharedMemory,
       );
       if (admission.code !== 'ADMITTED') throw Error(admission.code);
@@ -748,7 +965,7 @@ export function developmentDesktopDependencies(
       sharedMemoryConfirmed = false;
       const result = checkCudaResources(
         report.configuration,
-        report.artifact,
+        artifact,
         report,
         await discoverResources(),
         '551.78',

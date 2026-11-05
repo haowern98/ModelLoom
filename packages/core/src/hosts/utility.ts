@@ -23,6 +23,7 @@ import { ApiController } from '../local-api/controller.js';
 import { windowsApiKeyProtection } from '../model-configuration/windows-protection.js';
 import type { ApiOwnerReply } from '../local-api/wire.js';
 import { captureClusterRun, captureClusterDraft } from '../cluster/run-plan.js';
+import { isDevelopmentB11307Provenance } from '../runtime-package/development-b11307.js';
 import { requireStockClusterProfile } from '../cluster/stock-profile.js';
 import { decodeClusterDevice } from '../cluster/device-id.js';
 import {
@@ -301,10 +302,16 @@ export function runUtility(
         admitted = true;
         if (envelope.chat !== undefined) {
           const setup = decodeObject(JSON.stringify(envelope.chat));
-          exact(setup, ['applicationData', 'caller', 'provenance']);
+          exact(setup, [
+            'applicationData',
+            'caller',
+            'provenance',
+            ...(Object.hasOwn(setup, 'resumeClusterDrafts') ? ['resumeClusterDrafts'] : []),
+          ]);
           if (
             typeof setup.applicationData !== 'string' ||
             typeof setup.caller !== 'string' ||
+            (Object.hasOwn(setup, 'resumeClusterDrafts') && setup.resumeClusterDrafts !== true) ||
             !/^[a-zA-Z0-9_-]{1,128}$/u.test(setup.caller)
           )
             throw new Error('INVALID_CONTROL');
@@ -314,7 +321,8 @@ export function runUtility(
           peerSetup = { caller, applicationData };
           if (
             !injectedConfiguration &&
-            provenance.upstreamCommit === '4f31296a907d73f3409f720429bcf31111615d77' &&
+            (provenance.upstreamCommit === '4f31296a907d73f3409f720429bcf31111615d77' ||
+              isDevelopmentB11307Provenance(provenance)) &&
             /^[a-f0-9]{64}$/u.test(scope.modelId)
           ) {
             configurationPreparation = Promise.resolve().then(() => {
@@ -328,6 +336,7 @@ export function runUtility(
                   cacheK: provenance!.configuration.cacheK,
                   cacheV: provenance!.configuration.cacheV,
                 },
+                setup.resumeClusterDrafts === true,
               );
               configuration = new ConfigurationController(
                 configurationOwner.store,
@@ -431,7 +440,8 @@ export function runUtility(
                   loadProvenances.get(selectionKey(entry.selection)) ?? provenance;
                 if (
                   activeLoad &&
-                  provenance.upstreamCommit === '4f31296a907d73f3409f720429bcf31111615d77'
+                  (provenance.upstreamCommit === '4f31296a907d73f3409f720429bcf31111615d77' ||
+                    isDevelopmentB11307Provenance(provenance))
                 ) {
                   if (event.contextLength === undefined) throw Error('CONTEXT_MISMATCH');
                   activeLoad = actualizeContext(activeLoad, event.contextLength);
@@ -457,7 +467,8 @@ export function runUtility(
                       if (configurationOwner)
                         await configurationOwner.store.recordUse(entry.selection.modelId, usedAt);
                     }),
-                    ...(provenance.upstreamCommit === '4f31296a907d73f3409f720429bcf31111615d77'
+                    ...(provenance.upstreamCommit === '4f31296a907d73f3409f720429bcf31111615d77' ||
+                    isDevelopmentB11307Provenance(provenance)
                       ? {
                           configuration: {
                             capabilities: createConfigurationProfile(
@@ -509,10 +520,13 @@ export function runUtility(
         return;
       }
       if (!admitted) throw new Error('INVALID_CONTROL');
-      exact(envelope, ['type', 'text']);
+      const retainsDrafts = Object.hasOwn(envelope, 'retainClusterDrafts');
+      exact(envelope, ['type', 'text', ...(retainsDrafts ? ['retainClusterDrafts'] : [])]);
       if (envelope.type !== 'command' || typeof envelope.text !== 'string')
         throw new Error('INVALID_CONTROL');
       const command = decodeObject(envelope.text);
+      if (retainsDrafts && (envelope.retainClusterDrafts !== true || command.action !== 'quit'))
+        throw new Error('INVALID_CONTROL');
       const handle = async () => {
         let remoteLoad = false;
         if (command.action === 'quit') quitting = true;
@@ -699,7 +713,7 @@ export function runUtility(
           await configurationPreparation?.catch(() => undefined);
           await configuration?.close();
           await cluster?.close();
-          configurationOwner?.close();
+          configurationOwner?.close(retainsDrafts);
           remote?.close();
           historyOwner?.close();
         }

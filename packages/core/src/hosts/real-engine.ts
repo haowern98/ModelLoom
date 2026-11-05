@@ -1,4 +1,5 @@
 import type { EngineAdapter, EngineExit, OwnedEngine } from '../runtime/engine-adapter.js';
+import { isDevelopmentVulkanInventory } from '../runtime-package/development-vulkan.js';
 import type { RuntimeConfiguration } from '../runtime/preflight.js';
 import type { InstalledPackage } from '../runtime-package/install.js';
 import {
@@ -6,6 +7,10 @@ import {
   requireInstalledLive,
   revalidateInstalled,
 } from '../runtime-package/install.js';
+import {
+  isDevelopmentB11307Inventory,
+  isQualifiedDevelopmentB11307Load,
+} from '../runtime-package/development-b11307.js';
 import { APPROVED_MEMORY_REPORTS } from '../runtime-package/trust-policy.js';
 import {
   DEVELOPMENT_BUILD,
@@ -88,21 +93,34 @@ export function realEngineAdapter(
     }
   };
   const inventory = requireInstalledLive(installed);
-  // Fixed argument/readiness behavior has only been inspected for this exact upstream source.
-  if (inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77')
+  const qualifiedVulkan =
+    DEVELOPMENT_BUILD &&
+    installedRealm(installed) === 'development' &&
+    isDevelopmentVulkanInventory(inventory);
+  const qualifiedDevelopmentBuild =
+    qualifiedVulkan ||
+    (DEVELOPMENT_BUILD &&
+      installedRealm(installed) === 'development' &&
+      isDevelopmentB11307Inventory(inventory) &&
+      cluster !== undefined &&
+      isQualifiedDevelopmentB11307Load(cluster.load));
+  if (
+    inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77' &&
+    !qualifiedDevelopmentBuild
+  )
     throw new Error('UNSUPPORTED_RUNTIME');
   const cfg = Object.freeze(structuredClone(configuration));
   if (
     cluster &&
     (installedRealm(installed) !== 'development' ||
       !DEVELOPMENT_BUILD ||
-      inventory.packageId !== 'llama-cuda-development')
+      (inventory.packageId !== 'llama-cuda-development' && !qualifiedDevelopmentBuild))
   )
     throw Error('NEEDS_RESOURCE_EVIDENCE');
   if (
     cluster &&
     (inventory.artifact !== cluster.load.artifact ||
-      inventory.backend !== 'cuda' ||
+      (inventory.backend !== 'cuda' && !qualifiedVulkan) ||
       cluster.load.modelSha256 !== cfg.modelSha256 ||
       cluster.load.contextPerSlot !== cfg.contextPerSlot ||
       cluster.load.slots !== cfg.slots ||
@@ -222,7 +240,7 @@ export function realEngineAdapter(
         const resourceSnapshot = () =>
           cluster?.peers ? cluster.peers.resources(signal) : discoverResources(signal);
         const resources =
-          inventory.backend === 'cuda'
+          cluster || inventory.backend === 'cuda'
             ? await resourceSnapshot()
             : { ram: native.availableMemory(), gpus: null };
         let admission = cluster
@@ -532,7 +550,8 @@ export function realEngineAdapter(
                       owns: () => !ended && !finishing && native.ownedListener(child, port),
                       monitor,
                       exited: exited.then(() => undefined),
-                      ...(inventory.packageId === 'llama-cuda-development'
+                      ...(inventory.packageId === 'llama-cuda-development' ||
+                      qualifiedDevelopmentBuild
                         ? {
                             configuration: {
                               capabilities: createConfigurationProfile(

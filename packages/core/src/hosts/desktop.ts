@@ -35,7 +35,7 @@ export interface UtilityChild {
 }
 export type UtilityFork = (entry: string) => UtilityChild;
 export interface DesktopFixtureHost {
-  command(text: string): Promise<Record<string, unknown>>;
+  command(text: string, retainClusterDrafts?: boolean): Promise<Record<string, unknown>>;
   close(): Promise<void>;
   chat?(caller: string, command: unknown): Promise<ChatReply>;
   configuration?(caller: string, command: unknown): Promise<ConfigurationReply>;
@@ -57,6 +57,7 @@ export interface DesktopDeployment {
     readonly applicationData: string;
     readonly caller: string;
     readonly provenance: Provenance;
+    readonly resumeClusterDrafts?: true;
   };
   /** Optional fault hook for synthetic development tests; not provided by live desktop ownership. */
   crash?(): void;
@@ -547,7 +548,7 @@ export async function createDesktopEngineHost(
         }
       });
     },
-    command(text) {
+    command(text, retainClusterDrafts = false) {
       let value: Record<string, unknown>;
       try {
         value = decodeObject(text);
@@ -557,6 +558,7 @@ export async function createDesktopEngineHost(
       if (
         typeof value.id !== 'number' ||
         !Number.isSafeInteger(value.id) ||
+        (retainClusterDrafts && value.action !== 'quit') ||
         value.id < 1 ||
         pending.has(value.id) ||
         pending.size >= 64
@@ -578,7 +580,7 @@ export async function createDesktopEngineHost(
         }, startupMs + 5_000);
         pending.set(id, { resolve, reject, timer });
         try {
-          send({ type: 'command', text });
+          send({ type: 'command', text, ...(retainClusterDrafts ? { retainClusterDrafts } : {}) });
         } catch {
           clearTimeout(timer);
           pending.delete(id);
