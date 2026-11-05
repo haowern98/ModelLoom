@@ -10,6 +10,7 @@ import type { ClusterDraft } from '../cluster/contracts.js';
 import { createDesktopPeerHost } from '../peers/desktop.js';
 import { describeRuntime, parseInventory } from '../runtime-package/inventory.js';
 import type { Inventory } from '../runtime-package/inventory.js';
+import type { PeerCommand, PeerReply } from '../peers/wire.js';
 
 const startup = vi.hoisted(() => ({
   admit: vi.fn(),
@@ -318,6 +319,116 @@ it('prepares Vulkan with its own verification history after using CUDA', async (
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it.each(['on', 'off', 'off-during-switch', 'failed-share'] as const)(
+  'preserves sharing intent when %s during a runtime owner replacement',
+  async (mode) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'modelloom-sharing-switch-'));
+    const gpuId = 'GPU-11111111-1111-1111-1111-111111111111';
+    const commands: { owner: number; command: PeerCommand }[] = [];
+    const owners: { sharing: boolean; gpuIds: readonly string[] }[] = [];
+    let releaseClose!: () => void;
+    let notifyClosing!: () => void;
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const closing = new Promise<void>((resolve) => {
+      notifyClosing = resolve;
+    });
+    const factory = vi.mocked(createDesktopPeerHost).getMockImplementation()!;
+    vi.mocked(createDesktopPeerHost).mockImplementation(async (...args) => {
+      const host = await factory(...args);
+      const owner = owners.length;
+      const state = { sharing: false, gpuIds: [] as readonly string[] };
+      owners.push(state);
+      return {
+        ...host,
+        close: async () => {
+          await host.close();
+          if (owner === 0 && mode === 'off-during-switch') {
+            notifyClosing();
+            await closeGate;
+          }
+        },
+        reserveLocal: () => Promise.resolve({ release: () => Promise.resolve() }),
+        command: (_caller, input) => {
+          const command = input as PeerCommand;
+          commands.push({ owner, command });
+          if (command.action === 'share') {
+            if (mode === 'failed-share')
+              return Promise.resolve({ ok: false, error: 'SHARING_FAILED' });
+            state.sharing = true;
+            state.gpuIds = command.gpuIds;
+          } else if (command.action === 'stop-sharing') state.sharing = false;
+          return Promise.resolve({
+            ok: true,
+            view: {
+              fingerprint: 'a'.repeat(64),
+              name: 'worker',
+              sharing: state.sharing,
+              sharedGpuIds: state.gpuIds,
+              addresses: ['100.69.84.91'],
+              gpus: [{ id: gpuId, name: 'GPU', memoryBytes: 12 * 2 ** 30 }],
+              incoming: [],
+              outgoing: [],
+            },
+          } satisfies PeerReply);
+        },
+      };
+    });
+    const fixture = JSON.parse(
+      await readFile(new URL('../../tests/vulkan-inventories.json', import.meta.url), 'utf8'),
+    ) as { vulkan: unknown };
+    const inventory = parseInventory(fixture.vulkan);
+    const deps = developmentDesktopDependencies(
+      vi.fn(),
+      path.join(root, 'b11306'),
+      root,
+      'window',
+      root,
+      undefined,
+      undefined,
+      path.join(root, 'runtimes'),
+    );
+    try {
+      await deps.peers({ action: 'share', address: '100.69.84.91', gpuIds: [gpuId] });
+      if (mode === 'off') await deps.peers({ action: 'stop-sharing' });
+      await startup.verify.withImplementation(
+        () => Promise.resolve('verified'),
+        async () => {
+          await startup.evidence.withImplementation(
+            () => ({ inventory }),
+            async () => {
+              await deps.selectRuntime('b11306-vulkan');
+              const switching = deps.activateRuntime();
+              if (mode === 'off-during-switch') {
+                await closing;
+                const stopped = deps.peers({ action: 'stop-sharing' });
+                releaseClose();
+                await switching;
+                await stopped;
+              } else await switching;
+            },
+          );
+        },
+      );
+      expect(startup.closePeers).toHaveBeenCalledOnce();
+      expect(owners).toHaveLength(2);
+      expect(owners[1]?.sharing).toBe(mode === 'on');
+      expect(
+        commands.filter((item) => item.owner === 1 && item.command.action === 'share'),
+      ).toEqual(
+        mode === 'on' || mode === 'off-during-switch'
+          ? [{ owner: 1, command: { action: 'share', address: '100.69.84.91', gpuIds: [gpuId] } }]
+          : [],
+      );
+    } finally {
+      await deps.closePeers();
+      vi.mocked(createDesktopPeerHost).mockImplementation(factory);
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 it('preflights desktop Chat against four slots rather than the older one-slot report', async () => {
   const dependencies = developmentDesktopDependencies(() => {
