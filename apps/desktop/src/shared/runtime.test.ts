@@ -57,3 +57,13 @@ it.each(['runtime-selection', 'runtime-inventory'])(
     expect(() => decode({ action, path: 'E:/runtime' })).toThrow('INVALID_CONTROL');
   },
 );
+
+it('accepts only catalogued runtime choices without executable or repository paths', () => {
+  for (const build of ['b11306', 'b11307', 'b11306-vulkan']) {
+    const command = { action: 'select-runtime', build };
+    expect(decode(command)).toEqual(command);
+    expect(() => decode({ ...command, path: 'E:/runtime' })).toThrow('INVALID_CONTROL');
+  }
+  for (const build of [null, '../b11307', 'b11306-cpu', 'b11308', 11307])
+    expect(() => decode({ action: 'select-runtime', build })).toThrow('INVALID_CONTROL');
+});

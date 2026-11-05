@@ -281,15 +281,17 @@ it('shows the selected build while the installed runtime files are still being c
   await user.click(screen.getByRole('button', { name: /^Settings$/ }));
   await user.click(screen.getByRole('button', { name: /^Runtime$/ }));
   expect(screen.getByText('Checking installed runtimes…')).toBeVisible();
-  expect(screen.getByRole('combobox', { name: 'GGUF runtime' })).toHaveDisplayValue(
-    'llama.cpp · CUDA (Windows) · b11306 · dev14',
-  );
+  expect(screen.queryByRole('combobox', { name: 'GGUF runtime' })).not.toBeInTheDocument();
+  expect(screen.getByText('llama.cpp · CUDA (Windows) · b11306 · dev14')).toBeVisible();
   expect(screen.getByText('llama.cpp · CUDA (Windows) · b11306 · dev12')).toBeVisible();
   finishInventory({ ...view, runtimeInventory: { status: 'ready', selected, installed: true } });
   expect(await screen.findByText('1 verified version installed.')).toBeVisible();
   expect(screen.queryByText('Engine log level')).not.toBeInTheDocument();
   expect(screen.queryByText('Show runtime downloads')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Manage installed runtimes' }));
-  expect(screen.getByRole('dialog')).toHaveTextContent(selected.upstreamCommit);
-  expect(screen.getByRole('dialog')).not.toHaveTextContent('In use');
+  const dialog = screen.getByRole('dialog', { name: 'Installed runtimes' });
+  expect(within(dialog).getByRole('heading', { name: 'llama.cpp · CUDA' })).toBeVisible();
+  expect(within(dialog).getByText('b11306 · dev14')).toBeVisible();
+  expect(within(dialog).getByText('Selected')).toBeVisible();
+  expect(dialog).not.toHaveTextContent('In use');
 });
