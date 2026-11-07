@@ -5,6 +5,7 @@ import type { RuntimeLogEntry } from '../../../shared/runtime-logs';
 export function useRuntimeLogs() {
   const [entries, setEntries] = useState<readonly RuntimeLogEntry[]>([]);
   const [busy, setBusy] = useState(false);
+  const [readStatus, setReadStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const revision = useRef<number | undefined>(undefined),
     epoch = useRef(0),
     alive = useRef(false),
@@ -16,7 +17,11 @@ export function useRuntimeLogs() {
     const poll = async () => {
       const version = epoch.current;
       try {
-        if (clearing.current || !window.modelLoomLogs) return;
+        if (clearing.current) return;
+        if (!window.modelLoomLogs) {
+          setReadStatus('unavailable');
+          return;
+        }
         const reply = decodeRuntimeLogReply(
           await window.modelLoomLogs.command({
             action: 'read',
@@ -26,14 +31,18 @@ export function useRuntimeLogs() {
         if (
           stopped ||
           version !== epoch.current ||
-          !reply.ok ||
-          reply.revision < (revision.current ?? 0)
+          (reply.ok && reply.revision < (revision.current ?? 0))
         )
           return;
+        if (!reply.ok) {
+          setReadStatus('unavailable');
+          return;
+        }
+        setReadStatus('ready');
         revision.current = reply.revision;
         if (reply.entries !== null) setEntries(reply.entries);
       } catch {
-        /* Retain the last valid diagnostics when the bridge is temporarily unavailable. */
+        if (!stopped && version === epoch.current) setReadStatus('unavailable');
       } finally {
         if (!stopped) timer = setTimeout(() => void poll(), 500);
       }
@@ -64,5 +73,5 @@ export function useRuntimeLogs() {
       if (alive.current) setBusy(false);
     }
   };
-  return { entries, busy, clear };
+  return { entries, busy, clear, readStatus };
 }

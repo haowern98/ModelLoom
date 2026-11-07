@@ -1,3 +1,4 @@
+import { useAppearance } from '../../app/appearance';
 import { useEffect, useRef, useState } from 'react';
 import { DropdownMenu } from 'radix-ui';
 import { Button as SdkButton } from '@openai/apps-sdk-ui/components/Button';
@@ -68,6 +69,7 @@ export function DeviceCard({
   onRemove,
   removeDisabled = false,
 }: DeviceCardProps) {
+  const { resolvedTheme, reducedMotion: appearanceReducedMotion } = useAppearance();
   const [observedAt, setObservedAt] = useState(() => Date.now());
   const hasInventory = device.inventory !== undefined;
   useEffect(() => {
@@ -95,7 +97,8 @@ export function DeviceCard({
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
   const [fading, setFading] = useState(false);
-  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const reduceMotion =
+    appearanceReducedMotion || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const firstInput = useRef<HTMLInputElement>(null);
   const editorId = allocation?.editor?.hardwareId;
   const focusEditor = allocation?.editor?.focusInput;
@@ -142,7 +145,7 @@ export function DeviceCard({
     <article
       aria-label={device.name}
       data-cluster-sdk=""
-      data-theme="dark"
+      data-theme={resolvedTheme}
       className={`${styles.device} ${card.card} ${device.role === 'Coordinator' ? styles.coordinator : ''}`}
       data-selected={selected}
       onPointerMove={(event) => {
@@ -161,11 +164,7 @@ export function DeviceCard({
         if (desiredEdge.current === next && edgeTimer.current !== null) return;
         desiredEdge.current = next;
         cancelEdgeTimer();
-        if (
-          !pointerInside ||
-          next === hoverEdge ||
-          window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-        ) {
+        if (!pointerInside || next === hoverEdge || reduceMotion) {
           setHoverEdge(next);
           setFading(false);
           return;
@@ -279,7 +278,7 @@ export function DeviceCard({
             <DropdownMenu.Content
               aria-label={`Actions for ${device.name}`}
               data-cluster-sdk=""
-              data-theme="dark"
+              data-theme={resolvedTheme}
               className={card.actionMenu}
               align="end"
               sideOffset={5}

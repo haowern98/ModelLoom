@@ -3,7 +3,7 @@
   --muted: var(--neutral-muted);
   width: min(470px, calc(100vw - 40px));
   color: var(--text);
-  background: #262626;
+  background: light-dark(#ffffff, #262626);
   border: 1px solid var(--neutral-border);
   border-radius: 16px;
   padding: 22px;
@@ -34,7 +34,7 @@
   border-radius: 50%;
 }
 .dialog header button:hover {
-  background: #2f2f2f;
+  background: light-dark(#e9e9ec, #2f2f2f);
 }
 .body {
   padding-top: 18px;
@@ -55,21 +55,21 @@
   min-height: var(--control-height-dialog);
   font-weight: var(--font-weight-medium);
   color: var(--text);
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
   border-color: var(--neutral-border);
   border-radius: 999px;
   box-shadow: none;
 }
 .body footer button:hover {
-  background: #3a3a3a;
+  background: light-dark(#dedee2, #3a3a3a);
 }
 .body footer button:last-child:not(:first-child) {
-  color: #181818;
-  background: #ffffff;
+  color: light-dark(#ffffff, #181818);
+  background: light-dark(#25252a, #ffffff);
   border-color: transparent;
 }
 .body footer button:last-child:not(:first-child):hover {
-  background: #e5e5e5;
+  background: light-dark(#3a3a40, #e5e5e5);
 }
 .body dl {
   display: grid;

@@ -5,17 +5,17 @@
   width: 240px;
   height: var(--control-height-search);
   padding: 0 14px;
-  border: 1px solid #383838;
+  border: 1px solid light-dark(#d4d4d9, #383838);
   border-radius: 999px;
-  color: #ababab;
-  background: #1a1a1a;
+  color: light-dark(#5c5c63, #ababab);
+  background: light-dark(#f8f8fa, #1a1a1a);
 }
 .field input {
   width: 100%;
   min-width: 0;
   border: 0;
   background: transparent;
-  color: #f3f3f3;
+  color: light-dark(#202025, #f3f3f3);
   font-size: var(--font-size-control);
   line-height: 20px;
 }

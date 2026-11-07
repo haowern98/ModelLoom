@@ -1,13 +1,13 @@
 .page {
   position: relative;
-  --card: #262626;
-  --tile: #303030;
-  --border: #383838;
-  --text: #f3f3f3;
-  --muted: #ababab;
-  --subtle: #ababab;
-  --cluster-control-border: #383838;
-  --cluster-control-hover: #2f2f2f;
+  --card: light-dark(#ffffff, #262626);
+  --tile: light-dark(#e8e8eb, #303030);
+  --border: light-dark(#d4d4d9, #383838);
+  --text: light-dark(#202025, #f3f3f3);
+  --muted: light-dark(#5c5c63, #ababab);
+  --subtle: light-dark(#5c5c63, #ababab);
+  --cluster-control-border: light-dark(#d4d4d9, #383838);
+  --cluster-control-hover: light-dark(#e9e9ec, #2f2f2f);
   height: 100%;
   min-height: 0;
   display: grid;
@@ -19,7 +19,7 @@
 }
 .main {
   background: var(--workspace-surface);
-  background-image: radial-gradient(circle, #383838 1px, transparent 1.2px);
+  background-image: radial-gradient(circle, light-dark(#d4d4d9, #383838) 1px, transparent 1.2px);
   background-size: 20px 20px;
   position: relative;
   min-width: 0;
@@ -49,7 +49,7 @@
 }
 .historyCapsule {
   border-radius: 999px;
-  background: #2c2c2c;
+  background: light-dark(#e7e7eb, #2c2c2c);
 }
 .toolbarActions {
   gap: 8px;
@@ -75,7 +75,7 @@
   font-family: inherit;
   font-size: 14px;
   font-weight: 400;
-  --button-ring-color: #afafaf;
+  --button-ring-color: light-dark(#5c5c65, #afafaf);
 }
 .header button.runtimeAction,
 .header button.runtimeAction:hover {
@@ -102,29 +102,29 @@
   padding: 20px;
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: #262626;
+  background: light-dark(#ffffff, #262626);
 }
 .candidateGrid .candidateRow button {
   align-self: flex-start;
 }
 .page button:where(:not([data-sidebar-row-button])) {
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
   border-color: var(--border);
   border-radius: 999px;
   box-shadow: none;
 }
 .page button:where(:not([data-sidebar-row-button])):hover {
-  background: #3a3a3a;
+  background: light-dark(#dedee2, #3a3a3a);
 }
 .page .whiteAction,
 .page dialog footer button:last-child {
-  background: #fff;
-  color: #181818;
+  background: light-dark(#25252a, #fff);
+  color: light-dark(#ffffff, #181818);
   border-color: transparent;
 }
 .page .whiteAction:hover,
 .page dialog footer button:last-child:hover {
-  background: #e5e5e5;
+  background: light-dark(#3a3a40, #e5e5e5);
 }
 .header,
 .heading,
@@ -147,7 +147,7 @@
 }
 .model {
   border-radius: 18px;
-  background: #262626;
+  background: light-dark(#ffffff, #262626);
 }
 .hardwareStatus i {
   width: 7px;
@@ -173,12 +173,12 @@
   min-height: var(--control-height-search);
   border: 0;
   border-radius: 999px;
-  color: #181818;
-  background: #fff;
+  color: light-dark(#ffffff, #181818);
+  background: light-dark(#25252a, #fff);
   box-shadow: none;
 }
 .toolbar .addDevice:hover {
-  background: #e5e5e5;
+  background: light-dark(#3a3a40, #e5e5e5);
 }
 .connectionMenu {
   position: relative;
@@ -194,7 +194,7 @@
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: #262626;
+  background: light-dark(#ffffff, #262626);
   box-shadow: 0 8px 24px #0005;
 }
 .page .connectionOptions button {
@@ -222,7 +222,7 @@
   font-size: var(--font-size-status);
   font-weight: var(--font-weight-normal);
   color: var(--text);
-  background: #454545;
+  background: light-dark(#c5c5cd, #454545);
   border-radius: 999px;
   min-width: 16px;
   padding-inline: 4px;
@@ -306,7 +306,7 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   color: var(--text);
-  background: #1a1a1a;
+  background: light-dark(#f8f8fa, #1a1a1a);
   font-size: var(--font-size-control);
 }
 .sharingRow {
@@ -323,11 +323,11 @@
   height: var(--control-height-switch);
   padding: 2px;
   border: 0;
-  background: #454545;
+  background: light-dark(#c5c5cd, #454545);
 }
 .page .sharingSwitch[aria-checked='true'] {
   justify-content: flex-end;
-  background: #487fff;
+  background: light-dark(#245bc5, #487fff);
 }
 .sharingSwitch span {
   width: var(--control-size-switch-thumb);
@@ -384,7 +384,7 @@
   padding: 18px;
   border: 1px solid var(--cluster-control-border);
   border-radius: 22px;
-  background: #262626;
+  background: light-dark(#ffffff, #262626);
   box-shadow: 0 8px 24px #0005;
 }
 .panelContent {
@@ -408,7 +408,7 @@
   outline: none;
 }
 .panel:hover .panelContent {
-  scrollbar-color: rgba(252, 252, 252, 0.156) transparent;
+  scrollbar-color: light-dark(#00000028, rgba(252, 252, 252, 0.156)) transparent;
 }
 .panelContent :focus-visible {
   outline-offset: -2px;
@@ -507,17 +507,17 @@
 .panel .placementButton {
   min-height: var(--control-height-dialog);
   padding-inline: 14px;
-  border-color: #454545;
+  border-color: light-dark(#c5c5cd, #454545);
   border-radius: 999px;
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
   box-shadow: none;
 }
 .panel .placementButton:not(:disabled):hover {
-  background: #3a3a3a;
-  border-color: #626262;
+  background: light-dark(#dedee2, #3a3a3a);
+  border-color: light-dark(#9c9ca6, #626262);
 }
 .error {
-  color: #ffb7a8;
+  color: light-dark(#a23b26, #ffb7a8);
   font-size: var(--font-size-body);
 }
 .graphScroll {
@@ -574,7 +574,7 @@
   gap: 16px;
   padding: 8px 12px;
   border-radius: 12px;
-  background: #2c2c2c;
+  background: light-dark(#e7e7eb, #2c2c2c);
   color: var(--muted);
   font-size: var(--font-size-control);
   line-height: var(--line-height-control);
@@ -594,7 +594,7 @@
   font: inherit;
 }
 .page .canvasControls button:hover:not(:disabled) {
-  background: #383838;
+  background: light-dark(#d4d4d9, #383838);
 }
 .canvasControls button:disabled {
   opacity: 0.4;
@@ -637,7 +637,7 @@
 }
 .connections path {
   fill: none;
-  stroke: #438dde;
+  stroke: light-dark(#1c61aa, #438dde);
   stroke-width: 2;
   stroke-dasharray: 2 6;
   vector-effect: non-scaling-stroke;
@@ -646,16 +646,16 @@
   position: absolute;
   z-index: 1;
   transform: translate(-50%, -50%);
-  border: 1px solid #4c505c;
+  border: 1px solid light-dark(#b7bdc9, #4c505c);
   border-radius: 14px;
-  background: #262626;
+  background: light-dark(#ffffff, #262626);
   padding: 2px 10px;
   font-size: var(--font-size-status);
   line-height: 18px;
   box-shadow: 0 2px 6px #0006;
 }
 .latency:hover {
-  border-color: #79b7ff;
+  border-color: light-dark(#2169b0, #79b7ff);
 }
 .deviceSlot {
   min-width: 0;
@@ -672,12 +672,12 @@
   cursor: pointer;
 }
 .device:hover {
-  border-color: #626262;
+  border-color: light-dark(#9c9ca6, #626262);
 }
 .device[data-selected='true'] {
-  border-color: #ababab;
+  border-color: light-dark(#5c5c63, #ababab);
   background: var(--card);
-  box-shadow: 0 0 0 1px #ababab;
+  box-shadow: 0 0 0 1px light-dark(#5c5c63, #ababab);
 }
 .coordinator {
   max-width: 520px;
@@ -710,12 +710,12 @@
 .role {
   border-radius: 12px;
   padding: 3px 10px;
-  background: #303238;
+  background: light-dark(#e9ebef, #303238);
   font-size: var(--font-size-status);
   flex-shrink: 0;
 }
 .coordinator .role {
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
 }
 .hardware {
   display: grid;
@@ -732,10 +732,10 @@
   min-width: 0;
 }
 .tile > svg {
-  color: #d2d8e1;
+  color: light-dark(#394151, #d2d8e1);
 }
 .tile > svg.hardwareIcon {
-  color: #ffffff;
+  color: light-dark(#2b2b32, #ffffff);
 }
 .hardwareText {
   min-width: 0;
@@ -774,14 +774,14 @@
 .bar {
   height: 8px;
   border: 1px solid var(--border);
-  background: #4a4a4a;
+  background: light-dark(#c2c2cb, #4a4a4a);
   border-radius: 8px;
   overflow: hidden;
 }
 .bar > span {
   display: block;
   height: 100%;
-  background: #ffffff;
+  background: light-dark(#2b2b32, #ffffff);
   border-radius: inherit;
 }
 .rangeRow {
@@ -823,9 +823,9 @@
   top: 100%;
   width: 150px;
   padding: 4px;
-  border: 1px solid #414a5c;
+  border: 1px solid light-dark(#c5cede, #414a5c);
   border-radius: 8px;
-  background: #232630;
+  background: light-dark(#f8faff, #232630);
   box-shadow: 0 8px 20px #0007;
 }
 .menu button {
@@ -838,7 +838,7 @@
   font-size: var(--font-size-control);
 }
 .menu button:hover {
-  background: #34405a;
+  background: light-dark(#e0eafa, #34405a);
 }
 .empty {
   display: flex;
@@ -846,7 +846,7 @@
   align-items: center;
   gap: 12px;
   padding: 80px 20px;
-  border: 1px dashed #303540;
+  border: 1px dashed light-dark(#c4cad4, #303540);
   border-radius: 14px;
   color: var(--muted);
   text-align: center;
@@ -879,12 +879,12 @@
   align-items: stretch;
   min-width: 0;
   min-height: var(--control-height-dialog);
-  border: 1px solid #555;
+  border: 1px solid light-dark(#a0a0a8, #555);
   border-radius: 10px;
-  background: #1a1a1a;
+  background: light-dark(#f8f8fa, #1a1a1a);
 }
 .layerNumberField:has(input:focus-visible) {
-  outline: 2px solid #78baff;
+  outline: 2px solid light-dark(#075fae, #78baff);
   outline-offset: 2px;
 }
 .layerNumberField:has(input:disabled) {
@@ -911,7 +911,7 @@
   grid-template-rows: 1fr 1fr;
   flex: 0 0 28px;
   margin-block: 4px;
-  border-left: 1px solid #ffffff14;
+  border-left: 1px solid light-dark(#00000014, #ffffff14);
 }
 .page .layerStepper button {
   display: grid;
@@ -926,10 +926,10 @@
   background: transparent;
 }
 .page .layerStepper button:not(:disabled):hover {
-  background: #ffffff0d;
+  background: light-dark(#0000000d, #ffffff0d);
 }
 .page .layerStepper button:disabled {
-  color: #5f5f5f;
+  color: light-dark(#767676, #5f5f5f);
   cursor: default;
   background: transparent;
 }
@@ -939,8 +939,8 @@
   margin-bottom: 14px;
 }
 .networkModes button[aria-pressed='true'] {
-  background: #454545;
-  border-color: #ababab;
+  background: light-dark(#c5c5cd, #454545);
+  border-color: light-dark(#5c5c63, #ababab);
 }
 .page .selectDevice {
   display: block;
@@ -967,10 +967,10 @@
   width: 32px;
   height: 32px;
   padding: 0;
-  border: 1px solid #555555;
+  border: 1px solid light-dark(#a0a0a8, #555555);
   border-radius: 50%;
-  background: #303030;
-  color: #fff;
+  background: light-dark(#e8e8eb, #303030);
+  color: light-dark(#2b2b32, #fff);
   opacity: 0;
   pointer-events: none;
   transition: opacity 75ms ease;
@@ -1065,7 +1065,7 @@
   font-size: var(--font-size-metadata);
 }
 .page .allocationRow:hover {
-  background: #2f2f2f;
+  background: light-dark(#e9e9ec, #2f2f2f);
 }
 .allocationRow small {
   color: var(--muted);
@@ -1085,14 +1085,14 @@
 .layerEditorGroup {
   margin-top: 12px;
   border-radius: 12px;
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
 }
 .hardwareEditor {
   padding: 14px;
   font-size: var(--font-size-metadata);
 }
 .hardwareEditor + .hardwareEditor {
-  border-top: 1px solid #ffffff0d;
+  border-top: 1px solid light-dark(#0000000d, #ffffff0d);
 }
 .hardwareEditor h4 {
   margin: 0;
@@ -1105,14 +1105,14 @@
 .availableEmpty {
   margin-block: 14px;
   padding: 18px;
-  border: 1px dashed #555555;
+  border: 1px dashed light-dark(#a0a0a8, #555555);
   border-radius: 12px;
   text-align: center;
   font-size: var(--font-size-description);
   color: var(--muted);
 }
 .menu {
-  background: #262626;
+  background: light-dark(#ffffff, #262626);
   border-color: var(--border);
 }
 .page .menuButton,
@@ -1121,11 +1121,11 @@
 }
 .page .rangeRow button:hover,
 .page .menuButton:hover {
-  background: #3a3a3a;
+  background: light-dark(#dedee2, #3a3a3a);
 }
 .page dialog {
-  background: #262626;
-  border-color: #383838;
+  background: light-dark(#ffffff, #262626);
+  border-color: light-dark(#d4d4d9, #383838);
   color: var(--text);
 }
 .renameField {
@@ -1146,9 +1146,9 @@
   width: 100%;
   min-width: 0;
   padding: 10px 12px;
-  border: 1px solid #555555;
+  border: 1px solid light-dark(#a0a0a8, #555555);
   border-radius: 10px;
-  background: #1a1a1a;
+  background: light-dark(#f8f8fa, #1a1a1a);
   color: var(--text);
   font: inherit;
 }
@@ -1197,7 +1197,7 @@
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #8b8b8b;
+  color: light-dark(#626269, #8b8b8b);
   opacity: 0;
   cursor: pointer;
 }
@@ -1206,7 +1206,7 @@
   opacity: 1;
 }
 .renameTrigger:hover {
-  background: #363636;
+  background: light-dark(#dedee4, #363636);
 }
 .nameEditor {
   flex: 1;
@@ -1238,7 +1238,7 @@
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: #222222;
+  background: light-dark(#f3f3f6, #222222);
   color: var(--text);
   text-align: left;
 }
@@ -1299,7 +1299,7 @@
   padding: 4px;
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: #262626;
+  background: light-dark(#ffffff, #262626);
   box-shadow: 0 8px 24px #0005;
 }
 .modelMenuDivider {
@@ -1319,7 +1319,7 @@
 }
 .page .modelOption:hover,
 .page .modelOption[aria-current='true'] {
-  background: #2f2f2f;
+  background: light-dark(#e9e9ec, #2f2f2f);
 }
 .modelOption > span {
   flex: 1;

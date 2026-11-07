@@ -111,6 +111,32 @@ async function createWindow(): Promise<void> {
   // All in-app navigation is React state. A page cannot replace the trusted renderer.
   window.webContents.on('will-navigate', (event) => event.preventDefault());
   window.once('ready-to-show', () => window.show());
+  const updateTitleBar = () => {
+    if (process.platform === 'win32' && !window.isDestroyed()) {
+      window.setTitleBarOverlay({
+        color: '#00000000',
+        symbolColor: nativeTheme.shouldUseDarkColors ? '#c7c8d1' : '#35343a',
+        height: 44,
+      });
+    }
+  };
+  nativeTheme.on('updated', updateTitleBar);
+  ipcMain.handle('modelloom:appearance-theme', (event, theme: unknown) => {
+    if (
+      quitting ||
+      window.isDestroyed() ||
+      event.sender !== window.webContents ||
+      event.senderFrame !== window.webContents.mainFrame ||
+      (theme !== 'light' && theme !== 'dark' && theme !== 'system')
+    )
+      return;
+    nativeTheme.themeSource = theme;
+    updateTitleBar();
+  });
+  window.once('closed', () => {
+    nativeTheme.off('updated', updateTitleBar);
+    ipcMain.removeHandler('modelloom:appearance-theme');
+  });
 
   let dependencies: RuntimeDependencies = {
     enabled: false,

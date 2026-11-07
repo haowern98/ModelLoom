@@ -1,3 +1,4 @@
+import { useAppearance } from '../../app/appearance';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import { motion, useIsPresent, useReducedMotion } from 'motion/react';
@@ -140,8 +141,10 @@ export function ClusterPanel({
   onAddDevice,
   speculation,
 }: ClusterPanelProps) {
+  const { resolvedTheme, reducedMotion: appearanceReducedMotion } = useAppearance();
   const isPresent = useIsPresent();
-  const reducedMotion = useReducedMotion();
+  const systemReducedMotion = useReducedMotion();
+  const reducedMotion = appearanceReducedMotion || systemReducedMotion;
   const picker = useRef<HTMLElement>(null);
   const pickerClose = useRef<HTMLButtonElement>(null);
   const deviceId = useId();
@@ -172,7 +175,7 @@ export function ClusterPanel({
       tabIndex={-1}
       id={id}
       data-cluster-sdk=""
-      data-theme="dark"
+      data-theme={resolvedTheme}
       className={styles.panel}
       aria-label="Cluster panel"
       aria-hidden={!isPresent || undefined}

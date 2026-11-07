@@ -246,7 +246,11 @@
       --alpha-base: #0d0d0d;
     }
     :scope:where([data-theme='dark']),
-    :scope:has([data-cluster-summary-option], [data-cluster-toolbar-option], [data-runtime-option]),
+    :scope:has(
+        [data-cluster-summary-option],
+        [data-cluster-toolbar-option],
+        [data-runtime-option]
+      ):not(:where(html[data-theme='light'] *)),
     :where([data-theme='dark']) {
       --gray-0: #0d0d0d;
       --gray-25: #101010;
@@ -311,7 +315,11 @@
     }
 
     :scope:where([data-theme='dark']),
-    :scope:has([data-cluster-summary-option], [data-cluster-toolbar-option], [data-runtime-option]),
+    :scope:has(
+        [data-cluster-summary-option],
+        [data-cluster-toolbar-option],
+        [data-runtime-option]
+      ):not(:where(html[data-theme='light'] *)),
     :where([data-theme='dark']) {
       --shadow-alpha-100: 0.2;
       --shadow-alpha-200: 0.2;
@@ -324,10 +332,10 @@
     @media (resolution >= 150dpi), (resolution >= 1.5dppx) {
       :scope:where([data-theme='dark']),
       :scope:has(
-        [data-cluster-summary-option],
-        [data-cluster-toolbar-option],
-        [data-runtime-option]
-      ),
+          [data-cluster-summary-option],
+          [data-cluster-toolbar-option],
+          [data-runtime-option]
+        ):not(:where(html[data-theme='light'] *)),
       :where([data-theme='dark']) {
         --shadow-hairline-width: 0.5px;
         --shadow-hairline-color: rgb(255 255 255 / 12%);
@@ -912,7 +920,11 @@
       --color-surface-elevated-secondary: var(--gray-50);
     }
     :scope:where([data-theme='dark']),
-    :scope:has([data-cluster-summary-option], [data-cluster-toolbar-option], [data-runtime-option]),
+    :scope:has(
+        [data-cluster-summary-option],
+        [data-cluster-toolbar-option],
+        [data-runtime-option]
+      ):not(:where(html[data-theme='light'] *)),
     :where([data-theme='dark']) {
       --color-text-secondary: var(--gray-700);
       --color-text-tertiary: var(--gray-600);
@@ -1220,7 +1232,11 @@
       --switch-thumb-color-disabled: var(--gray-0);
     }
     :scope:where([data-theme='dark']),
-    :scope:has([data-cluster-summary-option], [data-cluster-toolbar-option], [data-runtime-option]),
+    :scope:has(
+        [data-cluster-summary-option],
+        [data-cluster-toolbar-option],
+        [data-runtime-option]
+      ):not(:where(html[data-theme='light'] *)),
     :where([data-theme='dark']) {
       --avatar-image-border-color: var(--alpha-15);
       --input-outline-border-color-hover: var(--alpha-30);

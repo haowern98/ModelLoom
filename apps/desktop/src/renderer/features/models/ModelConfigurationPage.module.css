@@ -33,11 +33,11 @@
   font: inherit;
 }
 .page .breadcrumbParent:hover {
-  background: #ffffff1a;
+  background: light-dark(#0000001a, #ffffff1a);
   color: inherit;
 }
 .page .breadcrumbParent:active {
-  background: #ffffff0d;
+  background: light-dark(#0000000d, #ffffff0d);
 }
 .breadcrumbParent > span,
 .breadcrumbCurrent {
@@ -153,7 +153,7 @@
   opacity: 0.45;
 }
 .page input[aria-invalid='true'] {
-  border-color: #e79999;
+  border-color: light-dark(#b44d4d, #e79999);
 }
 .page input::placeholder,
 .page textarea::placeholder {
@@ -164,7 +164,7 @@
 }
 .page textarea:focus-visible,
 .page select:focus-visible {
-  outline: 2px solid #78baff;
+  outline: 2px solid light-dark(#075fae, #78baff);
   outline-offset: 3px;
 }
 .numberControl {
@@ -179,7 +179,11 @@
   height: 4px;
   margin: 0;
   border-radius: 999px;
-  background: linear-gradient(to right, #ffffff var(--range-fill), #484848 var(--range-fill));
+  background: linear-gradient(
+    to right,
+    light-dark(#2b2b32, #ffffff) var(--range-fill),
+    light-dark(#c5c5cc, #484848) var(--range-fill)
+  );
   cursor: pointer;
 }
 .numberControl input[type='range']::-webkit-slider-thumb {
@@ -188,7 +192,7 @@
   height: var(--control-size-range-thumb);
   border: 0;
   border-radius: 50%;
-  background: #ffffff;
+  background: light-dark(#2b2b32, #ffffff);
 }
 .numberControl input[type='range']:disabled {
   cursor: not-allowed;
@@ -266,7 +270,7 @@
   color: var(--neutral-text);
 }
 .page .utility:hover {
-  background: #2f2f2f;
+  background: light-dark(#e9e9ec, #2f2f2f);
 }
 .footer {
   display: flex;
@@ -281,23 +285,23 @@
   padding: 0 12px;
   border: 0;
   border-radius: 999px;
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
   color: var(--neutral-text);
 }
 .page .reset:hover {
-  background: #383838;
+  background: light-dark(#d4d4d9, #383838);
 }
 .page .save {
   border: 0;
   border-radius: 999px;
-  background: #ffffff;
-  color: #181818;
+  background: light-dark(#25252a, #ffffff);
+  color: light-dark(#ffffff, #181818);
 }
 .page .save:hover:not(:disabled) {
-  background: #e5e5e5;
+  background: light-dark(#3a3a40, #e5e5e5);
 }
 .error {
-  color: #efb0b0;
+  color: light-dark(#a12f2f, #efb0b0);
   font-size: var(--font-size-description);
 }
 .error {

@@ -23,12 +23,12 @@
   box-sizing: border-box;
   width: 16px;
   height: 16px;
-  border: 1px solid #ffffff29;
+  border: 1px solid light-dark(#00000029, #ffffff29);
   border-radius: 2px;
   background: transparent;
 }
 .checkbox:checked::before {
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
 }
 .checkbox::after {
   width: 12px;

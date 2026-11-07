@@ -19,7 +19,7 @@
 .conversationRow:hover,
 .conversationRow:has(:focus-visible),
 .selectedRow {
-  background: #2f2f2f;
+  background: light-dark(#e9e9ec, #2f2f2f);
 }
 .conversationButton {
   display: block;

@@ -1,3 +1,4 @@
+import { useAppearance } from '../../app/appearance';
 import { Fragment, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { supportedDeviceGpus } from '../../../shared/runtime';
@@ -44,6 +45,7 @@ export function DeviceInventory({
   local: boolean;
   targetDeviceId?: string | undefined;
 }) {
+  const { reducedMotion } = useAppearance();
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!targetDeviceId) return;
@@ -51,9 +53,10 @@ export function DeviceInventory({
       root.current?.querySelectorAll<HTMLElement>('h2[data-device-id]') ?? [],
     ).find((element) => element.dataset.deviceId === targetDeviceId);
     heading?.focus({ preventScroll: true });
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const reduceMotion =
+      reducedMotion || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     heading?.scrollIntoView?.({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' });
-  }, [targetDeviceId]);
+  }, [targetDeviceId, reducedMotion]);
   return (
     <div ref={root}>
       {devices.map((device) => {

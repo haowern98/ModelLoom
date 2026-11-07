@@ -1,3 +1,4 @@
+import { useAppearance } from './appearance';
 import { useEffect, useState } from 'react';
 import { Tooltip } from '@openai/apps-sdk-ui/components/Tooltip';
 import { ChatGptHistoryIcon } from '../components/ChatGptHistoryIcon';
@@ -25,6 +26,7 @@ export function TitlebarNavigation({
   onForward,
   sidebar,
 }: TitlebarHistory & { sidebar?: SidebarToggle | undefined }) {
+  const { resolvedTheme } = useAppearance();
   const [tooltip, setTooltip] = useState<string | null>(null);
   useEffect(() => {
     const blocked = () =>
@@ -93,7 +95,7 @@ export function TitlebarNavigation({
           <Tooltip.Content
             side="bottom"
             data-cluster-sdk=""
-            data-theme="dark"
+            data-theme={resolvedTheme}
             className={styles.tooltip}
           >
             {label} <kbd>{shortcut}</kbd>
@@ -138,7 +140,7 @@ export function TitlebarNavigation({
           <Tooltip.Content
             side="bottom"
             data-cluster-sdk=""
-            data-theme="dark"
+            data-theme={resolvedTheme}
             className={styles.tooltip}
           >
             Toggle sidebar

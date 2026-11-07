@@ -38,10 +38,10 @@
 }
 .filters button[aria-pressed='true'] {
   color: var(--neutral-text);
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
 }
 .filters button:hover {
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
 }
 .actions {
   display: flex;
@@ -62,7 +62,7 @@
 }
 .action:hover:not(:disabled) {
   color: var(--neutral-text);
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
 }
 .viewer {
   height: 360px;
@@ -75,7 +75,7 @@
   padding: 12px;
   border: 1px solid var(--neutral-border);
   border-radius: 8px;
-  background: #1a1a1a;
+  background: light-dark(#f8f8fa, #1a1a1a);
   color: var(--neutral-text);
   font-family: ui-monospace, Consolas, monospace;
   font-size: 13px;

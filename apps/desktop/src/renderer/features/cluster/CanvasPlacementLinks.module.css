@@ -9,7 +9,7 @@
 }
 .links path {
   fill: none;
-  stroke: #666;
+  stroke: light-dark(#777777, #666);
   stroke-width: 1.5;
   stroke-dasharray: 4 5;
   vector-effect: non-scaling-stroke;
@@ -19,21 +19,21 @@
   position: absolute;
   z-index: 2;
   transform: translate(-50%, -50%);
-  border: 1px solid #484848;
+  border: 1px solid light-dark(#c5c5cc, #484848);
   border-radius: 999px;
   min-width: 42px;
   height: 36px;
   padding: 0 9px;
-  background: #303030;
-  color: #ddd;
+  background: light-dark(#e8e8eb, #303030);
+  color: light-dark(#27272c, #ddd);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 .measurement:hover {
-  background: #3c3c3c;
+  background: light-dark(#dedee3, #3c3c3c);
 }
 .measurement:focus-visible {
-  outline: 2px solid #91bfff;
+  outline: 2px solid light-dark(#1468b5, #91bfff);
   outline-offset: 3px;
 }

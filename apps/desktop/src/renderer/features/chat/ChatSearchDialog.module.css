@@ -7,9 +7,9 @@
   inset: 0;
   margin: auto;
   padding: 0;
-  border: 1px solid #ffffff14;
+  border: 1px solid light-dark(#00000014, #ffffff14);
   border-radius: 16px;
-  background: color-mix(in oklab, #111111 65%, transparent);
+  background: color-mix(in oklab, light-dark(#ffffff, #111111) 65%, transparent);
   backdrop-filter: blur(24px);
   color: var(--neutral-text);
   box-shadow: 0 24px 80px #0006;
@@ -25,7 +25,7 @@
 }
 .inputRow {
   padding: 12px 16px;
-  border-bottom: 1px solid #ffffff14;
+  border-bottom: 1px solid light-dark(#00000014, #ffffff14);
 }
 .inputRow input {
   display: block;
@@ -85,7 +85,7 @@
 }
 .result[aria-selected='true'],
 .result:hover {
-  background: #ffffff14;
+  background: light-dark(#00000014, #ffffff14);
 }
 .empty {
   margin: 0;

@@ -11,7 +11,7 @@
   padding: 2px;
   border: 0;
   border-radius: 999px;
-  background: #626262;
+  background: light-dark(#9c9ca6, #626262);
   cursor: pointer;
 }
 .switch::before {
@@ -23,7 +23,7 @@
   background: #ffffff;
 }
 .switch:checked {
-  background: #487fff;
+  background: light-dark(#245bc5, #487fff);
 }
 .switch:checked::before {
   transform: translateX(calc(var(--control-width-switch) - var(--control-size-switch-thumb) - 4px));

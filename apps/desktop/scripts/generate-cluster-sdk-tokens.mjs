@@ -14,7 +14,7 @@ const tokens = (await Promise.all(files.map((file) => readFile(path.join(source,
   // A scoped descendant selector does not match the scope root itself.
   .replace(
     /^([ \t]*):where\(\[data-theme="dark"\]\)\s*\{/gmu,
-    '$1:scope:where([data-theme="dark"]), :scope:has([data-cluster-summary-option], [data-cluster-toolbar-option], [data-runtime-option]), :where([data-theme="dark"]) {',
+    '$1:scope:where([data-theme="dark"]), :scope:has([data-cluster-summary-option], [data-cluster-toolbar-option], [data-runtime-option]):not(:where(html[data-theme="light"] *)), :where([data-theme="dark"]) {',
   )
   .replace(/^.*--(?:font-weight|radius)-\*: initial;\r?\n/gmu, '')
   // Keep the SDK's 16px reference scale without changing the app's 14px root.
