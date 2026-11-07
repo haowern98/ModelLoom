@@ -943,6 +943,8 @@ Appearance stacks Theme, Interface and Accessibility. Dark/Neutral/Comfortable a
 
 **Appearance revision, 2026-11-08.** Theme offers Light, Dark and System. Dark is the default. System follows the OS theme while the app is open. Reduce motion limits interface animation and always honors the OS reduced-motion preference. Both settings apply immediately and persist in the local desktop profile. Accent colour and density are deferred. Status, metrics and contextual explanations remain in the panes where they are used.
 
+**Diagnostics.** Show the latest recognized model-load, generation or RPC failure from the available runtime log session, with its time and code. Keep the full log viewer in API. The support report previews the app version, operating system and recognized events before copying the preview. Exclude raw log text, paths, credentials, addresses and request identifiers. Include only evidence attributable to the reported failure.
+
 **Runtime Settings revision, 2026-11-05.** Runtime shows Installed runtimes and Runtime selection. In the Windows development app, display the approved package from signed metadata and count it as installed only after validating the installed files. Show the GGUF build and the runtime of the ready model separately. With one approved package, show it as the fixed choice. The management dialog shows verified package details, including the complete version and source commit. Downloads, updates and switching to other packages remain gated by D11.
 
 - U23 (P7): Appearance provides persisted Light, Dark and System themes and a Reduce motion preference. Preserve the existing neutral dark palette and Settings layout. Honor OS reduced-motion preferences and keep status, metrics and help in their respective panes.
