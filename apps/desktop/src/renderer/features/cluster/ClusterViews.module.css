@@ -139,11 +139,16 @@
   font-weight: var(--font-weight-medium);
 }
 .deviceArticle[data-targeted='true'] .deviceHeader {
+  --device-highlight: #ffffff14;
   animation: highlightDevice 1.4s ease-out;
+}
+:global(:root[data-theme='light']) .deviceArticle[data-targeted='true'] .deviceHeader {
+  --device-highlight: #00000014;
 }
 @keyframes highlightDevice {
   from {
-    background: light-dark(#00000014, #ffffff14);
+    /* Resolve the theme outside the keyframe to avoid a Chromium crash. */
+    background: var(--device-highlight);
   }
   to {
     background: transparent;
