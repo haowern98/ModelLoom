@@ -205,7 +205,7 @@
   background: #ffffff;
 }
 .switch:checked {
-  background: light-dark(#505050, #737373);
+  background: light-dark(#245bc5, #487fff);
 }
 .switch:checked::before {
   left: calc(100% - var(--control-size-switch-thumb) - 2px);
