@@ -65,7 +65,8 @@ test('all Settings toggles use the larger size without moving other content', as
         expect(await toggle.evaluate((node) => getComputedStyle(node, '::before').height)).toBe(
           '16px',
         );
-        await expect(toggle).toBeDisabled();
+        if (category === 'Appearance') await expect(toggle).toBeEnabled();
+        else await expect(toggle).toBeDisabled();
       }
       expect(await measure()).toEqual(before);
     }
@@ -101,22 +102,52 @@ test('settings search finds category content and navigation preserves the select
   await expect(page.getByRole('heading', { name: 'API', exact: true })).toBeVisible();
 });
 
-test('settings preview exposes disabled controls and an honest runtime inventory dialog', async ({
-  page,
-}) => {
-  for (const name of ['Light', 'Dark', 'System']) {
-    await expect(page.getByRole('button', { name, exact: true })).toBeDisabled();
-  }
-  await expect(page.getByRole('button', { name: 'Dark', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  for (const name of ['Accent colour', 'Density']) {
-    await expect(page.getByRole('combobox', { name, exact: true })).toBeDisabled();
-  }
-  for (const name of ['Show status', 'Show metrics', 'Reduce motion', 'Contextual help']) {
-    await expect(page.getByRole('switch', { name, exact: true })).toBeDisabled();
-  }
+test('Appearance applies and persists theme and motion preferences', async ({ page }) => {
+  const root = page.locator('html');
+  const dark = page.getByRole('button', { name: 'Dark', exact: true });
+  const light = page.getByRole('button', { name: 'Light', exact: true });
+  const system = page.getByRole('button', { name: 'System', exact: true });
+  const reduceMotion = page.getByRole('switch', { name: 'Reduce motion', exact: true });
+  const details = page.getByRole('region', { name: 'Settings details' });
+
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' });
+  await expect(dark).toHaveAttribute('aria-pressed', 'true');
+  await expect(root).toHaveAttribute('data-theme', 'dark');
+  await expect(details).toHaveCSS('background-color', 'rgb(17, 17, 17)');
+  await expect(reduceMotion).not.toBeChecked();
+  await expect(root).toHaveAttribute('data-reduce-motion', 'false');
+
+  await light.click();
+  await expect(root).toHaveAttribute('data-theme', 'light');
+  await expect(root).toHaveCSS('color-scheme', 'light');
+  await expect(details).toHaveCSS('background-color', 'rgb(250, 250, 250)');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(root).toHaveAttribute('data-theme', 'light');
+  await system.click();
+  await expect(root).toHaveAttribute('data-theme', 'dark');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(root).toHaveAttribute('data-theme', 'light');
+
+  await reduceMotion.check();
+  await expect(root).toHaveAttribute('data-reduce-motion', 'true');
+  await expect(reduceMotion).toHaveCSS('transition-property', 'none');
+  await page.reload();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(system).toHaveAttribute('aria-pressed', 'true');
+  await expect(root).toHaveAttribute('data-theme', 'light');
+  await expect(reduceMotion).toBeChecked();
+  await expect(root).toHaveAttribute('data-reduce-motion', 'true');
+
+  await reduceMotion.uncheck();
+  await expect(root).toHaveAttribute('data-reduce-motion', 'false');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(root).toHaveAttribute('data-reduce-motion', 'true');
+  await expect(reduceMotion).not.toBeChecked();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect(root).toHaveAttribute('data-reduce-motion', 'false');
+});
+
+test('settings exposes an honest runtime inventory dialog', async ({ page }) => {
   await page
     .getByRole('navigation', { name: 'Settings categories' })
     .getByRole('button', { name: 'Runtime', exact: true })
@@ -166,7 +197,7 @@ test('settings keeps centred readable content and independent scrolling at suppo
       await detail.evaluate((node) => {
         node.scrollTop = node.scrollHeight;
       });
-      await expect(page.getByRole('switch', { name: 'Contextual help' })).toBeInViewport();
+      await expect(page.getByRole('switch', { name: 'Reduce motion' })).toBeInViewport();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
@@ -182,6 +213,7 @@ test('Settings uses native thin scrollbars across the full pane height', async (
   const detail = page.getByRole('region', { name: 'Settings details' });
   const categories = page.getByRole('navigation', { name: 'Settings categories' });
   const workspace = page.getByRole('region', { name: 'ModelLoom workspace' });
+  await categories.getByRole('button', { name: 'Storage', exact: true }).click();
   for (const width of [1280, 1000]) {
     await page.setViewportSize({ width, height: 620 });
     await detail.evaluate((node) => {
@@ -218,7 +250,7 @@ test('Settings uses native thin scrollbars across the full pane height', async (
     expect(await detail.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
     await detail.focus();
     await page.keyboard.press('End');
-    await expect(page.getByRole('switch', { name: 'Contextual help' })).toBeInViewport();
+    await expect(page.getByRole('button', { name: 'Clear unused cache' })).toBeInViewport();
     await expect
       .poll(() =>
         detail.evaluate((node) => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop)),
@@ -227,7 +259,7 @@ test('Settings uses native thin scrollbars across the full pane height', async (
     await page.screenshot({ path: test.info().outputPath(`settings-scroll-bottom-${width}.png`) });
     await page.keyboard.press('Home');
     await expect.poll(() => detail.evaluate((node) => node.scrollTop)).toBe(0);
-    await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeInViewport();
+    await expect(page.getByRole('heading', { name: 'Storage', exact: true })).toBeInViewport();
     await page.screenshot({ path: test.info().outputPath(`settings-scroll-top-${width}.png`) });
   }
 });
