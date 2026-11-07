@@ -218,6 +218,12 @@
 .pending {
   padding: 16px 0;
 }
+.supportReport {
+  max-height: 50vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .cachePath {
   max-width: 240px;
   overflow: hidden;

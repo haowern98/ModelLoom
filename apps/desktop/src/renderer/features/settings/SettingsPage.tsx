@@ -9,6 +9,7 @@ import { Select } from '@openai/apps-sdk-ui/components/Select';
 import { ChatGptSidebarIcon } from '../../components/ChatGptSidebarIcon';
 import { Dialog } from '../../components/Dialog';
 import { SearchField } from '../../components/SearchField';
+import { DiagnosticsSettings } from './DiagnosticsSettings';
 import { NetworkSettings } from './NetworkSettings';
 import { StorageSettings } from './StorageSettings';
 import styles from './SettingsPage.module.css';
@@ -441,8 +442,6 @@ const pendingDescriptions = {
     'Model and cache locations, storage usage and cleanup will be available with storage integration.',
   Network:
     'Cluster connectivity and connection preferences will be available with networking integration.',
-  Diagnostics:
-    'Health information, logs and diagnostic exports will be available with runtime integration.',
   Advanced: 'Advanced settings will appear after their options and behaviour have been reviewed.',
 };
 
@@ -532,6 +531,8 @@ export function SettingsPage({
             <NetworkSettings onApi={onApi} {...(onConnections ? { onConnections } : {})} />
           ) : category === 'Storage' ? (
             <StorageSettings />
+          ) : category === 'Diagnostics' ? (
+            <DiagnosticsSettings onApi={onApi} />
           ) : (
             <Section title={category}>
               <div className={styles.pending}>
