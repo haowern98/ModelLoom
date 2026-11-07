@@ -69,7 +69,7 @@ it('shows an unloaded local worker before any model import, without requiring GP
   const device = within(await screen.findByRole('article', { name: 'own-pc' }));
   expect(device.getByText('Worker')).toBeVisible();
   expect(device.queryByText('Windows · This device')).not.toBeInTheDocument();
-  expect(device.getByText('CPU', { exact: true })).toBeVisible();
+  expect(device.getByRole('region', { name: 'own-pc CPU' })).toBeVisible();
   expect(device.queryByText('NVIDIA GPU')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Load model' })).toBeDisabled();
   expect(screen.queryByText('No devices connected')).not.toBeInTheDocument();

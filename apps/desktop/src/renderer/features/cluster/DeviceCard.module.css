@@ -90,37 +90,36 @@
 .card .sdkInput input:focus-visible {
   outline: none;
 }
-.deviceMetrics {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 24px;
-  margin: 16px 0;
-  padding-inline: 16px;
-  font-size: var(--font-size-description);
-  line-height: var(--font-text-sm-line-height);
+.hardware {
+  margin-top: 16px;
 }
-.deviceMetrics span,
-.gpuMetrics span {
+.metrics > span {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   font-variant-numeric: tabular-nums;
 }
-.deviceMetrics > span:first-child,
-.gpuMetrics > span:first-child {
+.metrics > span:first-child {
   flex: 0 0 72px;
 }
-.deviceMetrics b,
-.gpuMetrics b {
+.metrics b {
   font-weight: 400;
 }
-.deviceMetrics svg,
-.gpuMetrics svg {
+.metrics svg {
   color: var(--muted);
 }
-.gpu {
+/* Keep the CPU percentage at the same inset as the former text label. */
+.cpuMetricIcon {
+  display: inline-grid;
+  align-items: center;
+}
+.cpuMetricIcon > * {
+  grid-area: 1 / 1;
+}
+.cpuMetricIcon > span {
+  visibility: hidden;
+}
+.hardwareTile {
   padding: 16px;
   border-radius: 12px;
   background: #181818;
@@ -135,7 +134,7 @@
   line-height: var(--font-text-sm-line-height);
   color: var(--color-text-secondary);
 }
-.gpu h3 {
+.hardwareTile h3 {
   margin: 6px 0 0;
   font-size: var(--font-text-md-size);
   line-height: var(--font-text-md-line-height);
@@ -151,7 +150,7 @@
   background: var(--success);
   vertical-align: middle;
 }
-.gpuMetrics {
+.metrics {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

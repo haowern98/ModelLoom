@@ -44,7 +44,7 @@ it.each(['8086', undefined])(
       }),
     );
     const canvas = within(screen.getByRole('region', { name: 'Cluster canvas' }));
-    expect(await canvas.findByText('CPU')).toBeVisible();
+    expect(await canvas.findByRole('region', { name: 'cpu-only-pc CPU' })).toBeVisible();
     expect(canvas.queryByRole('heading', { name: /^GPU/ })).not.toBeInTheDocument();
     expect(canvas.queryByText('NVIDIA name alone is insufficient')).not.toBeInTheDocument();
     await user.click(
@@ -52,7 +52,8 @@ it.each(['8086', undefined])(
         name: 'Devices',
       }),
     );
-    expect(await screen.findByText('Observed CPU')).toBeVisible();
+    const inventory = within(screen.getByRole('region', { name: 'Devices' }));
+    expect(await inventory.findByText('Observed CPU')).toBeVisible();
   },
 );
 
@@ -111,7 +112,7 @@ it('filters both GPU views and updates Devices when the observed GPU is disabled
   const canvas = within(screen.getByRole('region', { name: 'Cluster canvas' }));
   expect(await canvas.findByText('Observed discrete GPU')).toBeVisible();
   expect(canvas.getByText('AMD physical GPU')).toBeVisible();
-  expect(canvas.getByText('CPU')).toBeVisible();
+  expect(canvas.getByRole('region', { name: 'observed-laptop CPU' })).toBeVisible();
   expect(canvas.queryByText('Observed integrated GPU')).not.toBeInTheDocument();
   expect(canvas.queryByText('StarDesk Virtual Display Adapter')).not.toBeInTheDocument();
   expect(canvas.queryByText('NVIDIA named adapter with unknown identity')).not.toBeInTheDocument();
