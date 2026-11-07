@@ -1,4 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
+contextBridge.exposeInMainWorld(
+  'modelLoomAppearance',
+  Object.freeze({
+    setTheme: (theme: unknown) => {
+      if (theme !== 'light' && theme !== 'dark' && theme !== 'system') return;
+      return ipcRenderer.invoke('modelloom:appearance-theme', theme);
+    },
+  }),
+);
 import { decodeCacheCommand, decodeCacheReply } from '../shared/tensor-cache';
 contextBridge.exposeInMainWorld(
   'modelLoomCache',

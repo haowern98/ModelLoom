@@ -1,7 +1,7 @@
 .toast {
-  --toast-surface: #262626;
-  --toast-border: #383838;
-  --toast-text: #f3f3f3;
+  --toast-surface: light-dark(#ffffff, #262626);
+  --toast-border: light-dark(#d4d4d9, #383838);
+  --toast-text: light-dark(#202025, #f3f3f3);
   position: absolute;
   z-index: 20;
   top: 24px;
@@ -29,17 +29,17 @@
   overflow-wrap: anywhere;
 }
 .success {
-  --toast-surface: #082312;
-  --toast-border: #245c35;
-  --toast-text: #70d38a;
+  --toast-surface: light-dark(#e7f5eb, #082312);
+  --toast-border: light-dark(#a5c9ad, #245c35);
+  --toast-text: light-dark(#216135, #70d38a);
 }
 .error {
-  --toast-surface: #2b1010;
-  --toast-border: #713333;
-  --toast-text: #ffb4b4;
+  --toast-surface: light-dark(#fcebea, #2b1010);
+  --toast-border: light-dark(#e3abab, #713333);
+  --toast-text: light-dark(#9d2929, #ffb4b4);
 }
 .information {
-  --toast-surface: #262626;
+  --toast-surface: light-dark(#ffffff, #262626);
 }
 .toast .close {
   display: grid;
@@ -55,5 +55,5 @@
   cursor: pointer;
 }
 .toast .close:hover {
-  background: #ffffff14;
+  background: light-dark(#00000014, #ffffff14);
 }

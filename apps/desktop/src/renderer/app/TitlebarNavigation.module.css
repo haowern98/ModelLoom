@@ -18,33 +18,33 @@
   padding: 0;
   border: 0;
   border-radius: 6px;
-  color: #ababab;
+  color: light-dark(#5c5c63, #ababab);
   background: transparent;
   -webkit-app-region: no-drag;
 }
 .history button:enabled:hover {
-  color: #f3f3f3;
-  background: rgba(255, 255, 255, 0.12);
+  color: light-dark(#202025, #f3f3f3);
+  background: light-dark(#0000001f, rgba(255, 255, 255, 0.12));
 }
 .history button:disabled {
-  color: rgba(255, 255, 255, 0.25);
+  color: light-dark(#00000040, rgba(255, 255, 255, 0.25));
   cursor: default;
 }
 .history button:focus-visible {
-  outline-color: #ababab;
+  outline-color: light-dark(#5c5c63, #ababab);
   outline-offset: 0;
 }
 .history button[aria-label='Forward'] svg {
   transform: scaleX(-1);
 }
 .tooltip {
-  background: #262626;
-  color: #f3f3f3;
+  background: light-dark(#ffffff, #262626);
+  color: light-dark(#202025, #f3f3f3);
   font-family: 'Segoe UI', sans-serif;
   font-size: 12px;
 }
 .tooltip kbd {
   margin-left: 10px;
-  color: #ababab;
+  color: light-dark(#5c5c63, #ababab);
   font: inherit;
 }

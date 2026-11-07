@@ -1,3 +1,4 @@
+import { useAppearance } from '../../app/appearance';
 import type { DemoDevice } from '../../mocks/cluster';
 import { useEffect, useState } from 'react';
 import { InfoCircle } from '@openai/apps-sdk-ui/components/Icon';
@@ -9,6 +10,7 @@ import { connectionRoute } from './connection-route';
 import './cluster-sdk-tokens.css';
 
 function Information({ label, content }: { label: string; content: string }) {
+  const { resolvedTheme } = useAppearance();
   const [open, setOpen] = useState(false);
   return (
     <Tooltip.Root open={open} onOpenChange={setOpen} delayDuration={150} disableHoverableContent>
@@ -29,7 +31,7 @@ function Information({ label, content }: { label: string; content: string }) {
       </Tooltip.Trigger>
       <Tooltip.Content
         data-cluster-sdk=""
-        data-theme="dark"
+        data-theme={resolvedTheme}
         className={styles.tooltip}
         maxWidth={260}
         gutterSize="sm"

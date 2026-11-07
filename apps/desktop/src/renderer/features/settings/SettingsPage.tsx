@@ -1,7 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import type { RuntimeInventory, RuntimeView } from '../../../shared/runtime';
 import type { ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
 import { Cpu } from '@phosphor-icons/react/dist/csr/Cpu';
 import { Database } from '@phosphor-icons/react/dist/csr/Database';
 import { Network } from '@phosphor-icons/react/dist/csr/Network';
@@ -13,6 +12,7 @@ import { SearchField } from '../../components/SearchField';
 import { NetworkSettings } from './NetworkSettings';
 import { StorageSettings } from './StorageSettings';
 import styles from './SettingsPage.module.css';
+import { themes, useAppearance } from '../../app/appearance';
 import '../cluster/cluster-sdk-tokens.css';
 
 export type SettingsCategory =
@@ -22,8 +22,7 @@ const categories = [
   {
     name: 'Appearance',
     icon: 'appearance',
-    keywords:
-      'theme light dark system accent colour density status metrics reduce motion contextual help',
+    keywords: 'theme light dark system reduce motion animations',
   },
   {
     name: 'Runtime',
@@ -35,8 +34,6 @@ const categories = [
   { name: 'Diagnostics', icon: 'diagnostics', keywords: 'health logs metrics export' },
   { name: 'Advanced', icon: 'advanced', keywords: 'advanced options' },
 ] as const;
-
-const appearanceUnavailable = 'Appearance changes are not available yet.';
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -69,90 +66,41 @@ export function Row({
   );
 }
 
-function PreviewSelect({
-  label,
-  value,
-  reason = appearanceUnavailable,
-}: {
-  label: string;
-  value: string;
-  reason?: string;
-}) {
-  return (
-    <span className={styles.select} title={reason}>
-      <select aria-label={label} value={value} disabled>
-        <option>{value}</option>
-      </select>
-      <ChevronDown size={14} aria-hidden="true" />
-    </span>
-  );
-}
-
-function PreviewSwitch({
-  label,
-  checked = false,
-  reason = appearanceUnavailable,
-}: {
-  label: string;
-  checked?: boolean;
-  reason?: string;
-}) {
-  return (
-    <input
-      type="checkbox"
-      role="switch"
-      className={styles.switch}
-      aria-label={label}
-      checked={checked}
-      disabled
-      title={reason}
-    />
-  );
-}
-
 function Appearance() {
+  const { theme, reduceMotion, setTheme, setReduceMotion } = useAppearance();
   return (
     <>
       <Section title="Theme">
         <Row label="Theme" description="Choose how ModelLoom looks on your device.">
-          <div className={styles.segmented} aria-label="Theme options">
-            {['Light', 'Dark', 'System'].map((theme) => (
+          <div className={styles.segmented} role="group" aria-label="Theme options">
+            {themes.map((option) => (
               <button
-                key={theme}
+                key={option}
                 type="button"
-                disabled
-                aria-pressed={theme === 'Dark'}
-                title={appearanceUnavailable}
+                aria-pressed={theme === option}
+                onClick={() => setTheme(option)}
               >
-                {theme}
+                {option}
               </button>
             ))}
           </div>
         </Row>
-        <Row label="Accent colour" description="Choose the accent colour for interactive elements.">
-          <PreviewSelect label="Accent colour" value="Neutral" />
-        </Row>
-      </Section>
-      <Section title="Interface">
-        <Row label="Density" description="Adjust the spacing and size of UI elements.">
-          <PreviewSelect label="Density" value="Comfortable" />
-        </Row>
-        <Row label="Show status" description="Display connection and model status.">
-          <PreviewSwitch label="Show status" checked />
-        </Row>
-        <Row label="Show metrics" description="Display available performance information.">
-          <PreviewSwitch label="Show metrics" />
-        </Row>
       </Section>
       <Section title="Accessibility">
-        <Row label="Reduce motion" description="Limit interface animations.">
-          <PreviewSwitch label="Reduce motion" />
-        </Row>
-        <Row label="Contextual help" description="Show explanations beside settings.">
-          <PreviewSwitch label="Contextual help" checked />
+        <Row
+          label="Reduce motion"
+          description="Limit animations in ModelLoom. Your system’s reduced-motion preference always applies."
+        >
+          <input
+            type="checkbox"
+            role="switch"
+            className={styles.switch}
+            aria-label="Reduce motion"
+            checked={reduceMotion}
+            onChange={(event) => setReduceMotion(event.currentTarget.checked)}
+          />
         </Row>
       </Section>
-      <p className={styles.notice}>Appearance preview · Changes are not available yet.</p>
     </>
   );
 }
@@ -275,6 +223,7 @@ export function RuntimeSettings({
   selectedRuntime: RuntimeView['selectedRuntime'];
   management?: RuntimeManagement;
 }) {
+  const { resolvedTheme } = useAppearance();
   const [manageOpen, setManageOpen] = useState(false);
   const [inventory, setInventory] = useState<RuntimeInventory | null>(null);
   const [attempt, retry] = useReducer((value: number) => value + 1, 0);
@@ -424,7 +373,7 @@ export function RuntimeSettings({
           label="GGUF"
           description="Applies on the next load or reload."
         >
-          <div data-runtime-sdk data-theme="dark" className={styles.runtimePicker}>
+          <div data-runtime-sdk data-theme={resolvedTheme} className={styles.runtimePicker}>
             <Select
               id="gguf-runtime"
               size="md"

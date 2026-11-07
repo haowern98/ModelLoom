@@ -1,3 +1,4 @@
+import { useAppearance } from '../../app/appearance';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { Dispatch } from 'react';
 import { AnimatePresence } from 'motion/react';
@@ -148,6 +149,7 @@ export function ClusterPage({
   onSpeculationOpened,
   onModelConfiguration,
 }: ClusterPageProps) {
+  const { resolvedTheme } = useAppearance();
   const [configurationName, setConfigurationName] = useState('');
   const [localNavigation, setLocalNavigation] = useState<{
     view: ClusterView;
@@ -601,7 +603,7 @@ export function ClusterPage({
           />
         )}
         <div hidden={view !== 'overview'}>
-          <header className={styles.header} data-cluster-sdk="" data-theme="dark">
+          <header className={styles.header} data-cluster-sdk="" data-theme={resolvedTheme}>
             <div className={styles.heading}>
               <div className={styles.modelPickerSlot}>
                 <ClusterModelPicker

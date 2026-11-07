@@ -43,12 +43,12 @@
   inset-block: 0;
   left: 3px;
   width: 1px;
-  background: rgb(255 255 255 / 25%);
+  background: light-dark(#00000040, rgb(255 255 255 / 25%));
 }
 .rail {
-  --rail-icon: #8b8b8b;
-  --rail-highlight: #2f2f2f;
-  --rail-selected-icon: #ffffff;
+  --rail-icon: light-dark(#626269, #8b8b8b);
+  --rail-highlight: light-dark(#e9e9ec, #2f2f2f);
+  --rail-selected-icon: light-dark(#2b2b32, #ffffff);
   grid-row: 2;
   display: flex;
   flex-direction: column;
@@ -91,7 +91,7 @@
   background: var(--rail-highlight);
 }
 .rail button:focus-visible {
-  outline-color: #ababab;
+  outline-color: light-dark(#5c5c63, #ababab);
 }
 .rail button:disabled {
   opacity: 0.8;
@@ -105,7 +105,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  outline: 1px solid #2b2b31;
+  outline: 1px solid light-dark(#d6d6dd, #2b2b31);
   outline-offset: -1px;
   border-radius: var(--workspace-radius);
   border-bottom-right-radius: var(--workspace-radius-bottom-right);
@@ -114,12 +114,12 @@
   overflow: hidden;
 }
 .chatForeground {
-  outline-color: #303033;
+  outline-color: light-dark(#d4d4dc, #303033);
   background: transparent;
   box-shadow: none;
 }
 .demo {
-  color: #9ba6bb;
+  color: light-dark(#455575, #9ba6bb);
   font-size: var(--font-size-status);
   cursor: help;
   -webkit-app-region: no-drag;

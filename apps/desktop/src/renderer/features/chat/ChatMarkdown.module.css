@@ -61,7 +61,7 @@
   border-top: 1px solid var(--neutral-border);
 }
 .markdown a {
-  color: #78baff;
+  color: light-dark(#075fae, #78baff);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -72,14 +72,14 @@
 .markdown :not(pre) > code {
   padding: 0.1em 0.3em;
   border-radius: 4px;
-  background: #ffffff0d;
+  background: light-dark(#0000000d, #ffffff0d);
 }
 .codeBlock {
   min-width: 0;
   margin: 1em 0;
   border: 1px solid var(--neutral-border);
   border-radius: 12px;
-  background: #181818;
+  background: light-dark(#f8f8fa, #181818);
   overflow: hidden;
 }
 .codeHeader {
@@ -87,7 +87,7 @@
   align-items: center;
   gap: 12px;
   padding: 8px 12px;
-  background: #222222;
+  background: light-dark(#f3f3f6, #222222);
   color: var(--neutral-muted);
   font-size: var(--font-size-control);
   line-height: var(--line-height-control);
@@ -106,7 +106,7 @@
   font: inherit;
 }
 .codeHeader button:hover {
-  background: #ffffff14;
+  background: light-dark(#00000014, #ffffff14);
 }
 .markdown pre {
   max-width: 100%;
@@ -148,21 +148,21 @@
 .markdown :global(.hljs-keyword),
 .markdown :global(.hljs-selector-tag),
 .markdown :global(.hljs-literal) {
-  color: #c792ea;
+  color: light-dark(#773893, #c792ea);
 }
 .markdown :global(.hljs-string),
 .markdown :global(.hljs-attr) {
-  color: #c3e88d;
+  color: light-dark(#326716, #c3e88d);
 }
 .markdown :global(.hljs-number),
 .markdown :global(.hljs-symbol) {
-  color: #f78c6c;
+  color: light-dark(#a23f1f, #f78c6c);
 }
 .markdown :global(.hljs-title),
 .markdown :global(.hljs-built_in) {
-  color: #82aaff;
+  color: light-dark(#244e9a, #82aaff);
 }
 .markdown :global(.hljs-comment),
 .markdown :global(.hljs-quote) {
-  color: #8b949e;
+  color: light-dark(#56626f, #8b949e);
 }

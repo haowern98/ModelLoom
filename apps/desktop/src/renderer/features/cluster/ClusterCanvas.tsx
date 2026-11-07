@@ -1,3 +1,4 @@
+import { useAppearance } from '../../app/appearance';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { Minus, Plus, Scan } from 'lucide-react';
@@ -29,6 +30,7 @@ export function ClusterCanvas({
   fitOnMount?: boolean;
   backgroundRef?: RefObject<HTMLDivElement | null>;
 }) {
+  const { reducedMotion: appearanceReducedMotion } = useAppearance();
   const viewport = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
   const controls = useRef<HTMLDivElement>(null);
@@ -38,7 +40,8 @@ export function ClusterCanvas({
   const [dragging, setDragging] = useState(false);
   const [reservedWidth, setReservedWidth] = useState(0);
   const reservation = useRef(0);
-  const reducedMotion = useReducedMotion();
+  const systemReducedMotion = useReducedMotion();
+  const reducedMotion = appearanceReducedMotion || systemReducedMotion;
   const instructions = useId();
 
   useLayoutEffect(() => {

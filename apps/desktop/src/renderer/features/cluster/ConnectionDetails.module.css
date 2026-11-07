@@ -9,7 +9,7 @@
 .details h3 {
   margin: 0;
   padding: 4px 0;
-  color: #afafaf;
+  color: light-dark(#5c5c65, #afafaf);
   font: inherit;
 }
 .details dl {
@@ -27,12 +27,12 @@
 }
 .details dt {
   min-width: 0;
-  color: #afafaf;
+  color: light-dark(#5c5c65, #afafaf);
 }
 .details dd {
   margin: 0;
   max-width: 60%;
-  color: #e7e7e7;
+  color: light-dark(#24242a, #e7e7e7);
   text-align: right;
   overflow-wrap: anywhere;
 }
@@ -54,15 +54,15 @@
   border-radius: 4px;
   background: transparent;
   box-shadow: none;
-  color: #afafaf;
+  color: light-dark(#5c5c65, #afafaf);
   cursor: help;
   vertical-align: middle;
 }
 .details button.infoButton:hover {
-  color: #e7e7e7;
+  color: light-dark(#24242a, #e7e7e7);
 }
 .details button.infoButton:focus-visible {
-  outline: 1px solid #afafaf;
+  outline: 1px solid light-dark(#5c5c65, #afafaf);
   outline-offset: 1px;
 }
 .tooltip {

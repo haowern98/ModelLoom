@@ -27,11 +27,20 @@ import { useLiveChat } from '../features/chat/useLiveChat';
 import { usePeerInventory } from '../features/cluster/usePeerInventory';
 import { peerDevices } from '../features/cluster/peer-devices';
 import { readDeviceDisplayNames, saveDeviceDisplayName } from './deviceDisplayNames';
+import { AppearanceProvider } from './AppearanceProvider';
 
 type Modal =
   { type: 'remove' | 'details'; model: DemoModel } | { type: 'info'; title: string; text: string };
 
 export function App() {
+  return (
+    <AppearanceProvider>
+      <AppContent />
+    </AppearanceProvider>
+  );
+}
+
+function AppContent() {
   const runtime = useRuntime();
   const clusterConfigurations = useClusterConfigurations(window.modelLoomCluster);
   const live = runtime.view?.enabled === true;

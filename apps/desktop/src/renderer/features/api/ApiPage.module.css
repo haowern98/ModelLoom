@@ -82,8 +82,8 @@
 .page .primary {
   border: 0;
   border-radius: 999px;
-  background: #ffffff;
-  color: #181818;
+  background: light-dark(#25252a, #ffffff);
+  color: light-dark(#ffffff, #181818);
 }
 .page .utility {
   gap: 8px;
@@ -95,7 +95,7 @@
   border-radius: 8px;
 }
 .page button:hover:not(:disabled) {
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
   border-color: var(--neutral-border);
 }
 .field {
@@ -174,7 +174,7 @@
 .segment button[aria-pressed='true'],
 .tabs button[aria-selected='true'] {
   color: var(--neutral-text);
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
 }
 .labelLine {
   display: flex;
@@ -186,7 +186,7 @@
   border: 1px solid var(--neutral-border);
   border-radius: 999px;
   color: var(--neutral-muted);
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
   font-size: var(--font-size-metadata);
 }
 .keyControls {
@@ -220,7 +220,7 @@
   padding: 10px;
   border: 1px solid var(--neutral-border);
   border-radius: 8px;
-  background: #1a1a1a;
+  background: light-dark(#f8f8fa, #1a1a1a);
   color: var(--neutral-text);
   line-height: var(--line-height-body);
   overflow: auto;

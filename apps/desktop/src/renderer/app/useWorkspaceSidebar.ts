@@ -1,3 +1,4 @@
+import { useAppearance } from './appearance';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { animate, useMotionValue, useReducedMotion, useTransform } from 'motion/react';
 
@@ -16,6 +17,7 @@ function readWidth() {
 }
 
 export function useWorkspaceSidebar(enabled: boolean) {
+  const { reducedMotion } = useAppearance();
   const [preferredWidth, setPreferredWidth] = useState(readWidth);
   const [expanded, setExpanded] = useState(true);
   const [viewport, setViewport] = useState(() => window.innerWidth);
@@ -30,7 +32,8 @@ export function useWorkspaceSidebar(enabled: boolean) {
   const limit = Math.max(minimum, Math.min(maximum, viewport - 296));
   const clamp = (width: number) => Math.round(Math.max(minimum, Math.min(limit, width)));
   const width = clamp(preferredWidth);
-  const reduceMotion = useReducedMotion();
+  const systemReducedMotion = useReducedMotion();
+  const reduceMotion = reducedMotion || systemReducedMotion;
   const progress = useMotionValue(1);
   const previouslyEnabled = useRef(enabled);
   useLayoutEffect(() => {

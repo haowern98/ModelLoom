@@ -6,14 +6,14 @@
   column-gap: 20px;
   min-height: 72px;
   padding: 12px 16px 12px 8px;
-  border-bottom: 1px solid #2b2b2b;
+  border-bottom: 1px solid light-dark(#e3e3e8, #2b2b2b);
   border-radius: 12px;
   background: transparent;
-  color: #f3f3f3;
+  color: light-dark(#202025, #f3f3f3);
 }
 .row:hover,
 .row:focus-within {
-  background: #212121;
+  background: light-dark(#f3f3f6, #212121);
 }
 .identity {
   min-width: 0;
@@ -43,24 +43,24 @@
 }
 .chips span {
   padding: 1px 8px;
-  border: 1px solid #383838;
+  border: 1px solid light-dark(#d4d4d9, #383838);
   border-radius: 999px;
   font-size: var(--font-size-metadata);
   line-height: 18px;
   white-space: nowrap;
-  background: #303030;
+  background: light-dark(#e8e8eb, #303030);
 }
 .modelText p {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-top: 3px;
-  color: #ababab;
+  color: light-dark(#5c5c63, #ababab);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
 }
 .lastUsed {
-  color: #ababab;
+  color: light-dark(#5c5c63, #ababab);
   font-size: var(--font-size-description);
 }
 .indexing {
@@ -103,12 +103,12 @@
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: #ababab;
+  color: light-dark(#5c5c63, #ababab);
 }
 .iconButton:hover,
 .iconButton[aria-expanded='true'] {
-  background: #2f2f2f;
-  color: #f3f3f3;
+  background: light-dark(#e9e9ec, #2f2f2f);
+  color: light-dark(#202025, #f3f3f3);
 }
 .menuAnchor {
   position: relative;
@@ -121,9 +121,9 @@
   width: max-content;
   min-width: 180px;
   padding: 5px;
-  border: 1px solid #383838;
+  border: 1px solid light-dark(#d4d4d9, #383838);
   border-radius: 12px;
-  background: #262626;
+  background: light-dark(#ffffff, #262626);
   box-shadow: 0 8px 22px #0005;
 }
 .menu button {
@@ -138,7 +138,7 @@
   text-align: left;
 }
 .menu button:hover:not(:disabled) {
-  background: #2f2f2f;
+  background: light-dark(#e9e9ec, #2f2f2f);
 }
 .menu button:disabled {
   opacity: 0.45;

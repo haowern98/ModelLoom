@@ -4,7 +4,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border-right: 1px solid #303033;
+  border-right: 1px solid light-dark(#d4d4dc, #303033);
   background: var(--workspace-sidebar);
 }
 .header {
@@ -49,13 +49,13 @@
 .sidebar .content button:not([data-sidebar-row-button]):hover,
 .sidebar .content button:not([data-sidebar-row-button])[aria-current='page'],
 .sidebar .content button:not([data-sidebar-row-button])[aria-pressed='true'] {
-  background: #2f2f2f;
+  background: light-dark(#e9e9ec, #2f2f2f);
 }
 .sidebar .content button svg {
   flex-shrink: 0;
 }
 .sidebar :focus-visible {
-  outline-color: #ababab;
+  outline-color: light-dark(#5c5c63, #ababab);
 }
 .deviceText {
   display: flex;

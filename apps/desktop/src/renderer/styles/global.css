@@ -47,6 +47,8 @@
   --neutral-border: #383838;
   --settings-group: #222222;
   --settings-input: #262626;
+  --scrollbar-thumb: rgba(252, 252, 252, 0.084);
+  --scrollbar-thumb-hover: rgba(252, 252, 252, 0.156);
   --control-width-switch: 28px;
   --control-height-switch: 16px;
   --control-size-switch-thumb: 12px;
@@ -61,15 +63,38 @@
   -webkit-font-smoothing: antialiased;
 }
 
+:root[data-theme='light'] {
+  color-scheme: light;
+  --chrome: #e9e8eb;
+  --workspace-surface: #fafafa;
+  --workspace-sidebar: #f0eff1;
+  --surface: #fafafa;
+  --card: #ffffff;
+  --tile: #f3f3f5;
+  --border: #d8d8dd;
+  --text: #22232a;
+  --muted: #575b66;
+  --subtle: #606471;
+  --accent: #075cbd;
+  --success: #087654;
+  --neutral-text: #222222;
+  --neutral-muted: #555555;
+  --neutral-border: #d6d6d6;
+  --settings-group: #f5f5f5;
+  --settings-input: #ffffff;
+  --scrollbar-thumb: rgb(0 0 0 / 16%);
+  --scrollbar-thumb-hover: rgb(0 0 0 / 28%);
+}
+
 * {
   box-sizing: border-box;
   /* Native painting retains Chromium's thumb hover and drag contrast adjustment. */
   scrollbar-width: thin;
-  scrollbar-color: rgba(252, 252, 252, 0.084) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 *:hover,
 *:active {
-  scrollbar-color: rgba(252, 252, 252, 0.156) transparent;
+  scrollbar-color: var(--scrollbar-thumb-hover) transparent;
 }
 body {
   margin: 0;
@@ -92,7 +117,7 @@ button:focus-visible,
 input:focus-visible,
 summary:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid #78baff;
+  outline: 2px solid light-dark(#075cbd, #78baff);
   outline-offset: 3px;
 }
 button {
@@ -111,7 +136,15 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 ::selection {
-  background: #174ba3;
+  background: light-dark(#bdd9ff, #174ba3);
+}
+
+:root[data-reduce-motion='true'] *,
+:root[data-reduce-motion='true'] *::before,
+:root[data-reduce-motion='true'] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
 }
 @media (prefers-reduced-motion: reduce) {
   *,
