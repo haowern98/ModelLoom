@@ -6,11 +6,11 @@
 
 ModelLoom runs GGUF language models on your own GPUs. Use one PC or assign model layers across a coordinator and an approved worker on a private network. Load the model from the cluster canvas, then use it in Chat or through the local API.
 
-![Cluster Overview showing model layers assigned to a coordinator and a worker while a model loads](docs/screenshots/cluster-overview.png)
+![Cluster Overview showing model layers assigned to Node 1 (coordinator) and Node 2 (worker)](docs/screenshots/cluster-overview.png)
 
 ## Start here
 
-The current Windows x64 preview runs from source and requires verified runtime assets. Follow the [Windows preview setup](docs/windows-development-preview.md#start-modelloom) before loading a model.
+The current Windows x64 preview runs from source and requires verified runtime assets. Follow the [Windows preview setup](docs/getting-started/user-guide.md) before loading a model.
 
 1. Import a GGUF file in **Models**.
 2. In **Cluster → Overview**, choose the model and assign its layers to the GPUs you want to use.
@@ -20,8 +20,8 @@ The [User Guide](docs/getting-started/user-guide.md) covers pairing a second PC,
 
 ## RPC input residency
 
-When both peers support the residency bridge, ModelLoom can send a short reference for an eligible tensor write it has already sent. The worker reconstructs the original request byte for byte and passes it to the native runtime. This can reduce bytes sent between devices when writes repeat. The benefit depends on the workload, so throughput claims need a matched comparison with stock RPC. See the [protocol and validation notes](docs/rpc-input-residency.md).
+When both peers support the residency bridge, ModelLoom can send a short reference for an eligible tensor write it has already sent. The worker reconstructs the original request byte for byte and passes it to the native runtime. This can reduce bytes sent between devices when writes repeat. The benefit depends on the workload, so throughput claims need a matched comparison with stock RPC.
 
 ## Performance experiment
 
-Across three reported runs per setup, ModelLoom averaged **27.20 tok/s** in generation versus **25.82 tok/s** for stock llama.cpp RPC, an observed difference of **5.33%**. [Individual runs and comparison limits](docs/research/MODELLOOM-VS-STOCK-RPC.md)
+Across three reported runs per setup, ModelLoom averaged **27.20 tok/s** in generation versus **25.82 tok/s** for stock llama.cpp RPC, an observed difference of **5.33%**. [Individual runs and comparison limits](docs/getting-started/developer-guide.md#performance-experiment)
