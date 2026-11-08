@@ -1,6 +1,15 @@
-# Windows preview user guide
+# ModelLoom User Guide
 
-This guide covers the Windows source-development preview. It describes the current development path, not a packaged public release.
+Use ModelLoom on Windows x64 to load a GGUF model on your own GPUs and chat with it. This guide starts with one PC, then shows how to add a worker.
+
+## Contents
+
+- [Start the preview](#start-the-preview)
+- [Import a GGUF model](#import-a-gguf-model)
+- [Load a model and start a chat](#load-a-model-and-start-a-chat)
+- [Choose a runtime](#choose-a-runtime)
+- [Connect a worker and assign layers](#connect-a-worker-and-assign-layers)
+- [Troubleshooting and current limits](#troubleshooting-and-current-limits)
 
 ## Start the preview
 
@@ -11,9 +20,9 @@ pnpm install --frozen-lockfile
 npm run electron dev
 ```
 
-Use `npm run electron dev` for later manual starts too. The source app keeps its development profile and checks its runtime/bootstrap assets before opening. If startup stops during preparation, follow [developer setup](developer-guide.md#onboard); do not launch llama.cpp yourself. The app's **Explore models** action is not a downloader.
+Use `npm run electron dev` for later manual starts too. The source app keeps its development profile and checks its runtime/bootstrap assets before opening. If startup stops during preparation, follow [developer setup](developer-guide.md#development-setup); do not launch llama.cpp yourself. The app's **Explore models** action is not a downloader.
 
-## Import the approved model
+## Import a GGUF model
 
 1. Open **Models** and choose **Import GGUF**.
 2. Select a standalone GGUF file and wait for **Indexing…** to finish.
@@ -21,7 +30,11 @@ Use `npm run electron dev` for later manual starts too. The source app keeps its
 
 Import a standalone GGUF supported by your verified runtime. An indexed model still needs to pass runtime and resource checks before it can load.
 
-## Load locally and chat
+![Model library showing imported GGUF files and the import icon in the upper right](../screenshots/model-library.png)
+
+*Use the import icon next to the search field to add a GGUF file.*
+
+## Load a model and start a chat
 
 1. Open **Cluster → Overview** and choose the imported model in the model picker.
 2. For a new allocation, choose **Auto place** or assign layer ranges manually. Auto place prepares a proposal; click the play button again to load. Saving a named configuration is optional.
@@ -34,7 +47,11 @@ Use the validated settings for the model and devices in this preview. Unsupporte
 
 Open **Settings → Runtime**. The **GGUF** selector shows installed verified builds for the next load; **Active runtime** identifies the build used by a currently loaded model. A runtime selection does not replace the active build until the next load. The b11306 CUDA package is the development baseline; other packages shown in a checkout can have narrower validation scope. Use a compatible approved runtime on both PCs for a worker run.
 
-## Share a worker GPU
+![Runtime settings with CUDA b11306 selected and no model loaded](../screenshots/runtime-settings.png)
+
+*The GGUF selector sets the runtime for the next load. Active runtime shows which build the loaded model is using.*
+
+## Connect a worker and assign layers
 
 Use two ModelLoom PCs on a reachable private LAN address or an already configured Tailscale network. In this guide, the **worker** shares a GPU and the **coordinator** assigns model layers to it.
 
@@ -45,9 +62,15 @@ Use two ModelLoom PCs on a reachable private LAN address or an already configure
 5. Return to the worker's request and choose **Allow** once the code is verified. Approval grants this coordinator access to the selected shared GPU. You can later remove that access with **Revoke access**.
 6. On the coordinator, return to **Cluster → Overview**, select the worker GPU in the allocation, and load the validated configuration. Both PCs need a compatible verified RPC runtime; use the same compatible build on both.
 
-Pairing requires explicit verification and approval. A preview or sample connection shown in a demo is not a real peer.
+![Add device tab showing a connected Tailscale worker and the manual private address field](../screenshots/connections-add-device.png)
 
-## Troubleshooting
+*Choose Add to find a worker, or enter its private address under Connect manually.*
+
+When the worker is added, both device cards appear on the canvas. The **Layer assignment** section lists the ranges on each device. In this example, Node 2 has layers 0–31 and Node 1 has layers 32–64. The overview shows the planned ranges before loading.
+
+![Cluster Overview showing the planned layer split across Node 1 and Node 2](../screenshots/cluster-overview.png)
+
+## Troubleshooting and current limits
 
 | What you see                                     | What to check                                                                                                                                                                                    |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
