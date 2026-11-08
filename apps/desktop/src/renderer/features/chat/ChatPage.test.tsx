@@ -100,6 +100,7 @@ it.each([undefined, null, 0, 0.75])(
             attemptId: 'attempt',
             speeds: {
               generation: 24.8,
+              generatedTokens: 31,
               prefill: 1420,
               ...(acceptance === undefined ? {} : { acceptance }),
             },
@@ -126,8 +127,10 @@ it.each([undefined, null, 0, 0.75])(
     );
     const copy = screen.getByRole('button', { name: 'Copy response 1' });
     const retry = screen.getByRole('button', { name: 'Retry response 1' });
-    const generation = screen.getByText('Generation: 24.8 tok/s');
-    const prefill = screen.getByText('Prompt processing: 1,420 tok/s');
+    const generation = screen.getByText('Generation: 24.80 tok/s');
+    const prefill = screen.getByText('Prompt processing: 1420.00 tok/s');
+    const count = screen.getByText('31 tokens');
+    expect(count.nextElementSibling).toBe(generation);
     expect(generation.parentElement?.parentElement).toBe(copy.parentElement);
     expect(
       retry.compareDocumentPosition(generation) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -209,7 +212,7 @@ it('replaces Copy feedback with new live status and does not resurrect it after 
   view.rerender(<ChatPage {...props} live={{ ...live, notice: 'Local history is full.' }} />);
   expect(screen.getByRole('status')).toHaveTextContent('Local history is full.');
   view.rerender(<ChatPage {...props} live={live} />);
-  expect(screen.getByRole('status')).toHaveTextContent('Saved on this device');
+  expect(screen.queryByText('Saved on this device')).not.toBeInTheDocument();
 });
 it('replaces Delete feedback when a new Send operation starts', async () => {
   const user = userEvent.setup(),
@@ -231,7 +234,7 @@ it('replaces Delete feedback when a new Send operation starts', async () => {
   await user.click(screen.getByRole('button', { name: 'Delete' }));
   expect(screen.getByRole('status')).toHaveTextContent('Chat deleted.');
   await user.click(screen.getByRole('button', { name: 'Send message' }));
-  expect(screen.getByRole('status')).toHaveTextContent('Saved on this device');
+  expect(screen.queryByText('Saved on this device')).not.toBeInTheDocument();
   view.rerender(
     <ChatPage {...props} live={{ ...live, busy: true, notice: 'Preparing response…' }} />,
   );
@@ -288,7 +291,8 @@ it.each(['send', 'enter', 'retry', 'stop'] as const)(
         }),
       );
     }
-    expect(screen.getByRole('status')).toHaveTextContent(live.notice);
+    if (action === 'stop') expect(screen.getByRole('status')).toHaveTextContent(live.notice);
+    else expect(screen.getByRole('status')).toBeEmptyDOMElement();
     expect(live[action === 'enter' ? 'send' : action]).toHaveBeenCalledTimes(1);
     if (action === 'retry') expect(live.retry).toHaveBeenCalledWith('attempt1');
   },

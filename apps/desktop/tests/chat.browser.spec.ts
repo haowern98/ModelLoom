@@ -149,8 +149,8 @@ test('measured speed labels align with Copy and Retry at supported widths', asyn
     .getByRole('complementary', { name: 'Main navigation' })
     .getByRole('button', { name: 'Chat', exact: true })
     .click();
-  const generation = page.getByText('Generation: 24.8 tok/s');
-  const prefill = page.getByText('Prompt processing: 1,420 tok/s');
+  const generation = page.getByText('Generation: 24.80 tok/s');
+  const prefill = page.getByText('Prompt processing: 1420.00 tok/s');
   const retry = page.getByRole('button', { name: 'Retry response 2' });
   await expect(generation).toHaveCSS('font-size', '12px');
   await expect(generation).toHaveCSS('color', 'rgb(171, 171, 171)');

@@ -111,7 +111,7 @@ it('retains pinned and archived chats and tracks background generation across pa
   expect(await screen.findByRole('img', { name: 'Generating: Keep generating' })).toBeVisible();
   view.unmount();
   render(<Harness />);
-  await screen.findByText('Saved on this device');
+  await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
   await user.click(screen.getByRole('button', { name: 'Archived chats' }));
   expect(await screen.findByRole('img', { name: 'Generating: Keep generating' })).toBeVisible();
   f.work[0]!.settle({ status: 'completed', reason: 'STOP' });
@@ -166,7 +166,7 @@ it('Stop aborts prompt preparation without creating a turn or starting generatio
   const user = userEvent.setup();
   render(<Harness />);
   try {
-    await screen.findByText('Saved on this device');
+    await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
     await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Keep this unsent question');
     await user.click(screen.getByRole('button', { name: 'Send message' }));
     await waitFor(() => expect(counting).toBeDefined());
@@ -188,7 +188,7 @@ it('searches saved messages before opening their conversation, including after r
   const f = await fixture(),
     user = userEvent.setup();
   render(<Harness />);
-  await screen.findByText('Saved on this device');
+  await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
   await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Ordinary title');
   await user.click(screen.getByRole('button', { name: 'Send message' }));
   await waitFor(() => expect(f.work).toHaveLength(1));
@@ -202,7 +202,7 @@ it('searches saved messages before opening their conversation, including after r
   const { cleanup } = await import('@testing-library/react');
   cleanup();
   render(<Harness ready={false} />);
-  await screen.findByText('Saved on this device');
+  await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
   await user.click(screen.getByRole('button', { name: 'Search chats' }));
   await user.type(screen.getByRole('searchbox', { name: 'Search chats' }), 'café');
   await waitFor(() => expect(screen.getByRole('option', { name: 'Ordinary title' })).toBeVisible());
@@ -221,7 +221,7 @@ it('groups persisted chats by local calendar day and retains older chats', async
     clock.mockReturnValue(new Date(2026, 9, 10, 12).getTime());
     await f.history.newConversation();
     render(<Harness ready={false} />);
-    await screen.findByText('Saved on this device');
+    await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
     expect(screen.getByRole('heading', { name: 'Today' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Yesterday' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Older' })).toBeVisible();
@@ -235,7 +235,7 @@ it('reuses an untouched empty chat but never replaces another chat draft', async
   const f = await fixture(),
     user = userEvent.setup();
   render(<Harness ready={false} />);
-  await screen.findByText('Saved on this device');
+  await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
   const first = (await f.history.listConversations())[0]!.id;
   for (let i = 0; i < 3; i++)
     await user.click(screen.getAllByRole('button', { name: 'New chat' })[0]!);
@@ -253,7 +253,7 @@ it('confirms deletion, stops the chosen active response and opens an empty chat'
   const kept = await f.history.newConversation();
   await f.history.saveDraft(kept.id, 'Keep my draft');
   render(<Harness />);
-  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved on this device'));
+  await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
   await user.click(screen.getAllByRole('button', { name: 'New chat' })[0]!);
   await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Delete this response');
   await user.click(screen.getByRole('button', { name: 'Send message' }));
@@ -304,7 +304,7 @@ it('deletes during prompt preparation without sending or losing an unrelated dra
   const kept = await f.history.newConversation();
   await f.history.saveDraft(kept.id, 'Other draft');
   render(<Harness />);
-  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved on this device'));
+  await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
   await user.click(screen.getAllByRole('button', { name: 'New chat' })[0]!);
   await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Preparing draft');
   await user.click(screen.getByRole('button', { name: 'Send message' }));
@@ -323,25 +323,27 @@ it('shows saved native speeds after completion and renderer reload', async () =>
   const f = await fixture(),
     user = userEvent.setup();
   const view = render(<Harness />);
-  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved on this device'));
+  await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
   await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Question');
   await user.click(screen.getByRole('button', { name: 'Send message' }));
   await waitFor(() => expect(f.work).toHaveLength(1));
-  const speeds = { generation: 24.8, prefill: 1420, acceptance: 0.75 },
+  const speeds = { generation: 24.8, prefill: 1420, acceptance: 0.75, generatedTokens: 31 },
     outcome = { status: 'completed', reason: 'STOP' } as const;
   await f.work[0]!.progress({ type: 'reasoning', text: 'Consider' });
   await f.work[0]!.progress({ type: 'text', text: 'Answer' });
   await f.work[0]!.progress({ type: 'terminal', outcome, speeds });
   f.work[0]!.settle(outcome);
-  await screen.findByText('Generation: 24.8 tok/s');
+  await screen.findByText('Generation: 24.80 tok/s');
+  expect(screen.getByText('31 tokens')).toBeVisible();
   const thoughtLabel = screen.getByText(/^Thought for /).textContent;
-  expect(screen.getByText('Prompt processing: 1,420 tok/s')).toBeVisible();
+  expect(screen.getByText('Prompt processing: 1420.00 tok/s')).toBeVisible();
   expect(screen.getByText('Acceptance rate: 75%')).toBeVisible();
   view.unmount();
   render(<Harness />);
-  await screen.findByText('Generation: 24.8 tok/s');
+  await screen.findByText('Generation: 24.80 tok/s');
+  expect(screen.getByText('31 tokens')).toBeVisible();
   expect(screen.getByText(thoughtLabel, { exact: true })).toBeVisible();
-  expect(screen.getByText('Prompt processing: 1,420 tok/s')).toBeVisible();
+  expect(screen.getByText('Prompt processing: 1420.00 tok/s')).toBeVisible();
   expect(screen.getByText('Acceptance rate: 75%')).toBeVisible();
   await f.core.close();
 });
@@ -349,30 +351,30 @@ it('shows live rates while generating and retains them after Stop and renderer r
   const f = await fixture(),
     user = userEvent.setup();
   const view = render(<Harness />);
-  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved on this device'));
+  await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
   await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Question');
   await user.click(screen.getByRole('button', { name: 'Send message' }));
   await waitFor(() => expect(f.work).toHaveLength(1));
   await f.work[0]!.progress({ type: 'metrics', speeds: { generation: null, prefill: 100 } });
-  await screen.findByText('Prompt processing: 100 tok/s');
+  await screen.findByText('Prompt processing: 100.00 tok/s');
   await f.work[0]!.progress({ type: 'reasoning', text: 'Thinking' });
   await f.work[0]!.progress({ type: 'metrics', speeds: { generation: 12, prefill: 100 } });
-  await screen.findByText('Generation: 12 tok/s');
+  await screen.findByText('Generation: 12.00 tok/s');
   expect(screen.getByRole('button', { name: 'Stop response' })).toBeEnabled();
   await user.click(screen.getByRole('button', { name: 'Stop response' }));
   await screen.findByText('Stopped');
-  expect(screen.getByText('Generation: 12 tok/s')).toBeVisible();
+  expect(screen.getByText('Generation: 12.00 tok/s')).toBeVisible();
   view.unmount();
   render(<Harness />);
-  await screen.findByText('Generation: 12 tok/s');
-  expect(screen.getByText('Prompt processing: 100 tok/s')).toBeVisible();
+  await screen.findByText('Generation: 12.00 tok/s');
+  expect(screen.getByText('Prompt processing: 100.00 tok/s')).toBeVisible();
   await f.core.close();
 });
 it('shows streamed thinking in a collapsed row, expands safely and retains it after Stop', async () => {
   const f = await fixture(),
     user = userEvent.setup();
   render(<Harness />);
-  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved on this device'));
+  await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
   await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Question');
   await user.click(screen.getByRole('button', { name: 'Send message' }));
   await waitFor(() => expect(f.work).toHaveLength(1));
@@ -389,7 +391,8 @@ it('shows streamed thinking in a collapsed row, expands safely and retains it af
   await waitFor(() => expect(screen.getByText('Answer')).toBeVisible());
   await user.click(screen.getByRole('button', { name: 'Stop response' }));
   await screen.findByText('Stopped');
-  await waitFor(() => expect(screen.getByText('Saved on this device')).toBeVisible());
+  await waitFor(() => expect(screen.queryByText(/Stopping response/)).not.toBeInTheDocument());
+  expect(screen.queryByText('Saved on this device')).not.toBeInTheDocument();
   expect(screen.getByText(/^Thought for /)).toBeVisible();
   expect(screen.getByText('<img src=x onerror=alert(1)>Thinking')).toBeVisible();
   const saved = await f.history.readConversation((await f.history.listConversations())[0]!.id);
@@ -605,7 +608,7 @@ it('reloads a newer saved draft before the original Send reply reaches the rende
   const user = userEvent.setup(),
     view = render(<Harness />);
   try {
-    await screen.findByText('Saved on this device');
+    await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
     const composer = screen.getByRole('textbox', { name: 'Message' });
     await user.type(composer, 'First question');
     await user.click(screen.getByRole('button', { name: 'Send message' }));
