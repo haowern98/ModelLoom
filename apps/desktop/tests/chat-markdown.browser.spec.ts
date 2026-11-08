@@ -113,10 +113,10 @@ for (const width of [1280, 1000]) {
     await expect(response.getByText('Complete', { exact: true })).toHaveCount(0);
     await expect(response.getByRole('button', { name: 'Copy response 2' })).toBeVisible();
     await expect(response.getByRole('button', { name: 'Retry response 2' })).toBeVisible();
-    const metrics = response.getByText('Generation: 16.1 tok/s');
+    const metrics = response.getByText('Generation: 16.10 tok/s');
     await expect(metrics).toHaveCSS('font-size', '12px');
     await expect(metrics).toHaveCSS('color', 'rgb(171, 171, 171)');
-    await expect(response.getByText('Prompt processing: 400 tok/s')).toBeVisible();
+    await expect(response.getByText('Prompt processing: 400.00 tok/s')).toBeVisible();
     await expect(response.getByText('Acceptance rate: 36.7%')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,

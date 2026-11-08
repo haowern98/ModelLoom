@@ -93,6 +93,15 @@
 .hardware {
   margin-top: 16px;
 }
+.staleStatus {
+  margin: 0 0 8px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-text-sm-size);
+  line-height: var(--font-text-sm-line-height);
+}
+.metrics[data-stale='true'] {
+  opacity: 0.55;
+}
 .metrics > span {
   display: inline-flex;
   align-items: center;

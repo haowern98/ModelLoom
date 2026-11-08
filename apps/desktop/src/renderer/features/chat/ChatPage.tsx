@@ -331,22 +331,18 @@ export function ChatPage({
                         )}
                       {message.speeds && (
                         <span className={styles.speeds}>
-                          {message.speeds.generation !== null && (
+                          {message.speeds.generatedTokens !== undefined && (
                             <span>
-                              Generation:{' '}
-                              {message.speeds.generation.toLocaleString('en-US', {
-                                maximumFractionDigits: 1,
-                              })}{' '}
-                              tok/s
+                              {message.speeds.generatedTokens}{' '}
+                              {message.speeds.generatedTokens === 1 ? 'token' : 'tokens'}
                             </span>
+                          )}
+                          {message.speeds.generation !== null && (
+                            <span>Generation: {message.speeds.generation.toFixed(2)} tok/s</span>
                           )}
                           {message.speeds.prefill !== null && (
                             <span>
-                              Prompt processing:{' '}
-                              {message.speeds.prefill.toLocaleString('en-US', {
-                                maximumFractionDigits: 1,
-                              })}{' '}
-                              tok/s
+                              Prompt processing: {message.speeds.prefill.toFixed(2)} tok/s
                             </span>
                           )}
                           {message.speeds.acceptance !== undefined && (
@@ -469,10 +465,12 @@ export function ChatPage({
             </div>
             <p role="status" className={styles.notice}>
               {notice ||
-                live?.notice ||
-                (demo
-                  ? 'Sample conversations · This app session only'
-                  : 'Sending is not available yet')}
+                (live?.notice === 'Saved on this device'
+                  ? ''
+                  : live?.notice ||
+                    (demo
+                      ? 'Sample conversations · This app session only'
+                      : 'Sending is not available yet'))}
             </p>
           </div>
         </div>

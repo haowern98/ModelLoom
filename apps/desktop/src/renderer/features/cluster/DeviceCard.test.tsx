@@ -156,6 +156,55 @@ it('never infers per-device full offload from model readiness alone', () => {
   expect(screen.queryByText('Choose a model to assign layers.')).not.toBeInTheDocument();
 });
 
+it('keeps stale worker readings visible while reconnecting and clears the state on a fresh sample', () => {
+  const sampledAt = Date.now() - 20_000;
+  const worker = {
+    ...demoDevices[1]!,
+    inventory: {
+      sampledAt,
+      cpuUsagePercent: 47,
+      installedRamBytes: 16 * 2 ** 30,
+      availableRamBytes: 8 * 2 ** 30,
+    },
+  };
+  const props = {
+    device: worker,
+    ranges: [],
+    appliedRanges: [],
+    layerCount: 0,
+    loading: false,
+    proposed: false,
+    active: false,
+    selected: false,
+    onAdd: vi.fn(),
+    onDetails: vi.fn(),
+    onRename: vi.fn(),
+    onEdit: vi.fn(),
+  };
+  const view = render(<DeviceCard {...props} />);
+  expect(screen.getByText('Reconnecting…')).toHaveAttribute('role', 'status');
+  const staleRows = view.container.querySelectorAll('[data-stale="true"]');
+  expect(staleRows).toHaveLength(2);
+  expect(staleRows[0]).toHaveTextContent('47%');
+  expect(staleRows[0]).toHaveTextContent('8.0 / 16.0 GiB');
+
+  view.rerender(
+    <DeviceCard
+      {...props}
+      device={{ ...worker, inventory: { ...worker.inventory, sampledAt: Date.now() } }}
+    />,
+  );
+  expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument();
+  expect(view.container.querySelector('[data-stale="true"]')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('CPU utilization: 47%')).toBeInTheDocument();
+
+  const coordinator = { ...worker, role: 'Coordinator' as const };
+  view.rerender(<DeviceCard {...props} device={coordinator} />);
+  expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument();
+  expect(view.container.querySelector('[data-stale="true"]')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('CPU utilization: —')).toBeInTheDocument();
+});
+
 it('keeps a zero-only disabled layer area without a selection and restores editing before a model runs', () => {
   const device = demoDevices[1]!;
   const hardwareId = device.hardware.find((hardware) => hardware.kind !== 'cpu')!.id;

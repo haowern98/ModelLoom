@@ -138,7 +138,15 @@ describe('pinned text-only chat stream', () => {
     'projects measured native speeds from the final %s envelope',
     async (where) => {
       const finish = JSON.parse(frame({}, 'stop').slice(6)) as Record<string, unknown>;
-      const timings = { predicted_per_second: 24.8, prompt_per_second: 1420, cache_n: 0 };
+      const timings = {
+        predicted_n: 31,
+        predicted_ms: 1250,
+        prompt_n: 71,
+        prompt_ms: 50,
+        predicted_per_second: 12,
+        prompt_per_second: 100,
+        cache_n: 100,
+      };
       const last =
         where === 'finish'
           ? { ...finish, timings }
@@ -156,7 +164,7 @@ describe('pinned text-only chat stream', () => {
         done;
       expect((await collect(stream)).at(-1)).toEqual({
         ...terminal,
-        speeds: { generation: 24.8, prefill: 1420 },
+        speeds: { generation: 24.8, prefill: 1420, generatedTokens: 31 },
         ...(where === 'usage'
           ? { usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }
           : {}),

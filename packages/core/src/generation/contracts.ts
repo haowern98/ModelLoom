@@ -103,6 +103,7 @@ export type TerminalOutcome =
 export interface GenerationSpeeds {
   readonly generation: number | null;
   readonly prefill: number | null;
+  readonly generatedTokens?: number;
   /** Present only for an active speculative proposer; null means no native counts yet. */
   readonly acceptance?: number | null;
 }
@@ -257,7 +258,21 @@ export function decodeSpeeds(input: unknown): GenerationSpeeds {
   return safely(() => {
     const value = object(input);
     const hasAcceptance = Object.hasOwn(value, 'acceptance');
-    exact(value, ['generation', 'prefill', ...(hasAcceptance ? ['acceptance'] : [])]);
+    const hasGeneratedTokens = Object.hasOwn(value, 'generatedTokens');
+    exact(value, [
+      'generation',
+      'prefill',
+      ...(hasAcceptance ? ['acceptance'] : []),
+      ...(hasGeneratedTokens ? ['generatedTokens'] : []),
+    ]);
+    const generatedTokens = value.generatedTokens;
+    if (
+      hasGeneratedTokens &&
+      (typeof generatedTokens !== 'number' ||
+        !Number.isSafeInteger(generatedTokens) ||
+        generatedTokens < 0)
+    )
+      return invalid();
     if (
       hasAcceptance &&
       value.acceptance !== null &&
@@ -280,7 +295,8 @@ export function decodeSpeeds(input: unknown): GenerationSpeeds {
     };
     return Object.freeze({
       generation: rate(value.generation),
-      prefill: rate(value.prefill),
+      prefill: value.prefill === 0 ? 0 : rate(value.prefill),
+      ...(hasGeneratedTokens ? { generatedTokens: generatedTokens as number } : {}),
       ...(hasAcceptance ? { acceptance: value.acceptance as number | null } : {}),
     });
   });

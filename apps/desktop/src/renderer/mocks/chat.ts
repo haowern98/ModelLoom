@@ -7,6 +7,7 @@ export interface ChatMessage {
   readonly speeds?: {
     readonly generation: number | null;
     readonly prefill: number | null;
+    readonly generatedTokens?: number;
     readonly acceptance?: number | null;
   };
   readonly state?: string;

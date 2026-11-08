@@ -187,7 +187,24 @@ async function createWindow(): Promise<void> {
         locations.state,
         {
           addresses: () => windowNetwork.routes().filter((address) => /^100\./u.test(address)),
-          dial: (address, port, signal) => windowNetwork.dial(address, port, signal),
+          dial: async (address, port, signal) => {
+            try {
+              return await windowNetwork.dial(address, port, signal);
+            } catch (error) {
+              if (!signal?.aborted) {
+                const reason = error instanceof Error ? error.message : '';
+                const code = [
+                  'NETWORK_ROUTE_UNAVAILABLE',
+                  'NETWORK_COMPONENT_FAILED',
+                  'NETWORK_TIMEOUT',
+                ].includes(reason)
+                  ? reason
+                  : 'UNKNOWN';
+                writeDiagnostic('peer', `overlay.dial.failed code=${code}`);
+              }
+              throw error;
+            }
+          },
           subscribe: (listener) => windowNetwork.subscribe(listener),
           incoming: (listener) => windowNetwork.setIncoming(listener),
         },

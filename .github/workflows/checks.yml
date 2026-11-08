@@ -103,6 +103,40 @@ jobs:
           cache: true
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+      - name: Cache Windows x64 Electron archive
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/AppData/Local/electron/Cache
+          key: electron-windows-x64-${{ hashFiles('apps/desktop/package.json', 'pnpm-lock.yaml') }}
+      - name: Prefetch verified Electron archive
+        shell: pwsh
+        run: |
+          @'
+          import { readFileSync } from 'node:fs';
+          import { setTimeout as delay } from 'node:timers/promises';
+          import { downloadArtifact } from '@electron/get';
+
+          const { devDependencies } = JSON.parse(readFileSync('apps/desktop/package.json', 'utf8'));
+          const checksums = JSON.parse(readFileSync('node_modules/electron/checksums.json', 'utf8'));
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              await downloadArtifact({
+                version: devDependencies.electron,
+                artifactName: 'electron',
+                platform: 'win32',
+                arch: 'x64',
+                checksums,
+                downloadOptions: { signal: AbortSignal.timeout(120_000) },
+              });
+              break;
+            } catch (error) {
+              if (attempt === 3) throw error;
+              console.warn(`Electron prefetch attempt ${attempt} failed: ${error.message}`);
+              await delay(attempt * 1000);
+            }
+          }
+          '@ | node --input-type=module
+          exit $LASTEXITCODE
       - name: Package unsigned demo
         # Packaging verifies the bundled helper; users never build it themselves.
         run: pnpm --filter @modelloom/core build:network && pnpm package:demo

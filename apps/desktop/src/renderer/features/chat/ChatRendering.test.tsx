@@ -147,7 +147,7 @@ it.each([
   expect(within(response).getByRole('button', { name: 'Copy response 1' })).toBeVisible();
   if (!['queued', 'running', 'cancelling'].includes(state))
     expect(within(response).getByRole('button', { name: 'Retry response 1' })).toBeVisible();
-  expect(within(response).getByText('Generation: 16.1 tok/s')).toBeVisible();
-  expect(within(response).getByText('Prompt processing: 400 tok/s')).toBeVisible();
+  expect(within(response).getByText('Generation: 16.10 tok/s')).toBeVisible();
+  expect(within(response).getByText('Prompt processing: 400.00 tok/s')).toBeVisible();
   expect(within(response).getByText('Acceptance rate: 36.7%')).toBeVisible();
 });
