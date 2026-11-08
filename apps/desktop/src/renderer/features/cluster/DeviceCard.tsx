@@ -77,12 +77,14 @@ export function DeviceCard({
     const timer = setInterval(() => setObservedAt(Date.now()), 2000);
     return () => clearInterval(timer);
   }, [hasInventory]);
-  const inventory =
+  const freshInventory =
     device.inventory &&
     observedAt - device.inventory.sampledAt < 15000 &&
     observedAt - device.inventory.sampledAt >= -5000
       ? device.inventory
       : undefined;
+  const isWorkerStale = device.role === 'Worker' && Boolean(device.inventory) && !freshInventory;
+  const inventory = freshInventory ?? (device.role === 'Worker' ? device.inventory : undefined);
   const cpuName = device.hardware.find((hardware) => hardware.kind === 'cpu')?.name;
   const totalRam = device.inventory?.usableRamBytes ?? device.inventory?.installedRamBytes;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -324,6 +326,11 @@ export function DeviceCard({
         </div>
       </header>
       <div className={`${styles.hardware} ${card.hardware}`}>
+        {isWorkerStale && (
+          <p className={card.staleStatus} role="status">
+            Reconnecting…
+          </p>
+        )}
         <section className={card.hardwareTile} aria-label={`${device.name} CPU`}>
           <div className={card.meta}>
             <span>CPU</span>
@@ -334,7 +341,7 @@ export function DeviceCard({
             </span>
           </div>
           <h3>{cpuName ?? 'Processor unavailable'}</h3>
-          <div className={card.metrics}>
+          <div className={card.metrics} data-stale={isWorkerStale}>
             <span title="Host CPU utilization between recent samples. A dash means unavailable or stale.">
               <span className={card.cpuMetricIcon} aria-hidden="true">
                 <span>CPU</span>
@@ -404,7 +411,7 @@ export function DeviceCard({
                     />
                   )}
                 </h3>
-                <div className={card.metrics}>
+                <div className={card.metrics} data-stale={isWorkerStale}>
                   <span title="GPU utilization from its driver. A dash means unavailable or stale.">
                     <Speed width={18} height={18} aria-hidden="true" />
                     {percentage(gpu?.utilizationPercent)}
