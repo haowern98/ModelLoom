@@ -1,8 +1,17 @@
-# Developer guide
+# ModelLoom Developer Guide
 
 Build and test the ModelLoom desktop app from source.
 
-## Onboard
+## Contents
+
+- [Development setup](#development-setup)
+- [Architecture and source map](#architecture-and-source-map)
+- [Residency Bridge](#residency-bridge)
+- [Build and test](#build-and-test)
+- [Troubleshoot development](#troubleshoot-development)
+- [Performance experiment](#performance-experiment)
+
+## Development setup
 
 The documented development host is Windows x64 with Node 24.21.0 and pnpm 11.19.0. Open a normal PowerShell or Windows Terminal session outside Codex at `E:\ModelLoom-Project`:
 
@@ -13,7 +22,11 @@ npm run electron dev
 
 `npm run electron dev` is the supported interactive launcher for ordinary manual sessions. Use pnpm for dependency, build, and test commands. Startup verifies the development profile and the workspace bootstrap assets. Install the signed development runtime assets before loading a model. The app keeps installed runtimes under `%USERPROFILE%\.modelloom\runtimes`.
 
-## Repository map
+![ModelLoom Runtime settings showing the location of the GGUF selector](../screenshots/runtime-settings.png)
+
+*After starting ModelLoom, open Settings → Runtime and confirm that the expected GGUF build appears in the selector.*
+
+## Architecture and source map
 
 - `apps/desktop/src/renderer/` contains the React screens and feature components for Models, Cluster, Chat, Settings, and API.
 - `apps/desktop/src/preload/` exposes narrow desktop bridges; `apps/desktop/src/shared/` defines and validates their command/reply contracts.
@@ -38,15 +51,15 @@ flowchart LR
   PeerClient -.->|negotiated input-residency/1 codec| PeerWorker
 ```
 
-### RPC input residency evidence
+## Residency Bridge
 
 The optional `input-residency/1` codec compresses repeated native RPC SET records on the authenticated peer stream. The worker reconstructs every referenced original request before the existing helper receives it; responses remain opaque. The codec does not skip GPU writes or computation and is separate from ModelLoom's disk weight cache. Its implementation is in `packages/core/src/peers/rpc-residency.ts` and `rpc-residency-protocol.ts`.
 
 The residency tests verify byte-for-byte reconstruction and negotiation with a native CPU fixture. The fixture performs no model inference.
 
-## Run checks
+## Build and test
 
-Common checks from the repository root:
+Build the desktop application with `pnpm build`. Run these checks from the repository root:
 
 ```powershell
 pnpm --filter @modelloom/desktop test
@@ -57,6 +70,14 @@ pnpm format:check
 ```
 
 `pnpm test` runs the root Electron launcher/profile checks followed by desktop and core unit suites. `pnpm test:e2e` runs the browser project; `pnpm test:desktop` is a packaged demo check and requires its package step first. On Windows, `pnpm --filter @modelloom/core test:native` builds the native fixture/ownership binding and runs native integration cases; it is not a model-quality or GPU acceptance test. These suites do not replace live mixed-GPU, release, or inference-equivalence evidence.
+
+## Troubleshoot development
+
+| Symptom | Check |
+| --- | --- |
+| Launcher stops before opening a window | Check the pinned Node and pnpm versions, then verify the workspace bootstrap assets and development profile. |
+| A runtime is missing from the GGUF picker | Check **Settings → Runtime → Manage installed runtimes** and verify the package was installed for this Windows profile. |
+| A worker connects but the model will not load | Check the approved GPU, the layer allocation, and the compatible verified RPC runtime on both PCs. |
 
 ## Performance experiment
 
