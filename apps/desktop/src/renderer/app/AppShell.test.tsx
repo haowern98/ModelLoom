@@ -30,8 +30,7 @@ it.each(destinations)(
       </AppShell>,
     );
     expect(button).toHaveAttribute('aria-current', 'page');
-    if (destination === 'Chat' || destination === 'Models')
-      expect(button.querySelector('svg')?.innerHTML).not.toBe(outline);
+    if (destination === 'Chat') expect(button.querySelector('svg')?.innerHTML).not.toBe(outline);
     else expect(button.querySelector('svg')?.innerHTML).toBe(outline);
     expect(button.querySelector('svg')).toHaveAttribute('width', '20');
     expect(button.querySelector('svg')).toHaveAttribute('height', '20');

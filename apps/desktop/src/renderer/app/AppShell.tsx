@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Cube } from '@openai/apps-sdk-ui/components/Icon';
 import { motion } from 'motion/react';
 import type { MotionStyle } from 'motion/react';
 import { ChatGptRailIcon } from '../components/ChatGptRailIcon';
@@ -72,7 +73,7 @@ export function AppShell({ destination, onNavigate, demo, children, history }: A
             title="Models"
             onClick={() => onNavigate('Models')}
           >
-            <ChatGptRailIcon icon="books" selected={destination === 'Models'} />
+            <Cube width={20} height={20} aria-hidden="true" focusable="false" />
           </button>
           <button
             type="button"

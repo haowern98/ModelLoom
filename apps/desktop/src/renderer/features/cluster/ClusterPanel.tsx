@@ -5,8 +5,7 @@ import { motion, useIsPresent, useReducedMotion } from 'motion/react';
 import { Button } from '@openai/apps-sdk-ui/components/Button';
 import { Select } from '@openai/apps-sdk-ui/components/Select';
 import type { Option } from '@openai/apps-sdk-ui/components/Select';
-import { ChevronRight, CloseBold, Stack, Storage } from '@openai/apps-sdk-ui/components/Icon';
-import { ChatGptRailIcon } from '../../components/ChatGptRailIcon';
+import { ChevronRight, CloseBold, Cube, Stack, Storage } from '@openai/apps-sdk-ui/components/Icon';
 import { ChatNavIcon } from '../../components/ChatNavIcon';
 import type { DemoDevice, DemoHardware, SampleRange } from '../../mocks/cluster';
 import type { DemoModel } from '../../mocks/modelLibrary';
@@ -209,7 +208,7 @@ export function ClusterPanel({
       <Section title="Model">
         <Row
           label={selectedModel?.name ?? 'No model selected'}
-          icon={<ChatGptRailIcon icon="books" />}
+          icon={<Cube aria-hidden="true" focusable="false" />}
           meta={
             selectedModel && (
               <span className={styles.modelState} role="status">
