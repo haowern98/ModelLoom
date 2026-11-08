@@ -177,11 +177,13 @@ function parseFrame(data: string, state: StreamState): readonly GenerationChunk[
     state.terminal = Object.freeze({ status: 'limit-reached', reason: 'OUTPUT_LIMIT' });
   else if (choice.finish_reason !== null) fault('INVALID_STREAM');
   const measured = nativeSpeeds(envelope.timings, state);
-  const prefill = promptSpeed(envelope.prompt_progress);
+  const prefill = state.terminal ? null : promptSpeed(envelope.prompt_progress);
+  const generatedTokens = measured?.generatedTokens ?? state.speeds?.generatedTokens;
   if (measured || prefill !== null) {
     state.speeds = Object.freeze({
       generation: measured?.generation ?? state.speeds?.generation ?? null,
-      prefill: prefill ?? measured?.prefill ?? state.speeds?.prefill ?? null,
+      prefill: measured?.prefill ?? prefill ?? state.speeds?.prefill ?? null,
+      ...(generatedTokens === undefined ? {} : { generatedTokens }),
       ...(state.speculativeProposer
         ? { acceptance: measured?.acceptance ?? state.speeds?.acceptance ?? null }
         : {}),
@@ -251,8 +253,20 @@ function nativeSpeeds(input: unknown, state: StreamState): GenerationSpeeds | un
     value <= Number.MAX_SAFE_INTEGER
       ? value
       : null;
-  const generation = rate(value.predicted_per_second),
-    prefill = rate(value.prompt_per_second);
+  const count = (input: unknown) =>
+    typeof input === 'number' && Number.isSafeInteger(input) && input >= 0 ? input : undefined;
+  const fromTiming = (tokens: number | undefined, ms: unknown, allowZero = false) =>
+    tokens !== undefined && typeof ms === 'number' && Number.isFinite(ms) && ms > 0
+      ? allowZero && tokens === 0
+        ? 0
+        : rate((tokens / ms) * 1000)
+      : null;
+  const generatedTokens = count(value.predicted_n);
+  const generation =
+    fromTiming(generatedTokens, value.predicted_ms) ?? rate(value.predicted_per_second);
+  const prefill =
+    fromTiming(count(value.prompt_n), value.prompt_ms, true) ?? rate(value.prompt_per_second);
+  const lastGeneratedTokens = generatedTokens ?? state.speeds?.generatedTokens;
   const proposed = value.draft_n,
     accepted = value.draft_n_accepted;
   const acceptance =
@@ -265,11 +279,15 @@ function nativeSpeeds(input: unknown, state: StreamState): GenerationSpeeds | un
     accepted <= proposed
       ? accepted / proposed
       : (state.speeds?.acceptance ?? null);
-  return generation === null && prefill === null && !state.speculativeProposer
+  return generation === null &&
+    prefill === null &&
+    generatedTokens === undefined &&
+    !state.speculativeProposer
     ? undefined
     : Object.freeze({
         generation: generation ?? state.speeds?.generation ?? null,
         prefill: prefill ?? state.speeds?.prefill ?? null,
+        ...(lastGeneratedTokens === undefined ? {} : { generatedTokens: lastGeneratedTokens }),
         ...(state.speculativeProposer ? { acceptance } : {}),
       });
 }

@@ -47,11 +47,14 @@ function dateGroup(input: unknown): 'Today' | 'Yesterday' | 'Older' {
 function speeds(input: unknown): NonNullable<ChatMessage['speeds']> {
   const value = object(input);
   const hasAcceptance = Object.hasOwn(value, 'acceptance');
-  if (
-    Object.keys(value).sort().join(',') !==
-    (hasAcceptance ? 'acceptance,generation,prefill' : 'generation,prefill')
-  )
-    throw new Error('INVALID_CONTROL');
+  const hasGeneratedTokens = Object.hasOwn(value, 'generatedTokens');
+  const fields = [
+    ...(hasAcceptance ? ['acceptance'] : []),
+    ...(hasGeneratedTokens ? ['generatedTokens'] : []),
+    'generation',
+    'prefill',
+  ];
+  if (Object.keys(value).sort().join(',') !== fields.join(',')) throw new Error('INVALID_CONTROL');
   if (
     hasAcceptance &&
     value.acceptance !== null &&
@@ -74,7 +77,8 @@ function speeds(input: unknown): NonNullable<ChatMessage['speeds']> {
   };
   return {
     generation: rate(value.generation),
-    prefill: rate(value.prefill),
+    prefill: value.prefill === 0 ? 0 : rate(value.prefill),
+    ...(hasGeneratedTokens ? { generatedTokens: thinkingDuration(value.generatedTokens) } : {}),
     ...(hasAcceptance ? { acceptance: value.acceptance as number | null } : {}),
   };
 }
