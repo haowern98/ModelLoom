@@ -1,6 +1,6 @@
 # Developer guide
 
-A short onboarding map for the current ModelLoom Windows development checkout. This guide describes the repository; it does not change the implementation gates in [AGENTS.md](../../AGENTS.md) or the accepted decisions.
+Build and test the ModelLoom desktop app from source.
 
 ## Onboard
 
@@ -11,7 +11,7 @@ pnpm install --frozen-lockfile
 npm run electron dev
 ```
 
-`npm run electron dev` is the supported interactive launcher for ordinary manual sessions. Use pnpm for dependency, build, and test commands. Startup verifies the development profile and runtime/bootstrap inputs; if preflight fails, resolve it using the full [development guide](../development.md) rather than opening another app copy or starting the runtime directly.
+`npm run electron dev` is the supported interactive launcher for ordinary manual sessions. Use pnpm for dependency, build, and test commands. Startup verifies the development profile and the workspace bootstrap assets. Install the signed development runtime assets before loading a model. The app keeps installed runtimes under `%USERPROFILE%\.modelloom\runtimes`.
 
 ## Repository map
 
@@ -19,7 +19,7 @@ npm run electron dev
 - `apps/desktop/src/preload/` exposes narrow desktop bridges; `apps/desktop/src/shared/` defines and validates their command/reply contracts.
 - `apps/desktop/src/main/` owns Electron lifecycle, admission, trusted filesystem/runtime work, and caller-bound host connections.
 - `packages/core/src/` contains GUI-independent model configuration, protected history, runtime lifecycle, cluster planning, and peer transport code. `packages/core/native/` and `packages/core/scripts/` contain native ownership/helper pieces and their build tooling.
-- `components/tailscale/` contains the embedded networking component source and build notes.
+- `components/tailscale/` contains the embedded networking component. With Go 1.27.3 installed, build the Windows x64 helper with `node packages/core/scripts/build-network.mjs --target windows-amd64` from the repository root.
 
 The intended runtime path is renderer → preload → trusted main → core owner → verified runtime. The worker path reuses paired peer transport and the restricted RPC helper:
 
@@ -42,7 +42,7 @@ flowchart LR
 
 The optional `input-residency/1` codec compresses repeated native RPC SET records on the authenticated peer stream. The worker reconstructs every referenced original request before the existing helper receives it; responses remain opaque. The codec does not skip GPU writes or computation and is separate from ModelLoom's disk weight cache. Its implementation is in `packages/core/src/peers/rpc-residency.ts` and `rpc-residency-protocol.ts`.
 
-The evidence in [RPC input residency](../rpc-input-residency.md) establishes byte-level reconstruction and a negotiated native CPU fixture, not model inference equivalence or a live desktop speedup. The fixture performs no model inference. The separate [reported RPC comparison](../research/MODELLOOM-VS-STOCK-RPC.md) has three throughput readings per setup, with different KV cache precision across the setups. Do not present it as proof that input residency improves speed. The user's no-quality-loss requirement still applies; see [speculative decoding constraints](../speculative-decoding.md).
+The residency tests verify byte-for-byte reconstruction and negotiation with a native CPU fixture. The fixture performs no model inference.
 
 ## Run checks
 
@@ -58,4 +58,19 @@ pnpm format:check
 
 `pnpm test` runs the root Electron launcher/profile checks followed by desktop and core unit suites. `pnpm test:e2e` runs the browser project; `pnpm test:desktop` is a packaged demo check and requires its package step first. On Windows, `pnpm --filter @modelloom/core test:native` builds the native fixture/ownership binding and runs native integration cases; it is not a model-quality or GPU acceptance test. These suites do not replace live mixed-GPU, release, or inference-equivalence evidence.
 
-Before changing behavior, read the relevant product, technical, integration, security, UI, testing, and decision documents. The [full development guide](../development.md) contains workflow details, test boundaries, and platform-specific procedures. Useful current subsystem references include [local generation](../local-generation.md), [runtime activation](../runtime-activation.md), [development networking](../development-network.md), and [RPC input residency](../rpc-input-residency.md).
+## Performance experiment
+
+The table records the generation throughput readings reported by the operator. Each mean gives equal weight to the three runs in its column.
+
+| Run      | ModelLoom (tok/s) | Stock llama.cpp RPC (tok/s) |
+| -------- | ----------------: | --------------------------: |
+| 1        |             27.02 |                       25.91 |
+| 2        |             27.63 |                       26.01 |
+| 3        |             26.95 |                       25.55 |
+| **Mean** |         **27.20** |                   **25.82** |
+
+The difference is **1.38 tok/s**, or **5.33%** relative to the stock mean. The percentage uses the unrounded means.
+
+The operator confirmed they reused the earlier test setup. The stock run used **Qwen3.8-27B IQ4_XS** with **CUDA b11306**, **MTP enabled**, and a **50/50 layer split** with the worker first and the coordinator last. The stock startup log confirms **30,720 tokens in one slot** and MTP initialization. The earlier setup used **BF16 K/V** in stock llama.cpp and **Q8_0 K/V** in ModelLoom.
+
+The six readings come from the operator. The stock startup log establishes launch settings, while per-run logs would establish the exact prompt, sampling, and timing for each reading. The KV precision difference limits attribution of the throughput difference to the residency bridge.

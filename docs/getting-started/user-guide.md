@@ -1,6 +1,6 @@
 # Windows preview user guide
 
-This guide covers the Windows source-development preview. It describes the current development path, not a packaged public release. See [Windows preview notes](../windows-development-preview.md) for dated runtime and hardware evidence.
+This guide covers the Windows source-development preview. It describes the current development path, not a packaged public release.
 
 ## Start the preview
 
@@ -11,7 +11,7 @@ pnpm install --frozen-lockfile
 npm run electron dev
 ```
 
-Use `npm run electron dev` for later manual starts too. The source app keeps its development profile and checks its runtime/bootstrap assets before opening. If startup stops during preparation, follow [development setup](../development.md); do not launch llama.cpp yourself. The app's **Explore models** action is not a downloader.
+Use `npm run electron dev` for later manual starts too. The source app keeps its development profile and checks its runtime/bootstrap assets before opening. If startup stops during preparation, follow [developer setup](developer-guide.md#onboard); do not launch llama.cpp yourself. The app's **Explore models** action is not a downloader.
 
 ## Import the approved model
 
@@ -19,7 +19,7 @@ Use `npm run electron dev` for later manual starts too. The source app keeps its
 2. Select a standalone GGUF file and wait for **Indexing…** to finish.
 3. Keep the file at that location. ModelLoom indexes the source; it does not copy or move it.
 
-Import a standalone GGUF supported by your verified runtime. An indexed model still needs to pass runtime and resource checks before it can load. [Model import details](../model-import-index.md)
+Import a standalone GGUF supported by your verified runtime. An indexed model still needs to pass runtime and resource checks before it can load.
 
 ## Load locally and chat
 
@@ -28,7 +28,7 @@ Import a standalone GGUF supported by your verified runtime. An indexed model st
 3. Wait for the load action to finish and the status to report **Loaded**. Loading rechecks the model file, selected runtime, and available resources.
 4. Open **Chat**, enter a prompt, and choose **Send**. Send is available when a model is loaded. Use Chat's Stop control to interrupt a response; use **Unload model** in Cluster when you want to release the model before changing runtimes or placements.
 
-Use the validated settings for the model and devices in this preview. Unsupported load tuples, insufficient free memory, or an unverified runtime are rejected rather than silently changing the model or its quality. The [local generation guide](../local-generation.md) records the development profile and its evidence limits.
+Use the validated settings for the model and devices in this preview. Unsupported load tuples, insufficient free memory, or an unverified runtime are rejected rather than silently changing the model or its quality.
 
 ## Choose a runtime
 
@@ -45,7 +45,7 @@ Use two ModelLoom PCs on a reachable private LAN address or an already configure
 5. Return to the worker's request and choose **Allow** once the code is verified. Approval grants this coordinator access to the selected shared GPU. You can later remove that access with **Revoke access**.
 6. On the coordinator, return to **Cluster → Overview**, select the worker GPU in the allocation, and load the validated configuration. Both PCs need a compatible verified RPC runtime; use the same compatible build on both.
 
-Pairing requires explicit verification and approval. A preview or sample connection shown in a demo is not a real peer. For network lifecycle and reconnect details, see [development networking](../development-network.md).
+Pairing requires explicit verification and approval. A preview or sample connection shown in a demo is not a real peer.
 
 ## Troubleshooting
 
@@ -61,4 +61,4 @@ Pairing requires explicit verification and approval. A preview or sample connect
 | Chat cannot send                                 | Open Cluster and confirm the model is **Loaded**. If loading failed, resolve the load error before retrying.                                                                                     |
 | Runtime cleanup could not be confirmed           | Loading remains blocked until cleanup is safe. Quit and reopen ModelLoom before another allocation; do not terminate a runtime by process name.                                                  |
 
-For import restoration limits, runtime logs, and current validation notes, see [model import details](../model-import-index.md), [runtime activation](../runtime-activation.md), and [Windows preview notes](../windows-development-preview.md).
+For startup and build checks, see the [Developer Guide](developer-guide.md).
