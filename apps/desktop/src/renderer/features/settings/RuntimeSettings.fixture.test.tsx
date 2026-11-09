@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import {
   installExpanded,
   requireInstalledLive,
@@ -21,8 +21,22 @@ import {
 } from '../../../../../../packages/core/src/runtime-package/verifier';
 import { inventory } from '../../../../../../packages/core/tests/inventory-fixture';
 import { repository } from '../../../../../../packages/core/tests/package-repository';
+import { RuntimeDownloadDialog } from './RuntimeDownloadDialog';
 import { RuntimeSettings } from './SettingsPage';
 import type { RuntimeManagement } from './SettingsPage';
+
+const scrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+beforeAll(() => {
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: vi.fn(),
+  });
+});
+afterAll(() => {
+  if (scrollIntoView)
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollIntoView);
+  else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+});
 
 vi.mock('../../../../../../packages/core/src/hosts/windows-ownership.js', () => ({
   ownershipBinding: () => ({
@@ -116,11 +130,11 @@ it('discovers and installs a signed CUDA fixture and selects it for the next loa
         management={management}
       />,
     );
-    await user.click(screen.getByRole('button', { name: 'Check for updates' }));
-    await screen.findByText('Update available.');
+    await user.click(screen.getByRole('button', { name: 'Download runtimes' }));
+    await screen.findByRole('button', { name: 'Download CUDA' });
     expect(download).not.toHaveBeenCalled();
 
-    const downloadButton = screen.getByRole('button', { name: 'Download and install' });
+    const downloadButton = screen.getByRole('button', { name: 'Download CUDA' });
     download.mockRejectedValueOnce(new Error('Fixture download interrupted'));
     await user.click(downloadButton);
     await screen.findByText('Could not install this runtime. Try again.');
@@ -129,7 +143,9 @@ it('discovers and installs a signed CUDA fixture and selects it for the next loa
     await user.click(downloadButton);
     await screen.findByText('Runtime installed.');
     await expect(readFile(preference)).rejects.toMatchObject({ code: 'ENOENT' });
-    await user.click(screen.getByRole('button', { name: 'Use on next load' }));
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    await user.click(screen.getByRole('button', { name: /^GGUF runtime:/ }));
+    await user.click(screen.getByText(/llama\.cpp.*b11306 · dev16/));
     await screen.findByText('Selected for the next model load.');
     await user.click(screen.getByRole('button', { name: 'Manage installed runtimes' }));
     const dialog = within(screen.getByRole('dialog', { name: 'Installed runtimes' }));
@@ -164,6 +180,42 @@ it('discovers and installs a signed CUDA fixture and selects it for the next loa
     await rm(directory, { recursive: true, force: true });
   }
 }, 15_000);
+
+it('installs and selects the chosen GPU runtime during first-launch setup', async () => {
+  const cuda = describeRuntime(
+    parseInventory({ ...inventory, backend: 'cuda', minimumDriver: '551.78' }),
+  );
+  const vulkan = { ...cuda, backend: 'vulkan' as const, packageId: 'fixture-vulkan' };
+  const install = vi.fn(() => Promise.resolve([vulkan]));
+  const select = vi.fn(() => Promise.resolve(vulkan));
+  const onClose = vi.fn();
+  const onInstalled = vi.fn();
+  render(
+    <RuntimeDownloadDialog
+      firstLaunch
+      installed={[]}
+      management={{
+        installed: [],
+        checkForUpdates: () =>
+          Promise.resolve([cuda, vulkan].map((build) => ({ build, size: '1 MB' }))),
+        install,
+        select,
+      }}
+      onInstalled={onInstalled}
+      onClose={onClose}
+    />,
+  );
+
+  const user = userEvent.setup();
+  const vulkanButton = await screen.findByRole('button', { name: 'Download Vulkan' });
+  expect(screen.getByRole('button', { name: 'Download CUDA' })).toBeEnabled();
+  expect(install).not.toHaveBeenCalled();
+  await user.click(vulkanButton);
+  expect(install).toHaveBeenCalledWith(vulkan, expect.any(Function));
+  expect(onInstalled).toHaveBeenCalledWith([vulkan]);
+  expect(select).toHaveBeenCalledWith(vulkan);
+  expect(onClose).toHaveBeenCalledOnce();
+});
 
 it('shows the verified GPU runtime picker and independent selected and active status', async () => {
   const baseline = describeRuntime(

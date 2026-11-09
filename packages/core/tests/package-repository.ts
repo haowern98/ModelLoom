@@ -16,6 +16,8 @@ export async function repository(
   directory: string,
   inventory: unknown,
   expires = '2099-01-01T00:00:00Z',
+  assets: Readonly<Record<string, Buffer>> = {},
+  consistentSnapshot = false,
 ) {
   await mkdir(directory, { recursive: true });
   const pairs = Array.from({ length: 4 }, () => generateKeyPairSync('ed25519'));
@@ -43,7 +45,7 @@ export async function repository(
       spec_version: '1.0.31',
       version: 1,
       expires,
-      consistent_snapshot: false,
+      consistent_snapshot: consistentSnapshot,
       keys: Object.fromEntries(ids.map((id, i) => [id, keys[i]])),
       roles: {
         root: { keyids: ids.slice(0, 3), threshold: 2 },
@@ -66,7 +68,12 @@ export async function repository(
       spec_version: '1.0.31',
       version: 1,
       expires,
-      targets: { 'inventory.json': { length: target.length, hashes: digest(target).hashes } },
+      targets: Object.fromEntries(
+        Object.entries({ 'inventory.json': target, ...assets }).map(([name, bytes]) => [
+          name,
+          { length: bytes.length, hashes: digest(bytes).hashes },
+        ]),
+      ),
     },
     [3],
   );
@@ -96,6 +103,7 @@ export async function repository(
     'snapshot.json': snapshot,
     'timestamp.json': timestamp,
     'inventory.json': target,
+    ...(consistentSnapshot ? { '1.targets.json': targets, '1.snapshot.json': snapshot } : {}),
   }))
     await writeFile(path.join(directory, name), bytes);
   return { root, target, envelope, digest };
