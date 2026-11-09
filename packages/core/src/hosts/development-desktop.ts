@@ -28,6 +28,8 @@ import {
   isQualifiedDevelopmentB11307Load,
 } from '../runtime-package/development-b11307.js';
 import { describeRuntime } from '../runtime-package/inventory.js';
+import { APPROVED_MEMORY_REPORTS } from '../runtime-package/trust-policy.js';
+import type { createDesktopRuntimeCatalog } from '../runtime-package/catalog-management.js';
 import type { InstalledPackage } from '../runtime-package/install.js';
 import { inspectGGUF, inspectGGUFHeader } from '../runtime/gguf.js';
 import { LIFECYCLE_POLICY, REMOTE_STARTUP_MS } from '../runtime/contracts.js';
@@ -82,19 +84,24 @@ export function developmentDesktopDependencies(
   diagnostic?: RuntimeDiagnostic,
   runtimeStore?: string,
   pairedBuild = false,
+  release?: ReturnType<typeof createDesktopRuntimeCatalog>,
 ) {
-  const report = DEVELOPMENT_MEMORY_REPORTS.find((entry) => entry.configuration.slots === 4);
-  if (!DEVELOPMENT_BUILD || !report) throw new Error('DEVELOPMENT_BUILD_REQUIRED');
+  const report = (release ? APPROVED_MEMORY_REPORTS : DEVELOPMENT_MEMORY_REPORTS).find(
+    (entry) => entry.configuration.slots === 4,
+  );
+  if (!release && (!DEVELOPMENT_BUILD || !report)) throw new Error('DEVELOPMENT_BUILD_REQUIRED');
+  if (!report) throw new Error('NEEDS_RESOURCE_EVIDENCE');
   const configuration = report.configuration,
     modelSha256 = report.modelSha256;
   const initialBase = base;
-  const runtimeChoices = runtimeStore
-    ? {
-        b11306: pairedBuild ? path.join(path.dirname(initialBase), 'b11306') : initialBase,
-        b11307: pairedBuild ? initialBase : path.join(path.dirname(initialBase), 'b11307'),
-        'b11306-vulkan': path.join(path.dirname(initialBase), 'b11306-vulkan'),
-      }
-    : undefined;
+  const runtimeChoices =
+    runtimeStore && !release
+      ? {
+          b11306: pairedBuild ? path.join(path.dirname(initialBase), 'b11306') : initialBase,
+          b11307: pairedBuild ? initialBase : path.join(path.dirname(initialBase), 'b11307'),
+          'b11306-vulkan': path.join(path.dirname(initialBase), 'b11306-vulkan'),
+        }
+      : undefined;
   const choiceFile =
     applicationData && runtimeChoices
       ? path.join(applicationData, 'runtime-choice.json')
@@ -113,14 +120,17 @@ export function developmentDesktopDependencies(
     base = runtimeChoices![selectedBuild];
   }
   let activeBuild = selectedBuild;
-  let artifact =
-    selectedBuild === 'b11306-vulkan'
+  let activeReleaseBackend: 'cuda' | 'vulkan' | undefined;
+  let artifact = release
+    ? ''
+    : selectedBuild === 'b11306-vulkan'
       ? VULKAN_DEVELOPMENT.artifact
       : pairedBuild
         ? B11307_DEVELOPMENT.artifact
         : report.artifact;
-  let packageId =
-    selectedBuild === 'b11306-vulkan'
+  let packageId = release
+    ? ''
+    : selectedBuild === 'b11306-vulkan'
       ? VULKAN_DEVELOPMENT.packageId
       : pairedBuild
         ? B11307_DEVELOPMENT.packageId
@@ -152,7 +162,7 @@ export function developmentDesktopDependencies(
     return next;
   }
   const getPeerHost = () => {
-    if (!applicationData || !caller || peersClosed) throw new Error('NOT_READY');
+    if (release || !applicationData || !caller || peersClosed) throw new Error('NOT_READY');
     if (!peerHost) {
       // Applying inheritable ACLs is synchronous. Set them before creating the
       // owned host, rather than blocking the GUI on every telemetry/state read.
@@ -219,7 +229,7 @@ export function developmentDesktopDependencies(
   }
   const openPeer = async (device: string) => (await getPeerHost()).openRpc(device);
   const reservePlanningLocal =
-    applicationData && caller
+    !release && applicationData && caller
       ? async (devices: readonly string[]) => {
           const peer = await getPeerHost();
           await peer.setRuntimeBusy(true);
@@ -293,6 +303,11 @@ export function developmentDesktopDependencies(
     return verification;
   }
   async function runtimeSelection() {
+    if (release) {
+      const installed = await release.selected();
+      if (!installed) throw new Error('MISSING_RUNTIME');
+      return describeRuntime(requireInstalledLive(installed));
+    }
     const capability = runtimeChoices ? await verifyChoice(selectedBuild) : await verifyRuntime();
     return describeRuntime(requireLivePackage(capability).inventory);
   }
@@ -316,6 +331,18 @@ export function developmentDesktopDependencies(
   }
   async function replaceRuntime() {
     if (peersClosed) throw Error('NOT_READY');
+    if (release) {
+      const installed = await release.selected();
+      if (!installed) throw Error('MISSING_RUNTIME');
+      const inventory = requireInstalledLive(installed);
+      if (inventory.backend === 'cpu') throw Error('UNSUPPORTED_RUNTIME');
+      activeReleaseBackend = inventory.backend;
+      artifact = inventory.artifact;
+      packageId = inventory.packageId;
+      upstreamCommit = inventory.upstreamCommit;
+      verifiedBackends = undefined;
+      return describeRuntime(inventory);
+    }
     if (activeBuild === selectedBuild) return null;
     const capability = await verifyChoice(selectedBuild);
     const inventory = requireLivePackage(capability).inventory;
@@ -408,6 +435,11 @@ export function developmentDesktopDependencies(
     }
   }
   const installClusterRuntime = async () => {
+    if (release) {
+      const installed = activeReleaseBackend && (await release.installed(activeReleaseBackend));
+      if (!installed) throw Error('MISSING_RUNTIME');
+      return installed;
+    }
     const candidate = path.join(base, 'candidate');
     installation ??= verifyRuntime().then((capability) =>
       installInRuntimeStore(
@@ -593,7 +625,7 @@ export function developmentDesktopDependencies(
             async launch(selection, signal) {
               if (closed || !adapter) throw new Error('NOT_READY');
               await leaseExit;
-              const peer = applicationData && caller ? await getPeerHost() : undefined;
+              const peer = !release && applicationData && caller ? await getPeerHost() : undefined;
               await peer?.setRuntimeBusy(true);
               let lease: { release(): Promise<void> } | undefined;
               try {
@@ -625,6 +657,7 @@ export function developmentDesktopDependencies(
             ? {
                 chat: (engine: Parameters<ReturnType<typeof realEngineAdapter>['chat']>[0]) => {
                   if (closed || !adapter) throw new Error('NOT_READY');
+                  if (release) return adapter.chat(engine);
                   let transport = activityTransports.get(engine);
                   if (!transport) {
                     const peer = getPeerHost();
@@ -683,7 +716,8 @@ export function developmentDesktopDependencies(
       if (peerHost && !peersClosed) await (await peerHost).updateHardware(peerHardware);
     },
     async peers(input: unknown): Promise<PeerReply> {
-      if (!applicationData || !caller || peersClosed) return { ok: false, error: 'NOT_READY' };
+      if (release || !applicationData || !caller || peersClosed)
+        return { ok: false, error: 'NOT_READY' };
       const command = decodePeerCommand(input);
       if (command.action === 'share' || command.action === 'stop-sharing')
         return changePeerOwner(async () => {
@@ -712,6 +746,7 @@ export function developmentDesktopDependencies(
     runtimeInventory,
     selectRuntime,
     activateRuntime,
+    ...(release ? { runtimeCatalog: release.command } : {}),
     enabled: true as const,
     expectedHash: report.modelSha256,
     packageId,
@@ -730,6 +765,7 @@ export function developmentDesktopDependencies(
         const installed = await installClusterRuntime();
         const local = await discoverResources(signal);
         const approved =
+          !release &&
           applicationData &&
           caller &&
           (!devices || devices.some((id) => decodeClusterDevice(id).kind === 'peer'))

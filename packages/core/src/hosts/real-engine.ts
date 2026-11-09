@@ -93,14 +93,13 @@ export function realEngineAdapter(
     }
   };
   const inventory = requireInstalledLive(installed);
+  const realm = installedRealm(installed);
   const qualifiedVulkan =
-    DEVELOPMENT_BUILD &&
-    installedRealm(installed) === 'development' &&
-    isDevelopmentVulkanInventory(inventory);
+    DEVELOPMENT_BUILD && realm === 'development' && isDevelopmentVulkanInventory(inventory);
   const qualifiedDevelopmentBuild =
     qualifiedVulkan ||
     (DEVELOPMENT_BUILD &&
-      installedRealm(installed) === 'development' &&
+      realm === 'development' &&
       isDevelopmentB11307Inventory(inventory) &&
       cluster !== undefined &&
       isQualifiedDevelopmentB11307Load(cluster.load));
@@ -110,26 +109,8 @@ export function realEngineAdapter(
   )
     throw new Error('UNSUPPORTED_RUNTIME');
   const cfg = Object.freeze(structuredClone(configuration));
-  if (
-    cluster &&
-    (installedRealm(installed) !== 'development' ||
-      !DEVELOPMENT_BUILD ||
-      (inventory.packageId !== 'llama-cuda-development' && !qualifiedDevelopmentBuild))
-  )
-    throw Error('NEEDS_RESOURCE_EVIDENCE');
-  if (
-    cluster &&
-    (inventory.artifact !== cluster.load.artifact ||
-      (inventory.backend !== 'cuda' && !qualifiedVulkan) ||
-      cluster.load.modelSha256 !== cfg.modelSha256 ||
-      cluster.load.contextPerSlot !== cfg.contextPerSlot ||
-      cluster.load.slots !== cfg.slots ||
-      cluster.load.cacheK !== cfg.cacheK ||
-      cluster.load.cacheV !== cfg.cacheV)
-  )
-    throw Error('NEEDS_RESOURCE_EVIDENCE');
   const reports =
-    installedRealm(installed) === 'development' && DEVELOPMENT_BUILD
+    realm === 'development' && DEVELOPMENT_BUILD
       ? DEVELOPMENT_MEMORY_REPORTS
       : APPROVED_MEMORY_REPORTS;
   const report = reports.find(
@@ -138,6 +119,29 @@ export function realEngineAdapter(
       entry.backend === inventory.backend &&
       isDeepStrictEqual(entry.configuration, cfg),
   );
+  // A live cluster pack needs independent release evidence as well as its placement report.
+  const qualifiedLiveCluster = realm === 'live' && report !== undefined;
+  if (
+    cluster &&
+    !qualifiedLiveCluster &&
+    (realm !== 'development' ||
+      !DEVELOPMENT_BUILD ||
+      (inventory.packageId !== 'llama-cuda-development' && !qualifiedDevelopmentBuild))
+  )
+    throw Error('NEEDS_RESOURCE_EVIDENCE');
+  if (
+    cluster &&
+    (inventory.artifact !== cluster.load.artifact ||
+      (inventory.backend !== 'cuda' &&
+        !qualifiedVulkan &&
+        !(qualifiedLiveCluster && isDevelopmentVulkanInventory(inventory))) ||
+      cluster.load.modelSha256 !== cfg.modelSha256 ||
+      cluster.load.contextPerSlot !== cfg.contextPerSlot ||
+      cluster.load.slots !== cfg.slots ||
+      cluster.load.cacheK !== cfg.cacheK ||
+      cluster.load.cacheV !== cfg.cacheV)
+  )
+    throw Error('NEEDS_RESOURCE_EVIDENCE');
   if (
     (!cluster && !report) ||
     (inventory.backend === 'cpu'

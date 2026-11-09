@@ -208,19 +208,24 @@ export function requireLivePackage(value: unknown): Readonly<Evidence> {
 }
 /** Production root provisioning is a reviewed build change, never a runtime argument or bundle file. */
 export function createRuntimeVerifier(): ReturnType<typeof verifier> {
+  return verifier(readApprovedRuntimeRoot(), 'live');
+}
+
+/** Read and verify the compiled production trust anchor for the release catalog. */
+export function readApprovedRuntimeRoot(): Buffer {
   const policy = APPROVED_RUNTIME_ROOTS[0];
   if (!policy || APPROVED_RUNTIME_ROOTS.length !== 1) throw new Error('MISSING_TRUST_ROOT');
-  return pinnedVerifier(policy, 'live');
+  return readPinnedRoot(policy, 'live');
 }
 /** Requires the explicit development build and its pinned public root, never a caller-selected root. */
 export function createDevelopmentRuntimeVerifier(): ReturnType<typeof verifier> {
   if (!DEVELOPMENT_BUILD) throw new Error('DEVELOPMENT_BUILD_REQUIRED');
-  return pinnedVerifier(DEVELOPMENT_ROOT, 'development');
+  return verifier(readPinnedRoot(DEVELOPMENT_ROOT, 'development'), 'development');
 }
-function pinnedVerifier(
+function readPinnedRoot(
   policy: Readonly<{ asset: string; sha256: string }>,
   realm: 'live' | 'development',
-): ReturnType<typeof verifier> {
+): Buffer {
   if (!/^[a-zA-Z0-9.-]+\.json$/u.test(policy.asset) || !/^[a-f0-9]{64}$/u.test(policy.sha256))
     throw new Error('INVALID_TRUST_ROOT');
   const asset = new URL(`../../assets/${policy.asset}`, import.meta.url);
@@ -252,5 +257,5 @@ function pinnedVerifier(
     targetKeys.some((key: unknown) => typeof key !== 'string' || rootKeys.includes(key))
   )
     throw new Error('INVALID_TRUST_ROOT');
-  return verifier(root, realm);
+  return root;
 }

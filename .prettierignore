@@ -7,3 +7,4 @@ node_modules/
 pnpm-lock.yaml
 # Preserve the publisher's exact exported public-root bytes and reviewed SHA-256 pin.
 packages/core/assets/development-root.json
+packages/core/assets/production-root-v1.json
