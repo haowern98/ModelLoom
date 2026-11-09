@@ -100,9 +100,9 @@ export async function runPlacementEstimator(
     inventory.artifact !== load.artifact ||
     (inventory.backend !== 'cuda' &&
       !(
-        DEVELOPMENT_BUILD &&
-        installedRealm(installed) === 'development' &&
-        isDevelopmentVulkanInventory(inventory)
+        isDevelopmentVulkanInventory(inventory) &&
+        (installedRealm(installed) === 'live' ||
+          (DEVELOPMENT_BUILD && installedRealm(installed) === 'development'))
       )) ||
     (inventory.upstreamCommit !== '4f31296a907d73f3409f720429bcf31111615d77' &&
       !(
