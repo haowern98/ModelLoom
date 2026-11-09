@@ -7,6 +7,7 @@ import type { PeerReply } from '../shared/peers';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { decodeRuntimeCommand } from '../shared/runtime';
+import type { CatalogCommand, CatalogSnapshot } from '../shared/runtime-catalog';
 import type {
   RuntimeView,
   RuntimeDevice,
@@ -67,6 +68,7 @@ interface Host {
 /** Trusted main dependencies; none of these capabilities are renderer inputs. */
 interface ActivationDependencies {
   enabled: true;
+  runtimeCatalog?: (command: CatalogCommand) => Promise<CatalogSnapshot>;
   loadingStatus?: ModelLoadingStatus;
   peers?(input: unknown): Promise<PeerReply>;
   updatePeerHardware?(hardware: PeerHardware): Promise<void>;
@@ -685,6 +687,12 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       })
     : undefined;
   return {
+    async runtimeCatalog(command: CatalogCommand) {
+      if (quitting || !deps.enabled || !deps.runtimeCatalog) return null;
+      const snapshot = await deps.runtimeCatalog(command);
+      if (command.action === 'select') runtimeSelection = Promise.resolve(snapshot.selected);
+      return snapshot;
+    },
     subscribePeers(listener: () => void): () => void {
       peerListeners.add(listener);
       return () => peerListeners.delete(listener);

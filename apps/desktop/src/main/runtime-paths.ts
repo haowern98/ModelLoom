@@ -3,6 +3,7 @@ import path from 'node:path';
 export interface RuntimePathInputs {
   packaged: boolean;
   development: boolean;
+  release?: boolean;
   resources: string;
   workspaceCore: string;
   pairedBuild?: boolean;
@@ -10,7 +11,7 @@ export interface RuntimePathInputs {
   home: string;
 }
 
-/** Resolves trusted main-owned paths; ordinary packaged builds have no runtime location. */
+/** Resolves trusted main-owned paths for explicit development and release builds. */
 export function runtimePaths(input: RuntimePathInputs): {
   core: string;
   bootstrap: string;
@@ -19,7 +20,7 @@ export function runtimePaths(input: RuntimePathInputs): {
   runtimes?: string;
   chromium?: string;
 } | null {
-  if (input.packaged && !input.development) return null;
+  if (input.packaged && !input.development && !input.release) return null;
   const join = (...parts: string[]) => path.win32.join(...parts);
   if (!input.packaged) {
     const bootstrap = join(
@@ -37,6 +38,17 @@ export function runtimePaths(input: RuntimePathInputs): {
     };
   }
   if (!path.win32.isAbsolute(input.localData)) throw new Error('INVALID_APPLICATION_DATA');
+  if (input.release) {
+    const profile = join(input.home, '.modelloom');
+    const assets = join(input.resources, 'modelloom-release');
+    return {
+      core: join(assets, 'core'),
+      bootstrap: join(assets, 'bootstrap'),
+      state: join(profile, 'release'),
+      profile,
+      runtimes: join(profile, 'runtimes'),
+    };
+  }
   const assets = join(input.resources, 'modelloom-development');
   const data = join(input.localData, 'ModelLoom-Development');
   return {

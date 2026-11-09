@@ -8,6 +8,7 @@ import { Button } from '../../components/Button';
 import { Select } from '@openai/apps-sdk-ui/components/Select';
 import { ChatGptSidebarIcon } from '../../components/ChatGptSidebarIcon';
 import { Dialog } from '../../components/Dialog';
+import { RuntimeDownloadDialog } from './RuntimeDownloadDialog';
 import { SearchField } from '../../components/SearchField';
 import { DiagnosticsSettings } from './DiagnosticsSettings';
 import { NetworkSettings } from './NetworkSettings';
@@ -219,10 +220,16 @@ export function RuntimeSettings({
   activeRuntime,
   selectedRuntime,
   management,
+  runtimeInstalled,
+  onRuntimeInstalled,
+  onRuntimeSelected,
 }: {
   activeRuntime: RuntimeView['activeRuntime'];
   selectedRuntime: RuntimeView['selectedRuntime'];
   management?: RuntimeManagement;
+  runtimeInstalled?: RuntimeManagement['installed'];
+  onRuntimeInstalled?: (installed: RuntimeManagement['installed']) => void;
+  onRuntimeSelected?: (selected: RuntimeBuild) => void;
 }) {
   const { resolvedTheme } = useAppearance();
   const [manageOpen, setManageOpen] = useState(false);
@@ -230,7 +237,7 @@ export function RuntimeSettings({
   const [attempt, retry] = useReducer((value: number) => value + 1, 0);
   const [managedSelection, setManagedSelection] = useState<RuntimeBuild>();
   const [managedInstalled, setManagedInstalled] = useState(management?.installed);
-  const [offers, setOffers] = useState<readonly RuntimeRelease[]>([]);
+  const [downloadOpen, setDownloadOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -257,6 +264,7 @@ export function RuntimeSettings({
     managedSelection ?? (inventory?.status === 'ready' ? inventory.selected : selectedRuntime);
   const choices = inventory?.status === 'ready' ? (inventory.choices ?? []) : [];
   const installed = (
+    runtimeInstalled ??
     managedInstalled ??
     (choices.length ? choices.map((choice) => choice.build) : undefined) ??
     (inventory?.status === 'ready' && inventory.installed ? [inventory.selected] : [])
@@ -286,8 +294,11 @@ export function RuntimeSettings({
   function select(build: RuntimeBuild) {
     if (runtimeKey(build) === selectedKey) return;
     void runUpdate(async () => {
-      if (management) setManagedSelection(await management.select(build));
-      else {
+      if (management) {
+        const selectedBuild = await management.select(build);
+        setManagedSelection(selectedBuild);
+        onRuntimeSelected?.(selectedBuild);
+      } else {
         const choice = choices.find((choice) => runtimeKey(choice.build) === runtimeKey(build));
         const bridge = window.modelLoomRuntime;
         if (!choice || !bridge) throw Error('Runtime unavailable');
@@ -315,18 +326,8 @@ export function RuntimeSettings({
             </Button>
           )}
           {management && (
-            <Button
-              disabled={busy}
-              onClick={() => {
-                setUpdateStatus('Checking for updates…');
-                void runUpdate(async () => {
-                  const releases = await management.checkForUpdates();
-                  setOffers(releases);
-                  setUpdateStatus(releases.length ? 'Update available.' : 'Up to date.');
-                }, 'Could not check for updates. Try again.');
-              }}
-            >
-              Check for updates
+            <Button disabled={busy} onClick={() => setDownloadOpen(true)}>
+              Download runtimes
             </Button>
           )}
           <Button onClick={() => setManageOpen(true)}>Manage installed runtimes</Button>
@@ -336,37 +337,6 @@ export function RuntimeSettings({
             {updateStatus}
           </p>
         )}
-        {offers.map(({ build, size }) => {
-          const key = runtimeKey(build);
-          const isInstalled = installed.some((version) => runtimeKey(version) === key);
-          return (
-            <Row
-              key={key}
-              label={`${runtimeLabel(build)} · ${runtimeVersion(build)}`}
-              description={size}
-            >
-              {isInstalled ? (
-                <Button disabled={busy || selectedKey === key} onClick={() => select(build)}>
-                  {selectedKey === key ? 'Selected' : 'Use on next load'}
-                </Button>
-              ) : (
-                <Button
-                  disabled={busy}
-                  onClick={() => {
-                    if (!management) return;
-                    setUpdateStatus('Downloading runtime…');
-                    void runUpdate(async () => {
-                      setManagedInstalled(await management.install(build, setUpdateStatus));
-                      setUpdateStatus('Runtime installed.');
-                    }, 'Could not install this runtime. Try again.');
-                  }}
-                >
-                  Download and install
-                </Button>
-              )}
-            </Row>
-          );
-        })}
       </Section>
       <Section title="Runtime selection">
         <Row
@@ -420,6 +390,14 @@ export function RuntimeSettings({
           </span>
         </Row>
       </Section>
+      {management && downloadOpen && (
+        <RuntimeDownloadDialog
+          management={management}
+          installed={installed}
+          onInstalled={onRuntimeInstalled ?? setManagedInstalled}
+          onClose={() => setDownloadOpen(false)}
+        />
+      )}
       {manageOpen && (
         <Dialog
           title="Installed runtimes"
@@ -453,6 +431,10 @@ export function SettingsPage({
   onConnections,
   activeRuntime,
   selectedRuntime,
+  runtimeManagement,
+  runtimeInstalled,
+  onRuntimeInstalled,
+  onRuntimeSelected,
 }: {
   category: SettingsCategory;
   onCategory: (category: SettingsCategory) => void;
@@ -460,6 +442,10 @@ export function SettingsPage({
   onConnections?: () => void;
   activeRuntime?: RuntimeView['activeRuntime'];
   selectedRuntime?: RuntimeView['selectedRuntime'];
+  runtimeManagement?: RuntimeManagement;
+  runtimeInstalled?: RuntimeManagement['installed'];
+  onRuntimeInstalled?: (installed: RuntimeManagement['installed']) => void;
+  onRuntimeSelected?: (selected: RuntimeBuild) => void;
 }) {
   const [query, setQuery] = useState('');
   const details = useRef<HTMLDivElement>(null);
@@ -526,7 +512,14 @@ export function SettingsPage({
           {category === 'Appearance' ? (
             <Appearance />
           ) : category === 'Runtime' ? (
-            <RuntimeSettings activeRuntime={activeRuntime} selectedRuntime={selectedRuntime} />
+            <RuntimeSettings
+              activeRuntime={activeRuntime}
+              selectedRuntime={selectedRuntime}
+              {...(runtimeManagement ? { management: runtimeManagement } : {})}
+              {...(runtimeInstalled ? { runtimeInstalled } : {})}
+              {...(onRuntimeInstalled ? { onRuntimeInstalled } : {})}
+              {...(onRuntimeSelected ? { onRuntimeSelected } : {})}
+            />
           ) : category === 'Network' ? (
             <NetworkSettings onApi={onApi} {...(onConnections ? { onConnections } : {})} />
           ) : category === 'Storage' ? (
