@@ -11,6 +11,7 @@ Build, test, and extend ModelLoom, a Windows desktop app for local and distribut
 - [Key workflows](#key-workflows)
 - [Residency Bridge](#residency-bridge)
 - [Build and test](#build-and-test)
+- [Windows release and runtime signing](#windows-release-and-runtime-signing)
 - [Manual verification](#manual-verification)
 - [Troubleshoot development](#troubleshoot-development)
 - [Known limits](#known-limits)
@@ -180,7 +181,18 @@ pnpm build
 
 ### Packaging
 
-`pnpm build` builds the renderer. `pnpm package:demo` produces the package used by desktop tests. The Windows installer build is handled by [package-release.mjs](../../apps/desktop/scripts/package-release.mjs), which stages release-specific host assets and checks the runtime trust policy before packaging. Its inputs include an approved runtime catalog and matching resource evidence for CUDA and Vulkan. See [Known limits](#known-limits) for the current state of those inputs.
+`pnpm build` builds the renderer. `pnpm package:demo` produces the package used by desktop tests. The Windows installer build is handled by [package-release.mjs](../../apps/desktop/scripts/package-release.mjs), which stages release-specific host assets and checks the runtime trust policy before packaging. Run `pnpm --filter @modelloom/desktop package:release` from the repository root with the release inputs staged.
+
+## Windows release and runtime signing
+
+| Published artifact | What it contains |
+| --- | --- |
+| [ModelLoom v0.1.1 Windows preview](https://github.com/haowern98/ModelLoom/releases/tag/v0.1.1) | `ModelLoom-Setup-x64.exe` and `SHA256SUMS.txt`. The installer is unsigned and Windows may show a publisher warning. The checksum verifies the downloaded file against the published checksum. |
+| [llama.cpp b11306 runtime packs](https://github.com/haowern98/ModelLoom/releases/tag/runtime-b11306) | The CUDA and Vulkan archives for Windows x64. ModelLoom downloads the selected backend on first launch. Users can install the other backend later in **Settings → Runtime** and select either for the next load. |
+
+ModelLoom verifies the [runtime catalog](https://haowern98.github.io/ModelLoom/) against its pinned [production root](../../packages/core/assets/production-root-v1.json). The signed timestamp, snapshot, and targets metadata establish freshness and identify the approved downloads. ModelLoom checks the archive hash and the package contents before accepting a runtime. The [trust policy](../../packages/core/src/runtime-package/trust-policy.ts) records the exact CUDA and Vulkan offers and their approved memory reports.
+
+Publish runtime archives separately from the installer. Renew the signed catalog metadata before it expires. A new build outside the app's approved offers requires updated app policy and matching memory evidence before users can select it. The [metadata publisher](../../packages/core/scripts/release-metadata.mjs) creates the signed catalog metadata. Keep private signing keys outside the repository.
 
 ## Manual verification
 
@@ -212,7 +224,6 @@ For desktop runtime failures, start with `%USERPROFILE%\.modelloom\logs\runtime.
 ## Known limits
 
 - Windows x64 is the documented source-app target. A networking helper build for another platform establishes only that component's build status.
-- The public installer is still being prepared on this branch. The current [trust policy](../../packages/core/src/runtime-package/trust-policy.ts) pins a production root, with the approved catalog and memory report lists still empty. The release packager rejects incomplete inputs.
 - Browser, native fixture, and packaged demo checks cover their respective paths. Live model loading, mixed-GPU compatibility, release installation, and output equivalence each require their own evidence.
 
 ## Performance experiment
