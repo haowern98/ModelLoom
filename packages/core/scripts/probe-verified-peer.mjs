@@ -3,7 +3,7 @@
 import path from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { Buffer } from 'node:buffer';
-import { developmentPeerBackend } from '../out/peers/development-runtime.js';
+import { desktopPeerBackend } from '../out/peers/development-runtime.js';
 import { ownershipBinding } from '../out/hosts/windows-ownership.js';
 import { deadline } from './diagnostic-lifecycle.mjs';
 
@@ -14,7 +14,7 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const native = ownershipBinding();
 const state = path.join(root, 'out/peer-verified');
 native.privateDirectory(state);
-const backend = developmentPeerBackend({
+const backend = desktopPeerBackend({
   bootstrap: path.join(root, 'out/activation/b11306/peers'),
   state: path.join(state, 'state'),
 });
