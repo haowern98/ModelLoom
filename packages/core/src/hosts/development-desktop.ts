@@ -129,7 +129,7 @@ export function developmentDesktopDependencies(
         ? B11307_DEVELOPMENT.artifact
         : report.artifact;
   let packageId = release
-    ? ''
+    ? 'runtime-unselected'
     : selectedBuild === 'b11306-vulkan'
       ? VULKAN_DEVELOPMENT.packageId
       : pairedBuild
