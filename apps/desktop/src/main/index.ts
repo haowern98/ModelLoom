@@ -10,6 +10,7 @@ import {
   shell,
   nativeTheme,
 } from 'electron';
+import squirrelStartup from 'electron-squirrel-startup';
 import { createDesktopNetwork } from '../../../../packages/core/src/network/desktop';
 import { decodeNetworkCommand, decodeNetworkReply } from '../shared/network';
 import { validateLoginUrl } from '../../../../packages/core/src/network/wire';
@@ -23,7 +24,6 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { runtimePaths } from './runtime-paths';
 import { createRuntimeController } from './runtime-controller';
 import { decodeCatalogCommand } from '../shared/runtime-catalog';
@@ -63,10 +63,7 @@ if (locations?.chromium) {
   app.setPath('userData', locations.chromium);
   app.setPath('sessionData', locations.chromium);
 }
-const installerEvent =
-  PACKAGED_RELEASE &&
-  process.platform === 'win32' &&
-  createRequire(__filename)('electron-squirrel-startup') === true;
+const installerEvent = PACKAGED_RELEASE && process.platform === 'win32' && squirrelStartup;
 if (installerEvent) {
   quitConfirmed = true;
   app.quit();
