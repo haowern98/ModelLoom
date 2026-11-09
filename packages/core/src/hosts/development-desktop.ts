@@ -162,7 +162,7 @@ export function developmentDesktopDependencies(
     return next;
   }
   const getPeerHost = () => {
-    if (release || !applicationData || !caller || peersClosed) throw new Error('NOT_READY');
+    if (!applicationData || !caller || peersClosed) throw new Error('NOT_READY');
     if (!peerHost) {
       // Applying inheritable ACLs is synchronous. Set them before creating the
       // owned host, rather than blocking the GUI on every telemetry/state read.
@@ -179,12 +179,20 @@ export function developmentDesktopDependencies(
         verificationState =
           stateBase === initialBase ? verificationRoot : path.join(verificationRoot, activeBuild);
       }
-      peerHost = createDesktopPeerHost(fork, applicationData, caller, {
-        bootstrap: pairedBuild || activeBuild === 'b11306-vulkan' ? base : path.join(base, 'peers'),
-        state: peerState,
-        ...(verificationState ? { verificationState } : {}),
-        ...(runtimeStore ? { runtimeStore } : {}),
-      })
+      peerHost = (async () => {
+        const selected = release && !activeReleaseBackend ? await release.selected() : undefined;
+        const backend =
+          activeReleaseBackend ?? (selected ? requireInstalledLive(selected).backend : 'none');
+        if (backend === 'cpu') throw Error('UNSUPPORTED_RUNTIME');
+        return createDesktopPeerHost(fork, applicationData, caller, {
+          bootstrap:
+            pairedBuild || activeBuild === 'b11306-vulkan' ? base : path.join(base, 'peers'),
+          state: peerState,
+          ...(verificationState ? { verificationState } : {}),
+          ...(runtimeStore ? { runtimeStore } : {}),
+          ...(release ? { releaseBackend: backend } : {}),
+        });
+      })()
         .then(async (host) => {
           if (overlay) host.attachOverlay?.(overlay);
           host.subscribe((reply) => {
@@ -229,7 +237,7 @@ export function developmentDesktopDependencies(
   }
   const openPeer = async (device: string) => (await getPeerHost()).openRpc(device);
   const reservePlanningLocal =
-    !release && applicationData && caller
+    applicationData && caller
       ? async (devices: readonly string[]) => {
           const peer = await getPeerHost();
           await peer.setRuntimeBusy(true);
@@ -331,21 +339,14 @@ export function developmentDesktopDependencies(
   }
   async function replaceRuntime() {
     if (peersClosed) throw Error('NOT_READY');
-    if (release) {
-      const installed = await release.selected();
-      if (!installed) throw Error('MISSING_RUNTIME');
-      const inventory = requireInstalledLive(installed);
-      if (inventory.backend === 'cpu') throw Error('UNSUPPORTED_RUNTIME');
-      activeReleaseBackend = inventory.backend;
-      artifact = inventory.artifact;
-      packageId = inventory.packageId;
-      upstreamCommit = inventory.upstreamCommit;
-      verifiedBackends = undefined;
-      return describeRuntime(inventory);
-    }
-    if (activeBuild === selectedBuild) return null;
-    const capability = await verifyChoice(selectedBuild);
-    const inventory = requireLivePackage(capability).inventory;
+    const selected = release ? await release.selected() : undefined;
+    if (release && !selected) throw Error('MISSING_RUNTIME');
+    if (!release && activeBuild === selectedBuild) return null;
+    const inventory = selected
+      ? requireInstalledLive(selected)
+      : requireLivePackage(await verifyChoice(selectedBuild)).inventory;
+    if (release && inventory.backend === 'cpu') throw Error('UNSUPPORTED_RUNTIME');
+    if (release && activeReleaseBackend === inventory.backend) return null;
     const hadPeerHost = !!peerHost;
     let resumeSharing: typeof sharing;
     if (peerHost) {
@@ -360,9 +361,14 @@ export function developmentDesktopDependencies(
     }
     peerHost = undefined;
     if (peersClosed) throw Error('NOT_READY');
-    pairedBuild = selectedBuild === 'b11307';
-    base = runtimeChoices![selectedBuild];
-    activeBuild = selectedBuild;
+    if (release) {
+      if (inventory.backend === 'cpu') throw Error('UNSUPPORTED_RUNTIME');
+      activeReleaseBackend = inventory.backend;
+    } else {
+      pairedBuild = selectedBuild === 'b11307';
+      base = runtimeChoices![selectedBuild];
+      activeBuild = selectedBuild;
+    }
     artifact = inventory.artifact;
     packageId = inventory.packageId;
     upstreamCommit = inventory.upstreamCommit;
@@ -625,7 +631,7 @@ export function developmentDesktopDependencies(
             async launch(selection, signal) {
               if (closed || !adapter) throw new Error('NOT_READY');
               await leaseExit;
-              const peer = !release && applicationData && caller ? await getPeerHost() : undefined;
+              const peer = applicationData && caller ? await getPeerHost() : undefined;
               await peer?.setRuntimeBusy(true);
               let lease: { release(): Promise<void> } | undefined;
               try {
@@ -657,7 +663,6 @@ export function developmentDesktopDependencies(
             ? {
                 chat: (engine: Parameters<ReturnType<typeof realEngineAdapter>['chat']>[0]) => {
                   if (closed || !adapter) throw new Error('NOT_READY');
-                  if (release) return adapter.chat(engine);
                   let transport = activityTransports.get(engine);
                   if (!transport) {
                     const peer = getPeerHost();
@@ -716,8 +721,7 @@ export function developmentDesktopDependencies(
       if (peerHost && !peersClosed) await (await peerHost).updateHardware(peerHardware);
     },
     async peers(input: unknown): Promise<PeerReply> {
-      if (release || !applicationData || !caller || peersClosed)
-        return { ok: false, error: 'NOT_READY' };
+      if (!applicationData || !caller || peersClosed) return { ok: false, error: 'NOT_READY' };
       const command = decodePeerCommand(input);
       if (command.action === 'share' || command.action === 'stop-sharing')
         return changePeerOwner(async () => {
@@ -765,7 +769,6 @@ export function developmentDesktopDependencies(
         const installed = await installClusterRuntime();
         const local = await discoverResources(signal);
         const approved =
-          !release &&
           applicationData &&
           caller &&
           (!devices || devices.some((id) => decodeClusterDevice(id).kind === 'peer'))
