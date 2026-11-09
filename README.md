@@ -32,6 +32,10 @@ Run `ModelLoom-Setup-x64.exe`, then choose CUDA or Vulkan on first launch. Model
 2. In **Cluster → Overview**, select the model and assign its layers to the GPUs you want to use.
 3. Click **Load model**. Once the model is loaded, open **Chat**.
 
+## Why ModelLoom?
+
+ModelLoom is built for splitting a GGUF model across GPUs you already own. Assign exact layer ranges in the desktop app, run them across a coordinator and an approved worker over a private network, and see the placement on the cluster canvas. The Residency Bridge reduces coordinator-to-worker traffic when eligible tensor writes repeat.
+
 ## Cluster overview
 
 <p align="center">
