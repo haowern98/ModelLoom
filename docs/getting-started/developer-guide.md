@@ -104,7 +104,7 @@ When changing a desktop command, trace the renderer call through preload, the sh
 3. **Load model** sends the load request through desktop IPC. Core resolves the effective load and checks the runtime and resource evidence before launching the owned llama.cpp process.
 4. The UI reports the resulting load state. Once the runtime is ready, use Chat or the enabled local API to send inference requests.
 
-<a href="../diagrams/model-load-sequence.png"><img src="../diagrams/model-load-sequence.png" width="280" alt="Sequence diagram showing a local GGUF load, with an error returned for rejected plans and a ready notification after successful native startup"></a>
+<a href="../diagrams/model-load-sequence.png"><img src="../diagrams/model-load-sequence.png" width="560" alt="Sequence diagram showing a local GGUF load, with an error returned for rejected plans and a ready notification after successful native startup"></a>
 
 _Figure 2. This sequence compares a rejection before native launch with a successful local load. A native launch or readiness check can also fail after admission._
 
@@ -127,7 +127,7 @@ _The canvas shows which GPUs have planned layers. The Layer assignment summary g
 
 The optional `input-residency/1` codec compresses repeated native RPC SET records on the authenticated peer stream. The worker reconstructs every referenced original request before the existing helper receives it; responses remain opaque. The codec does not skip GPU writes or computation and is separate from ModelLoom's disk weight cache. Its implementation is in `packages/core/src/peers/rpc-residency.ts` and `rpc-residency-protocol.ts`.
 
-<a href="../diagrams/residency-bridge-sequence.png"><img src="../diagrams/residency-bridge-sequence.png" width="350" alt="Sequence diagram comparing the first full tensor SET request with an eligible repeat sent as a reference and reconstructed by the worker"></a>
+<a href="../diagrams/residency-bridge-sequence.png"><img src="../diagrams/residency-bridge-sequence.png" width="560" alt="Sequence diagram comparing the first full tensor SET request with an eligible repeat sent as a reference and reconstructed by the worker"></a>
 
 _Figure 3. The first write and a repeated write both reach the stock RPC helper in their original form. In either case, the adapters relay the response unchanged._
 
