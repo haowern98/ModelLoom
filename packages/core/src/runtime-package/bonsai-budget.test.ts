@@ -3,7 +3,6 @@ import { DEVELOPMENT_MEMORY_REPORTS } from './development-policy.js';
 import { APPROVED_MEMORY_REPORTS } from './trust-policy.js';
 import { checkResources } from '../runtime/preflight.js';
 it('provisions only the exact development Bonsai configuration with a cache-inclusive budget', () => {
-  expect(APPROVED_MEMORY_REPORTS).toEqual([]);
   expect(DEVELOPMENT_MEMORY_REPORTS).toHaveLength(2);
   const report = DEVELOPMENT_MEMORY_REPORTS[0]!;
   expect(report.configuration.contextPerSlot).toBe(7680);
@@ -31,6 +30,23 @@ it('provisions only the exact development Bonsai configuration with a cache-incl
       { ram: 10 * 2 ** 30, vram: 16 * 2 ** 30 },
     ).code,
   ).toBe('NEEDS_RESOURCE_EVIDENCE');
+});
+it.each([
+  ['cuda', 6190821376],
+  ['vulkan', 5982564352],
+] as const)('reserves memory above the measured production %s peak', (backend, peak) => {
+  const report = APPROVED_MEMORY_REPORTS.find((entry) => entry.backend === backend)!;
+  expect(report.configuration.slots).toBe(4);
+  const available = { ram: 10 * 2 ** 30, vram: 12 * 2 ** 30 };
+  const result = checkResources(report.configuration, report.artifact, backend, report, available);
+  expect(result.code).toBe('ADMITTED');
+  expect(result.ram).toBeGreaterThanOrEqual(peak + 512 * 1048576);
+  expect(
+    checkResources(report.configuration, report.artifact, backend, report, {
+      ...available,
+      ram: result.ram! - 1,
+    }).code,
+  ).toBe('INSUFFICIENT_RESOURCES');
 });
 it('admits four unchanged slots only when both physical RAM and GPU budgets fit', () => {
   const report = DEVELOPMENT_MEMORY_REPORTS.find((entry) => entry.configuration.slots === 4);
