@@ -46,9 +46,11 @@ npm run electron dev
 
 `npm run electron dev` is the supported interactive launcher for ordinary manual sessions. Use pnpm for dependency, build, and test commands. Startup verifies the development profile and the workspace bootstrap assets. Install the signed development runtime assets before loading a model. The app keeps installed runtimes under `%USERPROFILE%\.modelloom\runtimes`.
 
-![ModelLoom Runtime settings showing the location of the GGUF selector](../screenshots/runtime-settings.png)
+<p align="center">
+  <img src="../screenshots/runtime-settings.png" alt="ModelLoom Runtime settings showing the location of the GGUF selector">
+</p>
 
-_After starting ModelLoom, open Settings → Runtime and confirm that the expected GGUF build appears in the selector._
+<p align="center"><em>After starting ModelLoom, open Settings → Runtime and confirm that the expected GGUF build appears in the selector.</em></p>
 
 ### Repository layout
 
@@ -77,9 +79,11 @@ The renderer calls the typed preload bridge. Electron main owns privileged opera
 
 To rebuild the Windows x64 networking helper with the pinned Go toolchain, run `node packages/core/scripts/build-network.mjs --target windows-amd64` from the repository root.
 
-![Component diagram showing desktop IPC, the coordinator's native llama.cpp process, and the approved worker's peer host, RPC helper, and GPU](../diagrams/component-architecture.png)
+<p align="center">
+  <img src="../diagrams/component-architecture.png" alt="Component diagram showing desktop IPC, the coordinator&#x27;s native llama.cpp process, and the approved worker&#x27;s peer host, RPC helper, and GPU">
+</p>
 
-_Figure 1. The coordinator owns the model load. When the plan uses a worker, native RPC crosses the authenticated link between the coordinator adapter and the worker peer host._
+<p align="center"><em>Figure 1. The coordinator owns the model load. When the plan uses a worker, native RPC crosses the authenticated link between the coordinator adapter and the worker peer host.</em></p>
 
 ## Component design
 
@@ -104,9 +108,11 @@ When changing a desktop command, trace the renderer call through preload, the sh
 3. **Load model** sends the load request through desktop IPC. Core resolves the effective load and checks the runtime and resource evidence before launching the owned llama.cpp process.
 4. The UI reports the resulting load state. Once the runtime is ready, use Chat or the enabled local API to send inference requests.
 
-<a href="../diagrams/model-load-sequence.png"><img src="../diagrams/model-load-sequence.png" width="560" alt="Sequence diagram showing a local GGUF load, with an error returned for rejected plans and a ready notification after successful native startup"></a>
+<p align="center">
+  <a href="../diagrams/model-load-sequence.png"><img src="../diagrams/model-load-sequence.png" width="560" alt="Sequence diagram showing a local GGUF load, with an error returned for rejected plans and a ready notification after successful native startup"></a>
+</p>
 
-_Figure 2. This sequence compares a rejection before native launch with a successful local load. A native launch or readiness check can also fail after admission._
+<p align="center"><em>Figure 2. This sequence compares a rejection before native launch with a successful local load. A native launch or readiness check can also fail after admission.</em></p>
 
 ### Pair a worker and distribute layers
 
@@ -115,9 +121,11 @@ _Figure 2. This sequence compares a rejection before native launch with a succes
 3. The coordinator opens the RPC session for the load. A connected peer can still fail RPC preparation if the runtime combination or requested GPU is unavailable.
 4. Use the runtime result and the coordinator and worker logs together when debugging. A visible peer or a latency reading confirms reachability at that stage. Successful model generation is the end-to-end check.
 
-![ModelLoom Cluster Overview showing the coordinator, worker, and planned GGUF layer ranges](../screenshots/cluster-overview.png)
+<p align="center">
+  <img src="../screenshots/cluster-overview.png" alt="ModelLoom Cluster Overview showing the coordinator, worker, and planned GGUF layer ranges">
+</p>
 
-_The canvas shows which GPUs have planned layers. The Layer assignment summary groups those ranges by device._
+<p align="center"><em>The canvas shows which GPUs have planned layers. The Layer assignment summary groups those ranges by device.</em></p>
 
 ### Switch runtime builds
 
@@ -127,9 +135,11 @@ _The canvas shows which GPUs have planned layers. The Layer assignment summary g
 
 The optional `input-residency/1` codec compresses repeated native RPC SET records on the authenticated peer stream. The worker reconstructs every referenced original request before the existing helper receives it; responses remain opaque. The codec does not skip GPU writes or computation and is separate from ModelLoom's disk weight cache. Its implementation is in `packages/core/src/peers/rpc-residency.ts` and `rpc-residency-protocol.ts`.
 
-<a href="../diagrams/residency-bridge-sequence.png"><img src="../diagrams/residency-bridge-sequence.png" width="560" alt="Sequence diagram comparing the first full tensor SET request with an eligible repeat sent as a reference and reconstructed by the worker"></a>
+<p align="center">
+  <a href="../diagrams/residency-bridge-sequence.png"><img src="../diagrams/residency-bridge-sequence.png" width="560" alt="Sequence diagram comparing the first full tensor SET request with an eligible repeat sent as a reference and reconstructed by the worker"></a>
+</p>
 
-_Figure 3. The first write and a repeated write both reach the stock RPC helper in their original form. In either case, the adapters relay the response unchanged._
+<p align="center"><em>Figure 3. The first write and a repeated write both reach the stock RPC helper in their original form. In either case, the adapters relay the response unchanged.</em></p>
 
 ### Measured RPC upload savings
 

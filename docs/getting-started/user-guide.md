@@ -30,9 +30,11 @@ Use `npm run electron dev` for later manual starts too. The source app keeps its
 
 Import a standalone GGUF supported by your verified runtime. An indexed model still needs to pass runtime and resource checks before it can load.
 
-![Model library showing imported GGUF files and the import icon in the upper right](../screenshots/model-library.png)
+<p align="center">
+  <img src="../screenshots/model-library.png" alt="Model library showing imported GGUF files and the import icon in the upper right">
+</p>
 
-*Use the import icon next to the search field to add a GGUF file.*
+<p align="center"><em>Use the import icon next to the search field to add a GGUF file.</em></p>
 
 ## Load a model and start a chat
 
@@ -47,9 +49,11 @@ Use the validated settings for the model and devices in this preview. Unsupporte
 
 Open **Settings → Runtime**. The **GGUF** selector shows installed verified builds for the next load; **Active runtime** identifies the build used by a currently loaded model. A runtime selection does not replace the active build until the next load. The b11306 CUDA package is the development baseline; other packages shown in a checkout can have narrower validation scope. Use a compatible approved runtime on both PCs for a worker run.
 
-![Runtime settings with CUDA b11306 selected and no model loaded](../screenshots/runtime-settings.png)
+<p align="center">
+  <img src="../screenshots/runtime-settings.png" alt="Runtime settings with CUDA b11306 selected and no model loaded">
+</p>
 
-*The GGUF selector sets the runtime for the next load. Active runtime shows which build the loaded model is using.*
+<p align="center"><em>The GGUF selector sets the runtime for the next load. Active runtime shows which build the loaded model is using.</em></p>
 
 ## Connect a worker and assign layers
 
@@ -62,13 +66,17 @@ Use two ModelLoom PCs on a reachable private LAN address or an already configure
 5. Return to the worker's request and choose **Allow** once the code is verified. Approval grants this coordinator access to the selected shared GPU. You can later remove that access with **Revoke access**.
 6. On the coordinator, return to **Cluster → Overview**, select the worker GPU in the allocation, and load the validated configuration. Both PCs need a compatible verified RPC runtime; use the same compatible build on both.
 
-![Add device tab showing a connected Tailscale worker and the manual private address field](../screenshots/connections-add-device.png)
+<p align="center">
+  <img src="../screenshots/connections-add-device.png" alt="Add device tab showing a connected Tailscale worker and the manual private address field">
+</p>
 
-*Choose Add to find a worker, or enter its private address under Connect manually.*
+<p align="center"><em>Choose Add to find a worker, or enter its private address under Connect manually.</em></p>
 
 When the worker is added, both device cards appear on the canvas. The **Layer assignment** section lists the ranges on each device. In this example, Node 2 has layers 0–31 and Node 1 has layers 32–64. The overview shows the planned ranges before loading.
 
-![Cluster Overview showing the planned layer split across Node 1 and Node 2](../screenshots/cluster-overview.png)
+<p align="center">
+  <img src="../screenshots/cluster-overview.png" alt="Cluster Overview showing the planned layer split across Node 1 and Node 2">
+</p>
 
 ## Troubleshooting and current limits
 
