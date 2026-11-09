@@ -143,7 +143,7 @@ The optional `input-residency/1` codec compresses repeated native RPC SET record
 
 ### Measured RPC upload savings
 
-Across two requests per mode, the Residency Bridge reduced coordinator-to-worker RPC traffic from **160.26 MB** to **87.88 MB**. That saved **72.39 MB (69.03 MiB, 45.17%)** in total, or about **36.19 MB per request** in this test. Worker-to-coordinator RPC traffic was unchanged within each paired trial. [Desktop traffic measurement, October 27, 2026](../research/APP-RESIDENCY-BENCHMARK-2026-10-27.json)
+In one benchmark run, the Residency Bridge cut coordinator-to-worker RPC traffic from **41.55 MB to 5.36 MB**, an **87.10% reduction**. [Desktop traffic measurement](../research/APP-RESIDENCY-BENCHMARK-2026-10-27.json)
 
 This traffic measurement is separate from the [generation throughput comparison](#performance-experiment). The traffic runs used separate fresh app sessions under variable WAN conditions, which limits what their timings tell us about the codec's effect on speed.
 

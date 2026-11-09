@@ -17,8 +17,7 @@
 
 <p align="center">
   <a href="docs/getting-started/user-guide.md">User Guide</a> /
-  <a href="docs/getting-started/developer-guide.md">Developer Guide</a> /
-  <a href="#residency-bridge">Residency Bridge</a>
+  <a href="docs/getting-started/developer-guide.md">Developer Guide</a>
 </p>
 
 ## Quick start
