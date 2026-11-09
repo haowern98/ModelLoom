@@ -314,21 +314,21 @@ export function RuntimeSettings({
               Retry
             </Button>
           )}
-          <Button
-            disabled={!management || busy}
-            title={management ? undefined : 'Runtime updates are unavailable.'}
-            onClick={() => {
-              if (!management) return;
-              setUpdateStatus('Checking for updates…');
-              void runUpdate(async () => {
-                const releases = await management.checkForUpdates();
-                setOffers(releases);
-                setUpdateStatus(releases.length ? 'Update available.' : 'Up to date.');
-              }, 'Could not check for updates. Try again.');
-            }}
-          >
-            Check for updates
-          </Button>
+          {management && (
+            <Button
+              disabled={busy}
+              onClick={() => {
+                setUpdateStatus('Checking for updates…');
+                void runUpdate(async () => {
+                  const releases = await management.checkForUpdates();
+                  setOffers(releases);
+                  setUpdateStatus(releases.length ? 'Update available.' : 'Up to date.');
+                }, 'Could not check for updates. Try again.');
+              }}
+            >
+              Check for updates
+            </Button>
+          )}
           <Button onClick={() => setManageOpen(true)}>Manage installed runtimes</Button>
         </Row>
         {updateStatus && (
