@@ -119,8 +119,17 @@ export function realEngineAdapter(
       entry.backend === inventory.backend &&
       isDeepStrictEqual(entry.configuration, cfg),
   );
-  // A live cluster pack needs independent release evidence as well as its placement report.
-  const qualifiedLiveCluster = realm === 'live' && report !== undefined;
+  // Release evidence qualifies the build. The cluster estimator and fresh resource checks
+  // admit the actual placement, whose model and GPU identities can differ from the test rig.
+  const qualifiedLiveCluster =
+    realm === 'live' &&
+    APPROVED_MEMORY_REPORTS.some(
+      (entry) =>
+        entry.artifact === inventory.artifact &&
+        entry.backend === inventory.backend &&
+        entry.configuration.slots === 4 &&
+        entry.uncertainty === null,
+    );
   if (
     cluster &&
     !qualifiedLiveCluster &&
@@ -311,7 +320,7 @@ export function realEngineAdapter(
                 '--log-verbosity',
                 '5',
               ]
-            : fixedArguments(model, cfg, port, keyFile, alias)),
+            : fixedArguments(model, cfg, port, keyFile, alias, inventory.backend)),
         ];
         const localDevices =
           cluster &&
