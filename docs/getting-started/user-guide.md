@@ -4,23 +4,32 @@ Use ModelLoom on Windows x64 to load a GGUF model on your own GPUs and chat with
 
 ## Contents
 
-- [Start the preview](#start-the-preview)
+- [Install ModelLoom](#install-modelloom)
 - [Import a GGUF model](#import-a-gguf-model)
 - [Load a model and start a chat](#load-a-model-and-start-a-chat)
 - [Choose a runtime](#choose-a-runtime)
 - [Connect a worker and assign layers](#connect-a-worker-and-assign-layers)
 - [Troubleshooting and current limits](#troubleshooting-and-current-limits)
 
-## Start the preview
+## Install ModelLoom
 
-From a normal PowerShell or Windows Terminal session outside Codex, open the repository root, install the pinned workspace dependencies once, then use the supported interactive launcher:
+1. Download `ModelLoom-Setup-x64.exe` and `SHA256SUMS.txt` from the [Windows x64 release](https://github.com/haowern98/ModelLoom/releases/tag/v0.1.1).
+2. In PowerShell, run this command from the download folder and compare the hash with the installer entry in `SHA256SUMS.txt`.
 
-```powershell
-pnpm install --frozen-lockfile
-npm run electron dev
-```
+   ```powershell
+   Get-FileHash -Algorithm SHA256 .\ModelLoom-Setup-x64.exe
+   ```
 
-Use `npm run electron dev` for later manual starts too. The source app keeps its development profile and checks its runtime/bootstrap assets before opening. If startup stops during preparation, follow [developer setup](developer-guide.md#development-setup); do not launch llama.cpp yourself. The app's **Explore models** action is not a downloader.
+3. Run the installer after the hash matches. The preview installer is unsigned, so Windows may show an unknown-publisher or SmartScreen warning.
+4. Open **ModelLoom**. In **Set up a runtime**, choose **Download CUDA** or **Download Vulkan**. ModelLoom downloads and verifies the signed llama.cpp b11306 package, then selects it for your first GGUF model load.
+
+<p align="center">
+  <img src="../screenshots/runtime-first-launch.png" alt="First-launch runtime setup offering separate CUDA and Vulkan downloads">
+</p>
+
+<p align="center"><em>Choose a runtime to download on first launch.</em></p>
+
+For source setup, see the [Developer Guide](developer-guide.md#development-setup).
 
 ## Import a GGUF model
 
@@ -47,13 +56,13 @@ Use the validated settings for the model and devices in this preview. Unsupporte
 
 ## Choose a runtime
 
-Open **Settings → Runtime**. The **GGUF** selector shows installed verified builds for the next load; **Active runtime** identifies the build used by a currently loaded model. A runtime selection does not replace the active build until the next load. The b11306 CUDA package is the development baseline; other packages shown in a checkout can have narrower validation scope. Use a compatible approved runtime on both PCs for a worker run.
+Open **Settings → Runtime** and choose **Download runtimes** to install the other backend. Both can stay installed. Select the build you want in **GGUF**. The selection applies on the next model load or reload. **Active runtime** shows which build the loaded model is using. For distributed inference, use compatible approved builds on both PCs.
 
 <p align="center">
-  <img src="../screenshots/runtime-settings.png" alt="Runtime settings with CUDA b11306 selected and no model loaded">
+  <img src="../screenshots/runtime-settings.png" alt="Runtime settings showing Download runtimes and Vulkan b11306 selected">
 </p>
 
-<p align="center"><em>The GGUF selector sets the runtime for the next load. Active runtime shows which build the loaded model is using.</em></p>
+<p align="center"><em>Use Download runtimes to install another backend, then choose it in the GGUF selector.</em></p>
 
 ## Connect a worker and assign layers
 
