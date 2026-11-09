@@ -126,6 +126,13 @@ export async function stageDevelopment(output, candidate = path.join(bootstrap, 
       );
     }
   }
+  return stageHost(output, 'development-desktop');
+}
+
+/** Stage the shared host graph and third-party notices for an explicitly selected build. */
+export async function stageHost(output, entry) {
+  const developmentOnly = entry === 'development-desktop';
+  if (!developmentOnly && entry !== 'release-desktop') throw new Error('INVALID_HOST_ENTRY');
   await writeFile(
     path.join(output, 'core/package.json'),
     JSON.stringify({ type: 'module', private: true }),
@@ -134,10 +141,7 @@ export async function stageDevelopment(output, candidate = path.join(bootstrap, 
   // Bundle both fixed entry graphs, including their pinned JS dependencies; unused fixture launchers disappear.
   const result = await build({
     absWorkingDir: workspace,
-    entryPoints: [
-      'packages/core/out/hosts/development-desktop.js',
-      'packages/core/out/hosts/utility.js',
-    ],
+    entryPoints: [`packages/core/out/hosts/${entry}.js`, 'packages/core/out/hosts/utility.js'],
     outdir: path.join(output, 'core/out/hosts'),
     bundle: true,
     platform: 'node',
@@ -214,7 +218,7 @@ export async function stageDevelopment(output, candidate = path.join(bootstrap, 
     execFileSync('git', args, { cwd: workspace, encoding: 'utf8', windowsHide: true }).trim();
   const manifest = {
     schemaVersion: 1,
-    developmentOnly: true,
+    developmentOnly,
     sourceRevision: git('rev-parse', 'HEAD'),
     dirtyFiles: git('status', '--porcelain').split('\n').filter(Boolean),
     lockfileSha256: await digest(path.join(workspace, 'pnpm-lock.yaml')),

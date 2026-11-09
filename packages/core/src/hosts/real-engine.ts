@@ -93,14 +93,13 @@ export function realEngineAdapter(
     }
   };
   const inventory = requireInstalledLive(installed);
+  const realm = installedRealm(installed);
   const qualifiedVulkan =
-    DEVELOPMENT_BUILD &&
-    installedRealm(installed) === 'development' &&
-    isDevelopmentVulkanInventory(inventory);
+    DEVELOPMENT_BUILD && realm === 'development' && isDevelopmentVulkanInventory(inventory);
   const qualifiedDevelopmentBuild =
     qualifiedVulkan ||
     (DEVELOPMENT_BUILD &&
-      installedRealm(installed) === 'development' &&
+      realm === 'development' &&
       isDevelopmentB11307Inventory(inventory) &&
       cluster !== undefined &&
       isQualifiedDevelopmentB11307Load(cluster.load));
@@ -110,26 +109,8 @@ export function realEngineAdapter(
   )
     throw new Error('UNSUPPORTED_RUNTIME');
   const cfg = Object.freeze(structuredClone(configuration));
-  if (
-    cluster &&
-    (installedRealm(installed) !== 'development' ||
-      !DEVELOPMENT_BUILD ||
-      (inventory.packageId !== 'llama-cuda-development' && !qualifiedDevelopmentBuild))
-  )
-    throw Error('NEEDS_RESOURCE_EVIDENCE');
-  if (
-    cluster &&
-    (inventory.artifact !== cluster.load.artifact ||
-      (inventory.backend !== 'cuda' && !qualifiedVulkan) ||
-      cluster.load.modelSha256 !== cfg.modelSha256 ||
-      cluster.load.contextPerSlot !== cfg.contextPerSlot ||
-      cluster.load.slots !== cfg.slots ||
-      cluster.load.cacheK !== cfg.cacheK ||
-      cluster.load.cacheV !== cfg.cacheV)
-  )
-    throw Error('NEEDS_RESOURCE_EVIDENCE');
   const reports =
-    installedRealm(installed) === 'development' && DEVELOPMENT_BUILD
+    realm === 'development' && DEVELOPMENT_BUILD
       ? DEVELOPMENT_MEMORY_REPORTS
       : APPROVED_MEMORY_REPORTS;
   const report = reports.find(
@@ -138,6 +119,38 @@ export function realEngineAdapter(
       entry.backend === inventory.backend &&
       isDeepStrictEqual(entry.configuration, cfg),
   );
+  // Release evidence qualifies the build. The cluster estimator and fresh resource checks
+  // admit the actual placement, whose model and GPU identities can differ from the test rig.
+  const qualifiedLiveCluster =
+    realm === 'live' &&
+    APPROVED_MEMORY_REPORTS.some(
+      (entry) =>
+        entry.artifact === inventory.artifact &&
+        entry.backend === inventory.backend &&
+        entry.configuration.slots === 4 &&
+        entry.uncertainty === null,
+    );
+  if (
+    cluster &&
+    !qualifiedLiveCluster &&
+    (realm !== 'development' ||
+      !DEVELOPMENT_BUILD ||
+      (inventory.packageId !== 'llama-cuda-development' && !qualifiedDevelopmentBuild))
+  )
+    throw Error('NEEDS_RESOURCE_EVIDENCE');
+  if (
+    cluster &&
+    (inventory.artifact !== cluster.load.artifact ||
+      (inventory.backend !== 'cuda' &&
+        !qualifiedVulkan &&
+        !(qualifiedLiveCluster && isDevelopmentVulkanInventory(inventory))) ||
+      cluster.load.modelSha256 !== cfg.modelSha256 ||
+      cluster.load.contextPerSlot !== cfg.contextPerSlot ||
+      cluster.load.slots !== cfg.slots ||
+      cluster.load.cacheK !== cfg.cacheK ||
+      cluster.load.cacheV !== cfg.cacheV)
+  )
+    throw Error('NEEDS_RESOURCE_EVIDENCE');
   if (
     (!cluster && !report) ||
     (inventory.backend === 'cpu'
@@ -307,7 +320,7 @@ export function realEngineAdapter(
                 '--log-verbosity',
                 '5',
               ]
-            : fixedArguments(model, cfg, port, keyFile, alias)),
+            : fixedArguments(model, cfg, port, keyFile, alias, inventory.backend)),
         ];
         const localDevices =
           cluster &&

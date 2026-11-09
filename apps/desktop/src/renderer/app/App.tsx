@@ -14,6 +14,8 @@ import { ClusterPage } from '../features/cluster/ClusterPage';
 import { ChatPage } from '../features/chat/ChatPage';
 import { ApiPage } from '../features/api/ApiPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
+import type { RuntimeManagement } from '../features/settings/SettingsPage';
+import { RuntimeDownloadDialog } from '../features/settings/RuntimeDownloadDialog';
 import { createDemoChat, transitionDemoChat } from '../mocks/chat';
 import { createDemoPlacement, demoDevices, transitionDemoPlacement } from '../mocks/cluster';
 import { createDemoJoining, transitionDemoJoining } from '../mocks/clusterJoining';
@@ -32,15 +34,68 @@ import { AppearanceProvider } from './AppearanceProvider';
 type Modal =
   { type: 'remove' | 'details'; model: DemoModel } | { type: 'info'; title: string; text: string };
 
-export function App() {
+interface RuntimeReleaseSetup {
+  management: RuntimeManagement;
+  selected?: Awaited<ReturnType<RuntimeManagement['select']>> | null;
+  firstLaunch: boolean;
+  finishSetup: () => void;
+}
+
+export function App({ runtimeRelease }: { runtimeRelease?: RuntimeReleaseSetup } = {}) {
+  const [catalog, setCatalog] = useState<RuntimeReleaseSetup>();
+  useEffect(() => {
+    const bridge = window.modelLoomRuntimeCatalog;
+    if (runtimeRelease || !bridge) return;
+    let current = true;
+    void bridge
+      .command({ action: 'read' })
+      .then((snapshot) => {
+        if (!current || !snapshot) return;
+        setCatalog({
+          firstLaunch:
+            !snapshot.selected && localStorage.getItem('modelloom.runtimeSetup') !== 'done',
+          selected: snapshot.selected,
+          finishSetup: () => localStorage.setItem('modelloom.runtimeSetup', 'done'),
+          management: {
+            installed: snapshot.installed,
+            async checkForUpdates() {
+              const result = await bridge.command({ action: 'read' });
+              if (!result) throw new Error('NOT_READY');
+              return result.offers;
+            },
+            async install(build, onProgress) {
+              if (build.backend === 'cpu') throw new Error('UNSUPPORTED_RUNTIME');
+              onProgress('Downloading and verifying runtime…');
+              const result = await bridge.command({ action: 'install', backend: build.backend });
+              if (!result) throw new Error('NOT_READY');
+              return result.installed;
+            },
+            async select(build) {
+              if (build.backend === 'cpu') throw new Error('UNSUPPORTED_RUNTIME');
+              const result = await bridge.command({ action: 'select', backend: build.backend });
+              if (!result?.selected) throw new Error('NOT_READY');
+              return result.selected;
+            },
+          },
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [runtimeRelease]);
   return (
     <AppearanceProvider>
-      <AppContent />
+      <AppContent runtimeRelease={runtimeRelease ?? catalog} />
     </AppearanceProvider>
   );
 }
 
-function AppContent() {
+function AppContent({ runtimeRelease }: { runtimeRelease: RuntimeReleaseSetup | undefined }) {
+  const [setupDismissed, setSetupDismissed] = useState(false);
+  const [releaseInstalled, setReleaseInstalled] = useState(runtimeRelease?.management.installed);
+  const [releaseSelected, setReleaseSelected] =
+    useState<Awaited<ReturnType<RuntimeManagement['select']>>>();
   const runtime = useRuntime();
   const clusterConfigurations = useClusterConfigurations(window.modelLoomCluster);
   const live = runtime.view?.enabled === true;
@@ -541,12 +596,33 @@ function AppContent() {
         <SettingsPage
           category={settingsCategory}
           activeRuntime={runtime.view?.activeRuntime}
-          selectedRuntime={runtime.selectedRuntime}
+          selectedRuntime={releaseSelected ?? runtimeRelease?.selected ?? runtime.selectedRuntime}
+          {...(runtimeRelease
+            ? {
+                runtimeManagement: runtimeRelease.management,
+                runtimeInstalled: releaseInstalled ?? runtimeRelease.management.installed,
+                onRuntimeInstalled: setReleaseInstalled,
+                onRuntimeSelected: setReleaseSelected,
+              }
+            : {})}
           onCategory={(settingsCategory) => visit({ settingsCategory })}
           onApi={() => navigate('API')}
           onConnections={() => {
             setConnectionsRequest((request) => request + 1);
             navigate('Cluster');
+          }}
+        />
+      )}
+      {runtimeRelease?.firstLaunch && !setupDismissed && !memoryWarning && !displayedModal && (
+        <RuntimeDownloadDialog
+          firstLaunch
+          management={runtimeRelease.management}
+          installed={releaseInstalled ?? runtimeRelease.management.installed}
+          onInstalled={setReleaseInstalled}
+          onSelected={setReleaseSelected}
+          onClose={() => {
+            setSetupDismissed(true);
+            runtimeRelease.finishSetup();
           }}
         />
       )}

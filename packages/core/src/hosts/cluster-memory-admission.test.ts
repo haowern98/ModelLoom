@@ -5,6 +5,7 @@ import { resolveClusterLoad } from '../cluster/effective-load.js';
 import { createStockClusterReport } from '../cluster/stock-profile.js';
 import { record } from '../model-configuration/test-fixtures.js';
 import { parseInventory } from '../runtime-package/inventory.js';
+import type { PlannerReport } from '../runtime/preflight.js';
 
 const inventories = JSON.parse(
   readFileSync(new URL('../../tests/vulkan-inventories.json', import.meta.url), 'utf8'),
@@ -21,6 +22,11 @@ const state = vi.hoisted(() => ({
   lost: undefined as (() => void) | undefined,
   forced: vi.fn(),
   vulkan: false,
+  realm: 'development',
+  releaseReports: [] as PlannerReport[],
+}));
+vi.mock('../runtime-package/trust-policy.js', () => ({
+  APPROVED_MEMORY_REPORTS: state.releaseReports,
 }));
 vi.mock('./peer-relays.js', () => ({
   createPeerRelays: (
@@ -39,7 +45,7 @@ vi.mock('../runtime-package/development-policy.js', () => ({
   DEVELOPMENT_MEMORY_REPORTS: [],
 }));
 vi.mock('../runtime-package/install.js', () => ({
-  installedRealm: () => 'development',
+  installedRealm: () => state.realm,
   requireInstalledLive: () =>
     state.vulkan
       ? vulkan
@@ -114,6 +120,8 @@ afterEach(() => {
   state.lost = undefined;
   state.release.mockReset();
   state.vulkan = false;
+  state.realm = 'development';
+  state.releaseReports.length = 0;
 });
 function fixture(
   confirmMemory: () => Promise<boolean>,
@@ -188,6 +196,33 @@ function fixture(
   };
   return { adapter, snapshot, selection };
 }
+it('uses placement-specific admission for a qualified release build on a different configuration', async () => {
+  state.realm = 'live';
+  state.vulkan = true;
+  state.releaseReports.push({
+    artifact: vulkan.artifact,
+    backend: 'vulkan',
+    configuration: { slots: 4, modelSha256: 'b'.repeat(64) },
+    uncertainty: null,
+  } as PlannerReport);
+  const f = fixture(() => Promise.resolve(false));
+  state.discover.mockResolvedValue(f.snapshot);
+  try {
+    await expect(f.adapter.launch(f.selection, new AbortController().signal)).rejects.toThrow(
+      'START_FAILED',
+    );
+    expect(state.discover).toHaveBeenCalledOnce();
+    expect(state.launch).not.toHaveBeenCalled();
+  } finally {
+    await f.adapter.close();
+  }
+});
+
+it('rejects a release build with no independent qualification before probing resources', () => {
+  state.realm = 'live';
+  expect(() => fixture(() => Promise.resolve(false))).toThrow('NEEDS_RESOURCE_EVIDENCE');
+  expect(state.discover).not.toHaveBeenCalled();
+});
 it('checks fresh GPU resources before launching a qualified Vulkan load', async () => {
   state.vulkan = true;
   const f = fixture(() => Promise.resolve(false));

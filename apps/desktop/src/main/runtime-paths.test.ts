@@ -70,6 +70,14 @@ it('keeps ordinary packaged runtime closed even with development resources prese
   expect(runtimePaths(input)).toBeNull();
 });
 
+it('loads the release host from packaged resources and installs runtimes in the user profile', () => {
+  expect(runtimePaths({ ...input, release: true })).toMatchObject({
+    core: `${input.resources}\\modelloom-release\\core`,
+    state: `${input.home}\\.modelloom\\release`,
+    runtimes: `${input.home}\\.modelloom\\runtimes`,
+  });
+});
+
 it('resolves all packaged development inputs from resources and isolates writable data', () => {
   expect(runtimePaths({ ...input, development: true })).toEqual({
     core: 'E:\\Relocated Package\\resources\\modelloom-development\\core',

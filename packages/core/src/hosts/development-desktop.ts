@@ -28,6 +28,8 @@ import {
   isQualifiedDevelopmentB11307Load,
 } from '../runtime-package/development-b11307.js';
 import { describeRuntime } from '../runtime-package/inventory.js';
+import { APPROVED_MEMORY_REPORTS } from '../runtime-package/trust-policy.js';
+import type { createDesktopRuntimeCatalog } from '../runtime-package/catalog-management.js';
 import type { InstalledPackage } from '../runtime-package/install.js';
 import { inspectGGUF, inspectGGUFHeader } from '../runtime/gguf.js';
 import { LIFECYCLE_POLICY, REMOTE_STARTUP_MS } from '../runtime/contracts.js';
@@ -82,19 +84,24 @@ export function developmentDesktopDependencies(
   diagnostic?: RuntimeDiagnostic,
   runtimeStore?: string,
   pairedBuild = false,
+  release?: ReturnType<typeof createDesktopRuntimeCatalog>,
 ) {
-  const report = DEVELOPMENT_MEMORY_REPORTS.find((entry) => entry.configuration.slots === 4);
-  if (!DEVELOPMENT_BUILD || !report) throw new Error('DEVELOPMENT_BUILD_REQUIRED');
+  const report = (release ? APPROVED_MEMORY_REPORTS : DEVELOPMENT_MEMORY_REPORTS).find(
+    (entry) => entry.configuration.slots === 4,
+  );
+  if (!release && (!DEVELOPMENT_BUILD || !report)) throw new Error('DEVELOPMENT_BUILD_REQUIRED');
+  if (!report) throw new Error('NEEDS_RESOURCE_EVIDENCE');
   const configuration = report.configuration,
     modelSha256 = report.modelSha256;
   const initialBase = base;
-  const runtimeChoices = runtimeStore
-    ? {
-        b11306: pairedBuild ? path.join(path.dirname(initialBase), 'b11306') : initialBase,
-        b11307: pairedBuild ? initialBase : path.join(path.dirname(initialBase), 'b11307'),
-        'b11306-vulkan': path.join(path.dirname(initialBase), 'b11306-vulkan'),
-      }
-    : undefined;
+  const runtimeChoices =
+    runtimeStore && !release
+      ? {
+          b11306: pairedBuild ? path.join(path.dirname(initialBase), 'b11306') : initialBase,
+          b11307: pairedBuild ? initialBase : path.join(path.dirname(initialBase), 'b11307'),
+          'b11306-vulkan': path.join(path.dirname(initialBase), 'b11306-vulkan'),
+        }
+      : undefined;
   const choiceFile =
     applicationData && runtimeChoices
       ? path.join(applicationData, 'runtime-choice.json')
@@ -113,14 +120,17 @@ export function developmentDesktopDependencies(
     base = runtimeChoices![selectedBuild];
   }
   let activeBuild = selectedBuild;
-  let artifact =
-    selectedBuild === 'b11306-vulkan'
+  let activeReleaseBackend: 'cuda' | 'vulkan' | undefined;
+  let artifact = release
+    ? ''
+    : selectedBuild === 'b11306-vulkan'
       ? VULKAN_DEVELOPMENT.artifact
       : pairedBuild
         ? B11307_DEVELOPMENT.artifact
         : report.artifact;
-  let packageId =
-    selectedBuild === 'b11306-vulkan'
+  let packageId = release
+    ? 'runtime-unselected'
+    : selectedBuild === 'b11306-vulkan'
       ? VULKAN_DEVELOPMENT.packageId
       : pairedBuild
         ? B11307_DEVELOPMENT.packageId
@@ -169,12 +179,20 @@ export function developmentDesktopDependencies(
         verificationState =
           stateBase === initialBase ? verificationRoot : path.join(verificationRoot, activeBuild);
       }
-      peerHost = createDesktopPeerHost(fork, applicationData, caller, {
-        bootstrap: pairedBuild || activeBuild === 'b11306-vulkan' ? base : path.join(base, 'peers'),
-        state: peerState,
-        ...(verificationState ? { verificationState } : {}),
-        ...(runtimeStore ? { runtimeStore } : {}),
-      })
+      peerHost = (async () => {
+        const selected = release && !activeReleaseBackend ? await release.selected() : undefined;
+        const backend =
+          activeReleaseBackend ?? (selected ? requireInstalledLive(selected).backend : 'none');
+        if (backend === 'cpu') throw Error('UNSUPPORTED_RUNTIME');
+        return createDesktopPeerHost(fork, applicationData, caller, {
+          bootstrap:
+            pairedBuild || activeBuild === 'b11306-vulkan' ? base : path.join(base, 'peers'),
+          state: peerState,
+          ...(verificationState ? { verificationState } : {}),
+          ...(runtimeStore ? { runtimeStore } : {}),
+          ...(release ? { releaseBackend: backend } : {}),
+        });
+      })()
         .then(async (host) => {
           if (overlay) host.attachOverlay?.(overlay);
           host.subscribe((reply) => {
@@ -293,6 +311,11 @@ export function developmentDesktopDependencies(
     return verification;
   }
   async function runtimeSelection() {
+    if (release) {
+      const installed = await release.selected();
+      if (!installed) throw new Error('MISSING_RUNTIME');
+      return describeRuntime(requireInstalledLive(installed));
+    }
     const capability = runtimeChoices ? await verifyChoice(selectedBuild) : await verifyRuntime();
     return describeRuntime(requireLivePackage(capability).inventory);
   }
@@ -316,9 +339,14 @@ export function developmentDesktopDependencies(
   }
   async function replaceRuntime() {
     if (peersClosed) throw Error('NOT_READY');
-    if (activeBuild === selectedBuild) return null;
-    const capability = await verifyChoice(selectedBuild);
-    const inventory = requireLivePackage(capability).inventory;
+    const selected = release ? await release.selected() : undefined;
+    if (release && !selected) throw Error('MISSING_RUNTIME');
+    if (!release && activeBuild === selectedBuild) return null;
+    const inventory = selected
+      ? requireInstalledLive(selected)
+      : requireLivePackage(await verifyChoice(selectedBuild)).inventory;
+    if (release && inventory.backend === 'cpu') throw Error('UNSUPPORTED_RUNTIME');
+    if (release && activeReleaseBackend === inventory.backend) return null;
     const hadPeerHost = !!peerHost;
     let resumeSharing: typeof sharing;
     if (peerHost) {
@@ -333,9 +361,14 @@ export function developmentDesktopDependencies(
     }
     peerHost = undefined;
     if (peersClosed) throw Error('NOT_READY');
-    pairedBuild = selectedBuild === 'b11307';
-    base = runtimeChoices![selectedBuild];
-    activeBuild = selectedBuild;
+    if (release) {
+      if (inventory.backend === 'cpu') throw Error('UNSUPPORTED_RUNTIME');
+      activeReleaseBackend = inventory.backend;
+    } else {
+      pairedBuild = selectedBuild === 'b11307';
+      base = runtimeChoices![selectedBuild];
+      activeBuild = selectedBuild;
+    }
     artifact = inventory.artifact;
     packageId = inventory.packageId;
     upstreamCommit = inventory.upstreamCommit;
@@ -408,6 +441,11 @@ export function developmentDesktopDependencies(
     }
   }
   const installClusterRuntime = async () => {
+    if (release) {
+      const installed = activeReleaseBackend && (await release.installed(activeReleaseBackend));
+      if (!installed) throw Error('MISSING_RUNTIME');
+      return installed;
+    }
     const candidate = path.join(base, 'candidate');
     installation ??= verifyRuntime().then((capability) =>
       installInRuntimeStore(
@@ -712,6 +750,7 @@ export function developmentDesktopDependencies(
     runtimeInventory,
     selectRuntime,
     activateRuntime,
+    ...(release ? { runtimeCatalog: release.command } : {}),
     enabled: true as const,
     expectedHash: report.modelSha256,
     packageId,

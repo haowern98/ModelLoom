@@ -10,6 +10,7 @@ import {
   shell,
   nativeTheme,
 } from 'electron';
+import squirrelStartup from 'electron-squirrel-startup';
 import { createDesktopNetwork } from '../../../../packages/core/src/network/desktop';
 import { decodeNetworkCommand, decodeNetworkReply } from '../shared/network';
 import { validateLoginUrl } from '../../../../packages/core/src/network/wire';
@@ -25,6 +26,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { runtimePaths } from './runtime-paths';
 import { createRuntimeController } from './runtime-controller';
+import { decodeCatalogCommand } from '../shared/runtime-catalog';
 import { watchDeviceChanges } from './device-changes';
 import type { RuntimeDependencies } from './runtime-controller';
 import { invalidateDeviceInventory, localDeviceSnapshot } from './local-device';
@@ -48,6 +50,7 @@ const pairedBuild = false;
 const locations = runtimePaths({
   packaged: app.isPackaged,
   development: PACKAGED_DEVELOPMENT,
+  release: PACKAGED_RELEASE,
   resources: process.resourcesPath,
   workspaceCore,
   pairedBuild,
@@ -60,11 +63,15 @@ if (locations?.chromium) {
   app.setPath('userData', locations.chromium);
   app.setPath('sessionData', locations.chromium);
 }
-const primaryInstance = developmentInstance(
-  app,
-  process.env,
-  () => BrowserWindow.getAllWindows()[0],
-);
+const installerEvent = PACKAGED_RELEASE && process.platform === 'win32' && squirrelStartup;
+if (installerEvent) {
+  quitConfirmed = true;
+  app.quit();
+}
+if (PACKAGED_RELEASE && process.platform === 'win32')
+  app.setAppUserModelId('com.squirrel.ModelLoom.ModelLoom');
+const primaryInstance =
+  !installerEvent && developmentInstance(app, process.env, () => BrowserWindow.getAllWindows()[0]);
 
 /** Creates the sandboxed renderer and sender-checked device/runtime bridge. */
 async function createWindow(): Promise<void> {
@@ -144,22 +151,19 @@ async function createWindow(): Promise<void> {
   };
   let tensorCache: ReturnType<typeof developmentDesktopDependencies>['tensorCache'] | undefined;
   let runtimeLog: ReturnType<typeof createRuntimeLog> | undefined;
-  // Only the explicit compiled development profile can select packaged resources.
+  // Packaged host selection is fixed at build time.
   if (locations) {
     const coreRoot = locations.core;
     try {
-      const module: unknown = await import(
-        pathToFileURL(path.join(coreRoot, 'out/hosts/development-desktop.js')).href
-      );
-      if (
-        !module ||
-        typeof module !== 'object' ||
-        !('developmentDesktopDependencies' in module) ||
-        typeof module.developmentDesktopDependencies !== 'function'
-      )
-        throw new Error('MISSING_RUNTIME');
-      const createDependencies =
-        module.developmentDesktopDependencies as typeof developmentDesktopDependencies;
+      const entry = PACKAGED_RELEASE ? 'release-desktop' : 'development-desktop';
+      const factory = PACKAGED_RELEASE
+        ? 'releaseDesktopDependencies'
+        : 'developmentDesktopDependencies';
+      const module = (await import(
+        pathToFileURL(path.join(coreRoot, 'out/hosts', `${entry}.js`)).href
+      )) as Record<string, unknown>;
+      if (typeof module[factory] !== 'function') throw new Error('MISSING_RUNTIME');
+      const createDependencies = module[factory] as typeof developmentDesktopDependencies;
       const logDirectory = path.join(locations.profile, 'logs');
       mkdirSync(logDirectory, { recursive: true });
       const diagnostics = createRuntimeLog(logDirectory);
@@ -239,10 +243,22 @@ async function createWindow(): Promise<void> {
           'Development runtime unavailable',
           'The bundled development core could not be loaded. Rebuild the development package; no workspace fallback is used.',
         );
+      if (app.isPackaged && PACKAGED_RELEASE)
+        dialog.showErrorBox('Runtime unavailable', 'The Windows release runtime could not start.');
     }
   }
   const windowController = createRuntimeController(dependencies, chatCaller);
   controller = windowController;
+  ipcMain.handle('modelloom:runtime-catalog', (event, input: unknown) => {
+    if (
+      event.sender !== window.webContents ||
+      event.senderFrame !== window.webContents.mainFrame ||
+      quitting
+    )
+      throw new Error('INVALID_CONTROL');
+    return windowController.runtimeCatalog(decodeCatalogCommand(input));
+  });
+  window.once('closed', () => ipcMain.removeHandler('modelloom:runtime-catalog'));
   ipcMain.handle(
     'modelloom:tensor-cache',
     createCacheHandler({

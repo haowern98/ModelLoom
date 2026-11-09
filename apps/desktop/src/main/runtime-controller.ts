@@ -7,6 +7,7 @@ import type { PeerReply } from '../shared/peers';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { decodeRuntimeCommand } from '../shared/runtime';
+import type { CatalogCommand, CatalogSnapshot } from '../shared/runtime-catalog';
 import type {
   RuntimeView,
   RuntimeDevice,
@@ -67,6 +68,7 @@ interface Host {
 /** Trusted main dependencies; none of these capabilities are renderer inputs. */
 interface ActivationDependencies {
   enabled: true;
+  runtimeCatalog?: (command: CatalogCommand) => Promise<CatalogSnapshot>;
   loadingStatus?: ModelLoadingStatus;
   peers?(input: unknown): Promise<PeerReply>;
   updatePeerHardware?(hardware: PeerHardware): Promise<void>;
@@ -390,6 +392,22 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
     historySelection = selection.catch(() => undefined);
     return selection;
   }
+  async function applyIdleRuntimeSelection() {
+    if (
+      !view.restoring &&
+      !importing &&
+      !planning &&
+      !clusterLoading &&
+      ['stopped', 'failed'].includes(view.phase)
+    ) {
+      try {
+        await applyRuntimeSelection();
+      } catch (error) {
+        // A remote model can still own this PC's GPUs; retain its package until it stops.
+        if (!(error instanceof Error && error.message === 'GPU_BUSY')) throw error;
+      }
+    }
+  }
   async function replaceRuntimeOwner() {
     if (!deps.enabled || !deps.activateRuntime) return;
     const selected = await deps.runtimeSelection?.();
@@ -685,6 +703,15 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
       })
     : undefined;
   return {
+    async runtimeCatalog(command: CatalogCommand) {
+      if (quitting || !deps.enabled || !deps.runtimeCatalog) return null;
+      const snapshot = await deps.runtimeCatalog(command);
+      if (command.action === 'select') {
+        runtimeSelection = Promise.resolve(snapshot.selected);
+        await applyIdleRuntimeSelection();
+      }
+      return snapshot;
+    },
     subscribePeers(listener: () => void): () => void {
       peerListeners.add(listener);
       return () => peerListeners.delete(listener);
@@ -962,20 +989,7 @@ export function createRuntimeController(deps: RuntimeDependencies, caller: strin
         if (!deps.enabled || !deps.selectRuntime) throw Error('NOT_READY');
         const selected = await deps.selectRuntime(command.build);
         runtimeSelection = Promise.resolve(selected);
-        if (
-          !view.restoring &&
-          !importing &&
-          !planning &&
-          !clusterLoading &&
-          ['stopped', 'failed'].includes(view.phase)
-        ) {
-          try {
-            await applyRuntimeSelection();
-          } catch (error) {
-            // A remote model can still own this PC's GPUs; retain its package until it stops.
-            if (!(error instanceof Error && error.message === 'GPU_BUSY')) throw error;
-          }
-        }
+        await applyIdleRuntimeSelection();
         return {
           ...result(),
           selectedRuntime: selected,

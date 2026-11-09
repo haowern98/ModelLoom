@@ -1,7 +1,11 @@
 import path from 'node:path';
 import { DEVELOPMENT_BUILD } from '../runtime-package/development-policy.js';
-import { createDevelopmentRuntimeVerifier } from '../runtime-package/verifier.js';
-import { installInRuntimeStore } from '../runtime-package/install.js';
+import {
+  createDevelopmentRuntimeVerifier,
+  createRuntimeVerifier,
+  requireLivePackage,
+} from '../runtime-package/verifier.js';
+import { findInstalledRuntime, installInRuntimeStore } from '../runtime-package/install.js';
 import type { InstalledPackage } from '../runtime-package/install.js';
 import { VerifiedRpcBackend } from './verified-rpc.js';
 import { exact } from '../hosts/control.js';
@@ -13,6 +17,7 @@ export interface PeerRuntimeBootstrap {
   readonly state: string;
   readonly verificationState?: string;
   readonly runtimeStore?: string;
+  readonly releaseBackend?: 'none' | 'cuda' | 'vulkan';
 }
 /** Retained parent configuration only. Signed package verification still applies
  * to every executable and dependency; a supplied path is never launch authority. */
@@ -22,7 +27,15 @@ export function decodePeerRuntimeBootstrap(value: unknown): PeerRuntimeBootstrap
   const keys = ['bootstrap', 'state'];
   if (Object.hasOwn(v, 'runtimeStore')) keys.push('runtimeStore');
   if (Object.hasOwn(v, 'verificationState')) keys.push('verificationState');
-  exact(v, keys);
+  const hasReleaseBackend = Object.hasOwn(v, 'releaseBackend');
+  exact(v, hasReleaseBackend ? [...keys, 'releaseBackend'] : keys);
+  const releaseBackend = v.releaseBackend;
+  if (
+    hasReleaseBackend &&
+    (!Object.hasOwn(v, 'runtimeStore') ||
+      (releaseBackend !== 'none' && releaseBackend !== 'cuda' && releaseBackend !== 'vulkan'))
+  )
+    throw Error('INVALID_CONTROL');
   for (const name of keys) {
     if (
       typeof v[name] !== 'string' ||
@@ -34,21 +47,45 @@ export function decodePeerRuntimeBootstrap(value: unknown): PeerRuntimeBootstrap
   }
   return {
     bootstrap: v.bootstrap as string,
+    ...(releaseBackend === 'none' || releaseBackend === 'cuda' || releaseBackend === 'vulkan'
+      ? { releaseBackend }
+      : {}),
     state: v.state as string,
     ...(typeof v.verificationState === 'string' ? { verificationState: v.verificationState } : {}),
     ...(typeof v.runtimeStore === 'string' ? { runtimeStore: v.runtimeStore } : {}),
   };
 }
 
-export function developmentPeerBackend(input: PeerRuntimeBootstrap): VerifiedRpcBackend {
-  if (!DEVELOPMENT_BUILD) throw Error('DEVELOPMENT_BUILD_REQUIRED');
-  const { bootstrap, state, runtimeStore, verificationState } = decodePeerRuntimeBootstrap(input);
-  const legacyRoot = path.join(state, 'peer-installed');
-  let installation: Promise<InstalledPackage> | undefined;
+export function desktopPeerBackend(input: PeerRuntimeBootstrap): VerifiedRpcBackend {
+  const { bootstrap, state, runtimeStore, verificationState, releaseBackend } =
+    decodePeerRuntimeBootstrap(input);
   const cache = createTensorCacheSettings(
     path.join(path.dirname(state), 'tensor-cache-settings.json'),
     path.join(path.dirname(state), 'tensor-cache-data'),
   );
+  if (releaseBackend !== undefined) {
+    if (!runtimeStore) throw Error('INVALID_CONTROL');
+    return new VerifiedRpcBackend(
+      async () => {
+        if (releaseBackend === 'none') throw Error('MISSING_RUNTIME');
+        ownershipBinding().privateDirectory(state);
+        const verified = await createRuntimeVerifier().verify(
+          path.join(runtimeStore, `catalog-${releaseBackend}-repository`),
+          path.join(state, `catalog-${releaseBackend}-verification`),
+        );
+        if (requireLivePackage(verified).inventory.backend !== releaseBackend)
+          throw Error('UNSUPPORTED_RUNTIME');
+        const installed = await findInstalledRuntime(verified, runtimeStore);
+        if (!installed) throw Error('MISSING_RUNTIME');
+        return installed;
+      },
+      cache.capture,
+      cache.reportAvailability,
+    );
+  }
+  if (!DEVELOPMENT_BUILD) throw Error('DEVELOPMENT_BUILD_REQUIRED');
+  const legacyRoot = path.join(state, 'peer-installed');
+  let installation: Promise<InstalledPackage> | undefined;
   return new VerifiedRpcBackend(
     async () => {
       installation ??= (async () => {

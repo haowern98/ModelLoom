@@ -76,6 +76,7 @@ export function fixedArguments(
   port: number,
   keyFile: string,
   alias: string,
+  backend: 'cpu' | 'cuda' | 'vulkan' = 'cuda',
 ): readonly string[] {
   validateEndpoint(model, port, keyFile, alias);
   const keys = [
@@ -129,7 +130,7 @@ export function fixedArguments(
     '--n-gpu-layers',
     String(cfg.gpuLayers),
     '--device',
-    cfg.gpuDevice ? 'CUDA0' : 'none',
+    cfg.gpuDevice ? (backend === 'vulkan' ? 'Vulkan0' : 'CUDA0') : 'none',
     '--split-mode',
     'none',
     '--main-gpu',
@@ -138,7 +139,7 @@ export function fixedArguments(
     cfg.cacheK,
     '--cache-type-v',
     cfg.cacheV,
-    // Quantized CUDA value cache uses the same explicit mode as the validated Bonsai run.
+    // Quantized GPU value cache uses the same explicit mode as the validated Bonsai run.
     ...(cfg.gpuDevice && cfg.cacheV === 'q8_0' ? ['--flash-attn', 'on'] : []),
     '--cache-ram',
     String(SERVER_CACHE_POLICY.promptCacheMiB),

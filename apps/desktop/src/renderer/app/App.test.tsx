@@ -3,10 +3,48 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import type { RuntimeCommand, RuntimeView } from '../../shared/runtime';
+import type { CatalogSnapshot } from '../../shared/runtime-catalog';
 
 afterEach(() => {
   delete window.modelLoomRuntime;
+  delete window.modelLoomRuntimeCatalog;
+  localStorage.removeItem('modelloom.runtimeSetup');
   localStorage.removeItem('modelloom.device-display-names');
+});
+
+it('routes first-launch runtime setup through the desktop catalog bridge', async () => {
+  const build = {
+    packageId: 'fixture-vulkan',
+    version: 'b11306',
+    artifact: 'fixture',
+    platform: 'win32',
+    arch: 'x64',
+    backend: 'vulkan',
+    upstreamCommit: 'a'.repeat(40),
+  } as const;
+  const snapshot: CatalogSnapshot = {
+    installed: [],
+    selected: null,
+    offers: [{ build, size: '1 MB' }],
+  };
+  const command = vi.fn<NonNullable<Window['modelLoomRuntimeCatalog']>['command']>((input) => {
+    if (input.action === 'install') snapshot.installed = [build];
+    if (input.action === 'select') snapshot.selected = build;
+    return Promise.resolve(structuredClone(snapshot));
+  });
+  window.modelLoomRuntimeCatalog = { command };
+  const user = userEvent.setup();
+  render(<App />);
+  const setup = await screen.findByRole('dialog', { name: 'Set up a runtime' });
+  await user.click(await within(setup).findByRole('button', { name: 'Download Vulkan' }));
+  expect(command.mock.calls.map(([input]) => input)).toEqual([
+    { action: 'read' },
+    { action: 'read' },
+    { action: 'install', backend: 'vulkan' },
+    { action: 'select', backend: 'vulkan' },
+  ]);
+  expect(setup).not.toBeInTheDocument();
+  expect(localStorage.getItem('modelloom.runtimeSetup')).toBe('done');
 });
 
 it('restores a live device display name after reopening without sending any runtime writes', async () => {

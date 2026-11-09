@@ -44,9 +44,9 @@ it('verifies real signatures and inventory hash through the local-only client', 
   expect(result.packageId).toBe('llama-cpu');
   expect(() => requireLivePackage(result)).toThrow('UNVERIFIED_PACKAGE');
 });
-it('rejects a forged capability and absent production trust root', () => {
+it('accepts the provisioned production root and rejects forged or development authority', () => {
   expect(() => requireLivePackage({ packageId: 'llama-cpu' })).toThrow('UNVERIFIED_PACKAGE');
-  expect(() => createRuntimeVerifier()).toThrow('MISSING_TRUST_ROOT');
+  expect(() => createRuntimeVerifier()).not.toThrow();
   expect(() => createDevelopmentRuntimeVerifier()).toThrow('DEVELOPMENT_BUILD_REQUIRED');
 });
 it('retains authority until signed expiry and rejects expiry or a backwards clock', async () => {

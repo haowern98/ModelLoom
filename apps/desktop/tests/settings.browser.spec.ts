@@ -152,7 +152,7 @@ test('settings exposes an honest runtime inventory dialog', async ({ page }) => 
     .getByRole('navigation', { name: 'Settings categories' })
     .getByRole('button', { name: 'Runtime', exact: true })
     .click();
-  await expect(page.getByRole('button', { name: 'Check for updates' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Check for updates' })).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: 'GGUF runtime' })).toHaveCount(0);
   const manage = page.getByRole('button', { name: 'Manage installed runtimes' });
   await manage.click();

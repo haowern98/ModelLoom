@@ -1,4 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { decodeCatalogCommand } from '../shared/runtime-catalog';
+
+contextBridge.exposeInMainWorld(
+  'modelLoomRuntimeCatalog',
+  Object.freeze({
+    command: (input: unknown) =>
+      ipcRenderer.invoke('modelloom:runtime-catalog', decodeCatalogCommand(input)),
+  }),
+);
 contextBridge.exposeInMainWorld(
   'modelLoomAppearance',
   Object.freeze({
