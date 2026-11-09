@@ -2,7 +2,7 @@
   <img src="docs/assets/modelloom-logo.png" alt="ModelLoom indigo woven-knot logo" width="56" height="56">
 </p>
 
-# ModelLoom
+<h1 align="center">ModelLoom</h1>
 
 <p align="center"><strong>Local and distributed LLM inference with llama.cpp</strong></p>
 
