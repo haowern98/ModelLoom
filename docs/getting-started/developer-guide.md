@@ -25,6 +25,8 @@ Start with the [User Guide](user-guide.md) for the visible workflows. Use this g
 
 ## Development setup
 
+To run the published Windows preview, follow the [installer setup in the User Guide](user-guide.md#install-modelloom). This section covers building and running from source.
+
 ### Prerequisites
 
 | Requirement                                                            | When you need it                                               |

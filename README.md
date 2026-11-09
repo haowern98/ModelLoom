@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/models-GGUF-555" alt="GGUF models">
   <img src="https://img.shields.io/badge/backend-CUDA-76b900" alt="CUDA backend">
   <img src="https://img.shields.io/badge/backend-Vulkan-a41e22" alt="Vulkan backend">
-  <img src="https://img.shields.io/badge/status-development%20preview-orange" alt="Development preview">
+  <img src="https://img.shields.io/badge/status-Windows%20preview-orange" alt="Windows preview">
   <a href="https://github.com/haowern98/ModelLoom/actions/workflows/checks.yml"><img src="https://github.com/haowern98/ModelLoom/actions/workflows/checks.yml/badge.svg?branch=main" alt="ModelLoom checks on main"></a>
 </p>
 
@@ -24,7 +24,9 @@
 
 ModelLoom is a Windows desktop app for running GGUF models on one GPU, splitting layers across multiple GPUs in one PC, or sharing the workload between two PCs over a private network.
 
-The Windows x64 development preview runs from source and requires verified runtime assets. Follow the [User Guide](docs/getting-started/user-guide.md) to start the app.
+[**Download for Windows x64**](https://github.com/haowern98/ModelLoom/releases/tag/v0.1.1)
+
+Run `ModelLoom-Setup-x64.exe`, then choose CUDA or Vulkan on first launch. ModelLoom downloads and verifies the selected llama.cpp runtime. The [User Guide](docs/getting-started/user-guide.md#install-modelloom) covers the checksum and Windows publisher warning.
 
 1. Import a GGUF file in **Models**.
 2. In **Cluster → Overview**, select the model and assign its layers to the GPUs you want to use.
