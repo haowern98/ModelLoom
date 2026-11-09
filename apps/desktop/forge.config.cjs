@@ -5,7 +5,14 @@ const path = require('node:path');
 const { prepareNetworkResource } = require('./scripts/network-resource.cjs');
 
 module.exports = {
-  packagerConfig: { asar: true, name: 'ModelLoom', executableName: 'ModelLoom' },
+  packagerConfig: {
+    asar: true,
+    name: 'ModelLoom',
+    executableName: 'ModelLoom',
+    ...(process.platform === 'win32'
+      ? { icon: path.join(__dirname, 'assets', 'modelloom.ico') }
+      : {}),
+  },
   makers: [new MakerZIP({}, ['win32', 'darwin', 'linux'])],
   hooks: {
     prePackage: (config, platform, arch) => {

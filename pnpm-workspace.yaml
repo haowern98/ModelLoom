@@ -10,6 +10,7 @@ overrides:
 allowBuilds:
   esbuild: true
   electron: true
+  electron-winstaller: true
 minimumReleaseAgeExclude:
   - '@electron-forge/cli@8.0.1'
   - '@electron-forge/core-utils@8.0.1'
