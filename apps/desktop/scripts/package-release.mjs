@@ -19,7 +19,10 @@ execFileSync(
     windowsHide: true,
   },
 );
-const stages = path.join(desktop, 'out/release-stages');
+const output = process.env.MODELLOOM_RELEASE_OUTPUT
+  ? path.resolve(process.env.MODELLOOM_RELEASE_OUTPUT)
+  : path.join(desktop, 'out/release');
+const stages = path.join(output, 'stages');
 await mkdir(stages, { recursive: true });
 const stage = path.join(await mkdtemp(path.join(stages, 'build-')), 'modelloom-release');
 await stageRelease(stage);
@@ -32,7 +35,7 @@ const { api, utils } = await import('@electron-forge/core');
 delete process.env.MODELLOOM_DEMO;
 utils.registerForgeConfigForDirectory(desktop, {
   ...ordinary,
-  outDir: path.join(desktop, 'out/release'),
+  outDir: output,
   packagerConfig: { ...ordinary.packagerConfig, extraResource: [stage] },
   makers: [
     new MakerSquirrel({

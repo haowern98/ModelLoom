@@ -1,7 +1,7 @@
 {
   "name": "@modelloom/desktop",
   "productName": "ModelLoom",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "ModelLoom desktop foundation and Models demo",
   "private": true,
   "main": ".vite/build/index.cjs",
