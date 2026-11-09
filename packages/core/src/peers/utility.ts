@@ -8,7 +8,7 @@ import type { Duplex } from 'node:stream';
 import { decodeClusterDevice } from '../cluster/device-id.js';
 import { localReservationServer } from './local-reservation-channel.js';
 import type { GpuReservation } from './reservations.js';
-import { decodePeerRuntimeBootstrap, developmentPeerBackend } from './development-runtime.js';
+import { decodePeerRuntimeBootstrap, desktopPeerBackend } from './development-runtime.js';
 import type { PeerRuntimeBootstrap } from './development-runtime.js';
 import { servePeerResources } from './resource-channel.js';
 import type { PeerResources } from './resources.js';
@@ -45,7 +45,7 @@ export function runPeerUtility(
     root,
     caller,
     runtime,
-  ) => PeerOwner.open(root, caller, runtime ? developmentPeerBackend(runtime) : undefined),
+  ) => PeerOwner.open(root, caller, runtime ? desktopPeerBackend(runtime) : undefined),
 ): void {
   let preparation: Promise<Service> | undefined;
   let unsubscribe: (() => void) | undefined;
