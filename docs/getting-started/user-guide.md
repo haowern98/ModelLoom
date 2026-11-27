@@ -83,6 +83,8 @@ Use two ModelLoom PCs on a reachable private LAN address or an already configure
 
 When the worker is added, both device cards appear on the canvas. The **Layer assignment** section lists the ranges on each device. In this example, Node 2 has layers 0–31 and Node 1 has layers 32–64. The overview shows the planned ranges before loading.
 
+After a GPU is replaced or its peer disconnects, **Unavailable GPU assignments** shows the retained layer ranges. Reconnect the device to restore availability, or choose **Remove assignment** for an obsolete GPU. Removal edits the draft and supports **Undo** and **Redo**; choose **Save** to persist it. Current GPU ranges stay intact. **Reset to default** starts automatic placement planning and does not clear unavailable assignments.
+
 <p align="center">
   <img src="../screenshots/cluster-overview.png" alt="Cluster Overview showing the planned layer split across Node 1 and Node 2">
 </p>
