@@ -52,6 +52,7 @@ void probe_rpc_command(SOCKET socket, uint8_t command, void *input,
 int probe_rpc(Pipe &pipe, bool crashOwner = false, bool instance = false,
               bool relay = false, bool cuda = false) {
   std::unique_ptr<modelloom::tensor_cache::pinned_directory> cacheDirectory;
+  std::unique_ptr<modelloom::cuda_jit_cache::directory> jitCache;
   ProbeHandle cacheRoot;
   bool cacheUnavailable = false;
   wchar_t cachePath[4096]{};
@@ -70,6 +71,17 @@ int probe_rpc(Pipe &pipe, bool crashOwner = false, bool instance = false,
       modelloom::apply_cache_policy(nullptr, 0);
     }
   }
+#ifndef MODELLOOM_VULKAN_HOST
+  if (cuda) {
+    try {
+      jitCache = std::make_unique<modelloom::cuda_jit_cache::directory>(
+          std::filesystem::path(probe_image()).parent_path());
+    } catch (const std::exception &) {
+      // Optional acceleration failure must retain the original restricted,
+      // disk-cache-disabled worker. Never fall back to a global cache path.
+    }
+  }
+#endif
   WSADATA data{};
   check(static_cast<DWORD>(WSAStartup(MAKEWORD(2, 2), &data)), "rpc-winsock");
   struct CleanupWinsock {
@@ -151,7 +163,8 @@ int probe_rpc(Pipe &pipe, bool crashOwner = false, bool instance = false,
     FwpmTransactionAbort0(guard.engine.value);
     throw;
   }
-  ProbeContainment containment(guard.safeToRemove, cacheDirectory != nullptr);
+  ProbeContainment containment(guard.safeToRemove, cacheDirectory != nullptr ||
+                                                       jitCache != nullptr);
   if (crashOwner) {
     containment.job.close();
     containment.job.value = recoveryJob.value;
@@ -168,16 +181,18 @@ int probe_rpc(Pipe &pipe, bool crashOwner = false, bool instance = false,
   guard.safeToRemove = false;
   probe_launch(
       worker,
-      std::wstring(cuda
+      std::wstring(
+          cuda
 #ifdef MODELLOOM_VULKAN_HOST
-                       ? L"--host 127.0.0.1 --device Vulkan0 --threads 1 --port "
+              ? L"--host 127.0.0.1 --device Vulkan0 --threads 1 --port "
 #else
-                       ? L"--host 127.0.0.1 --device CUDA0 --threads 1 --port "
+              ? L"--host 127.0.0.1 --device CUDA0 --threads 1 --port "
 #endif
-                       : L"--host 127.0.0.1 --device CPU --threads 1 --port ") +
+              : L"--host 127.0.0.1 --device CPU --threads 1 --port ") +
           std::to_wstring(port),
       {unused.value, logs.write.value}, containment.job.value, true, true,
-      desktop.name, true, cuda, logs.write.value, cacheRoot.value);
+      desktop.name, true, cuda, logs.write.value, cacheRoot.value,
+      jitCache.get());
   logs.write.close();
   if (!probe_restricted(worker.process.value))
     throw Failure{"rpc-not-restricted", ERROR_ACCESS_DENIED};
@@ -214,6 +229,7 @@ int probe_rpc(Pipe &pipe, bool crashOwner = false, bool instance = false,
   if (relay) {
     pipe.report(
         std::string("{\"phase\":\"relay-ready\",\"workerRestricted\":true,") +
+        "\"cudaJitCache\":\"" + (jitCache ? "enabled" : "disabled") + "\"," +
         (cacheUnavailable ? "\"cacheError\":\"CACHE_LOCATION_UNAVAILABLE\","
                           : "") +
         "\"port\":" + std::to_string(port) + "}");
