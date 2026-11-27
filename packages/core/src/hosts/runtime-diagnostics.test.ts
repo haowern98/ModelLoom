@@ -47,6 +47,32 @@ it('retains fragmented native errors and excludes prompts, generated text and cr
   ]);
 });
 
+it('records numeric native prompt and generation timing evidence after readiness', () => {
+  const lines: string[] = [];
+  const native = nativeRuntimeDiagnostics((_source, text) => lines.push(text), []);
+  native.push(
+    '3.25.087.100 I slot print_timing: id  3 | task 42 | prompt eval time =   45068.76 ms /   333 tokens ( 135.34 ms per token, 7.39 tokens per second)\n' +
+      'slot print_timing: id 3 | task 42 | eval time = 4172.06 ms / 39 tokens (109.79 ms per token, 9.11 tokens per second)\n',
+    true,
+  );
+  expect(lines).toEqual([
+    'native.timing slot=3 task=42 phase=prompt tokens=333 ms=45068.76',
+    'native.timing slot=3 task=42 phase=generation tokens=39 ms=4172.06',
+  ]);
+});
+
+it('does not forward prompt-like timing text, invalid numbers or arbitrary timing suffixes', () => {
+  const lines: string[] = [];
+  const native = nativeRuntimeDiagnostics((_source, text) => lines.push(text), []);
+  native.push(
+    'user prompt: slot print_timing: id 0 | task 1 | prompt eval time = 1 ms / 1 tokens (1 ms per token, 1 tokens per second)\n' +
+      'slot print_timing: id 0 | task 1 | prompt eval time = NaN ms / 1 tokens (1 ms per token, 1 tokens per second)\n' +
+      'slot print_timing: id 0 | task 1 | prompt eval time = 1 ms / 1 tokens (1 ms per token, 1 tokens per second) private answer\n',
+    true,
+  );
+  expect(lines).toEqual([]);
+});
+
 it('forwards only identified core diagnostics through fragmented utility pipes', () => {
   const stdout = new PassThrough(),
     stderr = new PassThrough();
