@@ -44,6 +44,7 @@ async function editCard(
 
 const uuid = 'GPU-12345678-1234-1234-1234-123456789abc';
 const secondUuid = 'GPU-87654321-4321-4321-4321-cba987654321';
+const replacedPeerUuid = 'GPU-33333333-3333-4333-8333-333333333333';
 const peerId = `peer:${'b'.repeat(64)}`;
 const model = {
   ...createDemoLibrary().models[0]!,
@@ -647,6 +648,125 @@ it('saves a bottom-edge connection with assignments and restores both after a ne
     database.close();
   }
 });
+it('keeps replaced peer GPU assignments visible until explicit removal, with undo and redo', async () => {
+  const database = new DatabaseSync(':memory:');
+  const store = new ModelConfigurationStore(
+    database,
+    () => {},
+    () => true,
+    capabilities,
+    record().load,
+  );
+  const controller = new ClusterController(store, 'window', { cacheK: 'q8_0', cacheV: 'q8_0' });
+  await store.recordImport(record().modelId, 123, {
+    modelId: record().modelId,
+    file: 'E:\\Models\\fixture.gguf',
+    name: model.name,
+    size: '4 GB',
+    sizeBytes: 4000,
+    modifiedMs: 1,
+    architecture: 'llama',
+    contextLimit: 32768,
+    blockCount: 65,
+    quantization: 'Q4_K_M',
+    parameters: '4B',
+  });
+  const stalePeerGpu = `${peerId}:${replacedPeerUuid}`;
+  const draft = store.cluster.writeDraft(`model:${record().modelId}`, null, {
+    modelId: record().modelId,
+    load: { defaults: record().load, cacheK: 'q8_0', cacheV: 'q8_0' },
+    runs: [
+      { uuid: stalePeerGpu, first: '0', last: '31' },
+      { uuid, first: '32', last: '64' },
+    ],
+    canvas: {
+      positions: { local: { column: 0, row: 0 }, [peerId]: { column: 1, row: 0 } },
+      links: [{ from: 'local', to: peerId, edge: 'right' }],
+    },
+  });
+  const saved = store.cluster.saveDraft(draft.key, draft.revision, 'Replaced GPU allocation');
+  if (!saved.ok) throw Error('fixture save failed');
+  const command = vi.fn<ClusterBridge['command']>((input) => controller.command('window', input));
+  const run = vi.fn();
+  const user = userEvent.setup({ delay: null });
+  const view = render(<Harness bridge={{ command }} onRun={run} remote blockCount={65} />);
+  try {
+    await user.click(await screen.findByRole('button', { name: 'Replaced GPU allocation' }));
+    await screen.findByRole('article', { name: 'Observed worker' });
+    const unavailable = () => screen.getByRole('region', { name: 'Unavailable GPU assignments' });
+    const unavailableRow = () => within(unavailable()).getByText('Layers 0–31');
+    const removeStaleGpu = () =>
+      within(unavailable()).getByRole('button', {
+        name: /^Remove assignment for unavailable GPU/u,
+      });
+    const peerRange = () =>
+      screen.getByRole('button', { name: 'Edit layers for Observed worker GPU' });
+    const localRange = () =>
+      screen.getByRole('button', { name: 'Edit layers for Observed device GPU' });
+
+    await editCard(user, 'Observed worker', 'GPU', '0', '31');
+    expect(unavailableRow()).toBeVisible();
+    expect(removeStaleGpu()).toHaveAccessibleName(
+      `Remove assignment for unavailable GPU ${stalePeerGpu.slice(-8)}`,
+    );
+    expect(peerRange()).toHaveTextContent('0–31');
+    expect(localRange()).toHaveTextContent('32–64');
+
+    view.rerender(<Harness bridge={{ command }} onRun={run} remote={false} blockCount={65} />);
+    expect(within(unavailable()).getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.queryByRole('article', { name: 'Observed worker' })).not.toBeInTheDocument();
+    view.rerender(<Harness bridge={{ command }} onRun={run} remote blockCount={65} />);
+    expect(within(unavailable()).getAllByRole('listitem')).toHaveLength(1);
+    expect(peerRange()).toHaveTextContent('0–31');
+    expect(localRange()).toHaveTextContent('32–64');
+
+    await user.click(screen.getByRole('button', { name: 'Save configuration' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Some model layers are assigned more than once. Remove the overlapping assignments, including any unavailable GPUs.',
+    );
+    expect(store.cluster.read(saved.configuration.id)?.runs).toEqual([
+      { uuid: stalePeerGpu, first: 0, last: 31 },
+      { uuid, first: 32, last: 64 },
+    ]);
+    expect(unavailableRow()).toBeVisible();
+
+    await user.click(removeStaleGpu());
+    expect(screen.getByRole('button', { name: 'Save configuration' })).toHaveFocus();
+    expect(
+      screen.queryByRole('region', { name: 'Unavailable GPU assignments' }),
+    ).not.toBeInTheDocument();
+    expect(peerRange()).toHaveTextContent('0–31');
+    expect(localRange()).toHaveTextContent('32–64');
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(unavailableRow()).toBeVisible();
+    expect(peerRange()).toHaveTextContent('0–31');
+    expect(localRange()).toHaveTextContent('32–64');
+    await user.click(screen.getByRole('button', { name: 'Redo' }));
+    expect(
+      screen.queryByRole('region', { name: 'Unavailable GPU assignments' }),
+    ).not.toBeInTheDocument();
+    expect(peerRange()).toHaveTextContent('0–31');
+    expect(localRange()).toHaveTextContent('32–64');
+
+    await user.click(screen.getByRole('button', { name: 'Save configuration' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Save configuration' })).toBeDisabled(),
+    );
+    expect(store.cluster.read(saved.configuration.id)?.runs).toEqual(
+      expect.arrayContaining([
+        { uuid: `${peerId}:${secondUuid}`, first: 0, last: 31 },
+        { uuid, first: 32, last: 64 },
+      ]),
+    );
+    expect(store.cluster.read(saved.configuration.id)?.runs).toHaveLength(2);
+    expect(command.mock.calls.some(([input]) => input.action === 'auto-place')).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+  } finally {
+    view.unmount();
+    await controller.close();
+    database.close();
+  }
+});
 it('uses durable core storage for Save-only validation, named selection and restart restoration', async () => {
   const database = new DatabaseSync(':memory:');
   const store = new ModelConfigurationStore(
@@ -688,7 +808,7 @@ it('uses durable core storage for Save-only validation, named selection and rest
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Save$/u }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Use whole numbers and cover all model layers exactly once, without gaps or overlaps.',
+      'Some model layers are unassigned. Cover every model layer exactly once.',
     );
     await user.click(screen.getByRole('button', { name: 'Dismiss notification' }));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
