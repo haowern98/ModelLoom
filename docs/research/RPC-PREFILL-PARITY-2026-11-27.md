@@ -82,7 +82,7 @@ and passed with both ordinary and elevated test hosts. The four worker lifecycle
 probes and stock CPU RPC instance-isolation/teardown probe passed. These checks
 do not exercise the CUDA driver's own cache implementation.
 
-An unsigned `b11306-dev16-cuda-jit-cache-v1` candidate was prepared: only
+An unsigned `b11306-dev16-cuda-jit-tensor-cache-v1` candidate was prepared: only
 `ModelLoom-peer-host.exe` changed; all 41 other files were checked byte-identical
 to the verified dev15 peer package. No signing, installation or activation was
 performed. Live acceptance still requires actual cache creation/reuse through
@@ -140,3 +140,42 @@ NVIDIA documents the disk-cache switch in its
 [CUDA environment variables](https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/environment-variables.html)
 and the PTX/native-kernel distinction in its
 [Blackwell compatibility guide](https://docs.nvidia.com/cuda/blackwell-compatibility-guide/).
+
+## Activation attempt — 2026-11-28
+
+The user authorized development signing, installation on both PCs, and the
+matched GPU comparison. Preflight rehashed all 42 candidate files: only the
+helper differs from dev15. The version label was corrected to
+`b11306-dev16-cuda-jit-tensor-cache-v1` before signing so the existing
+`-tensor-cache-v1` capability gate continues to enable weight-transfer caching.
+The two verified-RPC test files passed all 27 tests; the preparation script's
+targeted formatting check and `git diff --check` passed.
+
+Signing stopped with `INVALID_CUSTODY`. The expected development publisher
+directory is empty; no matching development key files were found in the checked
+local profile/project locations, and PTSS has no development publisher public
+root at the expected location. The user confirmed that no backup is available.
+The trusted development root remains unexpired, but its public metadata cannot
+replace the missing private signing keys. The existing production publisher has
+a different trust root and was not used. No candidate was signed, installed, or
+activated. Mining was left running on both PCs; no GPU comparison was started.
+
+### Proposed recovery, awaiting separate authorization
+
+Retire the old development signing identity explicitly and retain its public
+metadata, existing installations, verification state, and clock floors. Use the
+existing publisher's initialization procedure to create six fresh development
+keys with the established role separation and two-of-three root threshold.
+Verify and record the new public-root fingerprint, then provision it as the
+development-only build input on both PCs. Do not change production trust or
+keys. The verifier already namespaces cached metadata by the root fingerprint;
+there is no need to erase the old trust cache or bypass rollback checks.
+
+Re-sign the unchanged coordinator inventory and the inspected dev16 peer
+inventory under the new development root into new repositories. Verify signatures,
+file inventories and rejection cases before promoting those public assets to
+the normal development bootstraps. Restart through the supported development
+launcher and verify the installed helper. Only then pause mining under bounded
+leases, run cold/warm/fresh-worker comparisons with unchanged inference settings,
+and restore mining in cleanup. The prior approval to use the existing signing
+key does not silently authorize this replacement of the development trust root.
