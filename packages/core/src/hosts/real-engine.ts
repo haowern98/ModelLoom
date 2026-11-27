@@ -553,6 +553,7 @@ export function realEngineAdapter(
                   chatTransports.set(
                     owned,
                     createOwnedChatTransport({
+                      diagnostic: log,
                       speculativeProposer: !!(
                         cluster?.load.speculation?.enabled && cluster.load.speculation.proposer
                       ),
