@@ -67,7 +67,7 @@ try {
   }
   const inventory = parseInventory({
     ...previous,
-    version: 'b11306-dev16-cuda-jit-cache-v1',
+    version: 'b11306-dev16-cuda-jit-tensor-cache-v1',
     files,
   });
   await writeFile(path.join(output, 'inventory.json'), JSON.stringify(inventory, null, 2) + '\n', {
