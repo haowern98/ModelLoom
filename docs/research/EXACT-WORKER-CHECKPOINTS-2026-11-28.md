@@ -56,6 +56,16 @@ Retained generated artifacts are ignored build outputs:
 - packages/core/out/exact-checkpoints/gguf-evidence.json
 - packages/core/out/activation/b11306-exact-checkpoints/deployment.json
 
-The dev17 runtime version b11306-dev17-exact-checkpoints-tensor-cache-v1 was installed and verified, and its bootstrap was promoted. The deployment receipt records peerRuntimeChanged=false and nativeActivated=false. The previous source coordinator and trust metadata were preserved in packages/core/out/exact-checkpoints/deployment-backup. The app has since started a dev17 llama-server process (PID 12004), but the manual load, prompt, and log smoke check is still pending. No prompt result or application integration result is claimed here.
+The dev17 runtime version b11306-dev17-exact-checkpoints-tensor-cache-v1 was installed and verified, and its bootstrap was promoted. The installation-time deployment receipt records peerRuntimeChanged=false and nativeActivated=false. The previous source coordinator and trust metadata were preserved in packages/core/out/exact-checkpoints/deployment-backup. No verifier history or clock floor was erased.
+
+## ModelLoom application smoke check
+
+After the user's normal development-app restart, the app started dev17 llama-server PID 12004. Its loaded llama-common.dll, llama-server-impl.dll, and llama.dll were independently hashed against the signed inventory. The user-copied runtime diagnostics record native.ready at 06:05:50 MYT on 2026-11-28, context 7,680, four slots, speculation off, and the intended remote/local GPU order.
+
+The new-chat request started at 06:08:50 and completed at 06:10:15 with reason=STOP. Its native counters were prompt_n=24, prompt_ms=3450.662, cache_n=0: 3.451 seconds of uncached prompt processing, or about 6.955 tok/s. Both miners remained paused during that request; restoration began afterward. Both miners were then confirmed running and both temporary restoration guards were removed.
+
+The earlier user-supplied application capture recorded 24 tokens in 7,632.76 ms. The new observation is about 2.21 times faster, but those app captures were not a controlled pair: the earlier capture had mining restored. The new isolated device-runtime fresh case took 1,470.889 ms; the app observation is 1,979.773 ms longer. That difference is not an isolated transport measurement, so its exact attribution remains open. The application smoke check establishes activation and successful completion, while exact full-output equality is established by the four matched native comparisons above. The app log alone does not contain answer/reasoning hashes.
+
+The retained app artifacts are packages/core/out/exact-checkpoints/app-smoke/loaded-modules.json, user-counters.json, and cleanup.json. The later activation receipt is packages/core/out/activation/b11306-exact-checkpoints/activation.json; it supplements the installation-time receipt rather than rewriting that historical state.
 
 These results cover the tested model, hardware split, settings, and scenarios only. They do not prove exactness for other models or platforms, or establish overall GPU-driver parity. The device-checkpoint prompt-prefill improvement also does not remove host-side prompt-cache transfer.
