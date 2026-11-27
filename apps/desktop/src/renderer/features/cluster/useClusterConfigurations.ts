@@ -52,6 +52,31 @@ function sameEdit(left: ClusterEdit, right: ClusterEdit): boolean {
 function hasAssignments(edit: ClusterEdit): boolean {
   return edit.runs.some((run) => Boolean(run.first.trim() || run.last.trim()));
 }
+/** Preserve the owner's validation category instead of reporting every failure as bad coverage. */
+function assignmentError(issues: readonly AssignmentIssue[], runs: readonly RawGpuRun[]): string {
+  const codes = new Set(issues.map((issue) => issue.code));
+  if (codes.has('invalid-load'))
+    return 'Check the model load settings, including context length, before saving.';
+  if (codes.has('invalid-integer')) return 'Use whole numbers for the first and last layer.';
+  if (codes.has('out-of-bounds'))
+    return 'A layer range is outside the model layers. Check its first and last layers.';
+  if (codes.has('reversed')) return 'The last layer must be at least the first layer.';
+  if (codes.has('unsupported-block-count'))
+    return 'Model layer information is unavailable or unsupported. Re-import the model before saving.';
+  if (codes.has('invalid-runs'))
+    return 'The GPU assignments are invalid. Review the assigned devices and layer ranges.';
+  // Coverage is checked only after the owner has accepted every individual range.
+  const ordered = runs
+    .map((run) => ({ first: Number(run.first), last: Number(run.last) }))
+    .sort((a, b) => a.first - b.first);
+  let last = -1;
+  for (const run of ordered) {
+    if (run.first <= last)
+      return 'Some model layers are assigned more than once. Remove the overlapping assignments, including any unavailable GPUs.';
+    last = run.last;
+  }
+  return 'Some model layers are unassigned. Cover every model layer exactly once.';
+}
 /** Assignment edits stay in memory; Save, planning and Run explicitly synchronize a session draft. */
 export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
   const [snapshot, setSnapshot] = useState<{
@@ -293,8 +318,7 @@ export function useClusterConfigurations(bridge: ClusterBridge | undefined) {
       if (sequence === entry.sequence) entry.issues = reply.issues;
       if (reply.issues.length) {
         if (sequence !== entry.sequence) return;
-        entry.error =
-          'Use whole numbers and cover all model layers exactly once, without gaps or overlaps.';
+        entry.error = assignmentError(reply.issues, entry.raw.runs);
         refresh();
         return;
       }
