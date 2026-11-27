@@ -10,14 +10,15 @@ persistent NVIDIA cache can reuse these compiled kernels.
 
 Changing only that environment flag on the stock remote worker reproduced most
 of the observed gap. These are individual measurements, not a throughput target
-or a statistically repeated benchmark. No post-fix ModelLoom measurement has
-been made yet.
+or a statistically repeated benchmark. No post-fix ModelLoom measurement had
+been made at the time of this initial report; later UI observations are recorded
+below.
 
-| Fresh-process run, same short input | Input tokens | Prompt processing | First token | Output tokens |
-| --- | ---: | ---: | ---: | ---: |
-| Stock, default persistent JIT cache | 11 | 7,458.276 ms / 1.475 tok/s | 7,468.343 ms | 253 |
-| Stock, remote `CUDA_CACHE_DISABLE=1` | 11 | 31,875.793 ms / 0.345 tok/s | 31,883 ms | 253 |
-| ModelLoom, existing authenticated path | same input | 0.320 tok/s | not independently captured | 253 |
+| Fresh-process run, same short input    | Input tokens |           Prompt processing |                First token | Output tokens |
+| -------------------------------------- | -----------: | --------------------------: | -------------------------: | ------------: |
+| Stock, default persistent JIT cache    |           11 |  7,458.276 ms / 1.475 tok/s |               7,468.343 ms |           253 |
+| Stock, remote `CUDA_CACHE_DISABLE=1`   |           11 | 31,875.793 ms / 0.345 tok/s |                  31,883 ms |           253 |
+| ModelLoom, existing authenticated path |   same input |                 0.320 tok/s | not independently captured |           253 |
 
 ModelLoom's reported rate implies approximately 34.4 seconds for the same
 11-token prompt. Its native duration was not independently captured in this
@@ -211,4 +212,136 @@ remains on. The source launch guard requires a normal Windows terminal outside
 Codex; touching the main source did not restart the existing apps because hot
 restart is not enabled. The user was asked to restart with `npm run electron dev`
 from each normal development checkout. No alternate launcher or profile override
-was used.
+was used. This is the state before the later UI and checkpoint-isolation checks
+recorded below.
+
+## Follow-up UI and checkpoint evidence — 2026-11-28
+
+After the normal development-app restart, two ModelLoom UI completions were
+captured. Both returned 785 output tokens and matched the direct stock warm
+reference's answer and reasoning SHA-256 hashes. These are individual
+observations, not a repeated benchmark or a general equivalence proof.
+
+| Run                                          | Prompt count and prefill                                                                                                                                  | Completion evidence                                                                                                                                                  |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stock, two context checkpoints, bare request | 24 tokens; 7,273.408 ms / 3.29969 tok/s                                                                                                                   | 785 tokens; content `d870d8a4ea0542f90eceab17436df2b72750caf479e2b3b4c1151d7d00b3c988`; reasoning `18f4b84e1a4aceda0c1fc4bb590f3c400399eab7c5848be1bf27f2ff704d6d65` |
+| ModelLoom UI completion 1                    | 2.650849 tok/s; 24-token denominator inferred from the matching request/output; about 9,053.703 ms derived from that rate, not observed by a native timer | 785 tokens; both hashes match the stock reference                                                                                                                    |
+| ModelLoom UI cached repeat                   | 0.3422303 tok/s as captured; exact `prompt_n` was not retained, so no prompt duration or 24-token comparison is inferred                                  | 785 tokens; both hashes match the stock reference                                                                                                                    |
+
+The stock desktop UI log separately records a 346-token prompt and 15,824.21 ms
+of prompt evaluation (21.87 tok/s). CPU-only `/apply-template` plus `/tokenize`
+on the restored stock server confirmed the exact same user message renders to
+24 tokens without built-in tools and 346 tokens with the pinned `get_datetime`
+and `get_info` UI tool definitions. This count is measured, not inferred. The
+two checkpoint-created log intervals were 6,187.555 ms and 7,544.762 ms,
+13,732.317 ms combined. Their boundaries include surrounding checkpoint
+bookkeeping; they are not isolated serialization, transfer, or CPU-only costs.
+The longer rendered UI prompt is not directly comparable with the bare
+24-token request.
+
+The retained ignored evidence is under
+`packages/core/out/rpc-prefill-live-20261128/`: `warm-repeat-results.json`,
+`stock-warm-emperor.json`, `checkpoint-isolation/result.json`,
+`checkpoint-isolation/coordinator-args.json`, `kernel-miss-evidence.json`, and
+`template-token-comparison.json`. The stock desktop-UI log is
+`packages/core/out/stock-bonsai-manual-20261128-032107/stock-coordinator.stderr.log.before-repeat`.
+
+### Checkpoint diagnostic and correctness boundary
+
+For the same bare request hash
+`09e924ebd8d5e76975b69abf2a23713db07008e67a37cd59f0b97377d92b1c05`, the
+stock coordinator run with `--ctx-checkpoints 0` processed 24 prompt tokens in
+411.967 ms (58.25709 tok/s), versus 7,273.408 ms with two checkpoints. It
+produced 915 completion tokens, with content hash
+`7505c67ae573487f5224e1969c785fe84bdeb151661f5a9912163a26ec7aad0c` and
+reasoning hash
+`ab44a5cfe9cfd120b8dafc2f1b8a14aa019d20cf3c7b93f35660aa7e263e3ea8`; these
+differ from the 785-token reference. The zero-checkpoint result is diagnostic
+only and is not a quality-preserving fix.
+
+At pinned upstream commit
+`4f31296a907d73f3409f720429bcf31111615d77`, the checkpoint path crosses
+`tools/server/server-context.cpp:2344`, `common/common.cpp:2296-2300`,
+`src/llama-memory-hybrid.cpp:190-194`, `src/llama-memory-recurrent.cpp:904-956`, `src/llama-context.cpp:2669-2672`, and
+`ggml-rpc.cpp:743-749`. The recurrent-state checkpoint measured 598.5 MiB
+across four sequence cells (149.625 MiB per sequence); about 79 MiB was
+remote. The current `ON_DEVICE` path has one `mem_storage[seq_id]` slot and
+overwrites the prior snapshot, so it is not a safe two-checkpoint
+implementation.
+
+Disabling context checkpoints also changes batch boundaries in
+`server-context.cpp:3530-3558`, which changes floating-point arithmetic. The
+exact first divergent operation has not been identified. The large prefill
+change therefore cannot be treated as an inference-equivalent optimization.
+
+The earlier slow case reported 1.88487 tok/s; its 24-token denominator and
+12,732.94 ms prompt duration are inferred. A private JIT module was written
+during that request at 2026-11-27 19:17:38.6216719 UTC and was byte-identical
+to a 5,367,427-byte module already present in the stock cache. The approximately
+3.68-second difference from the first UI capture is unpaired and may reflect
+different worker/cache state; the evidence does not fully attribute it to JIT
+work. Application transport overhead remains unisolated, so these results make
+no ModelLoom/stock parity claim.
+
+Both miners were restored and their actual processes checked. The
+`--ctx-checkpoints 0` diagnostic coordinator was stopped. The stock stage was
+restored with two context checkpoints and reported healthy on port 8080; no
+benchmark was run on that restored stage with mining active. No source or
+persistent runtime-setting changes were made for these checks.
+
+### Native prompt counters for the next matched comparison
+
+The next diagnostic change retains `prompt_n`, `prompt_ms`, and optional
+`cache_n` from the owned native SSE response and emits one numeric summary only
+after valid stream completion. It does not change renderer events, request
+settings, model execution, checkpoint policy, or output. The callback excludes
+native text and cannot fail inference if its diagnostic sink throws. This
+avoids inferring evaluated token counts from a displayed rate; it does not
+itself optimize prefill. Live verification requires the normal development-app
+restart so the running main process loads the rebuilt core modules.
+
+The next adjacent stock capture (`adjacent-stock-emperor.json`) reused an
+existing checkpoint: native counters were `prompt_n=4`, `cache_n=20`, and
+`prompt_ms=10643.962` (0.3757999 tok/s). Its request and output hashes match the
+24-token bare reference. The native log records roughly 3.77 seconds restoring
+the recurrent checkpoint and 6.44 seconds saving its replacement. This is a
+cached-repeat observation, not the requested fresh-slot comparison, and must
+not be substituted for the uncached 24-token baseline. It directly demonstrates
+why cached prompt rates can be very low even in stock RPC. An earlier request
+on that slot had been cancelled; its provenance was not established by this
+capture. Both owned stock processes were stopped afterward for the ModelLoom
+test.
+
+The user restarted the local app with the new counters. Native Windows Computer
+Use then became unavailable (the tool inventory exposed Chrome only), so the
+ModelLoom request and log-copy step were handed to the user. No browser demo or
+alternate app launch was substituted for the actual desktop deployment.
+
+### User-supplied native counter capture — 04:57 MYT
+
+The supplied runtime viewer export records a completed request starting at
+04:56:32 and the following numeric summary at 04:57:39 on 2026-11-28:
+`prompt_n=24 prompt_ms=7632.76 cache_n=0`. This establishes 7.633 seconds of
+uncached native prompt work (3.14434 tok/s), rather than inferring the count
+from a rate. The same model/context/four slots, speculation off, and remote
+5060 Ti followed by local 4060 Ti are recorded during loading.
+
+Compared with the earlier uncached stock capture (24 tokens / 7,273.408 ms),
+this observation is 359.352 ms, or 4.94 percent, longer. This replaces the
+earlier inferred 1.78-second residual as the latest observed difference, but
+does not establish a controlled parity result: mining had already been
+restored before this user-run request, and the export does not prove an
+identical background workload or repeat variance. The earlier setup RPC
+aborts precede `native.ready` at 04:50:30; this chat request completes with
+`reason=STOP`. Their error label alone does not establish a chat disconnect.
+
+### Exact worker checkpoint implementation
+
+The subsequent authorized implementation keeps separate immutable checkpoint
+tensors on each backend while preserving checkpoint positions and decode batch
+boundaries. The four matched native comparisons reduced prompt processing by
+3.17–5.78 times, with identical request, full answer, and reasoning hashes in
+every corresponding case. The real-model A/B/A and cross-slot state test also
+matched serialized state bytes and preserved the legacy speculative snapshot.
+See [the implementation and evidence report](EXACT-WORKER-CHECKPOINTS-2026-11-28.md)
+for settings, timings, lifecycle checks, deployment status, and limitations.
