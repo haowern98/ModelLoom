@@ -105,14 +105,23 @@ if (check) {
     throw new Error(
       'Networking build requires exactly Go 1.27.3; automatic toolchain downloads are disabled',
     );
-  process.stdout.write(run(['mod', 'verify']));
   mkdirSync(output, { recursive: true });
   // Carry the tested upstream correction without editing the shared module cache.
   const scratch = mkdtempSync(path.join(component, 'out', '.tcp-'));
   try {
-    const gvisor = JSON.parse(run(['list', '-mod=readonly', '-m', '-json', 'gvisor.dev/gvisor']));
+    // A metadata-only list can omit Dir on a cold cache. Download the go.mod-selected
+    // version before inspecting its source, without changing the dependency pins.
+    const gvisor = JSON.parse(run(['mod', 'download', '-json', 'gvisor.dev/gvisor']));
     if (gvisor.Version !== 'v0.0.0-20260915211658-a6f909f08a72')
       throw new Error('Revalidate the TCP patch before changing gVisor');
+    if (
+      gvisor.Error ||
+      gvisor.Path !== 'gvisor.dev/gvisor' ||
+      typeof gvisor.Dir !== 'string' ||
+      !path.isAbsolute(gvisor.Dir)
+    )
+      throw new Error('Cannot locate downloaded gVisor source');
+    process.stdout.write(run(['mod', 'verify']));
     const relative = 'pkg/tcpip/transport/tcp/snd.go';
     const original = path.join(gvisor.Dir, relative);
     if (
