@@ -1,7 +1,7 @@
 import { expect, it, vi, afterEach } from 'vitest';
 const root = {
   asset: 'development-root.json',
-  sha256: 'fa142094d12daccc01f8888051e97b6366d43c71f4e18583fa69c91734969f15',
+  sha256: '2fc689679e8b20fa9cf806e8ec3df68d9ed2feee1f12918e6ef1783a3ac4e5a8',
 };
 afterEach(() => {
   vi.resetModules();
