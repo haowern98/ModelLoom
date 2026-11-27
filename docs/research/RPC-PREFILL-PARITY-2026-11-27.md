@@ -109,6 +109,24 @@ Use the pinned Node 24.21.0 toolchain. Native scripts require the existing MSVC
 development setup. Preparation fails instead of overwriting an earlier output.
 GPU requests and mining control are intentionally separate from these commands.
 
+Local validation after implementation:
+
+- `pnpm test`: exit 0; 24 Node tests, 635 desktop tests, 1,270 core tests
+  (1,929 total).
+- `pnpm typecheck`: exit 0 for desktop and core.
+- ESLint over all changed JavaScript/TypeScript: exit 0.
+- `clang-format --dry-run --Werror` over all four changed native files: exit 0.
+- Both native helper builds: exit 0 with MSVC `/W4 /WX`.
+- Native cache tests in ordinary and elevated contexts: exit 0.
+- Lifecycle and instance-isolation probes above: exit 0.
+- `pnpm format:check` on this Windows working tree: exit 1, reporting 376
+  CRLF-converted files (`core.autocrlf=true`). A read-only check of the same
+  configured formatting scope after CRLF-to-LF normalization checked 661 files
+  with zero formatting failures. No unrelated files were reformatted.
+
+Branch CI was dispatched separately; its completion is not inferred from these
+local results.
+
 Ignored local evidence is in
 `packages/core/out/stock-bonsai-tailscale-20261127/`: collector JSON files,
 native logs, ownership records and mining lease logs. The collector reports
