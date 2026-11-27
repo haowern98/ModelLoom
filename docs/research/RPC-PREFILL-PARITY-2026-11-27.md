@@ -160,7 +160,7 @@ replace the missing private signing keys. The existing production publisher has
 a different trust root and was not used. No candidate was signed, installed, or
 activated. Mining was left running on both PCs; no GPU comparison was started.
 
-### Proposed recovery, awaiting separate authorization
+### Recovery procedure (approved 2026-11-28)
 
 Retire the old development signing identity explicitly and retain its public
 metadata, existing installations, verification state, and clock floors. Use the
@@ -179,3 +179,36 @@ launcher and verify the installed helper. Only then pause mining under bounded
 leases, run cold/warm/fresh-worker comparisons with unchanged inference settings,
 and restore mining in cleanup. The prior approval to use the existing signing
 key does not silently authorize this replacement of the development trust root.
+
+The user subsequently approved replacement development signing trust. The
+unchanged publisher initialization created six DPAPI-protected development keys
+with the existing role separation and two-of-three root threshold. The new
+public-root SHA-256 is
+`2fc689679e8b20fa9cf806e8ec3df68d9ed2feee1f12918e6ef1783a3ac4e5a8`.
+The retired root and all four previous development repositories were retained.
+The production public-root hash remains
+`055cefc8ef6eb9906522514b8cebf8cc4d2e14deb9d40b3c8f90f54a796d886b`;
+production keys and trust were not changed.
+
+All candidate files were rehashed before signing. Coordinator, Vulkan and paired
+inventories remained unchanged; the peer inventory contains only the previously
+reviewed helper/version change. All four re-signed repositories verified. Actual
+checks rejected retired-root metadata and an altered inventory under the new
+development pin. The verifier/policy tests passed 16 tests; the native publisher
+suite passed all four tests, including renewal/update rollback and custody checks.
+
+Only public metadata, the public root and the inspected helper were transferred
+to PTSS. Both development checkouts were rebuilt with the new pin, and both PCs
+verified coordinator dev14 and installed/revalidated peer dev16 through the
+existing runtime installer. Each deployment retained backups. Remote test-pin
+synchronization preserved the rest of that source file. No trust-cache or clock
+floor was erased. Evidence is in `trust-recovery/`, `deployment-result.json` and
+`installed.json` beneath the local and remote `out/rpc-prefill-live-20261128/`.
+
+At this checkpoint the existing development apps still need a normal restart
+to release their cached trust pins. GPU comparisons have not started and mining
+remains on. The source launch guard requires a normal Windows terminal outside
+Codex; touching the main source did not restart the existing apps because hot
+restart is not enabled. The user was asked to restart with `npm run electron dev`
+from each normal development checkout. No alternate launcher or profile override
+was used.
