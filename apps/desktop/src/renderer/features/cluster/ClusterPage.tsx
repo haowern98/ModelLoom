@@ -168,6 +168,7 @@ export function ClusterPage({
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const panelId = useId();
   const panelToggle = useRef<HTMLButtonElement>(null);
+  const saveConfigurationButton = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const canvasBackground = useRef<HTMLDivElement>(null);
   const [notification, setNotification] = useState<ToastMessage | null>(null);
@@ -357,6 +358,10 @@ export function ClusterPage({
         : [],
     ),
   ]);
+  // Keep disconnected devices' saved intent visible instead of silently discarding it.
+  const unavailableAssignments = (configurations?.raw?.runs ?? []).filter(
+    (run) => !executableGpus.some((gpu) => gpu.uuid === run.uuid),
+  );
   const editorInputs = configurations
     ? executableGpus.map((gpu) => ({
         hardwareId: gpu.hardwareId,
@@ -754,6 +759,7 @@ export function ClusterPage({
                 variant="soft"
                 pill
                 aria-label="Save configuration"
+                ref={saveConfigurationButton}
                 title={
                   cardEditor.editing
                     ? 'Finish the layer preview with Done or Cancel first.'
@@ -879,6 +885,46 @@ export function ClusterPage({
             </div>
           </header>
         </div>
+        {view === 'overview' && configurations && unavailableAssignments.length > 0 && (
+          <section
+            className={styles.unavailableAssignments}
+            aria-label="Unavailable GPU assignments"
+          >
+            <h2>Unavailable GPU assignments</h2>
+            <p>
+              These assignments are kept while a GPU is disconnected. Reconnect it or remove its
+              assignment, then save your changes.
+            </p>
+            <ul>
+              {unavailableAssignments.map((run) => (
+                <li key={run.uuid} className={styles.unavailableAssignment}>
+                  <div>
+                    <span title={run.uuid}>Unavailable GPU · {run.uuid.slice(-8)}</span>
+                    <span className={styles.unavailableRange}>
+                      Layers {run.first || '—'}–{run.last || '—'}
+                    </span>
+                  </div>
+                  <Button
+                    aria-label={`Remove assignment for unavailable GPU ${run.uuid.slice(-8)}`}
+                    disabled={cardEditsDisabled || cardEditor.editing}
+                    onClick={() => {
+                      configurations.edit(
+                        (configurations.raw?.runs ?? []).filter((entry) => entry.uuid !== run.uuid),
+                      );
+                      queueMicrotask(() => {
+                        const save = saveConfigurationButton.current;
+                        const target = save && !save.disabled ? save : panelToggle.current;
+                        target?.focus({ preventScroll: true });
+                      });
+                    }}
+                  >
+                    Remove assignment
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         <div className={styles.workspace}>
           <div className={styles.overview} hidden={view !== 'overview'}>
             {canvasDevices.length ? (

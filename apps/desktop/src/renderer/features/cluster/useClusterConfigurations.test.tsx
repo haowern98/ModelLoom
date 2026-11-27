@@ -8,6 +8,7 @@ import type {
   CapturedClusterLoad,
   ClusterDraft,
   SavedClusterConfiguration,
+  AssignmentIssue,
 } from '../../../shared/cluster-configuration';
 const load = { defaults: {}, cacheK: 'f16', cacheV: 'f16' } as CapturedClusterLoad;
 it('treats proposer-only allocation as unsaved and clears it on discard', async () => {
@@ -362,6 +363,7 @@ function historyBridge() {
     runs: [{ uuid: 'gpu', first: 0, last: 7 }],
   };
   const drafts = new Map<string, ClusterDraft>();
+  let saveIssues: Extract<ClusterReply, { ok: true }>['issues'] = [];
   let rejectAuto = false;
   const respond = (input: ClusterCommand): ClusterReply => {
     const reply = (draft: ClusterDraft | null) => ({
@@ -426,6 +428,7 @@ function historyBridge() {
     }
     if (input.action === 'save') {
       const draft = drafts.get(input.key)!;
+      if (saveIssues.length) return { ...reply(draft), issues: saveIssues };
       if (draft.runs.some((run) => run.first === '-' || run.last === '-'))
         return {
           ...reply(draft),
@@ -461,6 +464,9 @@ function historyBridge() {
     configuration,
     failAuto: () => {
       rejectAuto = true;
+    },
+    setSaveIssues: (issues: Extract<ClusterReply, { ok: true }>['issues']) => {
+      saveIssues = issues;
     },
     clearDrafts: () => drafts.clear(),
   };
@@ -541,6 +547,68 @@ it('retains invalid draft history on failed Save and resets history only after s
   expect(result.current.canUndo).toBe(false);
   expect(result.current.canRedo).toBe(false);
   expect(result.current.dirty).toBe(false);
+});
+
+it.each([
+  {
+    name: 'overlapping layer ranges',
+    runs: [
+      { uuid: 'gpu-a', first: '0', last: '5' },
+      { uuid: 'gpu-b', first: '4', last: '7' },
+    ],
+    issue: { uuid: null, field: 'coverage', code: 'coverage' },
+    message:
+      'Some model layers are assigned more than once. Remove the overlapping assignments, including any unavailable GPUs.',
+  },
+  {
+    name: 'unassigned layers',
+    runs: [{ uuid: 'gpu', first: '0', last: '6' }],
+    issue: { uuid: null, field: 'coverage', code: 'coverage' },
+    message: 'Some model layers are unassigned. Cover every model layer exactly once.',
+  },
+  {
+    name: 'non-integer endpoints',
+    runs: [{ uuid: 'gpu', first: '-', last: '7' }],
+    issue: { uuid: 'gpu', field: 'first', code: 'invalid-integer' },
+    message: 'Use whole numbers for the first and last layer.',
+  },
+  {
+    name: 'out-of-bounds endpoints',
+    runs: [{ uuid: 'gpu', first: '0', last: '8' }],
+    issue: { uuid: 'gpu', field: 'last', code: 'out-of-bounds' },
+    message: 'A layer range is outside the model layers. Check its first and last layers.',
+  },
+  {
+    name: 'reversed endpoints',
+    runs: [{ uuid: 'gpu', first: '5', last: '3' }],
+    issue: { uuid: 'gpu', field: 'last', code: 'reversed' },
+    message: 'The last layer must be at least the first layer.',
+  },
+  {
+    name: 'invalid model load settings',
+    runs: [{ uuid: 'gpu', first: '0', last: '7' }],
+    issue: { uuid: null, field: 'load', code: 'invalid-load' },
+    message: 'Check the model load settings, including context length, before saving.',
+  },
+] satisfies readonly {
+  name: string;
+  runs: readonly { uuid: string; first: string; last: string }[];
+  issue: AssignmentIssue;
+  message: string;
+}[])('reports a specific Save error for $name', async ({ runs, issue, message }) => {
+  const fixture = historyBridge();
+  fixture.setSaveIssues([issue]);
+  const { result } = renderHook(() => useClusterConfigurations(fixture.bridge));
+  await act(() => result.current.selectConfiguration(fixture.configuration));
+  act(() => result.current.edit(runs));
+
+  await act(async () => expect(await result.current.save(null)).toBe(false));
+
+  expect(result.current.error).toBe(message);
+  expect(result.current.issues).toEqual([issue]);
+  expect(result.current.raw?.runs).toEqual(runs);
+  expect(fixture.configuration.runs).toEqual([{ uuid: 'gpu', first: 0, last: 7 }]);
+  expect(fixture.command.mock.calls.some(([input]) => input.action === 'auto-place')).toBe(false);
 });
 
 it('saves edits to the existing configuration before switching without creating another one', async () => {
