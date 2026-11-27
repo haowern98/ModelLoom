@@ -12,7 +12,10 @@ import type { IncomingMessage } from 'node:http';
 import { decodeExecutionIdentity, GENERATION_POLICY } from '../generation/contracts.js';
 import type { TerminalOutcome } from '../generation/contracts.js';
 import { parseGenerationStream } from '../generation/stream.js';
+import { emitRuntimeDiagnostic } from './runtime-diagnostics.js';
+import type { RuntimeDiagnostic } from './runtime-diagnostics.js';
 export interface OwnedChatOptions {
+  readonly diagnostic?: RuntimeDiagnostic;
   readonly speculativeProposer?: boolean;
   readonly port: number;
   readonly key: string;
@@ -313,6 +316,11 @@ export function createOwnedChatTransport(options: OwnedChatOptions): ChatTranspo
               response,
               abort.signal,
               options.speculativeProposer,
+              (timing) =>
+                (options.diagnostic ?? emitRuntimeDiagnostic)(
+                  'runtime',
+                  `native.prompt-timing id=${identity.requestId} prompt_n=${timing.promptTokens} prompt_ms=${timing.promptMs} cache_n=${timing.cachedTokens ?? 'unknown'}`,
+                ),
             )) {
               if (chunk.type === 'terminal') outcome = chunk.outcome;
               await progress(chunk);

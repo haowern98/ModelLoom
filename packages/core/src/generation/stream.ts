@@ -7,6 +7,12 @@ import type {
 } from './contracts.js';
 
 type StreamFault = 'INVALID_STREAM' | 'RESPONSE_TOO_LARGE' | 'GENERATION_CANCELLED';
+/** Numeric native prompt work; cached tokens are excluded from promptTokens. */
+export interface NativePromptTiming {
+  readonly promptTokens: number;
+  readonly promptMs: number;
+  readonly cachedTokens?: number;
+}
 class StreamError extends Error {
   constructor(readonly code: StreamFault) {
     super(code);
@@ -24,6 +30,7 @@ interface StreamState {
   usage?: GenerationUsage;
   lastMetricsAt?: number;
   publishedSpeeds?: GenerationSpeeds;
+  promptTiming?: NativePromptTiming;
 }
 
 /** Parses the pinned single-choice internal chat SSE response.
@@ -36,6 +43,7 @@ export async function* parseGenerationStream(
   source: AsyncIterable<Uint8Array>,
   signal: AbortSignal,
   speculativeProposer = false,
+  onPromptTiming?: (timing: NativePromptTiming) => void,
 ): AsyncIterable<GenerationChunk> {
   const state: StreamState = {
     done: false,
@@ -84,6 +92,13 @@ export async function* parseGenerationStream(
     if (signal.aborted) fault('GENERATION_CANCELLED');
     if (buffered || frameBytes || data.length || !state.done || !state.terminal)
       fault('INVALID_STREAM');
+    if (state.promptTiming) {
+      try {
+        onPromptTiming?.(state.promptTiming);
+      } catch {
+        // A diagnostic sink cannot change an otherwise valid completion.
+      }
+    }
     yield Object.freeze({
       type: 'terminal',
       outcome: state.terminal,
@@ -255,6 +270,20 @@ function nativeSpeeds(input: unknown, state: StreamState): GenerationSpeeds | un
       : null;
   const count = (input: unknown) =>
     typeof input === 'number' && Number.isSafeInteger(input) && input >= 0 ? input : undefined;
+  const promptTokens = count(value.prompt_n);
+  const cachedTokens = count(value.cache_n);
+  if (
+    promptTokens !== undefined &&
+    typeof value.prompt_ms === 'number' &&
+    Number.isFinite(value.prompt_ms) &&
+    value.prompt_ms >= 0 &&
+    value.prompt_ms <= Number.MAX_SAFE_INTEGER
+  )
+    state.promptTiming = Object.freeze({
+      promptTokens,
+      promptMs: value.prompt_ms,
+      ...(cachedTokens === undefined ? {} : { cachedTokens }),
+    });
   const fromTiming = (tokens: number | undefined, ms: unknown, allowZero = false) =>
     tokens !== undefined && typeof ms === 'number' && Number.isFinite(ms) && ms > 0
       ? allowZero && tokens === 0
