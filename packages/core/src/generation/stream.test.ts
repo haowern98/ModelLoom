@@ -31,6 +31,85 @@ async function collect(
 const terminal = { type: 'terminal', outcome: { status: 'completed', reason: 'STOP' } };
 
 describe('pinned text-only chat stream', () => {
+  it('reports evaluated prompt counts separately from cached tokens without exposing native text', async () => {
+    const observed = vi.fn();
+    const ending = JSON.parse(frame({}, 'stop').slice(6)) as Record<string, unknown>;
+    const input =
+      frame({ content: 'private answer' }) +
+      `data: ${JSON.stringify({ ...ending, timings: { prompt_n: 4, prompt_ms: 11688.034, cache_n: 20, private_prompt: 'must not escape' } })}\n\n` +
+      done;
+    const events: GenerationChunk[] = [];
+    for await (const event of parseGenerationStream(
+      bytes([Buffer.from(input)]),
+      new AbortController().signal,
+      false,
+      observed,
+    ))
+      events.push(event);
+    expect(observed).toHaveBeenCalledExactlyOnceWith({
+      promptTokens: 4,
+      promptMs: 11688.034,
+      cachedTokens: 20,
+    });
+    expect(events.at(-1)?.type).toBe('terminal');
+    expect(JSON.stringify(observed.mock.calls)).not.toContain('must not escape');
+  });
+
+  it('keeps prompt diagnostics optional and cannot fail an answer when their sink throws', async () => {
+    const ending = JSON.parse(frame({}, 'stop').slice(6)) as Record<string, unknown>;
+    const input =
+      `data: ${JSON.stringify({ ...ending, timings: { prompt_n: 24, prompt_ms: 9000 } })}\n\n` +
+      done;
+    const observed = vi.fn(() => {
+      throw Error('diagnostic sink unavailable');
+    });
+    const events: GenerationChunk[] = [];
+    for await (const event of parseGenerationStream(
+      bytes([Buffer.from(input)]),
+      new AbortController().signal,
+      false,
+      observed,
+    ))
+      events.push(event);
+    expect(observed).toHaveBeenCalledExactlyOnceWith({ promptTokens: 24, promptMs: 9000 });
+    expect(events.at(-1)?.type).toBe('terminal');
+  });
+
+  it.each([
+    { prompt_n: -1, prompt_ms: 12 },
+    { prompt_n: 1.5, prompt_ms: 12 },
+    { prompt_n: 24, prompt_ms: 'private input' },
+  ])('does not publish invalid native prompt counters: %j', async (timings) => {
+    const observed = vi.fn();
+    const ending = JSON.parse(frame({}, 'stop').slice(6)) as Record<string, unknown>;
+    const input = `data: ${JSON.stringify({ ...ending, timings })}\n\n` + done;
+    for await (const event of parseGenerationStream(
+      bytes([Buffer.from(input)]),
+      new AbortController().signal,
+      false,
+      observed,
+    ))
+      void event;
+    expect(observed).not.toHaveBeenCalled();
+  });
+
+  it('does not publish prompt counters from a stream that never reaches valid EOF', async () => {
+    const observed = vi.fn();
+    const ending = JSON.parse(frame({}, 'stop').slice(6)) as Record<string, unknown>;
+    const input = `data: ${JSON.stringify({ ...ending, timings: { prompt_n: 24, prompt_ms: 9000 } })}\n\n`;
+    const consume = async () => {
+      for await (const event of parseGenerationStream(
+        bytes([Buffer.from(input)]),
+        new AbortController().signal,
+        false,
+        observed,
+      ))
+        void event;
+    };
+    await expect(consume()).rejects.toThrow('INVALID_STREAM');
+    expect(observed).not.toHaveBeenCalled();
+  });
+
   it('reports cumulative native acceptance only for an active proposer and retains it at completion', async () => {
     const generating = JSON.parse(frame({ content: 'Hello' }).slice(6)) as Record<string, unknown>;
     const stream =

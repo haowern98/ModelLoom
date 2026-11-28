@@ -150,12 +150,30 @@ export function forwardUtilityDiagnostics(
   }
 }
 
-/** Only native load/error diagnostics are emitted; prompts and generated tokens are excluded. */
+/** Native load/error diagnostics and numeric timing summaries only; no prompt or output text. */
 export function nativeRuntimeDiagnostics(log: RuntimeDiagnostic, secrets: readonly string[]) {
   let partial = '',
     isReady = false;
   function consume(line: string) {
     line = clean(line).trimStart();
+    // Reconstruct numeric fields instead of forwarding an arbitrary native line.
+    // Native prompt tokens count evaluated tokens, excluding restored cache state.
+    const timing =
+      /^(?:\d+(?:\.\d+)* [IWD] )?slot\s+print_timing:\s+id\s+(\d+)\s+\|\s+task\s+(\d+)\s+\|\s+(prompt eval|eval) time\s*=\s*(\d+(?:\.\d+)?) ms\s*\/\s*(\d+) tokens\s+\(\s*\d+(?:\.\d+)? ms per token,\s*\d+(?:\.\d+)? tokens per second\s*\)$/u.exec(
+        line,
+      );
+    if (timing) {
+      const [, slot, task, phase, milliseconds, tokens] = timing;
+      if (
+        [slot, task, tokens].every((value) => Number.isSafeInteger(Number(value))) &&
+        Number.isFinite(Number(milliseconds))
+      )
+        log(
+          'runtime',
+          `native.timing slot=${slot} task=${task} phase=${phase === 'prompt eval' ? 'prompt' : 'generation'} tokens=${tokens} ms=${milliseconds}`,
+        );
+      return;
+    }
     const fatal =
       /^(?:[^\r\n]*\.(?:cpp|cc|cu):\d+: )?(?:GGML_ASSERT|CUDA error|CUDA_ERROR|(?:ggml|llama)_\w+:.*(?:error|failed|assert)|error loading model|(?:error|fatal):)/iu.test(
         line,

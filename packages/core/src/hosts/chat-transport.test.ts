@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { createOwnedChatTransport } from './chat-transport.js';
 import { OwnedSlotMonitor } from './slot-monitor.js';
+import type { RuntimeDiagnostic } from './runtime-diagnostics.js';
 import { capabilities, record } from '../model-configuration/test-fixtures.js';
 import { resolveRequestSettings } from '../model-configuration/resolve.js';
 import type { GenerationChunk } from '../generation/contracts.js';
@@ -24,7 +25,7 @@ const identity = {
   attemptId: 'attempt',
 };
 const messages = [{ role: 'user' as const, content: 'Hello' }];
-const terminal =
+const terminal = (timings?: Record<string, unknown>) =>
   'data: ' +
   JSON.stringify({
     id: 'completion',
@@ -40,6 +41,7 @@ const terminal =
     object: 'chat.completion.chunk',
     created: 1,
     choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+    ...(timings === undefined ? {} : { timings }),
   }) +
   '\n\ndata: [DONE]\n\n';
 async function fixture(
@@ -50,6 +52,8 @@ async function fixture(
     status?: number;
     overflow?: 'stop' | 'rolling' | 'truncate-middle';
     incompatible?: 'render' | 'tokens' | 'empty' | 'schema' | 'oversized';
+    timings?: Record<string, unknown>;
+    diagnostic?: RuntimeDiagnostic;
   } = {},
 ) {
   const requests: { url: string; auth: string | undefined; body: Record<string, unknown> }[] = [];
@@ -95,7 +99,7 @@ async function fixture(
                 : '{"input_tokens":9,"object":"response.input_tokens"}'
               : options.malformed
                 ? 'data: broken\n\n'
-                : terminal,
+                : terminal(options.timings),
       );
     });
   });
@@ -122,6 +126,7 @@ async function fixture(
   await monitor.initialize();
   const start = vi.spyOn(monitor, 'start');
   const transport = createOwnedChatTransport({
+    ...(options.diagnostic ? { diagnostic: options.diagnostic } : {}),
     speculativeProposer: options.speculativeProposer ?? false,
     port: address.port,
     key: 'test-key',
@@ -424,6 +429,27 @@ it('streams text but fulfills completion only after native release confirmation'
     n: 1,
     id_slot: 0,
   });
+});
+it('logs validated numeric native prompt timings without prompt contents', async () => {
+  const diagnostic = vi.fn<RuntimeDiagnostic>();
+  const privatePrompt = 'private prompt must not appear in logs';
+  const f = await fixture({
+    timings: {
+      prompt_n: 4,
+      prompt_ms: 11688.034,
+      cache_n: 20,
+      private_prompt: privatePrompt,
+    },
+    diagnostic,
+  });
+  const run = f.transport.start(identity, messages, () => undefined);
+  await new Promise<void>((yes) => setTimeout(yes, 150));
+  f.release();
+  await expect(run.settled).resolves.toEqual({ status: 'completed', reason: 'STOP' });
+  expect(diagnostic.mock.calls).toEqual([
+    ['runtime', 'native.prompt-timing id=request prompt_n=4 prompt_ms=11688.034 cache_n=20'],
+  ]);
+  expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(privatePrompt);
 });
 it('rejects stale sessions and oversized requests before native dispatch', async () => {
   const f = await fixture();

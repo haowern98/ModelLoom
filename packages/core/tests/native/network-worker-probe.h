@@ -1,5 +1,6 @@
 // Shared restricted-worker primitives. The product entry closes diagnostic
 // modes.
+#include "../../native/cuda-jit-cache.h"
 struct ProbeHandle {
   HANDLE value = nullptr;
   ProbeHandle() = default;
@@ -168,7 +169,7 @@ bool probe_restricted(HANDLE process) {
   return IsTokenRestricted(token.value) && !elevation.TokenIsElevated &&
          level <= SECURITY_MANDATORY_MEDIUM_RID;
 }
-HANDLE probe_restricted_token() {
+HANDLE probe_restricted_token(bool jitCache = false) {
   ProbeHandle original, restricted;
   if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &original.value))
     throw Failure{"token-open", GetLastError()};
@@ -184,15 +185,25 @@ HANDLE probe_restricted_token() {
   if (!ConvertStringSidToSidW(L"S-1-5-21-1610612737-1297040460-1413693768-1",
                               &cache))
     throw Failure{"cache-restricting-sid", GetLastError()};
-  SID_AND_ATTRIBUTES restrictions[] = {{users, 0}, {world, 0}, {cache, 0}};
+  PSID jit = nullptr;
+  if (!ConvertStringSidToSidW(modelloom::cuda_jit_cache::restricting_sid,
+                              &jit)) {
+    LocalFree(cache);
+    throw Failure{"jit-cache-restricting-sid", GetLastError()};
+  }
+  SID_AND_ATTRIBUTES restrictions[4] = {{users, 0}, {world, 0}};
+  DWORD count = 2;
+  if (GetEnvironmentVariableW(L"MODELLOOM_TENSOR_CACHE_OWNER", nullptr, 0) ==
+      65)
+    restrictions[count++] = {cache, 0};
+  if (jitCache)
+    restrictions[count++] = {jit, 0};
   const BOOL made = CreateRestrictedToken(
       original.value, DISABLE_MAX_PRIVILEGE | LUA_TOKEN, 0, nullptr, 0, nullptr,
-      GetEnvironmentVariableW(L"MODELLOOM_TENSOR_CACHE_OWNER", nullptr, 0) == 65
-          ? 3
-          : 2,
-      restrictions, &restricted.value);
+      count, restrictions, &restricted.value);
   const DWORD tokenError = GetLastError();
   LocalFree(cache);
+  LocalFree(jit);
   if (!made)
     throw Failure{"token-restrict", tokenError};
   BYTE medium[SECURITY_MAX_SID_SIZE]{};
@@ -252,12 +263,15 @@ bool probe_valid_gpu_uuid(const std::wstring &uuid) {
   }
   return true;
 }
-void probe_launch(ProbeChild &child, const std::wstring &arguments,
-                  const std::vector<HANDLE> &handles, HANDLE job, bool resume,
-                  bool restrictWorker = false,
-                  const std::wstring &desktop = L"", bool stockRpc = false,
-                  bool cudaStock = false, HANDLE output = nullptr,
-                  HANDLE cacheRoot = nullptr) {
+void probe_launch(
+    ProbeChild &child, const std::wstring &arguments,
+    const std::vector<HANDLE> &handles, HANDLE job, bool resume,
+    bool restrictWorker = false, const std::wstring &desktop = L"",
+    bool stockRpc = false, bool cudaStock = false, HANDLE output = nullptr,
+    HANDLE cacheRoot = nullptr,
+    const modelloom::cuda_jit_cache::directory *jitCache = nullptr) {
+  if (jitCache && (!restrictWorker || !stockRpc || !cudaStock))
+    throw Failure{"jit-cache-worker-mode", ERROR_INVALID_PARAMETER};
   const auto self = probe_image();
   // Only this fixed diagnostic asset is permitted, never an arbitrary image.
   const auto image = stockRpc ? self.substr(0, self.find_last_of(L"\\/")) +
@@ -304,7 +318,7 @@ void probe_launch(ProbeChild &child, const std::wstring &arguments,
   std::vector<wchar_t> environment;
   const auto directory = image.substr(0, image.find_last_of(L"\\/"));
   if (restrictWorker)
-    restricted.value = probe_restricted_token();
+    restricted.value = probe_restricted_token(jitCache != nullptr);
   if (restrictWorker) {
     wchar_t windows[32768]{}, system[32768]{};
     if (!GetWindowsDirectoryW(windows, 32768) ||
@@ -315,8 +329,13 @@ void probe_launch(ProbeChild &child, const std::wstring &arguments,
         L"PATH=" + std::wstring(system),
         L"TEMP=" + std::wstring(windows) + L"\\Temp",
         L"TMP=" + std::wstring(windows) + L"\\Temp",
-        L"CUDA_CACHE_DISABLE=1",
+        jitCache ? L"CUDA_CACHE_DISABLE=0" : L"CUDA_CACHE_DISABLE=1",
         L"GGML_RPC_NO_RDMA=1"};
+    if (jitCache) {
+      values.push_back(L"CUDA_CACHE_PATH=" + jitCache->path().wstring());
+      // Match the coordinator's driver-cache limit; never share its artifacts.
+      values.push_back(L"CUDA_CACHE_MAXSIZE=268435456");
+    }
     for (const auto name :
          {L"MODELLOOM_TENSOR_CACHE", L"MODELLOOM_TENSOR_CACHE_LIMIT",
           L"MODELLOOM_TENSOR_CACHE_RESERVE", L"MODELLOOM_TENSOR_CACHE_REPLACE",
@@ -338,7 +357,8 @@ void probe_launch(ProbeChild &child, const std::wstring &arguments,
           !probe_valid_gpu_uuid(uuid))
         throw Failure{"worker-gpu-uuid", ERROR_INVALID_PARAMETER};
 #ifdef MODELLOOM_VULKAN_HOST
-      values.push_back(L"GGML_VK_VISIBLE_DEVICES=" + modelloom::vulkan_devices(uuid));
+      values.push_back(L"GGML_VK_VISIBLE_DEVICES=" +
+                       modelloom::vulkan_devices(uuid));
       values.push_back(L"VK_LOADER_LAYERS_DISABLE=~implicit~");
 #else
       values.push_back(L"CUDA_VISIBLE_DEVICES=" + std::wstring(uuid));
